@@ -197,8 +197,8 @@ export async function onRequest(context) {
     if (!geminiKey) {
       systemGeneratedAnswer = "Configuration error: GEMINI_API_KEY is not bound inside the dashboard variables grid.";
     } else {
-      // Hardened production model cascade matching standard v1 mappings
-      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
+      // Direct v1 production models matching correct formatting structure
+      const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-pro"];
       let geminiResponse;
       let usedModel = "";
 
@@ -222,7 +222,7 @@ Instructions:
         }]
       };
 
-      // Loop over production-ready v1 endpoints
+      // Loop over current generation endpoints
       for (const model of modelsToTry) {
         usedModel = model;
         const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${geminiKey}`;
@@ -234,12 +234,12 @@ Instructions:
             body: JSON.stringify(prompt)
           });
 
-          // Break loop on clean execution responses
+          // Break early if we clear out 404/503/429 limits
           if (geminiResponse.status !== 503 && geminiResponse.status !== 429 && geminiResponse.status !== 404) {
             break;
           }
         } catch (e) {
-          // Continue if connection dropped completely on a specific model node
+          // Keep cycling endpoints if network issues arise
         }
       }
 
@@ -249,7 +249,7 @@ Instructions:
       } else {
         const statusVal = geminiResponse ? geminiResponse.status : "unknown";
         const errText = geminiResponse ? await geminiResponse.text().catch(() => "") : "Network level timeout";
-        systemGeneratedAnswer = `Synthesis failure (Status: ${statusVal} on execution pool). Details: ${errText}`;
+        systemGeneratedAnswer = `Synthesis failure (Status: ${statusVal} on execution pool using ${usedModel}). Details: ${errText}`;
       }
     }
 
