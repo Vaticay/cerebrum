@@ -195,16 +195,11 @@ export async function onRequest(context) {
     if (!hfToken) {
       systemGeneratedAnswer = `Configuration error: HUGGINGFACE_API_KEY environment variable is not set in the Cloudflare dashboard.`;
     } else {
-      // Swapping to Mistral-7B-Instruct v0.3 endpoint (Highly stable endpoint with massive uptime metrics)
-      const hfUrl = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3";
+      // Swapping to Qwen2.5-7B-Instruct (Highly available, bypasses old DNS inference paths)
+      const hfUrl = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct";
       
       const promptPayload = {
-        inputs: `<s>[INST] You are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs.
-        
-Question: "${query}"
-
-Scanned Sources Context Matrix:
-${knowledgeContext} [/INST]`,
+        inputs: `<|im_start|>system\nYou are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs.<|im_end|>\n<|im_start|>user\nQuestion: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}<|im_end|>\n<|im_start|>assistant\n`,
         parameters: {
           max_new_tokens: 500,
           temperature: 0.2,
