@@ -564,21 +564,32 @@ async function authorCrossref(name, limit = 12) {
 
 async function authorSemanticScholar(name, limit = 20) {
   try {
-    // Step 1: find the author by name (keyless dedicated endpoint).
     const searchUrl = "https://api.semanticscholar.org/graph/v1/author/search?" +
       new URLSearchParams({ query: name, fields: "name,paperCount,citationCount", limit: "5" });
     const sdata = await getJSON(searchUrl);
     const cands = sdata?.data || [];
-    if (!cands.length) return [];
-    // Pick the candidate with the most papers (most likely the real researcher).
-    cands.sort((a, b) => (b.paperCount || 0) - (a.paperCount || 0));
-    const authorId = cands[0].authorId;
-    if (!authorId) return [];
-    // Step 2: pull that author's papers.
+    if (!cands.length) return { papers: [], matched: null };
+
+    // Require the candidate's name to genuinely match the query, not just "most papers".
+    const wanted = name.toLowerCase().split(/\s+/).filter(Boolean);
+    const scoreName = (candName) => {
+      const cn = (candName || "").toLowerCase();
+      return wanted.filter((w) => cn.includes(w)).length / wanted.length;
+    };
+    const ranked = cands
+      .map((c) => ({ c, match: scoreName(c.name) }))
+      .sort((a, b) => (b.match - a.match) || ((b.c.paperCount || 0) - (a.c.paperCount || 0)));
+
+    const best = ranked[0];
+    // Need every queried name token present (full match) to trust it.
+    if (!best || best.match < 0.99) return { papers: [], matched: null };
+
+    const authorId = best.c.authorId;
+    if (!authorId) return { papers: [], matched: null };
     const papersUrl = `https://api.semanticscholar.org/graph/v1/author/${authorId}/papers?` +
       new URLSearchParams({ fields: "title,abstract,year,citationCount,authors,venue,externalIds", limit: String(limit) });
     const pdata = await getJSON(papersUrl);
-    return (pdata?.data || []).map((r) => {
+    const papers = (pdata?.data || []).map((r) => {
       const doi = r.externalIds?.DOI;
       const names = (r.authors || []).map((a) => a.name);
       return {
@@ -589,15 +600,17 @@ async function authorSemanticScholar(name, limit = 20) {
         journal: r.venue || "Semantic Scholar", abstract: r.abstract || "",
       };
     }).filter((p) => p.title && p.title !== "Untitled");
-  } catch { return []; }
+    return { papers, matched: best.c.name };
+  } catch { return { papers: [], matched: null }; }
 }
 
 async function gatherByAuthor(name, { openAlexKey }) {
-  const [ss, oa, cr] = await Promise.all([
-    authorSemanticScholar(name, 20),     // keyless, dedicated author endpoint (primary)
-    authorOpenAlex(name, 12, openAlexKey), // only if key present
-    authorCrossref(name, 15),            // keyless
+  const [ssRes, oa, cr] = await Promise.all([
+    authorSemanticScholar(name, 20),
+    authorOpenAlex(name, 12, openAlexKey),
+    authorCrossref(name, 15),
   ]);
+  const ss = ssRes.papers;
   const merged = [];
   const seen = new Set();
   for (const list of [ss, oa, cr]) {
@@ -606,7 +619,9 @@ async function gatherByAuthor(name, { openAlexKey }) {
       if (key && !seen.has(key)) { seen.add(key); merged.push(p); }
     }
   }
-  return merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 25);
+  const papers = merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 25);
+  // "confirmed" only if Semantic Scholar found a real name match with papers.
+  return { papers, confirmed: !!ssRes.matched, matchedName: ssRes.matched };
 }
 
 // ---------- Gather + rank ----------
@@ -711,18 +726,29 @@ export async function onRequest(context) {
     // Author search: "papers by X" or a person's name -> their publications.
     const authorName = detectAuthor(query);
     if (authorName && body.mode !== "browse") {
-      let ap = [];
+      let ar = { papers: [], confirmed: false, matchedName: null };
       try {
-        ap = await gatherByAuthor(authorName, { openAlexKey: env.OPENALEX_KEY || "" });
-      } catch { ap = []; }
-      if (ap.length) {
+        ar = await gatherByAuthor(authorName, { openAlexKey: env.OPENALEX_KEY || "" });
+      } catch { ar = { papers: [], confirmed: false, matchedName: null }; }
+
+      // Only present an author page when we actually confirmed the person.
+      if (ar.confirmed && ar.papers.length) {
         return new Response(JSON.stringify({
-          answer: `Showing publications by **${authorName}**, ranked by citations. If this isn't the researcher you meant, try adding a field (e.g. "${authorName} chemistry").`,
-          sources: ap.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations })),
-          source: `${ap.length} publications by ${authorName}`,
+          answer: `Publications associated with **${ar.matchedName || authorName}**, ranked by citations. These are pulled directly from this author's record. If it's not who you meant, add a field like "${authorName} microbiology".`,
+          sources: ar.papers.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations })),
+          source: `${ar.papers.length} publications by ${ar.matchedName || authorName}`,
         }), { status: 200, headers: cors });
       }
-      // If no author results, fall through to normal search.
+
+      // Could not confirm the author. Be honest; do NOT dress up loose matches as their work.
+      if (!ar.confirmed) {
+        return new Response(JSON.stringify({
+          answer: `I couldn't confirm a researcher named **${authorName}** in the author databases (Semantic Scholar, Crossref, OpenAlex). This can happen when someone has few indexed publications, publishes under a different name form, or the name is spelled differently in the record. Try the full name as it appears on their papers, add a middle initial, or search a topic instead and open the papers to find them.`,
+          sources: [],
+          source: "author not confirmed",
+        }), { status: 200, headers: cors });
+      }
+      // (confirmed but zero papers is unlikely; fall through to normal search.)
     }
 
     // Browse mode: return the full ranked publication list, no AI answer.
