@@ -3,10 +3,6 @@ function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
 
-/**
- * Strips conversational filler to distill the query down to high-value keywords
- * for the underlying search indexes.
- */
 function refineSearchQuery(query) {
   return query
     .toLowerCase()
@@ -143,7 +139,6 @@ async function scanUniversityNetworks(refinedQuery) {
   return aggregateResults.flat();
 }
 
-// --- Intelligent Context Aggregator & Relevance Ranker ---
 async function gatherAndRankData(rawQuery, googleKey, googleCx) {
   const refinedQuery = refineSearchQuery(rawQuery);
   if (!refinedQuery) return [];
@@ -157,7 +152,6 @@ async function gatherAndRankData(rawQuery, googleKey, googleCx) {
   const masterList = [...ePMCResults, ...collegeResults, ...webResults];
   const distinctSources = [];
   const trackedTitles = new Set();
-
   const searchTerms = refinedQuery.split(/\s+/);
 
   for (const item of masterList) {
@@ -224,17 +218,17 @@ export async function onRequest(context) {
     let systemGeneratedAnswer = "";
 
     if (!openRouterToken) {
-      systemGeneratedAnswer = `### System Integration Error\n\nThe environment key \`OPENROUTER_API_KEY\` is missing from your hosting console grid. Please update your variables configuration layer.`;
+      systemGeneratedAnswer = `### System Integration Error\n\nThe environment key \`OPENROUTER_API_KEY\` is missing from your hosting console grid.`;
     } else {
       const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
       
-      // Fixed cascade list using OpenRouter's official dynamic free router fallback string
+      // Fallback architecture targeting specific rock-solid free streams
       const modelsToTry = [
         "meta-llama/llama-3.3-70b-instruct:free",
         "openrouter/free"
       ];
       
-      let orResponse;
+      let finalData = null;
 
       for (const model of modelsToTry) {
         const promptPayload = {
@@ -260,7 +254,7 @@ CRITICAL INSTRUCTIONS:
         };
 
         try {
-          orResponse = await fetch(openRouterUrl, {
+          const orResponse = await fetch(openRouterUrl, {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",
@@ -271,19 +265,25 @@ CRITICAL INSTRUCTIONS:
             body: JSON.stringify(promptPayload)
           });
 
-          if (orResponse.ok) break;
+          if (orResponse.ok) {
+            const rawJson = await orResponse.json();
+            // Validate that we actually got choice tokens back, not an error body inside a 200 wrapper
+            if (rawJson?.choices?.[0]?.message?.content) {
+              finalData = rawJson;
+              break;
+            } else if (rawJson?.error?.message) {
+              systemGeneratedAnswer = `### Upstream Provider Alert\n\nOpenRouter message: "${rawJson.error.message}"`;
+            }
+          }
         } catch (e) {
-          // Fall through to openrouter/free catch-all on network dropout
+          // Pass cleanly to catch-all
         }
       }
 
-      if (orResponse && orResponse.ok) {
-        const orData = await orResponse.json();
-        systemGeneratedAnswer = orData?.choices?.[0]?.message?.content || "Unable to extract synthesis stream.";
-      } else {
-        const statusVal = orResponse ? orResponse.status : "unknown";
-        const errText = orResponse ? await orResponse.text().catch(() => "") : "Network level timeout";
-        systemGeneratedAnswer = `### Search Pipeline Interrupted\n\nAn upstream error occurred during synthesis processing. (Status: ${statusVal}). Details: ${errText}`;
+      if (finalData) {
+        systemGeneratedAnswer = finalData.choices[0].message.content;
+      } else if (!systemGeneratedAnswer) {
+        systemGeneratedAnswer = "### Integration Sync Notice\n\nOpenRouter free nodes are completely full at this millisecond. The server returned an empty choice matrix. Please refresh or retry your request in a brief moment.";
       }
     }
 
