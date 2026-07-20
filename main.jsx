@@ -1,346 +1,402 @@
-// Scholarly source adapters — Workers/edge runtime compatible.
-// No Node-only APIs; XML parsed with lightweight regex extraction.
+import React, { useState, useRef, useEffect } from "react";
 
-function stripTags(s) {
-  return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-}
+const SUGGESTIONS = [
+  "How does CRISPR-Cas9 achieve target specificity?",
+  "Mechanism of quorum sensing in bacteria",
+  "Why is the SN2 reaction stereospecific?",
+  "How do chaperone proteins prevent misfolding?",
+];
 
-function decodeInverted(inv) {
-  if (!inv) return "";
-  const words = [];
-  for (const [word, positions] of Object.entries(inv)) {
-    for (const p of positions) words[p] = word;
-  }
-  return words.join(" ").replace(/\s+/g, " ").trim();
-}
+export default function Cerebrum() {
+  const [query, setQuery] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState("idle"); // idle | searching | done | error
+  const [answer, setAnswer] = useState("");
+  const [sources, setSources] = useState([]);
+  const [dbSource, setDbSource] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const inputRef = useRef(null);
 
-async function getJSON(url, headers = {}) {
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [submitted]);
 
-async function getText(url, headers = {}) {
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
-}
+  async function run(q) {
+    const question = (q ?? query).trim();
+    if (!question) return;
+    setQuery(question);
+    setSubmitted(true);
+    setStatus("searching");
+    setAnswer("");
+    setSources([]);
+    setDbSource("");
+    setNote("");
+    setError("");
 
-// --- Europe PMC: keyless, strong bio/chem, includes abstracts ---
-export async function europePMC(query, limit = 6) {
-  const url =
-    "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
-    new URLSearchParams({
-      query,
-      resultType: "core",
-      pageSize: String(limit),
-      format: "json",
-      sort: "CITED desc",
-    });
-  const data = await getJSON(url);
-  const rows = data?.resultList?.result || [];
-  return rows
-    .filter((r) => r.abstractText)
-    .map((r) => ({
-      title: r.title || "Untitled",
-      url: r.doi
-        ? `https://doi.org/${r.doi}`
-        : `https://europepmc.org/article/${r.source}/${r.id}`,
-      year: r.pubYear,
-      citations: r.citedByCount ?? null,
-      authors: r.authorString || "",
-      journal: r.journalTitle || "",
-      abstract: stripTags(r.abstractText),
-    }));
-}
-
-// --- Semantic Scholar: keyless (shared pool), all fields ---
-export async function semanticScholar(query, limit = 6, key = "") {
-  const fields =
-    "title,abstract,year,citationCount,authors,venue,externalIds,openAccessPdf,url";
-  const url =
-    "https://api.semanticscholar.org/graph/v1/paper/search?" +
-    new URLSearchParams({ query, limit: String(limit), fields });
-  const headers = key ? { "x-api-key": key } : {};
-  const data = await getJSON(url, headers);
-  const rows = data?.data || [];
-  return rows
-    .filter((r) => r.abstract)
-    .map((r) => {
-      const doi = r.externalIds?.DOI;
-      const names = (r.authors || []).map((a) => a.name);
-      return {
-        title: r.title || "Untitled",
-        url: doi
-          ? `https://doi.org/${doi}`
-          : r.openAccessPdf?.url || r.url || "",
-        year: r.year,
-        citations: r.citationCount ?? null,
-        authors: names.length > 1 ? `${names[0]} et al.` : names[0] || "",
-        journal: r.venue || "",
-        abstract: r.abstract,
-      };
-    });
-}
-
-// --- OpenAlex: needs free key since Feb 2026 ---
-export async function openAlex(query, limit = 6, key = "") {
-  if (!key) throw new Error("OpenAlex skipped (no key)");
-  const params = new URLSearchParams({
-    search: query,
-    filter: "is_oa:true",
-    sort: "relevance_score:desc",
-    per_page: String(limit),
-    select:
-      "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
-    api_key: key,
-  });
-  const data = await getJSON(`https://api.openalex.org/works?${params}`);
-  return (data.results || [])
-    .map((w) => {
-      const first = w.authorships?.[0]?.author?.display_name || "";
-      return {
-        title: w.title || "Untitled",
-        url:
-          w.doi ||
-          w.primary_location?.landing_page_url ||
-          w.primary_location?.pdf_url ||
-          "",
-        year: w.publication_year,
-        citations: w.cited_by_count ?? null,
-        authors: w.authorships?.length > 1 ? `${first} et al.` : first,
-        journal: w.primary_location?.source?.display_name || "",
-        abstract: decodeInverted(w.abstract_inverted_index),
-      };
-    })
-    .filter((p) => p.abstract);
-}
-
-// --- PubMed: NCBI E-utilities (keyless). esearch -> efetch, XML parsed. ---
-function firstMatch(block, re) {
-  const m = block.match(re);
-  return m ? m[1] : "";
-}
-
-function parsePubmedXML(xmlText) {
-  const arts = xmlText.match(/<PubmedArticle\b[\s\S]*?<\/PubmedArticle>/g) || [];
-  return arts.map((a) => {
-    const pmid = firstMatch(a, /<PMID[^>]*>(\d+)<\/PMID>/);
-    const title = stripTags(
-      firstMatch(a, /<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/)
-    );
-    // Abstract may be split into multiple labeled sections.
-    const absParts =
-      a.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g) || [];
-    const abstract = stripTags(absParts.join(" "));
-    const journal = stripTags(
-      firstMatch(a, /<Title>([\s\S]*?)<\/Title>/) ||
-        firstMatch(a, /<ISOAbbreviation>([\s\S]*?)<\/ISOAbbreviation>/)
-    );
-    const year = firstMatch(a, /<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/);
-    // Authors: collect LastName + Initials, show first + et al.
-    const authorBlocks = a.match(/<Author\b[\s\S]*?<\/Author>/g) || [];
-    const names = authorBlocks
-      .map((b) => {
-        const last = firstMatch(b, /<LastName>([\s\S]*?)<\/LastName>/);
-        const ini = firstMatch(b, /<Initials>([\s\S]*?)<\/Initials>/);
-        return [last, ini].filter(Boolean).join(" ");
-      })
-      .filter(Boolean);
-    const authors =
-      names.length > 1 ? `${names[0]} et al.` : names[0] || "";
-    const doi = firstMatch(
-      a,
-      /<ArticleId IdType="doi">([\s\S]*?)<\/ArticleId>/
-    );
-    return {
-      pmid,
-      title: title || "Untitled",
-      abstract,
-      journal,
-      year,
-      authors,
-      url: doi
-        ? `https://doi.org/${doi}`
-        : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
-    };
-  });
-}
-
-export async function pubmed(query, limit = 6) {
-  const tool = "&tool=cerebrum&email=noreply@example.com";
-  // Step 1: esearch -> PMIDs, sorted by relevance.
-  const esearchUrl =
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
-    new URLSearchParams({
-      db: "pubmed",
-      term: query,
-      retmax: String(limit),
-      retmode: "json",
-      sort: "relevance",
-    }) +
-    tool;
-  const es = await getJSON(esearchUrl);
-  const ids = es?.esearchresult?.idlist || [];
-  if (!ids.length) return [];
-
-  // Step 2: efetch -> full records as XML.
-  const efetchUrl =
-    "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
-    new URLSearchParams({
-      db: "pubmed",
-      id: ids.join(","),
-      retmode: "xml",
-    }) +
-    tool;
-  const xml = await getText(efetchUrl);
-  return parsePubmedXML(xml)
-    .filter((r) => r.abstract)
-    .map((r) => ({
-      title: r.title,
-      url: r.url,
-      year: r.year,
-      citations: null, // PubMed doesn't provide citation counts here
-      authors: r.authors,
-      journal: r.journal,
-      abstract: r.abstract,
-    }));
-}
-
-// --- UTK TRACE: bepress Digital Commons OAI-PMH (XML, no keyword search) ---
-// Harvest a batch and filter client-side. Regex extraction keeps it edge-safe.
-function extractRecords(xmlText) {
-  const records = [];
-  const recRe = /<record\b[\s\S]*?<\/record>/g;
-  const tag = (block, name) => {
-    // matches <name ...>...</name> ignoring namespace prefix
-    const re = new RegExp(
-      `<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`,
-      "i"
-    );
-    const m = block.match(re);
-    return m ? m[1].trim() : "";
-  };
-  const tagAll = (block, name) => {
-    const re = new RegExp(
-      `<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`,
-      "gi"
-    );
-    const out = [];
-    let m;
-    while ((m = re.exec(block))) out.push(m[1].trim());
-    return out;
-  };
-
-  let rm;
-  while ((rm = recRe.exec(xmlText))) {
-    const block = rm[0];
-    const title = tag(block, "title");
-    const abstract = tag(block, "abstract") || tag(block, "description");
-    const ids = tagAll(block, "identifier");
-    const url = ids.find((x) => x.startsWith("http")) || ids[0] || "";
-    const authors = tagAll(block, "creator").join(", ");
-    const year = (tag(block, "date") || "").slice(0, 4);
-    if (title && abstract) {
-      records.push({ title, abstract, url, authors, year });
-    }
-  }
-  return records;
-}
-
-export async function traceUTK(
-  query,
-  sets = ["publication:utk_graddiss", "publication:utk_gradthes"]
-) {
-  const terms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => t.length > 3);
-  if (terms.length === 0) return [];
-
-  const all = [];
-  for (const set of sets) {
     try {
-      const url =
-        "https://trace.tennessee.edu/do/oai/?" +
-        new URLSearchParams({
-          verb: "ListRecords",
-          metadataPrefix: "dcq",
-          set,
-        });
-      const text = await getText(url);
-      all.push(...extractRecords(text));
-    } catch {
-      // best-effort per set
-    }
-  }
-
-  const scored = all
-    .map((r) => {
-      const hay = `${r.title} ${r.abstract}`.toLowerCase();
-      const score = terms.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
-      return { ...r, score };
-    })
-    .filter((r) => r.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 4);
-
-  return scored.map((r) => ({
-    title: r.title,
-    url: r.url,
-    year: r.year,
-    citations: null,
-    authors: r.authors,
-    journal: "UTK TRACE",
-    abstract: stripTags(r.abstract),
-  }));
-}
-
-// Main source with fallback, merged with TRACE (best-effort).
-export async function gatherPapers(query, { openAlexKey, s2Key } = {}) {
-  const mainChain = [
-    ["Europe PMC", () => europePMC(query)],
-    ["PubMed", () => pubmed(query, 6)],
-    ["Semantic Scholar", () => semanticScholar(query, 6, s2Key)],
-    ["OpenAlex", () => openAlex(query, 6, openAlexKey)],
-  ];
-
-  let main = null;
-  const errors = [];
-  for (const [name, fn] of mainChain) {
-    try {
-      const papers = await fn();
-      if (papers.length) {
-        main = { papers, source: name };
-        break;
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: question }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Search failed.");
+        setStatus("error");
+        return;
       }
-      errors.push(`${name}: no results`);
+      setAnswer(data.answer || "");
+      setSources(data.sources || []);
+      setDbSource(data.source || "");
+      setNote(data.note || "");
+      setStatus("done");
     } catch (e) {
-      errors.push(`${name}: ${e.message}`);
+      setError(`Could not reach the backend. Is it running? (${e.message})`);
+      setStatus("error");
     }
   }
-  if (!main) throw new Error(errors.join(" | "));
 
-  let trace = [];
+  function renderAnswer(txt) {
+    return txt.split("\n").map((line, li) => {
+      if (!line.trim()) return null;
+      const parts = line.split(/(\[\d+\])/g);
+      return (
+        <p key={li} style={styles.para}>
+          {parts.map((part, pi) => {
+            const m = part.match(/^\[(\d+)\]$/);
+            if (m) {
+              const n = parseInt(m[1], 10);
+              const src = sources[n - 1];
+              return (
+                <a
+                  key={pi}
+                  href={src?.url || "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={src?.title || ""}
+                  style={styles.cite}
+                >
+                  {n}
+                </a>
+              );
+            }
+            return <span key={pi}>{part}</span>;
+          })}
+        </p>
+      );
+    });
+  }
+
+  const compact = submitted;
+
+  return (
+    <div style={styles.page}>
+      <div style={{ ...styles.wrap, paddingTop: compact ? 24 : 120 }}>
+        <div
+          style={{
+            ...styles.brandRow,
+            justifyContent: compact ? "flex-start" : "center",
+            marginBottom: compact ? 18 : 28,
+          }}
+        >
+          <Logo size={compact ? 26 : 40} />
+        </div>
+
+        <div
+          style={{
+            ...styles.searchRow,
+            maxWidth: compact ? "100%" : 560,
+            margin: compact ? "0" : "0 auto",
+          }}
+        >
+          <div style={styles.inputWrap}>
+            <SearchIcon />
+            <input
+              ref={inputRef}
+              style={styles.input}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && run()}
+              placeholder="Search the scientific literature"
+            />
+            {query && (
+              <button style={styles.goBtn} onClick={() => run()}>
+                →
+              </button>
+            )}
+          </div>
+        </div>
+
+        {!compact && (
+          <div style={styles.suggWrap}>
+            {SUGGESTIONS.map((s) => (
+              <button key={s} style={styles.sugg} onClick={() => run(s)}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {status === "searching" && (
+          <div style={styles.loading}>
+            <span style={styles.spinner} />
+            searching databases and reading papers
+          </div>
+        )}
+
+        {error && <div style={styles.error}>{error}</div>}
+
+        {status === "done" && (
+          <div style={styles.result}>
+            {note && <div style={styles.note}>{note}</div>}
+
+            {answer && <div style={styles.answer}>{renderAnswer(answer)}</div>}
+
+            {sources.length > 0 && (
+              <div style={styles.sources}>
+                <div style={styles.sourcesLabel}>
+                  Sources
+                  {dbSource && <span style={styles.dbTag}>via {dbSource}</span>}
+                </div>
+                {sources.map((s, i) => (
+                  <a
+                    key={i}
+                    href={s.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={styles.source}
+                  >
+                    <span style={styles.sourceNum}>{i + 1}</span>
+                    <span style={styles.sourceBody}>
+                      <span style={styles.sourceTitle}>
+                        {s.title || s.url}
+                      </span>
+                      <span style={styles.sourceMeta}>
+                        {[s.authors, s.journal, s.year]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        {typeof s.citations === "number" && (
+                          <span style={styles.citeCount}>
+                            {" "}
+                            · cited {s.citations}×
+                          </span>
+                        )}
+                      </span>
+                      <span style={styles.sourceHost}>{host(s.url)}</span>
+                    </span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function host(url) {
   try {
-    trace = await traceUTK(query);
+    return new URL(url).hostname.replace("www.", "");
   } catch {
-    trace = [];
+    return "";
   }
+}
 
-  const merged = [...main.papers];
-  const seen = new Set(merged.map((p) => (p.title || "").toLowerCase()));
-  for (const t of trace) {
-    const k = (t.title || "").toLowerCase();
-    if (!seen.has(k)) {
-      merged.push(t);
-      seen.add(k);
-    }
-  }
+function Logo({ size }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+        <path
+          d="M20 4c-6 0-10 4-10 8 0 2 1 3 1 4-2 1-4 3-4 6s2 5 4 6c0 3 3 6 9 6s9-3 9-6c2-1 4-3 4-6s-2-5-4-6c0-1 1-2 1-4 0-4-4-8-10-8z"
+          stroke="#1b6b5a"
+          strokeWidth="1.6"
+          fill="#e8f3ef"
+        />
+        <path
+          d="M20 8v24M13 16c3 0 4 2 7 2s4-2 7-2M13 24c3 0 4-2 7-2s4 2 7 2"
+          stroke="#1b6b5a"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span
+        style={{
+          fontSize: size * 0.66,
+          fontWeight: 600,
+          letterSpacing: "-0.5px",
+          color: "#202124",
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
+        Cerebrum
+      </span>
+    </div>
+  );
+}
 
-  return {
-    papers: merged,
-    source: trace.length ? `${main.source} + UTK TRACE` : main.source,
-    utkCount: trace.length,
-  };
+function SearchIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+      <circle cx="11" cy="11" r="7" stroke="#9aa0a6" strokeWidth="2" />
+      <path d="M21 21l-4-4" stroke="#9aa0a6" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "#fff",
+    color: "#202124",
+    fontFamily: "system-ui, 'Segoe UI', sans-serif",
+  },
+  wrap: { maxWidth: 720, margin: "0 auto", padding: "0 20px 80px" },
+  brandRow: { display: "flex", alignItems: "center" },
+  searchRow: { width: "100%" },
+  inputWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "0 16px",
+    height: 48,
+    border: "1px solid #dfe1e5",
+    borderRadius: 24,
+    background: "#fff",
+    boxShadow: "0 1px 6px rgba(32,33,36,0.08)",
+  },
+  input: {
+    flex: 1,
+    border: "none",
+    outline: "none",
+    fontSize: 16,
+    background: "transparent",
+    color: "#202124",
+  },
+  goBtn: {
+    border: "none",
+    background: "#1b6b5a",
+    color: "#fff",
+    width: 30,
+    height: 30,
+    borderRadius: "50%",
+    cursor: "pointer",
+    fontSize: 16,
+    lineHeight: 1,
+  },
+  suggWrap: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "center",
+    marginTop: 24,
+    maxWidth: 560,
+    marginLeft: "auto",
+    marginRight: "auto",
+  },
+  sugg: {
+    padding: "7px 14px",
+    fontSize: 13,
+    background: "#f1f3f4",
+    color: "#3c4043",
+    border: "none",
+    borderRadius: 16,
+    cursor: "pointer",
+  },
+  loading: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    color: "#5f6368",
+    fontSize: 14,
+    marginTop: 28,
+  },
+  spinner: {
+    width: 16,
+    height: 16,
+    border: "2px solid #dfe1e5",
+    borderTopColor: "#1b6b5a",
+    borderRadius: "50%",
+    display: "inline-block",
+    animation: "cbspin 0.7s linear infinite",
+  },
+  error: {
+    marginTop: 24,
+    padding: 14,
+    background: "#fce8e6",
+    color: "#c5221f",
+    borderRadius: 8,
+    fontSize: 14,
+  },
+  note: {
+    marginBottom: 16,
+    padding: 12,
+    background: "#fef7e0",
+    color: "#7a5b00",
+    borderRadius: 8,
+    fontSize: 13,
+  },
+  result: { marginTop: 28 },
+  answer: { marginBottom: 8 },
+  para: { fontSize: 16, lineHeight: 1.7, margin: "0 0 14px", color: "#202124" },
+  cite: {
+    fontSize: 11,
+    verticalAlign: "super",
+    color: "#1b6b5a",
+    textDecoration: "none",
+    fontWeight: 600,
+    padding: "0 1px",
+    marginLeft: 1,
+  },
+  sources: { marginTop: 28, paddingTop: 20, borderTop: "1px solid #ececec" },
+  sourcesLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#5f6368",
+    marginBottom: 12,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  dbTag: {
+    fontSize: 11,
+    fontWeight: 500,
+    color: "#1b6b5a",
+    background: "#e8f3ef",
+    padding: "2px 8px",
+    borderRadius: 10,
+  },
+  source: {
+    display: "flex",
+    gap: 12,
+    padding: "10px 0",
+    textDecoration: "none",
+    color: "#202124",
+    alignItems: "flex-start",
+  },
+  sourceNum: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#1b6b5a",
+    background: "#e8f3ef",
+    minWidth: 22,
+    height: 22,
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sourceBody: { display: "flex", flexDirection: "column", gap: 2 },
+  sourceTitle: { fontSize: 15, color: "#1a0dab", lineHeight: 1.35 },
+  sourceMeta: { fontSize: 12.5, color: "#3c4043", lineHeight: 1.4 },
+  sourceHost: { fontSize: 12, color: "#5f6368", marginTop: 2 },
+  citeCount: { color: "#1b6b5a", fontWeight: 500 },
+};
+
+if (typeof document !== "undefined" && !document.getElementById("cbspin")) {
+  const st = document.createElement("style");
+  st.id = "cbspin";
+  st.textContent = "@keyframes cbspin{to{transform:rotate(360deg)}}";
+  document.head.appendChild(st);
 }
