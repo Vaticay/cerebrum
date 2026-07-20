@@ -172,7 +172,6 @@ export async function onRequest(context) {
       });
     }
 
-    // Extraction Safety Check: Check context.env OR context.request.env depending on platform configurations
     const envGrid = context.env || {};
     const googleKey = envGrid.GOOGLE_SEARCH_API_KEY || "";
     const googleCx = envGrid.GOOGLE_SEARCH_CX || "";
@@ -194,17 +193,18 @@ export async function onRequest(context) {
     let systemGeneratedAnswer = "";
 
     if (!hfToken) {
-      systemGeneratedAnswer = `Configuration error: HUGGINGFACE_API_KEY environment variable is not set in the Cloudflare dashboard. (System Debug Info: Keys detected: ${Object.keys(envGrid).join(', ') || 'none'})`;
+      systemGeneratedAnswer = `Configuration error: HUGGINGFACE_API_KEY environment variable is not set in the Cloudflare dashboard.`;
     } else {
-      const hfUrl = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct";
+      // Swapping to Mistral-7B-Instruct v0.3 endpoint (Highly stable endpoint with massive uptime metrics)
+      const hfUrl = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3";
       
       const promptPayload = {
-        inputs: `<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-You are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs.<|eot_id|><|start_header_id|>user<|end_header_id|>
+        inputs: `<s>[INST] You are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs.
+        
 Question: "${query}"
 
 Scanned Sources Context Matrix:
-${knowledgeContext}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`,
+${knowledgeContext} [/INST]`,
         parameters: {
           max_new_tokens: 500,
           temperature: 0.2,
