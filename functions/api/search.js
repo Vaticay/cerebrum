@@ -1,6 +1,5 @@
 // Cerebrum backend — Cloudflare Pages Function.
-// Gathers real papers from scholarly databases, then asks OpenRouter to write
-// a grounded, cited answer. Runs on the edge (no CORS problems).
+// Hybrid: answers any question like an AI, cites real papers when found.
 
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
@@ -43,17 +42,11 @@ async function getText(url, headers = {}) {
   }
 }
 
-// ---------- Source: Europe PMC (bio/chem, keyless) ----------
+// ---------- Source: Europe PMC ----------
 async function europePMC(query, limit = 6) {
   const url =
     "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
-    new URLSearchParams({
-      query,
-      resultType: "core",
-      pageSize: String(limit),
-      format: "json",
-      sort: "CITED desc",
-    });
+    new URLSearchParams({ query, resultType: "core", pageSize: String(limit), format: "json", sort: "CITED desc" });
   try {
     const data = await getJSON(url);
     const rows = data?.resultList?.result || [];
@@ -61,9 +54,7 @@ async function europePMC(query, limit = 6) {
       .filter((r) => r.abstractText)
       .map((r) => ({
         title: r.title || "Untitled",
-        url: r.doi
-          ? `https://doi.org/${r.doi}`
-          : `https://europepmc.org/article/${r.source}/${r.id}`,
+        url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
         year: r.pubYear || "",
         citations: r.citedByCount ?? null,
         authors: r.authorString || "",
@@ -75,7 +66,7 @@ async function europePMC(query, limit = 6) {
   }
 }
 
-// ---------- Source: PubMed (NCBI E-utilities, keyless) ----------
+// ---------- Source: PubMed ----------
 function firstMatch(block, re) {
   const m = block.match(re);
   return m ? m[1] : "";
@@ -131,7 +122,7 @@ async function pubmed(query, limit = 6) {
   }
 }
 
-// ---------- Source: OpenAlex (needs key) ----------
+// ---------- Source: OpenAlex ----------
 async function openAlex(query, limit = 6, key = "") {
   if (!key) return [];
   try {
@@ -163,7 +154,7 @@ async function openAlex(query, limit = 6, key = "") {
   }
 }
 
-// ---------- Source: UTK TRACE (OAI-PMH, harvest + filter) ----------
+// ---------- Source: UTK TRACE ----------
 function extractTraceRecords(xmlText) {
   const records = [];
   const recRe = /<record\b[\s\S]*?<\/record>/g;
@@ -291,42 +282,42 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ error: "No query provided." }), { status: 400, headers: cors });
     }
 
-    // Small talk: don't run a science search on greetings.
+    // Small talk: quick friendly reply, no search.
     const small = query.toLowerCase().replace(/[^a-z\s]/g, "").trim();
     const greetings = ["hi", "hello", "hey", "yo", "sup", "howdy", "hiya"];
-    const aboutMe = ["who are you", "what are you", "what is this", "help", "what can you do", "how do you work"];
     if (greetings.includes(small)) {
       return new Response(JSON.stringify({
-        answer: "Hi! I'm Cerebrum, a science search engine. Ask me a research question — like how CRISPR works, why a reaction is stereospecific, or what causes protein misfolding — and I'll pull real papers from scientific databases and summarize them with citations.",
-        sources: [],
-        source: "Cerebrum",
-      }), { status: 200, headers: cors });
-    }
-    if (aboutMe.includes(small)) {
-      return new Response(JSON.stringify({
-        answer: "I'm Cerebrum. I search real scientific literature — Europe PMC, PubMed, OpenAlex, and the University of Tennessee's TRACE repository — then write a short, cited answer grounded only in the papers I find. Ask me any science question to see it work.",
+        answer: "Hi! I'm Cerebrum. Ask me anything — science questions get answers backed by real papers with citations, and I'll do my best with general questions too.",
         sources: [],
         source: "Cerebrum",
       }), { status: 200, headers: cors });
     }
 
-    const { papers, utk } = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "" });
+    // Gather papers (best effort; may be empty for non-science questions).
+    let papers = [];
+    let utk = false;
+    try {
+      const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "" });
+      papers = g.papers;
+      utk = g.utk;
+    } catch {
+      papers = [];
+    }
 
     const sourceList = papers.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations }));
 
-    if (!papers.length) {
-      return new Response(JSON.stringify({
-        answer: "I searched the scientific databases but found no papers with abstracts for that query. Try rephrasing or using more specific terms.",
-        sources: [],
-        source: "no results",
-      }), { status: 200, headers: cors });
-    }
+    const hasPapers = papers.length > 0;
+    const evidence = hasPapers
+      ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract}`).join("\n\n")
+      : "";
 
-    const evidence = papers
-      .map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract}`)
-      .join("\n\n");
+    const systemPrompt = hasPapers
+      ? "You are Cerebrum, a knowledgeable science assistant. You are given real papers as evidence. Answer the user's question clearly and helpfully. When a claim is supported by one of the papers, cite it inline like [1] or [2] using the paper numbers. You may also use your own general knowledge for context, but prefer the papers for specific scientific claims. If the wording has typos, interpret the intent. Keep it clear and well structured, a few short paragraphs."
+      : "You are Cerebrum, a knowledgeable and helpful assistant. Answer the user's question clearly and accurately using your own knowledge. If the wording has typos, interpret what they meant. Be honest if unsure. Keep it clear and well structured. Do not fabricate citations or references.";
 
-    const systemPrompt = "You are Cerebrum, a scientific reference engine. Answer the user's question using ONLY the numbered papers provided. Do not invent facts or sources. State only what the abstracts support; if they conflict, say so neutrally; if they don't cover the question, say so plainly. Be precise and concise: 2 to 4 short paragraphs. Mark every supported claim with an inline citation like [1] or [2] matching the paper numbers. Output only the answer text with inline [n] markers, no preamble and no source list.";
+    const userContent = hasPapers
+      ? `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}`
+      : query;
 
     let answer = "";
     let aiOK = false;
@@ -346,11 +337,11 @@ export async function onRequest(context) {
             },
             body: JSON.stringify({
               model,
-              temperature: 0.2,
+              temperature: 0.3,
               max_tokens: 900,
               messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}` },
+                { role: "user", content: userContent },
               ],
             }),
           });
@@ -370,16 +361,20 @@ export async function onRequest(context) {
     }
 
     if (!aiOK) {
-      answer =
-        "Showing the most relevant papers found. (The answer writer is unavailable right now, so these are the raw sources.)\n\n" +
-        papers.map((p, i) => `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${p.abstract.slice(0, 280)}...`).join("\n\n");
+      if (hasPapers) {
+        answer =
+          "Here are the most relevant papers I found (the answer writer is busy right now):\n\n" +
+          papers.map((p, i) => `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${p.abstract.slice(0, 280)}...`).join("\n\n");
+      } else {
+        answer = "The answer service is temporarily unavailable. Please try again in a moment.";
+      }
     }
 
-    const dbUsed = utk ? "Databases + UTK TRACE" : "Scientific databases";
+    const dbUsed = utk ? "Databases + UTK TRACE" : hasPapers ? "Scientific databases" : "Cerebrum AI";
     return new Response(JSON.stringify({
       answer,
       sources: sourceList,
-      source: aiOK ? `${dbUsed} + OpenRouter` : dbUsed,
+      source: aiOK && hasPapers ? `${dbUsed} + OpenRouter` : aiOK ? "Cerebrum AI" : dbUsed,
     }), { status: 200, headers: cors });
   } catch (e) {
     return new Response(JSON.stringify({ error: `Runtime error: ${e.message}` }), { status: 500, headers: cors });
