@@ -562,42 +562,51 @@ async function authorCrossref(name, limit = 12) {
   } catch { return []; }
 }
 
-async function authorSemanticScholar(name, limit = 12) {
+async function authorSemanticScholar(name, limit = 20) {
   try {
-    const url = "https://api.semanticscholar.org/graph/v1/paper/search?" +
-      new URLSearchParams({ query: name, limit: String(limit), fields: "title,abstract,year,citationCount,authors,venue,externalIds" });
-    const data = await getJSON(url);
-    const surname = name.toLowerCase().split(" ").pop();
-    return (data?.data || []).map((r) => {
+    // Step 1: find the author by name (keyless dedicated endpoint).
+    const searchUrl = "https://api.semanticscholar.org/graph/v1/author/search?" +
+      new URLSearchParams({ query: name, fields: "name,paperCount,citationCount", limit: "5" });
+    const sdata = await getJSON(searchUrl);
+    const cands = sdata?.data || [];
+    if (!cands.length) return [];
+    // Pick the candidate with the most papers (most likely the real researcher).
+    cands.sort((a, b) => (b.paperCount || 0) - (a.paperCount || 0));
+    const authorId = cands[0].authorId;
+    if (!authorId) return [];
+    // Step 2: pull that author's papers.
+    const papersUrl = `https://api.semanticscholar.org/graph/v1/author/${authorId}/papers?` +
+      new URLSearchParams({ fields: "title,abstract,year,citationCount,authors,venue,externalIds", limit: String(limit) });
+    const pdata = await getJSON(papersUrl);
+    return (pdata?.data || []).map((r) => {
       const doi = r.externalIds?.DOI;
       const names = (r.authors || []).map((a) => a.name);
-      if (!names.some((n) => n.toLowerCase().includes(surname))) return null;
       return {
         title: r.title || "Untitled",
-        url: doi ? `https://doi.org/${doi}` : "",
+        url: doi ? `https://doi.org/${doi}` : (r.externalIds?.ArXiv ? `https://arxiv.org/abs/${r.externalIds.ArXiv}` : ""),
         year: r.year || "", citations: r.citationCount ?? null,
         authors: names.length > 1 ? `${names[0]} et al.` : names[0] || "",
         journal: r.venue || "Semantic Scholar", abstract: r.abstract || "",
       };
-    }).filter(Boolean);
+    }).filter((p) => p.title && p.title !== "Untitled");
   } catch { return []; }
 }
 
 async function gatherByAuthor(name, { openAlexKey }) {
-  const [oa, cr, ss] = await Promise.all([
-    authorOpenAlex(name, 12, openAlexKey),
-    authorCrossref(name, 12),
-    authorSemanticScholar(name, 12),
+  const [ss, oa, cr] = await Promise.all([
+    authorSemanticScholar(name, 20),     // keyless, dedicated author endpoint (primary)
+    authorOpenAlex(name, 12, openAlexKey), // only if key present
+    authorCrossref(name, 15),            // keyless
   ]);
   const merged = [];
   const seen = new Set();
-  for (const list of [oa, cr, ss]) {
+  for (const list of [ss, oa, cr]) {
     for (const p of list) {
       const key = (p.title || "").toLowerCase().trim();
       if (key && !seen.has(key)) { seen.add(key); merged.push(p); }
     }
   }
-  return merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 20);
+  return merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 25);
 }
 
 // ---------- Gather + rank ----------
