@@ -29,7 +29,7 @@ function detectAuthorIntent(query) {
   }
   const words = query.trim().split(/\s+/);
   if (words.length >= 2 && words.length <= 3) {
-    const isFirstLetterCapitalized = words.every(w => w[0] === w[0].toUpperCase());
+    const isFirstLetterCapitalized = words.every(w => w && w[0] === w[0].toUpperCase());
     const commonQuestionWords = ['What', 'How', 'Why', 'Where', 'When', 'Is', 'Can', 'Are'];
     if (isFirstLetterCapitalized && !commonQuestionWords.includes(words[0])) {
       return true;
@@ -78,7 +78,7 @@ function formatResponseText(text) {
 function handleConversationalIntent(query) {
   const normalized = query.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
   const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'greetings', 'good morning', 'good afternoon', 'howdy'];
-  const statusInquiries = ['how are you', 'hows it going', 'who are you', 'what are you', 'whats your name', 'sam e thing', 'same thing'];
+  const statusInquiries = ['how are you', 'hows it going', 'who are you', 'what are you', 'whats your name', 'sam e thing', 'same thing', 'white pae', 'white page'];
 
   if (greetings.includes(normalized)) {
     return {
@@ -204,12 +204,21 @@ async function emergencyClientFetch(rawQuery) {
   };
 }
 
+function BrainLogo({ strokeColor = "#ffffff" }) {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={strokeColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, display: 'block' }}>
+      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
+      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
+    </svg>
+  );
+}
+
 function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   
-  const [user, setUser] = useState(() => localStorage.getItem('cerebrum_user') || null);
+  const [user, setUser] = useState(() => localStorage.getItem('cerebrum_user') || 'Guest');
   const [chats, setChats] = useState(() => {
     const encryptedData = localStorage.getItem('cerebrum_vault');
     return encryptedData ? simpleDetokenize(encryptedData) : [];
@@ -268,7 +277,7 @@ function App() {
           </div>
           <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
             <button className="utility-btn-dark" onClick={clearHistory}>Clear</button>
-            <button className="utility-btn-dark" onClick={() => { localStorage.removeItem('cerebrum_user'); setUser(null); }}>Disconnect</button>
+            <button className="utility-btn-dark" onClick={() => { localStorage.removeItem('cerebrum_user'); setUser(null); window.location.reload(); }}>Disconnect</button>
           </div>
         </div>
       </aside>
@@ -385,8 +394,6 @@ function App() {
     </div>
   );
 }
-
-if (!localStorage.getItem('cerebrum_user')) { localStorage.setItem('cerebrum_user', 'Guest'); }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
