@@ -40,7 +40,7 @@ async function getText(url, headers = {}) {
   }
 }
 
-// --- High-Fidelity Data Ingestion Adapters ---
+// --- Data Ingestion Adapters ---
 async function liveWebSearch(refinedQuery, apiKey, cxId) {
   if (!apiKey || !cxId) return [];
   const url = `https://www.googleapis.com/customsearch/v1?` + 
@@ -206,28 +206,22 @@ export async function onRequest(context) {
 
     if (sources.length === 0) {
       return new Response(JSON.stringify({
-        answer: "### No Direct References Found\n\nI couldn't locate precise live documents or academic records matching those exact parameters. Please try broadening your keywords slightly.",
+        answer: "### 🔍 No Direct References Found\n\nI couldn't locate precise live documents or academic records matching those exact parameters. Please try broadening your keywords slightly.",
         sources: []
       }), { status: 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
     }
 
     const knowledgeContext = sources.map((s, i) => 
-      `[Source Block ${i + 1}] (${s.type.toUpperCase()})\nTitle: ${s.title}\nPublisher/Location: ${s.journal}\nAuthors/Credits: ${s.authors}\nData Extract: ${s.abstract}\n`
+      `[Source ${i + 1}] (${s.type.toUpperCase()})\nTitle: ${s.title}\nPublisher: ${s.journal}\nData Extract: ${s.abstract}\n`
     ).join("\n");
 
     let systemGeneratedAnswer = "";
 
     if (!openRouterToken) {
-      systemGeneratedAnswer = `### System Integration Error\n\nThe environment key \`OPENROUTER_API_KEY\` is missing from your hosting console grid.`;
+      systemGeneratedAnswer = `### ⚠️ Integration Error\n\nThe configuration key \`OPENROUTER_API_KEY\` is missing from your environment dashboard variables.`;
     } else {
       const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
-      
-      // Fallback architecture targeting specific rock-solid free streams
-      const modelsToTry = [
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "openrouter/free"
-      ];
-      
+      const modelsToTry = ["meta-llama/llama-3.3-70b-instruct:free", "openrouter/free"];
       let finalData = null;
 
       for (const model of modelsToTry) {
@@ -236,13 +230,15 @@ export async function onRequest(context) {
           messages: [
             {
               role: "system",
-              content: `You are Cerebrum, a premium, hyper-intelligent AI search assistant designed to compete directly with leading modern AI platforms. Your task is to analyze the user's inquiry and provide a beautifully structured, authoritative response based exclusively on the provided context matrix.
+              content: `You are Cerebrum, a premium, hyper-intelligent AI search companion competing directly with Perplexity and OpenAI. Your objective is to address the user's intent with insightful, deeply informative, and scannable breakdowns.
 
-CRITICAL INSTRUCTIONS:
-1. Do NOT speak like a simple search bot. Sound incredibly sharp, sophisticated, and polished.
-2. Structure your output clearly using clean Markdown: utilize bold paragraph headers (e.g., '### Core Analysis') and clean lists to make information scannable. Avoid plain walls of text.
-3. You MUST ground every insight with inline source brackets pointing to the correct source block number (e.g., [1], [2]) directly following the fact or metric.
-4. If the sources contain contradictory info, balance them intelligently. Seamlessly weave formal academic publications and live web data together.`
+CRITICAL FORMATTING & STYLE LAWS:
+1. NEVER complain about context limitations or tell the user that the sources are unrelated. Seamlessly synthesize the facts provided to form a definitive response.
+2. Make the response look incredibly clean and visually engaging using modern Markdown layout techniques:
+   - Begin with a highly scannable, high-impact introductory sentence or summary bullet point grid.
+   - Use bold subheaders with relevant emojis (e.g., '### ⚡ Core Mechanism', '### 🔬 Theoretical Insights') to section out concepts cleanly. 
+   - Never present large walls of plain text. Use bulleted lists or nested bold terms to emphasize key variables or process workflows.
+3. Ground your answer using simple numeric brackets like [1], [2] immediately following the fast statement or factual assertion to map back to the context matrix indices.`
             },
             {
               role: "user",
@@ -250,7 +246,7 @@ CRITICAL INSTRUCTIONS:
             }
           ],
           temperature: 0.2,
-          max_tokens: 650
+          max_tokens: 700
         };
 
         try {
@@ -267,23 +263,18 @@ CRITICAL INSTRUCTIONS:
 
           if (orResponse.ok) {
             const rawJson = await orResponse.json();
-            // Validate that we actually got choice tokens back, not an error body inside a 200 wrapper
             if (rawJson?.choices?.[0]?.message?.content) {
               finalData = rawJson;
               break;
-            } else if (rawJson?.error?.message) {
-              systemGeneratedAnswer = `### Upstream Provider Alert\n\nOpenRouter message: "${rawJson.error.message}"`;
             }
           }
-        } catch (e) {
-          // Pass cleanly to catch-all
-        }
+        } catch (e) {}
       }
 
       if (finalData) {
         systemGeneratedAnswer = finalData.choices[0].message.content;
-      } else if (!systemGeneratedAnswer) {
-        systemGeneratedAnswer = "### Integration Sync Notice\n\nOpenRouter free nodes are completely full at this millisecond. The server returned an empty choice matrix. Please refresh or retry your request in a brief moment.";
+      } else {
+        systemGeneratedAnswer = "### ⏳ Network Sync In Progress\n\nThe open-source search clusters are currently running under heavy demand conditions. Please refresh or resubmit your search input block in a brief second.";
       }
     }
 
