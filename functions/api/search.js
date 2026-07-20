@@ -502,6 +502,104 @@ async function core(query, limit = 6, key = "") {
   } catch { return []; }
 }
 
+// ---------- Author search ----------
+function detectAuthor(raw) {
+  const q = raw.trim();
+  const lower = q.toLowerCase();
+  const prefixes = ["papers by ", "publications by ", "articles by ", "research by ", "work by ", "author:"];
+  for (const p of prefixes) {
+    if (lower.startsWith(p)) return q.slice(p.length).trim();
+  }
+  const words = q.split(/\s+/);
+  if (words.length >= 2 && words.length <= 4) {
+    const questiony = /^(what|how|why|when|where|which|who|is|are|does|do|can|explain|tell)/i.test(q);
+    const allCap = words.every((w) => /^[A-Z][a-zA-Z.'-]*$/.test(w));
+    if (allCap && !questiony) return q;
+  }
+  return null;
+}
+
+async function authorOpenAlex(name, limit = 12, key = "") {
+  if (!key) return [];
+  try {
+    const params = new URLSearchParams({
+      filter: `authorships.author.display_name.search:${name}`,
+      sort: "cited_by_count:desc",
+      per_page: String(limit),
+      select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
+      api_key: key,
+    });
+    const data = await getJSON(`https://api.openalex.org/works?${params}`);
+    return (data.results || []).map((w) => {
+      const first = w.authorships?.[0]?.author?.display_name || "";
+      return {
+        title: w.title || "Untitled",
+        url: w.doi || w.primary_location?.landing_page_url || "",
+        year: w.publication_year || "", citations: w.cited_by_count ?? null,
+        authors: w.authorships?.length > 1 ? `${first} et al.` : first,
+        journal: w.primary_location?.source?.display_name || "OpenAlex",
+        abstract: decodeInverted(w.abstract_inverted_index),
+      };
+    });
+  } catch { return []; }
+}
+
+async function authorCrossref(name, limit = 12) {
+  try {
+    const url = "https://api.crossref.org/works?" +
+      new URLSearchParams({ "query.author": name, rows: String(limit), sort: "is-referenced-by-count", order: "desc", select: "title,author,container-title,published,DOI,is-referenced-by-count,abstract" }) +
+      "&mailto=cerebrum@example.com";
+    const data = await getJSON(url);
+    return (data?.message?.items || []).map((it) => ({
+      title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled",
+      url: it.DOI ? `https://doi.org/${it.DOI}` : "",
+      year: it.published?.["date-parts"]?.[0]?.[0] || "",
+      citations: it["is-referenced-by-count"] ?? null,
+      authors: (it.author || []).slice(0, 1).map((a) => `${a.given || ""} ${a.family || ""}`.trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""),
+      journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref",
+      abstract: stripTags(it.abstract || ""),
+    })).filter((p) => p.title);
+  } catch { return []; }
+}
+
+async function authorSemanticScholar(name, limit = 12) {
+  try {
+    const url = "https://api.semanticscholar.org/graph/v1/paper/search?" +
+      new URLSearchParams({ query: name, limit: String(limit), fields: "title,abstract,year,citationCount,authors,venue,externalIds" });
+    const data = await getJSON(url);
+    const surname = name.toLowerCase().split(" ").pop();
+    return (data?.data || []).map((r) => {
+      const doi = r.externalIds?.DOI;
+      const names = (r.authors || []).map((a) => a.name);
+      if (!names.some((n) => n.toLowerCase().includes(surname))) return null;
+      return {
+        title: r.title || "Untitled",
+        url: doi ? `https://doi.org/${doi}` : "",
+        year: r.year || "", citations: r.citationCount ?? null,
+        authors: names.length > 1 ? `${names[0]} et al.` : names[0] || "",
+        journal: r.venue || "Semantic Scholar", abstract: r.abstract || "",
+      };
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+async function gatherByAuthor(name, { openAlexKey }) {
+  const [oa, cr, ss] = await Promise.all([
+    authorOpenAlex(name, 12, openAlexKey),
+    authorCrossref(name, 12),
+    authorSemanticScholar(name, 12),
+  ]);
+  const merged = [];
+  const seen = new Set();
+  for (const list of [oa, cr, ss]) {
+    for (const p of list) {
+      const key = (p.title || "").toLowerCase().trim();
+      if (key && !seen.has(key)) { seen.add(key); merged.push(p); }
+    }
+  }
+  return merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 20);
+}
+
 // ---------- Gather + rank ----------
 async function gatherPapers(rawQuery, { openAlexKey, coreKey, limit = 6, browse = false }) {
   const query = cleanQuery(rawQuery);
@@ -601,6 +699,23 @@ export async function onRequest(context) {
       }), { status: 200, headers: cors });
     }
 
+    // Author search: "papers by X" or a person's name -> their publications.
+    const authorName = detectAuthor(query);
+    if (authorName && body.mode !== "browse") {
+      let ap = [];
+      try {
+        ap = await gatherByAuthor(authorName, { openAlexKey: env.OPENALEX_KEY || "" });
+      } catch { ap = []; }
+      if (ap.length) {
+        return new Response(JSON.stringify({
+          answer: `Showing publications by **${authorName}**, ranked by citations. If this isn't the researcher you meant, try adding a field (e.g. "${authorName} chemistry").`,
+          sources: ap.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations })),
+          source: `${ap.length} publications by ${authorName}`,
+        }), { status: 200, headers: cors });
+      }
+      // If no author results, fall through to normal search.
+    }
+
     // Browse mode: return the full ranked publication list, no AI answer.
     if (body.mode === "browse") {
       let bp = [];
@@ -616,6 +731,12 @@ export async function onRequest(context) {
         source: `${bp.length} publications ranked by relevance`,
       }), { status: 200, headers: cors });
     }
+
+    // Settings from the client (all optional).
+    const settings = body.settings || {};
+    const answerLength = settings.answerLength || "medium"; // short | medium | long
+    const maxTokens = answerLength === "short" ? 450 : answerLength === "long" ? 1400 : 900;
+    const lengthHint = answerLength === "short" ? "Keep it to one tight paragraph." : answerLength === "long" ? "Give a thorough, well-structured explanation." : "Keep it to a few short paragraphs.";
 
     // Gather papers (best effort; may be empty for non-science questions).
     let papers = [];
@@ -635,13 +756,21 @@ export async function onRequest(context) {
       ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract}`).join("\n\n")
       : "";
 
-    const systemPrompt = hasPapers
-      ? "You are Cerebrum, a knowledgeable science assistant. You are given real papers as evidence. Answer the user's question clearly and helpfully. When a claim is supported by one of the papers, cite it inline like [1] or [2] using the paper numbers. You may also use your own general knowledge for context, but prefer the papers for specific scientific claims. If the wording has typos, interpret the intent. Keep it clear and well structured, a few short paragraphs."
-      : "You are Cerebrum, a knowledgeable and helpful assistant. Answer the user's question clearly and accurately using your own knowledge. If the wording has typos, interpret what they meant. Be honest if unsure. Keep it clear and well structured. Do not fabricate citations or references.";
+    const systemPrompt = (hasPapers
+      ? "You are Cerebrum, a knowledgeable science assistant. You are given real papers as evidence. Answer using them, citing inline like [1] or [2] by paper number. You may add general-knowledge context but prefer the papers for specific claims. Interpret typos. "
+      : "You are Cerebrum, a knowledgeable, helpful assistant. Answer clearly and accurately from your own knowledge. Interpret typos. Be honest if unsure. Do not fabricate citations. ") +
+      lengthHint +
+      " Format in clean prose. Do NOT use markdown heading symbols like # or ###. You may use **bold** sparingly and blank lines between paragraphs, nothing else.";
 
-    const userContent = hasPapers
-      ? `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}`
-      : query;
+    // Follow-up: include prior turns if the client sent them.
+    const messages = [{ role: "system", content: systemPrompt }];
+    const historyTurns = Array.isArray(body.history) ? body.history.slice(-4) : [];
+    for (const turn of historyTurns) {
+      if (turn.role === "user" || turn.role === "assistant") {
+        messages.push({ role: turn.role, content: String(turn.content || "").slice(0, 2000) });
+      }
+    }
+    messages.push({ role: "user", content: hasPapers ? `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}` : query });
 
     let answer = "";
     let aiOK = false;
@@ -659,35 +788,20 @@ export async function onRequest(context) {
               "HTTP-Referer": "https://cerebrum.pages.dev",
               "X-Title": "Cerebrum",
             },
-            body: JSON.stringify({
-              model,
-              temperature: 0.3,
-              max_tokens: 900,
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userContent },
-              ],
-            }),
+            body: JSON.stringify({ model, temperature: 0.3, max_tokens: maxTokens, messages }),
           });
           if (r.ok) {
             const j = await r.json();
             const c = j?.choices?.[0]?.message?.content?.trim();
-            if (c) {
-              answer = c;
-              aiOK = true;
-              break;
-            }
+            if (c) { answer = c; aiOK = true; break; }
           }
-        } catch {
-          /* try next model */
-        }
+        } catch { /* try next model */ }
       }
     }
 
     if (!aiOK) {
       if (hasPapers) {
-        answer =
-          "Here are the most relevant papers I found (the answer writer is busy right now):\n\n" +
+        answer = "Here are the most relevant papers I found (the answer writer is busy right now):\n\n" +
           papers.map((p, i) => `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${p.abstract.slice(0, 280)}...`).join("\n\n");
       } else {
         answer = "The answer service is temporarily unavailable. Please try again in a moment.";
