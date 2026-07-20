@@ -344,3 +344,53 @@ export async function gatherPapers(query, { openAlexKey, s2Key } = {}) {
     utkCount: trace.length,
   };
 }
+// --- Cloudflare Pages Serverless Function Entry Point ---
+export async function onRequestPost(context) {
+  try {
+    // 1. Parse the query sent by your React frontend
+    const { query } = await context.request.json();
+    
+    if (!query) {
+      return new Response(JSON.stringify({ error: "Query is required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    // 2. Fetch the environment keys if you have configured them in the dashboard
+    const openAlexKey = context.env.OPENALEX_API_KEY || "";
+    const s2Key = context.env.SEMANTIC_SCHOLAR_API_KEY || "";
+
+    // 3. Execute the paper gathering chain already built above
+    const result = await gatherPapers(query, { openAlexKey, s2Key });
+
+    // 4. Return a mock answer text built from the abstracts since we aren't calling LLM yet
+    // (Or this can be wired directly into an AI endpoint using context.env.ANTHROPIC_API_KEY)
+    const summaryText = result.papers
+      .slice(0, 3)
+      .map((p, idx) => `${p.title}: ${p.abstract.slice(0, 150)}... [${idx + 1}]`)
+      .join("\n\n");
+
+    return new Response(
+      JSON.stringify({
+        answer: summaryText || "No matching literature found.",
+        sources: result.papers,
+        source: result.source,
+        note: `Retrieved ${result.papers.length} papers successfully.`
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: `Backend processing failed: ${error.message}` }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }
+}
