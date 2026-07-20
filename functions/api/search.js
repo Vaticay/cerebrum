@@ -84,15 +84,10 @@ function parsePubmedXML(xmlText) {
   const arts = xmlText.match(/<PubmedArticle\b[\s\S]*?<\/PubmedArticle>/g) || [];
   return arts.map((a) => {
     const pmid = firstMatch(a, /<PMID[^>]*>(\d+)<\/PMID>/);
-    const title = stripTags(
-      firstMatch(a, /<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/)
-    );
+    const title = stripTags(firstMatch(a, /<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/));
     const absParts = a.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g) || [];
     const abstract = stripTags(absParts.join(" "));
-    const journal = stripTags(
-      firstMatch(a, /<Title>([\s\S]*?)<\/Title>/) ||
-        firstMatch(a, /<ISOAbbreviation>([\s\S]*?)<\/ISOAbbreviation>/)
-    );
+    const journal = stripTags(firstMatch(a, /<Title>([\s\S]*?)<\/Title>/) || firstMatch(a, /<ISOAbbreviation>([\s\S]*?)<\/ISOAbbreviation>/));
     const year = firstMatch(a, /<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/);
     const authorBlocks = a.match(/<Author\b[\s\S]*?<\/Author>/g) || [];
     const names = authorBlocks
@@ -106,9 +101,7 @@ function parsePubmedXML(xmlText) {
     const doi = firstMatch(a, /<ArticleId IdType="doi">([\s\S]*?)<\/ArticleId>/);
     return {
       title: title || "Untitled",
-      url: doi
-        ? `https://doi.org/${doi}`
-        : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+      url: doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
       year,
       citations: null,
       authors,
@@ -122,13 +115,7 @@ async function pubmed(query, limit = 6) {
   try {
     const es = await getJSON(
       "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
-        new URLSearchParams({
-          db: "pubmed",
-          term: query,
-          retmax: String(limit),
-          retmode: "json",
-          sort: "relevance",
-        }) +
+        new URLSearchParams({ db: "pubmed", term: query, retmax: String(limit), retmode: "json", sort: "relevance" }) +
         tool
     );
     const ids = es?.esearchresult?.idlist || [];
@@ -153,8 +140,7 @@ async function openAlex(query, limit = 6, key = "") {
       filter: "is_oa:true",
       sort: "relevance_score:desc",
       per_page: String(limit),
-      select:
-        "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
+      select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
       api_key: key,
     });
     const data = await getJSON(`https://api.openalex.org/works?${params}`);
@@ -163,11 +149,7 @@ async function openAlex(query, limit = 6, key = "") {
         const first = w.authorships?.[0]?.author?.display_name || "";
         return {
           title: w.title || "Untitled",
-          url:
-            w.doi ||
-            w.primary_location?.landing_page_url ||
-            w.primary_location?.pdf_url ||
-            "",
+          url: w.doi || w.primary_location?.landing_page_url || w.primary_location?.pdf_url || "",
           year: w.publication_year || "",
           citations: w.cited_by_count ?? null,
           authors: w.authorships?.length > 1 ? `${first} et al.` : first,
@@ -186,18 +168,12 @@ function extractTraceRecords(xmlText) {
   const records = [];
   const recRe = /<record\b[\s\S]*?<\/record>/g;
   const tag = (block, name) => {
-    const re = new RegExp(
-      `<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`,
-      "i"
-    );
+    const re = new RegExp(`<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`, "i");
     const m = block.match(re);
     return m ? m[1].trim() : "";
   };
   const tagAll = (block, name) => {
-    const re = new RegExp(
-      `<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`,
-      "gi"
-    );
+    const re = new RegExp(`<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`, "gi");
     const out = [];
     let m;
     while ((m = re.exec(block))) out.push(m[1].trim());
@@ -225,11 +201,7 @@ async function traceUTK(query) {
     try {
       const text = await getText(
         "https://trace.tennessee.edu/do/oai/?" +
-          new URLSearchParams({
-            verb: "ListRecords",
-            metadataPrefix: "dcq",
-            set,
-          })
+          new URLSearchParams({ verb: "ListRecords", metadataPrefix: "dcq", set })
       );
       all.push(...extractTraceRecords(text));
     } catch {
@@ -316,61 +288,52 @@ export async function onRequest(context) {
     const body = await request.json().catch(() => ({}));
     const query = (body.query || "").trim();
     if (!query) {
-      return new Response(JSON.stringify({ error: "No query provided." }), {
-        status: 400,
-        headers: cors,
-      });
+      return new Response(JSON.stringify({ error: "No query provided." }), { status: 400, headers: cors });
     }
 
-    const { papers, utk } = await gatherPapers(query, {
-      openAlexKey: env.OPENALEX_KEY || "",
-    });
+    // Small talk: don't run a science search on greetings.
+    const small = query.toLowerCase().replace(/[^a-z\s]/g, "").trim();
+    const greetings = ["hi", "hello", "hey", "yo", "sup", "howdy", "hiya"];
+    const aboutMe = ["who are you", "what are you", "what is this", "help", "what can you do", "how do you work"];
+    if (greetings.includes(small)) {
+      return new Response(JSON.stringify({
+        answer: "Hi! I'm Cerebrum, a science search engine. Ask me a research question — like how CRISPR works, why a reaction is stereospecific, or what causes protein misfolding — and I'll pull real papers from scientific databases and summarize them with citations.",
+        sources: [],
+        source: "Cerebrum",
+      }), { status: 200, headers: cors });
+    }
+    if (aboutMe.includes(small)) {
+      return new Response(JSON.stringify({
+        answer: "I'm Cerebrum. I search real scientific literature — Europe PMC, PubMed, OpenAlex, and the University of Tennessee's TRACE repository — then write a short, cited answer grounded only in the papers I find. Ask me any science question to see it work.",
+        sources: [],
+        source: "Cerebrum",
+      }), { status: 200, headers: cors });
+    }
 
-    const sourceList = papers.map(
-      ({ title, url, journal, authors, year, citations }) => ({
-        title,
-        url,
-        journal,
-        authors,
-        year,
-        citations,
-      })
-    );
+    const { papers, utk } = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "" });
+
+    const sourceList = papers.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations }));
 
     if (!papers.length) {
-      return new Response(
-        JSON.stringify({
-          answer:
-            "I searched the scientific databases but found no papers with abstracts for that query. Try rephrasing or using more specific terms.",
-          sources: [],
-          source: "no results",
-        }),
-        { status: 200, headers: cors }
-      );
+      return new Response(JSON.stringify({
+        answer: "I searched the scientific databases but found no papers with abstracts for that query. Try rephrasing or using more specific terms.",
+        sources: [],
+        source: "no results",
+      }), { status: 200, headers: cors });
     }
 
     const evidence = papers
-      .map(
-        (p, i) =>
-          `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${
-            p.year || "n/a"
-          }${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract}`
-      )
+      .map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract}`)
       .join("\n\n");
 
-    const systemPrompt =
-      "You are Cerebrum, a scientific reference engine. Answer the user's question using ONLY the numbered papers provided. Do not invent facts or sources. State only what the abstracts support; if they conflict, say so neutrally; if they don't cover the question, say so plainly. Be precise and concise: 2 to 4 short paragraphs. Mark every supported claim with an inline citation like [1] or [2] matching the paper numbers. Output only the answer text with inline [n] markers, no preamble and no source list.";
+    const systemPrompt = "You are Cerebrum, a scientific reference engine. Answer the user's question using ONLY the numbered papers provided. Do not invent facts or sources. State only what the abstracts support; if they conflict, say so neutrally; if they don't cover the question, say so plainly. Be precise and concise: 2 to 4 short paragraphs. Mark every supported claim with an inline citation like [1] or [2] matching the paper numbers. Output only the answer text with inline [n] markers, no preamble and no source list.";
 
     let answer = "";
     let aiOK = false;
 
     const token = env.OPENROUTER_API_KEY;
     if (token) {
-      const models = [
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "google/gemini-2.0-flash-exp:free",
-        "deepseek/deepseek-chat",
-      ];
+      const models = ["openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free"];
       for (const model of models) {
         try {
           const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -387,10 +350,7 @@ export async function onRequest(context) {
               max_tokens: 900,
               messages: [
                 { role: "system", content: systemPrompt },
-                {
-                  role: "user",
-                  content: `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}`,
-                },
+                { role: "user", content: `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}` },
               ],
             }),
           });
@@ -412,27 +372,16 @@ export async function onRequest(context) {
     if (!aiOK) {
       answer =
         "Showing the most relevant papers found. (The answer writer is unavailable right now, so these are the raw sources.)\n\n" +
-        papers
-          .map(
-            (p, i) =>
-              `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${p.abstract.slice(0, 280)}...`
-          )
-          .join("\n\n");
+        papers.map((p, i) => `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${p.abstract.slice(0, 280)}...`).join("\n\n");
     }
 
     const dbUsed = utk ? "Databases + UTK TRACE" : "Scientific databases";
-    return new Response(
-      JSON.stringify({
-        answer,
-        sources: sourceList,
-        source: aiOK ? `${dbUsed} + OpenRouter` : dbUsed,
-      }),
-      { status: 200, headers: cors }
-    );
+    return new Response(JSON.stringify({
+      answer,
+      sources: sourceList,
+      source: aiOK ? `${dbUsed} + OpenRouter` : dbUsed,
+    }), { status: 200, headers: cors });
   } catch (e) {
-    return new Response(
-      JSON.stringify({ error: `Runtime error: ${e.message}` }),
-      { status: 500, headers: cors }
-    );
+    return new Response(JSON.stringify({ error: `Runtime error: ${e.message}` }), { status: 500, headers: cors });
   }
 }
