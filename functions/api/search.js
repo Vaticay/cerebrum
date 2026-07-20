@@ -223,7 +223,7 @@ export async function onRequest(context) {
     if (!geminiKey) {
       systemGeneratedAnswer = "Error: GEMINI_API_KEY environment variable is missing from the Cloudflare dashboard settings.";
     } else {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+     const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
       
       const prompt = {
         contents: [{
