@@ -197,8 +197,8 @@ export async function onRequest(context) {
     if (!geminiKey) {
       systemGeneratedAnswer = "Configuration error: GEMINI_API_KEY is not bound inside the dashboard variables grid.";
     } else {
-      // Free/low-cost model cascade list ordered by efficiency and response speed
-      const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+      // Hardened production model cascade matching standard v1 mappings
+      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
       let geminiResponse;
       let usedModel = "";
 
@@ -222,7 +222,7 @@ Instructions:
         }]
       };
 
-      // Loop over available model endpoints until a working system layer handles it
+      // Loop over production-ready v1 endpoints
       for (const model of modelsToTry) {
         usedModel = model;
         const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${geminiKey}`;
@@ -234,12 +234,12 @@ Instructions:
             body: JSON.stringify(prompt)
           });
 
-          // Check for load shedding issues or platform limits
+          // Break loop on clean execution responses
           if (geminiResponse.status !== 503 && geminiResponse.status !== 429 && geminiResponse.status !== 404) {
             break;
           }
         } catch (e) {
-          // Continue loop if network drop hits specific endpoint
+          // Continue if connection dropped completely on a specific model node
         }
       }
 
