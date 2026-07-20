@@ -14,10 +14,24 @@ function simpleDetokenize(token) {
   }
 }
 
-// --- Premium Client-Side Markdown Parser Utility ---
+// --- Premium Client-Side Markdown & Scientific Math Parser Utility ---
 function formatResponseText(text) {
   if (!text) return "";
-  return text
+  
+  let formatted = text;
+
+  // 1. Standalone Block Math Parser ($$...$$) -> Wraps in centers
+  formatted = formatted.replace(/\$\$\s*([\s\S]+?)\s*\$\$/g, (match, math) => {
+    return `<div class="math-block-container" data-math="${encodeURIComponent(math)}"><span class="katex-display-fallback">${math}</span></div>`;
+  });
+
+  // 2. Inline Math Parser ($...$) -> Wraps in specialized token inline markers
+  formatted = formatted.replace(/\$([^\$\n]+?)\$/g, (match, math) => {
+    return `<span class="math-inline-container" data-math="${encodeURIComponent(math)}">${math}</span>`;
+  });
+
+  // 3. Structural Layout Markdown Maps
+  formatted = formatted
     .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
     .replace(/^#\s+(.+)$/gm, '<h3>$1</h3>')
     .replace(/^-\s+\*\*(.+?)\*\*:\s*(.+)$/gm, '<li><strong>$1</strong>: $2</li>')
@@ -25,6 +39,8 @@ function formatResponseText(text) {
     .replace(/^>\s+(.+)$/gm, '<blockquote>$1</blockquote>')
     .replace(/^---$/gm, '<hr style="border: 0; border-top: 1px solid var(--border-subtle); margin: 24px 0;" />')
     .replace(/\n/g, '<br />');
+
+  return formatted;
 }
 
 // --- Original Brain Logo Vector ---
@@ -50,6 +66,19 @@ function App() {
     return encryptedData ? simpleDetokenize(encryptedData) : [];
   });
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Auto-render math expressions upon delivery using window global triggers
+  useEffect(() => {
+    if (data && !loading && window.renderMathInElement) {
+      window.renderMathInElement(document.body, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false}
+        ],
+        throwOnError: false
+      });
+    }
+  }, [data, loading]);
 
   useEffect(() => {
     localStorage.setItem('cerebrum_vault', simpleTokenize(chats));
@@ -104,7 +133,6 @@ function App() {
       try {
         result = JSON.parse(textData);
       } catch (jsonErr) {
-        // If server outputs raw text, salvage it into a workable object wrapper
         if (textData && textData.trim().length > 0) {
           result = { answer: textData, sources: [] };
         } else {
