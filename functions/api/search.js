@@ -197,8 +197,11 @@ export async function onRequest(context) {
     if (!geminiKey) {
       systemGeneratedAnswer = "Configuration error: GEMINI_API_KEY is not bound inside the dashboard variables grid.";
     } else {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
-      
+      // Free/low-cost model cascade list ordered by efficiency and response speed
+      const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+      let geminiResponse;
+      let usedModel = "";
+
       const prompt = {
         contents: [{
           parts: [{
@@ -219,18 +222,34 @@ Instructions:
         }]
       };
 
-      const geminiResponse = await fetch(geminiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(prompt)
-      });
+      // Loop over available model endpoints until a working system layer handles it
+      for (const model of modelsToTry) {
+        usedModel = model;
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${geminiKey}`;
+        
+        try {
+          geminiResponse = await fetch(geminiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(prompt)
+          });
 
-      if (geminiResponse.ok) {
+          // Check for load shedding issues or platform limits
+          if (geminiResponse.status !== 503 && geminiResponse.status !== 429 && geminiResponse.status !== 404) {
+            break;
+          }
+        } catch (e) {
+          // Continue loop if network drop hits specific endpoint
+        }
+      }
+
+      if (geminiResponse && geminiResponse.ok) {
         const geminiData = await geminiResponse.json();
         systemGeneratedAnswer = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "Unable to extract synthesis stream.";
       } else {
-        const errText = await geminiResponse.text().catch(() => "");
-        systemGeneratedAnswer = `Synthesis failure (Status: ${geminiResponse.status}). Details: ${errText}`;
+        const statusVal = geminiResponse ? geminiResponse.status : "unknown";
+        const errText = geminiResponse ? await geminiResponse.text().catch(() => "") : "Network level timeout";
+        systemGeneratedAnswer = `Synthesis failure (Status: ${statusVal} on execution pool). Details: ${errText}`;
       }
     }
 
