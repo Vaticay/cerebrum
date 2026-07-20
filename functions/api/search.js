@@ -175,7 +175,7 @@ export async function onRequest(context) {
     const envGrid = context.env || {};
     const googleKey = envGrid.GOOGLE_SEARCH_API_KEY || "";
     const googleCx = envGrid.GOOGLE_SEARCH_CX || "";
-    const hfToken = envGrid.HUGGINGFACE_API_KEY;
+    const groqToken = envGrid.GROQ_API_KEY;
 
     const sources = await gatherAllData(query, googleKey, googleCx);
 
@@ -192,37 +192,42 @@ export async function onRequest(context) {
 
     let systemGeneratedAnswer = "";
 
-    if (!hfToken) {
-      systemGeneratedAnswer = `Configuration error: HUGGINGFACE_API_KEY environment variable is not set in the Cloudflare dashboard.`;
+    if (!groqToken) {
+      systemGeneratedAnswer = `Configuration error: GROQ_API_KEY environment variable is not set in the Cloudflare dashboard.`;
     } else {
-      // Swapping to the ultra-reliable Llama 3.2 3B Instruct production highway
-      const hfUrl = "https://api-inference.huggingface.co/models/meta-llama/Llama-3.2-3B-Instruct";
+      const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
       
       const promptPayload = {
-        inputs: `<|begin_of_text|><|start_header_id|>system<|end_header_id|>\nYou are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs.<|eot_id|><|start_header_id|>user<|end_header_id|>\nQuestion: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n`,
-        parameters: {
-          max_new_tokens: 500,
-          temperature: 0.2,
-          return_full_text: false
-        }
+        model: "llama3-8b-8192",
+        messages: [
+          {
+            role: "system",
+            content: "You are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs."
+          },
+          {
+            role: "user",
+            content: `Question: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}`
+          }
+        ],
+        temperature: 0.2,
+        max_tokens: 500
       };
 
-      const hfResponse = await fetch(hfUrl, {
+      const groqResponse = await fetch(groqUrl, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${hfToken}`
+          "Authorization": `Bearer ${groqToken}`
         },
         body: JSON.stringify(promptPayload)
       });
 
-      if (hfResponse.ok) {
-        const hfData = await hfResponse.json();
-        const rawText = Array.isArray(hfData) ? hfData[0]?.generated_text : hfData?.generated_text;
-        systemGeneratedAnswer = rawText || "Unable to read synthesis stream.";
+      if (groqResponse.ok) {
+        const groqData = await groqResponse.json();
+        systemGeneratedAnswer = groqData?.choices?.[0]?.message?.content || "Unable to read synthesis stream.";
       } else {
-        const errText = await hfResponse.text().catch(() => "");
-        systemGeneratedAnswer = `Inference engine dropped connection (Status: ${hfResponse.status}). Details: ${errText}`;
+        const errText = await groqResponse.text().catch(() => "");
+        systemGeneratedAnswer = `Inference engine dropped connection (Status: ${groqResponse.status}). Details: ${errText}`;
       }
     }
 
@@ -231,7 +236,7 @@ export async function onRequest(context) {
         answer: systemGeneratedAnswer.trim(),
         sources: sources,
         source: "Open-Source Knowledge Grid",
-        note: "Processed via serverless pipeline successfully."
+        note: "Processed via Groq successfully."
       }),
       {
         status: 200,
