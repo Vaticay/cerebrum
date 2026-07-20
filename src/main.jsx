@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 
-// --- Client-Side Encryption Utilities (Local Staging) ---
+// --- Client-Side Encryption Utilities ---
 function simpleTokenize(data) {
   return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
 }
@@ -27,12 +27,12 @@ function formatResponseText(text) {
     .replace(/\n/g, '<br />');
 }
 
-// --- Shared Brain Logo Component ---
-function BrainLogo() {
+// --- Original Brain Logo Vector ---
+function BrainLogo({ strokeColor = "#ffffff" }) {
   return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4a5d4e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
-      <path d="M12 6v6l4 2"/>
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={strokeColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, display: 'block' }}>
+      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
+      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
     </svg>
   );
 }
@@ -43,7 +43,6 @@ function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   
-  // App States: Session Vault & Stored Thread History Matrix
   const [user, setUser] = useState(() => localStorage.getItem('cerebrum_user') || null);
   const [authInput, setAuthInput] = useState({ email: "", password: "" });
   const [chats, setChats] = useState(() => {
@@ -99,23 +98,27 @@ function App() {
         body: JSON.stringify({ query: query.trim() }),
       });
 
-      // Secure handling against pipeline data dropouts
       const textData = await response.text();
       let result;
+      
       try {
         result = JSON.parse(textData);
       } catch (jsonErr) {
-        throw new Error("Pipeline Sync Alert: Received an invalid non-JSON stream from the upstream data server.");
+        // If server outputs raw text, salvage it into a workable object wrapper
+        if (textData && textData.trim().length > 0) {
+          result = { answer: textData, sources: [] };
+        } else {
+          throw new Error("Empty stream returned from upstream data nodes.");
+        }
       }
 
-      if (!response.ok) {
-        throw new Error(result.error || `Server responded with status ${response.status}`);
+      if (!response.ok && !result.answer) {
+        throw new Error(result.error || `Pipeline server error code: ${response.status}`);
       }
 
       setData(result);
-
       setChats(prev => [
-        { query: query.trim(), answer: result.answer, timestamp: new Date().toLocaleTimeString() },
+        { query: query.trim(), answer: result.answer },
         ...prev
       ]);
       setQuery("");
@@ -126,22 +129,14 @@ function App() {
     }
   };
 
-  const loadHistoricChat = (historicalRecord) => {
-    setData({
-      answer: historicalRecord.answer,
-      sources: []
-    });
-  };
-
-  // Guard Gate Authentication View Template with Guest Bypass
   if (!user) {
     return (
       <div className="auth-card-container">
         <div className="auth-card">
           <form onSubmit={handleAuth}>
             <div className="brand-header" style={{ justifyContent: 'center', marginBottom: '24px' }}>
-              <BrainLogo />
-              <h1 style={{ fontVariant: 'normal' }}>Cerebrum</h1>
+              <BrainLogo strokeColor="#38493d" />
+              <h1>Cerebrum</h1>
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '-15px', marginBottom: '20px' }}>
               Access the high-fidelity encrypted knowledge network.
@@ -150,7 +145,7 @@ function App() {
               type="email" 
               placeholder="Academic Email Address" 
               className="search-input" 
-              style={{ border: '1px solid var(--border-subtle)', borderRadius: '8px', marginBottom: '12px', padding: '10px', width: '94%' }}
+              style={{ border: '1px solid var(--border-subtle)', borderRadius: '8px', marginBottom: '12px', padding: '10px', width: '94%', background: '#fff' }}
               value={authInput.email}
               onChange={e => setAuthInput(prev => ({ ...prev, email: e.target.value }))}
               required
@@ -159,26 +154,22 @@ function App() {
               type="password" 
               placeholder="Secure Password Vault Token" 
               className="search-input" 
-              style={{ border: '1px solid var(--border-subtle)', borderRadius: '8px', marginBottom: '20px', padding: '10px', width: '94%' }}
+              style={{ border: '1px solid var(--border-subtle)', borderRadius: '8px', marginBottom: '20px', padding: '10px', width: '94%', background: '#fff' }}
               value={authInput.password}
               onChange={e => setAuthInput(prev => ({ ...prev, password: e.target.value }))}
               required
             />
-            <button type="submit" className="search-button" style={{ width: '100%', borderRadius: '8px', height: '42px', fontWeight: '600', marginBottom: '12px' }}>
+            <button type="submit" className="search-button-wide">
               Establish Encrypted Session
             </button>
           </form>
           
-          <div style={{ position: 'relative', textAlignment: 'center', margin: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'relative', margin: '16px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <span style={{ background: 'var(--bg-card)', padding: '0 10px', fontSize: '0.75rem', color: 'var(--text-muted)', zIndex: 2 }}>OR</span>
             <div style={{ position: 'absolute', width: '100%', borderTop: '1px solid var(--border-subtle)', zIndex: 1 }}></div>
           </div>
 
-          <button 
-            onClick={handleGuestBypass} 
-            className="utility-btn" 
-            style={{ width: '100%', borderRadius: '8px', height: '42px', fontWeight: '600', border: '1px solid var(--accent-green)', color: 'var(--accent-green)', marginTop: '10px' }}
-          >
+          <button onClick={handleGuestBypass} className="guest-button-wide">
             Use as Guest
           </button>
         </div>
@@ -188,12 +179,11 @@ function App() {
 
   return (
     <div className="dashboard-layout">
-      {/* Sidebar Navigation */}
       <aside className={`sidebar-container ${sidebarOpen ? 'open' : 'closed'}`}>
         <div className="sidebar-header">
-          <div className="brand-header" style={{ marginBottom: 0 }}>
-            <BrainLogo />
-            <h1>Cerebrum</h1>
+          <div className="brand-header">
+            <BrainLogo strokeColor="#ffffff" />
+            <h1 style={{ color: '#ffffff' }}>Cerebrum</h1>
           </div>
         </div>
 
@@ -203,7 +193,7 @@ function App() {
             <div className="empty-sidebar-notice">No stored search vectors detected.</div>
           ) : (
             chats.map((chat, idx) => (
-              <button key={idx} className="sidebar-chat-link" onClick={() => loadHistoricChat(chat)}>
+              <button key={idx} className="sidebar-chat-link" onClick={() => setData({ answer: chat.answer, sources: [] })}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 <span className="sidebar-link-text">{chat.query}</span>
               </button>
@@ -215,25 +205,24 @@ function App() {
           <div className="user-profile-plate">
             <div className="profile-avatar">{user[0].toUpperCase()}</div>
             <div className="profile-info">
-              <div className="profile-name">{user}</div>
-              <div className="profile-status">{user === 'Guest' ? 'Standard Access' : 'AES-256 Active'}</div>
+              <div className="profile-name" style={{ color: '#ffffff' }}>{user}</div>
+              <div className="profile-status">{user === 'Guest' ? 'Standard Tier' : 'AES-256 Vector'}</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-            <button className="utility-btn" style={{ color: '#d97741' }} onClick={clearHistory} title="Wipe stored records">Clear</button>
-            <button className="utility-btn" onClick={handleLogout}>Disconnect</button>
+            <button className="utility-btn-dark" onClick={clearHistory}>Clear</button>
+            <button className="utility-btn-dark" onClick={handleLogout}>Disconnect</button>
           </div>
         </div>
       </aside>
 
-      {/* Primary Workspace Main Frame */}
       <main className="main-content-area">
         <button className="sidebar-toggle-trigger" onClick={() => setSidebarOpen(!sidebarOpen)}>
-          {sidebarOpen ? '✕ Close Sidebar' : '☰ Open History'}
+          {sidebarOpen ? '✕ Hide Sidebar' : '☰ Open History'}
         </button>
 
-        <div className="app-container" style={{ paddingTop: '20px' }}>
-          <form onSubmit={handleSearch} className="search-wrapper" style={{ marginTop: '20px' }}>
+        <div className="app-container">
+          <form onSubmit={handleSearch} className="search-wrapper">
             <input
               type="text"
               className="search-input"
@@ -261,7 +250,6 @@ function App() {
               <div className="loading-shimmer" style={{ width: '40%' }}></div>
               <div className="loading-shimmer" style={{ width: '95%' }}></div>
               <div className="loading-shimmer" style={{ width: '85%' }}></div>
-              <div className="loading-shimmer" style={{ width: '65%' }}></div>
             </div>
           )}
 
@@ -302,7 +290,7 @@ function App() {
           )}
 
           <footer className="system-legal-disclaimer">
-            Cerebrum is a highly responsive AI synthesis search grid engine. Artificial Intelligence models can misrepresent complex structural correlations; always cross-examine critical data parameters back to their original source index citations.
+            Cerebrum is an AI search engine synthesis tool. Always verify critical metrics back to original index sources.
           </footer>
         </div>
       </main>
