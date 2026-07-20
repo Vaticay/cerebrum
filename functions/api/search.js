@@ -345,10 +345,23 @@ export async function gatherPapers(query, { openAlexKey, s2Key } = {}) {
   };
 }
 // --- Cloudflare Pages Serverless Function Entry Point ---
-export async function onRequestPost(context) {
+export async function onRequest(context) {
+  // Handle preflight OPTIONS requests if necessary
+  if (context.request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }
+
   try {
-    // 1. Parse the query sent by your React frontend
-    const { query } = await context.request.json();
+    // 1. Parse incoming payload safely
+    const body = await context.request.json().catch(() => ({}));
+    const query = (body.query || "").trim();
     
     if (!query) {
       return new Response(JSON.stringify({ error: "Query is required" }), {
@@ -357,30 +370,38 @@ export async function onRequestPost(context) {
       });
     }
 
-    // 2. Fetch the environment keys if you have configured them in the dashboard
+    // 2. Fetch potential environment keys
     const openAlexKey = context.env.OPENALEX_API_KEY || "";
     const s2Key = context.env.SEMANTIC_SCHOLAR_API_KEY || "";
 
-    // 3. Execute the paper gathering chain already built above
+    // 3. Gather academic documents
     const result = await gatherPapers(query, { openAlexKey, s2Key });
 
-    // 4. Return a mock answer text built from the abstracts since we aren't calling LLM yet
-    // (Or this can be wired directly into an AI endpoint using context.env.ANTHROPIC_API_KEY)
-    const summaryText = result.papers
+    // 4. Safe text extraction (prevents undefined .slice() crashes)
+    const summaryText = (result.papers || [])
       .slice(0, 3)
-      .map((p, idx) => `${p.title}: ${p.abstract.slice(0, 150)}... [${idx + 1}]`)
+      .map((p, idx) => {
+        const title = p.title || "Untitled Paper";
+        const abstractSnippet = p.abstract 
+          ? String(p.abstract).slice(0, 150) 
+          : "No abstract text available";
+        return `${title}: ${abstractSnippet}... [${idx + 1}]`;
+      })
       .join("\n\n");
 
     return new Response(
       JSON.stringify({
         answer: summaryText || "No matching literature found.",
-        sources: result.papers,
-        source: result.source,
-        note: `Retrieved ${result.papers.length} papers successfully.`
+        sources: result.papers || [],
+        source: result.source || "Unknown Source",
+        note: `Retrieved ${result.papers?.length || 0} papers successfully.`
       }),
       {
         status: 200,
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       }
     );
 
@@ -389,7 +410,10 @@ export async function onRequestPost(context) {
       JSON.stringify({ error: `Backend processing failed: ${error.message}` }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json" }
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       }
     );
   }
