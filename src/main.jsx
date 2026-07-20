@@ -14,32 +14,7 @@ function cleanStrings(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
 function refineClientQuery(query) {
-  return query.toLowerCase().replace(/\b(can you)?\b\s*\b(find|search|tell me about|look up|show me|what is|how does)\b/g, "").replace(/[^\w\s-]/g, "").replace(/\s+/g, " ").trim();
-}
-
-// --- Conversational Intent Router ---
-// Catches conversational baseline phrases before hitting the search network
-function handleConversationalIntent(query) {
-  const normalized = query.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-  
-  const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'greetings', 'good morning', 'good afternoon', 'howdy'];
-  const statusInquiries = ['how are you', 'hows it going', 'who are you', 'what are you', 'whats your name'];
-
-  if (greetings.includes(normalized)) {
-    return {
-      answer: `### 👋 Welcome to Cerebrum\n\nHello! I am your advanced academic intelligence workspace. What scientific mechanics, research papers, or computational datasets can I help you extract or synthesize today?`,
-      sources: []
-    };
-  }
-  
-  if (statusInquiries.includes(normalized)) {
-    return {
-      answer: `### 🧠 Core System Active\n\nI am Cerebrum, a next-gen academic search grid framework. My local encryption vaults, history nodes, and indexing paths are fully operational. Pass an inquiry into the console above, and I will parse live repositories for you.`,
-      sources: []
-    };
-  }
-
-  return null; // Continue to formal search routing
+  return query.toLowerCase().replace(/\b(can you)?\b\s*\b(find|search|tell me about|look up|show me|what is|how does|what the)\b/g, "").replace(/[^\w\s-]/g, "").replace(/\s+/g, " ").trim();
 }
 
 // --- Native Frontend Scientific Markdown Parser ---
@@ -59,47 +34,100 @@ function formatResponseText(text) {
   return formatted;
 }
 
-// --- Front-End Hardened Failover Index Gatherer ---
-async function emergencyClientFetch(rawQuery) {
-  const cleanKeyword = refineClientQuery(rawQuery);
-  if (!cleanKeyword) return { answer: "Please enter a valid search string.", sources: [] };
-  
-  try {
-    const currentYear = new Date().getFullYear();
-    const pmcUrl = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(cleanKeyword)}%20AND%20PUB_YEAR:[2020%20TO%20${currentYear}]&resultType=core&pageSize=4&format=json`;
-    
-    const res = await fetch(pmcUrl);
-    if (!res.ok) throw new Error("Fallback connection limit reached.");
-    const data = await res.json();
-    const rows = data?.resultList?.result || [];
-    
-    const sources = rows.filter(r => r.abstractText).map((r, i) => ({
-      title: r.title || "Academic Archive Record",
-      url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
-      year: r.pubYear || "2026",
-      authors: r.authorString || "Research Staff",
-      journal: r.journalInfo?.journal?.title || "Europe PMC Core Index",
-      abstract: cleanStrings(r.abstractText).slice(0, 450)
-    }));
+// --- Conversational Intent Router ---
+function handleConversationalIntent(query) {
+  const normalized = query.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+  const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'greetings', 'good morning', 'good afternoon', 'howdy'];
+  const statusInquiries = ['how are you', 'hows it going', 'who are you', 'what are you', 'whats your name'];
 
-    if (sources.length === 0) {
-      return {
-        answer: `### 🔍 Index Verification Scanning\nNo immediate matches found for "${rawQuery}" inside open database repositories. Please check search parameters or adjust keywords.`,
-        sources: []
-      };
-    }
-
-    const compiledAnswer = `### 🌐 Live Verification Matrix\n\n*Cerebrum has automatically switched to direct database verification networks to bypass upstream serverless node dropouts. Synthesizing factual extractions:* \n\n` +
-      sources.map((s, idx) => `#### [${idx + 1}] ${s.title}\n*   **Source / Archive:** ${s.journal} (${s.year})\n*   **Factual Metric Block:** ${s.abstract}\n*   **Reference Node:** [Access Source Document](${s.url})`).join("\n\n") +
-      `\n\n> 💡 *System Guarantee: This context block bypasses serverless networks entirely, guaranteeing zero hallucinatory drift by pinning results to official index parameters.*`;
-
-    return { answer: compiledAnswer, sources };
-  } catch (err) {
+  if (greetings.includes(normalized)) {
     return {
-      answer: `### ⚠️ Gateway Connection Exception\n\nUnable to establish safe connections to local cloud workers or academic backup vectors. Verify internet connection protocols or project dashboard environments.`,
+      answer: `### 👋 Welcome to Cerebrum\n\nHello! I am your advanced academic intelligence workspace. What scientific mechanics, research papers, or computational datasets can I help you extract or synthesize today?`,
       sources: []
     };
   }
+  if (statusInquiries.includes(normalized)) {
+    return {
+      answer: `### 🧠 Core System Active\n\nI am Cerebrum, a next-gen academic search grid framework. My local encryption vaults, history nodes, and indexing paths are fully operational. Pass an inquiry into the console above, and I will parse live repositories for you.`,
+      sources: []
+    };
+  }
+  return null;
+}
+
+// --- HARDENED DUAL-ENGINE CLIENT FALLBACK HUB ---
+// Jointly pulls a direct registry definition AND authentic scientific publications simultaneously
+async function emergencyClientFetch(rawQuery) {
+  let searchTopic = refineClientQuery(rawQuery);
+  if (!searchTopic) searchTopic = rawQuery;
+
+  let generalAnswerText = "";
+  let publicationSources = [];
+
+  // Parallel execution pass to minimize network latency spikes
+  await Promise.all([
+    // Pipeline Component A: Encyclopedic Direct Text Summary
+    (async () => {
+      try {
+        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchTopic)}&format=json&origin=*`;
+        const searchRes = await fetch(searchUrl);
+        const searchData = await searchRes.json();
+        const exactTitle = searchData?.query?.search?.[0]?.title;
+
+        if (exactTitle) {
+          const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(exactTitle.replace(/\s+/g, '_'))}`;
+          const summaryRes = await fetch(summaryUrl);
+          if (summaryRes.ok) {
+            const summaryData = await summaryRes.json();
+            generalAnswerText = `### 🌐 Definitive Matrix Abstract\n\n${summaryData.extract}\n\n`;
+          }
+        }
+      } catch (e) {
+        generalAnswerText = `### 🔍 Index Scan Notice\n\nDirect summary mapping hit a timeout barrier. Pulling available source documents directly below:\n\n`;
+      }
+    })(),
+
+    // Pipeline Component B: Real Peer-Reviewed Literature Ingestion
+    (async () => {
+      try {
+        const currentYear = new Date().getFullYear();
+        const pmcUrl = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(searchTopic)}%20AND%20PUB_YEAR:[2020%20TO%20${currentYear}]&resultType=core&pageSize=4&format=json`;
+        const res = await fetch(pmcUrl);
+        if (res.ok) {
+          const data = await res.json();
+          const rows = data?.resultList?.result || [];
+          publicationSources = rows.filter(r => r.abstractText).map((r) => ({
+            title: r.title || "Academic Archive Record",
+            url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
+            year: r.pubYear || "2026",
+            authors: r.authorString || "Research Staff",
+            journal: r.journalInfo?.journal?.title || "Europe PMC Core Index",
+            abstract: cleanStrings(r.abstractText).slice(0, 450)
+          }));
+        }
+      } catch (e) {}
+    })()
+  ]);
+
+  // Construct structured unified presentation frame
+  if (publicationSources.length === 0 && !generalAnswerText) {
+    return {
+      answer: `### 🔍 Zero Matrix Hits\n\nCerebrum found no active definitions or publications matching "${rawQuery}". Please adjust your terms.`,
+      sources: []
+    };
+  }
+
+  let finalMarkdownOutput = generalAnswerText || `### 🔬 Scanned Index Logs\n\n`;
+  
+  if (publicationSources.length > 0) {
+    finalMarkdownOutput += `### 📚 Associated Lit Index Cross-References\n\n` +
+      publicationSources.map((s, idx) => `*   **[${idx + 1}] ${s.title}**\n    *Field Documentation:* ${s.abstract.slice(0, 220)}... *(Source: ${s.journal})*`).join("\n\n");
+  }
+
+  return {
+    answer: finalMarkdownOutput + `\n\n> 💡 *Dual Fallback Triggered: Serverless cluster is under maintenance. Core metrics compiled natively via general reference metrics and live publication databases.*`,
+    sources: publicationSources
+  };
 }
 
 function BrainLogo({ strokeColor = "#ffffff" }) {
@@ -194,7 +222,6 @@ function App() {
             setError(null);
             setData(null);
 
-            // 1. Check for basic conversational inputs first
             const conversationalResult = handleConversationalIntent(query);
             if (conversationalResult) {
               setData(conversationalResult);
@@ -204,7 +231,6 @@ function App() {
               return;
             }
 
-            // 2. Fall back to standard deep indexing path
             try {
               const response = await fetch('/api/search', {
                 method: 'POST',
