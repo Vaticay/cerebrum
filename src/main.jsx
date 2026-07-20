@@ -17,6 +17,31 @@ function refineClientQuery(query) {
   return query.toLowerCase().replace(/\b(can you)?\b\s*\b(find|search|tell me about|look up|show me|what is|how does)\b/g, "").replace(/[^\w\s-]/g, "").replace(/\s+/g, " ").trim();
 }
 
+// --- Conversational Intent Router ---
+// Catches conversational baseline phrases before hitting the search network
+function handleConversationalIntent(query) {
+  const normalized = query.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+  
+  const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'greetings', 'good morning', 'good afternoon', 'howdy'];
+  const statusInquiries = ['how are you', 'hows it going', 'who are you', 'what are you', 'whats your name'];
+
+  if (greetings.includes(normalized)) {
+    return {
+      answer: `### 👋 Welcome to Cerebrum\n\nHello! I am your advanced academic intelligence workspace. What scientific mechanics, research papers, or computational datasets can I help you extract or synthesize today?`,
+      sources: []
+    };
+  }
+  
+  if (statusInquiries.includes(normalized)) {
+    return {
+      answer: `### 🧠 Core System Active\n\nI am Cerebrum, a next-gen academic search grid framework. My local encryption vaults, history nodes, and indexing paths are fully operational. Pass an inquiry into the console above, and I will parse live repositories for you.`,
+      sources: []
+    };
+  }
+
+  return null; // Continue to formal search routing
+}
+
 // --- Native Frontend Scientific Markdown Parser ---
 function formatResponseText(text) {
   if (!text) return "";
@@ -93,7 +118,6 @@ function App() {
   const [error, setError] = useState(null);
   
   const [user, setUser] = useState(() => localStorage.getItem('cerebrum_user') || null);
-  const [authInput, setAuthInput] = useState({ email: "", password: "" });
   const [chats, setChats] = useState(() => {
     const encryptedData = localStorage.getItem('cerebrum_vault');
     return encryptedData ? simpleDetokenize(encryptedData) : [];
@@ -116,18 +140,10 @@ function App() {
     localStorage.setItem('cerebrum_vault', simpleTokenize(chats));
   }, [chats]);
 
-  const handleAuth = (e) => {
-    e.preventDefault();
-    if (!authInput.email || !authInput.password) return;
-    const username = authInput.email.split('@')[0];
-    const capitalizedUser = username.charAt(0).toUpperCase() + username.slice(1);
-    localStorage.setItem('cerebrum_user', capitalizedUser);
-    setUser(capitalizedUser);
-  };
+  const clearHistory = () => { localStorage.removeItem('cerebrum_vault'); window.location.reload(); };
 
   return (
     <div className="dashboard-layout">
-      {/* Sidebar Layout Frame */}
       <aside className={`sidebar-container ${sidebarOpen ? 'open' : 'closed'}`}>
         <div className="sidebar-header">
           <div className="brand-header">
@@ -165,7 +181,6 @@ function App() {
         </div>
       </aside>
 
-      {/* Main Workspace Frame */}
       <main className="main-content-area">
         <button className="sidebar-toggle-trigger" onClick={() => setSidebarOpen(!sidebarOpen)}>
           {sidebarOpen ? '✕ Hide Sidebar' : '☰ Open History'}
@@ -179,8 +194,18 @@ function App() {
             setError(null);
             setData(null);
 
+            // 1. Check for basic conversational inputs first
+            const conversationalResult = handleConversationalIntent(query);
+            if (conversationalResult) {
+              setData(conversationalResult);
+              setChats(prev => [{ query: query.trim(), answer: conversationalResult.answer, sources: [] }, ...prev]);
+              setQuery("");
+              setLoading(false);
+              return;
+            }
+
+            // 2. Fall back to standard deep indexing path
             try {
-              // Primary path attempt to reach serverless router matrix
               const response = await fetch('/api/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -193,7 +218,6 @@ function App() {
               if (response.ok && textData.trim().length > 0) {
                 try { result = JSON.parse(textData); } catch(jE) { result = { answer: textData, sources: [] }; }
               } else {
-                // Instantly step down to local index parser if server route returns an empty stream
                 result = await emergencyClientFetch(query.trim());
               }
 
@@ -201,7 +225,6 @@ function App() {
               setChats(prev => [{ query: query.trim(), answer: result.answer, sources: result.sources || [] }, ...prev]);
               setQuery("");
             } catch (err) {
-              // Direct catch failover execution block
               const backupResult = await emergencyClientFetch(query.trim());
               setData(backupResult);
               setChats(prev => [{ query: query.trim(), answer: backupResult.answer, sources: backupResult.sources || [] }, ...prev]);
@@ -274,9 +297,6 @@ function App() {
   );
 }
 
-const clearHistory = () => { localStorage.removeItem('cerebrum_vault'); window.location.reload(); };
-
-// Check for direct user context initialization conditions inside entry mounts
 if (!localStorage.getItem('cerebrum_user')) { localStorage.setItem('cerebrum_user', 'Guest'); }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
