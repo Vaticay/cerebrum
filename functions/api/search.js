@@ -172,11 +172,11 @@ export async function onRequest(context) {
       });
     }
 
-    const googleKey = context.env.GOOGLE_SEARCH_API_KEY || "";
-    const googleCx = context.env.GOOGLE_SEARCH_CX || "";
-    
-    // Using Hugging Face open-source token instead of Gemini
-    const hfToken = context.env.HUGGINGFACE_API_KEY;
+    // Extraction Safety Check: Check context.env OR context.request.env depending on platform configurations
+    const envGrid = context.env || {};
+    const googleKey = envGrid.GOOGLE_SEARCH_API_KEY || "";
+    const googleCx = envGrid.GOOGLE_SEARCH_CX || "";
+    const hfToken = envGrid.HUGGINGFACE_API_KEY;
 
     const sources = await gatherAllData(query, googleKey, googleCx);
 
@@ -194,9 +194,8 @@ export async function onRequest(context) {
     let systemGeneratedAnswer = "";
 
     if (!hfToken) {
-      systemGeneratedAnswer = "Configuration error: HUGGINGFACE_API_KEY environment variable is not set in the Cloudflare dashboard.";
+      systemGeneratedAnswer = `Configuration error: HUGGINGFACE_API_KEY environment variable is not set in the Cloudflare dashboard. (System Debug Info: Keys detected: ${Object.keys(envGrid).join(', ') || 'none'})`;
     } else {
-      // Querying Meta's high-capacity Llama 3 8B model via Hugging Face serverless layer
       const hfUrl = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct";
       
       const promptPayload = {
@@ -224,7 +223,6 @@ ${knowledgeContext}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`,
 
       if (hfResponse.ok) {
         const hfData = await hfResponse.json();
-        // Extract output safely depending on Hugging Face structure layouts
         const rawText = Array.isArray(hfData) ? hfData[0]?.generated_text : hfData?.generated_text;
         systemGeneratedAnswer = rawText || "Unable to read synthesis stream.";
       } else {
@@ -253,5 +251,3 @@ ${knowledgeContext}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`,
     );
   }
 }
-
-
