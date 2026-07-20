@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ReactDOM from 'react-dom/client';
 
 // --- Premium Client-Side Markdown Parser Utility ---
 function formatResponseText(text) {
@@ -7,17 +8,21 @@ function formatResponseText(text) {
   return text
     // Replace markdown headers (### Text) with styled HTML headings
     .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
+    // Replace main title headers (# Text)
+    .replace(/^#\s+(.+)$/gm, '<h3>$1</h3>')
     // Replace structured bullet lists (- **Bold**: Body)
     .replace(/^-\s+\*\*(.+?)\*\*:\s*(.+)$/gm, '<li><strong>$1</strong>: $2</li>')
     // Replace stand-alone bold marks (**Text**)
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     // Replace blockquotes (> Text)
     .replace(/^>\s+(.+)$/gm, '<blockquote>$1</blockquote>')
+    // Clean up decorative divider lines (---)
+    .replace(/^---$/gm, '<hr style="border: 0; border-top: 1px solid var(--border-subtle); margin: 24px 0;" />')
     // Convert regular line breaks into clean vertical element spacing
     .replace(/\n/g, '<br />');
 }
 
-export default function App() {
+function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
@@ -32,7 +37,6 @@ export default function App() {
     setData(null);
 
     try {
-      // Direct connection to your serverless Cloudflare API endpoint
       const response = await fetch('/functions/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,7 +75,7 @@ export default function App() {
         <input
           type="text"
           className="search-input"
-          placeholder="Ask anything... (e.g., Why is the SN2 reaction stereospecific?)"
+          placeholder="Ask anything..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={loading}
@@ -152,3 +156,10 @@ export default function App() {
     </div>
   );
 }
+
+// Mount directly to the index.html root block
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
