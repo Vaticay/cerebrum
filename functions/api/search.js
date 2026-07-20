@@ -228,18 +228,15 @@ export async function onRequest(context) {
     } else {
       const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
       
-      // Dynamic cascading array of fully supported free production endpoints on OpenRouter
+      // Fixed cascade list using OpenRouter's official dynamic free router fallback string
       const modelsToTry = [
         "meta-llama/llama-3.3-70b-instruct:free",
-        "google/gemini-2.0-flash-lite-preview-02-05:free"
+        "openrouter/free"
       ];
       
       let orResponse;
-      let usedModel = "";
 
       for (const model of modelsToTry) {
-        usedModel = model;
-        
         const promptPayload = {
           model: model,
           messages: [
@@ -274,10 +271,9 @@ CRITICAL INSTRUCTIONS:
             body: JSON.stringify(promptPayload)
           });
 
-          // If the model hits successfully, break the cascade loop
           if (orResponse.ok) break;
         } catch (e) {
-          // Fall through to backup model on connection issues
+          // Fall through to openrouter/free catch-all on network dropout
         }
       }
 
