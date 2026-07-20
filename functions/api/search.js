@@ -43,7 +43,7 @@ async function getText(url, headers = {}) {
 }
 
 // ---------- Source: Europe PMC ----------
-async function europePMC(query, limit = 6) {
+async function europePMC(query, limit = 8) {
   const url =
     "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
     new URLSearchParams({ query, resultType: "core", pageSize: String(limit), format: "json", sort: "CITED desc" });
@@ -101,7 +101,7 @@ function parsePubmedXML(xmlText) {
     };
   });
 }
-async function pubmed(query, limit = 6) {
+async function pubmed(query, limit = 8) {
   const tool = "&tool=cerebrum&email=noreply@example.com";
   try {
     const es = await getJSON(
@@ -123,7 +123,7 @@ async function pubmed(query, limit = 6) {
 }
 
 // ---------- Source: OpenAlex ----------
-async function openAlex(query, limit = 6, key = "") {
+async function openAlex(query, limit = 8, key = "") {
   if (!key) return [];
   try {
     const params = new URLSearchParams({
@@ -219,13 +219,35 @@ async function traceUTK(query) {
   }));
 }
 
+// Strip filler/question words so only real topic terms hit the databases.
+const STOPWORDS = new Set([
+  "what","whats","how","does","do","did","is","are","was","were","the","a","an",
+  "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
+  "why","when","where","which","who","can","you","please","give","show","find",
+  "search","look","up","that","this","these","those","it","its","work","works",
+  "happen","happens","mean","means","between","into","from","as","at","be","been",
+  "get","got","i","my","we","our","use","used","using","there","their","they",
+]);
+
+function cleanQuery(raw) {
+  const cleaned = raw
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+    .join(" ")
+    .trim();
+  return cleaned || raw.trim();
+}
+
 // ---------- Gather + rank ----------
-async function gatherPapers(query, { openAlexKey }) {
+async function gatherPapers(rawQuery, { openAlexKey }) {
+  const query = cleanQuery(rawQuery);
   const [epmc, pm, trace, oa] = await Promise.all([
-    europePMC(query, 6),
-    pubmed(query, 6),
+    europePMC(query, 8),
+    pubmed(query, 8),
     traceUTK(query),
-    openAlex(query, 6, openAlexKey),
+    openAlex(query, 8, openAlexKey),
   ]);
 
   const merged = [];
@@ -241,18 +263,21 @@ async function gatherPapers(query, { openAlexKey }) {
   }
 
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  const ranked = merged
+  const scored = merged
     .map((p) => {
       const hay = `${p.title} ${p.abstract}`.toLowerCase();
-      let score = terms.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
-      if (typeof p.citations === "number") score += Math.min(p.citations / 500, 2);
-      return { ...p, score };
+      const hits = terms.filter((t) => hay.includes(t)).length;
+      const coverage = terms.length ? hits / terms.length : 0;
+      let score = hits + coverage * 2;
+      if (typeof p.citations === "number") score += Math.min(p.citations / 500, 1.5);
+      return { ...p, score, coverage };
     })
+    .filter((p) => (terms.length <= 1 ? p.coverage > 0 : p.coverage >= 0.5))
     .sort((a, b) => b.score - a.score)
     .slice(0, 6);
 
-  const usedUTK = ranked.some((p) => p.journal === "UTK TRACE");
-  return { papers: ranked, utk: usedUTK };
+  const usedUTK = scored.some((p) => p.journal === "UTK TRACE");
+  return { papers: scored, utk: usedUTK };
 }
 
 // ---------- The endpoint ----------
