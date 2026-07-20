@@ -3,3 +3,4 @@ pages_build_output_dir = "dist"
 
 [functions]
 dir = "functions"
+# load keys production
