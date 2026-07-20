@@ -194,9 +194,9 @@ function App() {
   useEffect(() => { if (entered && !isMobile) inputRef.current?.focus(); }, [entered, isMobile]);
   useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [turns, busy]);
   useEffect(() => {
-    if (busy && !mutedRef.current) Audio.startAmbient(); else Audio.stopAmbient();
+    if (busy && !muted) Audio.startAmbient(); else Audio.stopAmbient();
     return () => Audio.stopAmbient();
-  }, [busy]);
+  }, [busy, muted]);
 
   async function ask(q) {
     const question = (q ?? input).trim();
