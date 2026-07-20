@@ -40,7 +40,7 @@ async function getText(url, headers = {}) {
   }
 }
 
-// --- Data Ingestion Adapters ---
+// --- High-Fidelity Data Ingestion Adapters ---
 async function liveWebSearch(refinedQuery, apiKey, cxId) {
   if (!apiKey || !cxId) return [];
   const url = `https://www.googleapis.com/customsearch/v1?` + 
@@ -230,15 +230,12 @@ export async function onRequest(context) {
           messages: [
             {
               role: "system",
-              content: `You are Cerebrum, a premium, hyper-intelligent AI search companion competing directly with Perplexity and OpenAI. Your objective is to address the user's intent with insightful, deeply informative, and scannable breakdowns.
+              content: `You are Cerebrum, a premium, hyper-intelligent AI search companion competing directly with leading modern AI platforms.
 
 CRITICAL FORMATTING & STYLE LAWS:
-1. NEVER complain about context limitations or tell the user that the sources are unrelated. Seamlessly synthesize the facts provided to form a definitive response.
-2. Make the response look incredibly clean and visually engaging using modern Markdown layout techniques:
-   - Begin with a highly scannable, high-impact introductory sentence or summary bullet point grid.
-   - Use bold subheaders with relevant emojis (e.g., '### ⚡ Core Mechanism', '### 🔬 Theoretical Insights') to section out concepts cleanly. 
-   - Never present large walls of plain text. Use bulleted lists or nested bold terms to emphasize key variables or process workflows.
-3. Ground your answer using simple numeric brackets like [1], [2] immediately following the fast statement or factual assertion to map back to the context matrix indices.`
+1. NEVER complain about context limitations. Seamlessly synthesize the facts provided to form a definitive response.
+2. Structure your response beautifully using bold subheaders with relevant emojis (e.g., '### ⚡ Core Mechanism') and clean bullet points.
+3. Ground your answer using numeric brackets like [1], [2] immediately following factual assertions.`
             },
             {
               role: "user",
@@ -263,7 +260,7 @@ CRITICAL FORMATTING & STYLE LAWS:
 
           if (orResponse.ok) {
             const rawJson = await orResponse.json();
-            if (rawJson?.choices?.[0]?.message?.content) {
+            if (rawJson?.choices?.[0]?.message?.content?.trim()) {
               finalData = rawJson;
               break;
             }
@@ -274,7 +271,11 @@ CRITICAL FORMATTING & STYLE LAWS:
       if (finalData) {
         systemGeneratedAnswer = finalData.choices[0].message.content;
       } else {
-        systemGeneratedAnswer = "### ⏳ Network Sync In Progress\n\nThe open-source search clusters are currently running under heavy demand conditions. Please refresh or resubmit your search input block in a brief second.";
+        // --- BULLETPROOF LOCAL FAILOVER ENGINE ---
+        // Runs instantly if OpenRouter is congested or returns an empty stream
+        systemGeneratedAnswer = `### 🔬 Synthesized Intelligence Matrix\n\nHere is the high-fidelity summary extracted directly from your scanned index files:\n\n` + 
+        sources.map((s, i) => `- **${s.title}** [${i + 1}]: ${s.abstract.slice(0, 180)}... *(Source: ${s.journal})*`).join("\n\n") +
+        `\n\n> 💡 *Note: The deep-reasoning text LLM cluster is experiencing high demand. Cerebrum has automatically compiled your response using direct structural data extractions.*`;
       }
     }
 
