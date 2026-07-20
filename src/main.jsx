@@ -16,7 +16,7 @@ function cleanStrings(s) {
 
 function refineClientQuery(query) {
   return query.toLowerCase()
-    .replace(/\b(can you)?\b\s*\b(find|search|tell me about|look up|show me|what is|how does|what the|who is|papers by|publications by)\b/g, "")
+    .replace(/\b(can you)?\b\s*\b(find|search|tell me about|look up|show me|what is|how does|what the|who is|papers by|publications by|sam e thing|same thing)\b/g, "")
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -78,7 +78,7 @@ function formatResponseText(text) {
 function handleConversationalIntent(query) {
   const normalized = query.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
   const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'greetings', 'good morning', 'good afternoon', 'howdy'];
-  const statusInquiries = ['how are you', 'hows it going', 'who are you', 'what are you', 'whats your name'];
+  const statusInquiries = ['how are you', 'hows it going', 'who are you', 'what are you', 'whats your name', 'sam e thing', 'same thing'];
 
   if (greetings.includes(normalized)) {
     return {
@@ -86,9 +86,9 @@ function handleConversationalIntent(query) {
       sources: []
     };
   }
-  if (statusInquiries.includes(normalized)) {
+  if (statusInquiries.includes(normalized) || normalized.length < 3) {
     return {
-      answer: `### 🧠 Core System Active\n\nI am Cerebrum, a next-gen academic search grid framework. My local encryption vaults, history nodes, and indexing paths are fully operational. Pass an inquiry into the console above, and I will parse live repositories for you.`,
+      answer: `### 🧠 Core System Active\n\nI am Cerebrum, a next-gen academic search grid framework. Pass an inquiry or a distinct scientific subject profile into the console above, and I will parse live repositories for you.`,
       sources: []
     };
   }
@@ -99,7 +99,9 @@ function handleConversationalIntent(query) {
 async function emergencyClientFetch(rawQuery) {
   const isAuthorSearch = detectAuthorIntent(rawQuery);
   const searchTopic = refineClientQuery(rawQuery);
-  if (!searchTopic) return { answer: "Please enter a valid search string.", sources: [] };
+  if (!searchTopic || searchTopic.length < 3) {
+    return { answer: "### 🔍 System Query Guide\n\nPlease supply a distinct topic keyword (e.g., 'largest human organ' or an author profile) to execute a targeted repository extract.", sources: [] };
+  }
 
   let generalAnswerText = "";
   let masterSources = [];
@@ -118,7 +120,7 @@ async function emergencyClientFetch(rawQuery) {
           const summaryRes = await fetch(summaryUrl);
           if (summaryRes.ok) {
             const summaryData = await summaryRes.json();
-            generalAnswerText = `### 📊 Verified Analysis Index: "${summaryData.title}"\n\n> **Primary Literature Summary:** ${summaryData.extract}\n\n`;
+            generalAnswerText = `### 📊 Verified Analysis Index: "${summaryData.title}"\n\n> **Core Scientific Target:** ${summaryData.extract}\n\n`;
           }
         }
       } catch (e) {
@@ -202,20 +204,10 @@ async function emergencyClientFetch(rawQuery) {
   };
 }
 
-function BrainLogo({ strokeColor = "#ffffff" }) {
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={strokeColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, display: 'block' }}>
-      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
-      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
-    </svg>
-  );
-}
-
 function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
   
   const [user, setUser] = useState(() => localStorage.getItem('cerebrum_user') || null);
   const [chats, setChats] = useState(() => {
@@ -291,7 +283,6 @@ function App() {
             e.preventDefault();
             if (!query.trim()) return;
             setLoading(true);
-            setError(null);
             setData(null);
 
             const conversationalResult = handleConversationalIntent(query);
