@@ -221,7 +221,14 @@ export async function onRequest(context) {
       systemGeneratedAnswer = `### ⚠️ Integration Error\n\nThe configuration key \`OPENROUTER_API_KEY\` is missing from your environment dashboard variables.`;
     } else {
       const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
-      const modelsToTry = ["meta-llama/llama-3.3-70b-instruct:free", "openrouter/free"];
+      
+      // Cascading model routing array to bypass heavy congestion dropouts automatically
+      const modelsToTry = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.5-flash",
+        "deepseek/deepseek-chat"
+      ];
+      
       let finalData = null;
 
       for (const model of modelsToTry) {
@@ -230,11 +237,11 @@ export async function onRequest(context) {
           messages: [
             {
               role: "system",
-              content: `You are Cerebrum, a premium, hyper-intelligent AI search companion competing directly with leading modern AI platforms.
+              content: `You are Cerebrum, a premium, hyper-intelligent AI search companion.
 
 CRITICAL FORMATTING & STYLE LAWS:
 1. NEVER complain about context limitations. Seamlessly synthesize the facts provided to form a definitive response.
-2. Structure your response beautifully using bold subheaders with relevant emojis (e.g., '### ⚡ Core Mechanism') and clean bullet points.
+2. Structure your response beautifully using bold subheaders with relevant emojis (e.g., '### ⚡ Core Mechanism') and clean bullet points. Always use KaTeX style notation like $E = mc^2$ or $$x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$ when presenting complex mathematical equations.
 3. Ground your answer using numeric brackets like [1], [2] immediately following factual assertions.`
             },
             {
@@ -243,7 +250,7 @@ CRITICAL FORMATTING & STYLE LAWS:
             }
           ],
           temperature: 0.2,
-          max_tokens: 700
+          max_tokens: 800
         };
 
         try {
@@ -262,7 +269,7 @@ CRITICAL FORMATTING & STYLE LAWS:
             const rawJson = await orResponse.json();
             if (rawJson?.choices?.[0]?.message?.content?.trim()) {
               finalData = rawJson;
-              break;
+              break; // Drop out of the retry loop the moment data exists
             }
           }
         } catch (e) {}
@@ -271,11 +278,10 @@ CRITICAL FORMATTING & STYLE LAWS:
       if (finalData) {
         systemGeneratedAnswer = finalData.choices[0].message.content;
       } else {
-        // --- BULLETPROOF LOCAL FAILOVER ENGINE ---
-        // Runs instantly if OpenRouter is congested or returns an empty stream
-        systemGeneratedAnswer = `### 🔬 Synthesized Intelligence Matrix\n\nHere is the high-fidelity summary extracted directly from your scanned index files:\n\n` + 
-        sources.map((s, i) => `- **${s.title}** [${i + 1}]: ${s.abstract.slice(0, 180)}... *(Source: ${s.journal})*`).join("\n\n") +
-        `\n\n> 💡 *Note: The deep-reasoning text LLM cluster is experiencing high demand. Cerebrum has automatically compiled your response using direct structural data extractions.*`;
+        // Safe context extractions if upstream pipes fail completely
+        systemGeneratedAnswer = `### 🔬 Synthesized Knowledge Layer\n\nCerebrum has compiled direct text matrix metrics from your database indexes:\n\n` + 
+        sources.map((s, i) => `- **${s.title}** [${i + 1}]: ${s.abstract.slice(0, 220)}... *(Source: ${s.journal})*`).join("\n\n") +
+        `\n\n> 💡 *System Notice: The upstream text completion APIs returned an empty payload stream. This response was safely fallback-compiled using indexed source contexts.*`;
       }
     }
 
