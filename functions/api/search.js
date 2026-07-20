@@ -1,4 +1,4 @@
-// --- Core Utility Helpers with Timeouts ---
+// --- Core Utility Helpers with Timeouts & Token Trimming ---
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
@@ -45,7 +45,7 @@ async function liveWebSearch(query, apiKey, cxId) {
       citations: null,
       authors: "Web Resource",
       journal: "Google Live Search",
-      abstract: item.snippet || ""
+      abstract: (item.snippet || "").slice(0, 400) 
     }));
   } catch { return []; }
 }
@@ -71,7 +71,7 @@ async function europePMC(query, limit = 2) {
       citations: r.citedByCount ?? null,
       authors: r.authorString || "Academic Source",
       journal: "Europe PMC",
-      abstract: stripTags(r.abstractText),
+      abstract: stripTags(r.abstractText).slice(0, 400), 
     }));
   } catch { return []; }
 }
@@ -106,7 +106,7 @@ function fastExtractUniversityRecords(xmlText, sourceName, terms) {
       citations: null,
       authors: "University Scholar",
       journal: sourceName,
-      abstract: stripTags(abstract)
+      abstract: stripTags(abstract).slice(0, 400) 
     });
     count++;
   }
@@ -145,7 +145,7 @@ async function gatherAllData(query, googleKey, googleCx) {
       distinctSources.push(item);
     }
   }
-  return distinctSources.slice(0, 6);
+  return distinctSources.slice(0, 5);
 }
 
 // --- CLOUDFLARE MAIN OPERATION PIPELINE ---
@@ -172,12 +172,12 @@ export async function onRequest(context) {
       });
     }
 
-    // 1. Fetch credentials securely from environment
     const googleKey = context.env.GOOGLE_SEARCH_API_KEY || "";
     const googleCx = context.env.GOOGLE_SEARCH_CX || "";
-    const geminiKey = context.env.GEMINI_API_KEY;
+    
+    // Using Hugging Face open-source token instead of Gemini
+    const hfToken = context.env.HUGGINGFACE_API_KEY;
 
-    // 2. Scan web grids, indexes, and networks simultaneously
     const sources = await gatherAllData(query, googleKey, googleCx);
 
     if (sources.length === 0) {
@@ -187,78 +187,58 @@ export async function onRequest(context) {
       }), { status: 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
     }
 
-    // 3. Compile the comprehensive context prompt
     const knowledgeContext = sources.map((s, i) => 
-      `Resource [${i + 1}]:\nTitle: ${s.title}\nSource Location: ${s.journal}\nInformation/Abstract: ${s.abstract}\n`
+      `Source [${i + 1}]:\nTitle: ${s.title}\nLocation: ${s.journal}\nData: ${s.abstract}\n`
     ).join("\n");
 
     let systemGeneratedAnswer = "";
 
-    if (!geminiKey) {
-      systemGeneratedAnswer = "Configuration error: GEMINI_API_KEY is not bound inside the dashboard variables grid.";
+    if (!hfToken) {
+      systemGeneratedAnswer = "Configuration error: HUGGINGFACE_API_KEY environment variable is not set in the Cloudflare dashboard.";
     } else {
-      // Direct v1 production models matching correct formatting structure
-      const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-pro"];
-      let geminiResponse;
-      let usedModel = "";
+      // Querying Meta's high-capacity Llama 3 8B model via Hugging Face serverless layer
+      const hfUrl = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct";
+      
+      const promptPayload = {
+        inputs: `<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+You are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs.<|eot_id|><|start_header_id|>user<|end_header_id|>
+Question: "${query}"
 
-      const prompt = {
-        contents: [{
-          parts: [{
-            text: `You are Cerebrum, a powerful, multi-modal AI search assistant exactly like Gemini. 
-Your goal is to fulfill the user's request comprehensively by synthesizing the live web data and academic records provided.
-
-User Request: "${query}"
-
-Knowledge Context Matrix:
-${knowledgeContext}
-
-Instructions:
-1. Provide a fluid, expert, and deeply informative response answering the user directly. Do not sound like a simple index; sound like an intelligent companion.
-2. Blend current web knowledge with rigorous scientific data seamlessly.
-3. You MUST use simple numeric brackets like [1], [2] immediately following a fact to attribute it to the specific source index from the matrix.
-4. Keep the presentation highly clean, engaging, and clear.`
-          }]
-        }]
+Scanned Sources Context Matrix:
+${knowledgeContext}<|eot_id|><|start_header_id|>assistant<|end_header_id|>`,
+        parameters: {
+          max_new_tokens: 500,
+          temperature: 0.2,
+          return_full_text: false
+        }
       };
 
-      // Loop over current generation endpoints
-      for (const model of modelsToTry) {
-        usedModel = model;
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${geminiKey}`;
-        
-        try {
-          geminiResponse = await fetch(geminiUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(prompt)
-          });
+      const hfResponse = await fetch(hfUrl, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${hfToken}`
+        },
+        body: JSON.stringify(promptPayload)
+      });
 
-          // Break early if we clear out 404/503/429 limits
-          if (geminiResponse.status !== 503 && geminiResponse.status !== 429 && geminiResponse.status !== 404) {
-            break;
-          }
-        } catch (e) {
-          // Keep cycling endpoints if network issues arise
-        }
-      }
-
-      if (geminiResponse && geminiResponse.ok) {
-        const geminiData = await geminiResponse.json();
-        systemGeneratedAnswer = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "Unable to extract synthesis stream.";
+      if (hfResponse.ok) {
+        const hfData = await hfResponse.json();
+        // Extract output safely depending on Hugging Face structure layouts
+        const rawText = Array.isArray(hfData) ? hfData[0]?.generated_text : hfData?.generated_text;
+        systemGeneratedAnswer = rawText || "Unable to read synthesis stream.";
       } else {
-        const statusVal = geminiResponse ? geminiResponse.status : "unknown";
-        const errText = geminiResponse ? await geminiResponse.text().catch(() => "") : "Network level timeout";
-        systemGeneratedAnswer = `Synthesis failure (Status: ${statusVal} on execution pool using ${usedModel}). Details: ${errText}`;
+        const errText = await hfResponse.text().catch(() => "");
+        systemGeneratedAnswer = `Inference engine dropped connection (Status: ${hfResponse.status}). Details: ${errText}`;
       }
     }
 
     return new Response(
       JSON.stringify({
-        answer: systemGeneratedAnswer,
+        answer: systemGeneratedAnswer.trim(),
         sources: sources,
-        source: googleKey && googleCx ? "Google Hybrid Search Engine" : "Multi-Repository Network",
-        note: "Successfully fetched cross-platform context pools."
+        source: "Open-Source Knowledge Grid",
+        note: "Processed via serverless pipeline successfully."
       }),
       {
         status: 200,
