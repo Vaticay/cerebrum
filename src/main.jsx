@@ -43,21 +43,21 @@ function formatResponseText(text) {
   if (!text) return "";
   let formatted = text;
 
-  // 1. Standalone Block Math Parser ($ Rhine Elements)
+  // 1. Standalone Block Math Parser
   formatted = formatted.replace(/\$\$\s*([\s\S]+?)\s*\$\$/g, (m, math) => `<div class="math-block-container"><span class="katex-display-fallback">${math}</span></div>`);
 
-  // 2. Inline Math Parser ($...$) 
+  // 2. Inline Math Parser
   formatted = formatted.replace(/\$([^\$\n]+?)\$/g, (m, math) => `<span class="math-inline-container">${math}</span>`);
 
-  // 3. Scrub raw AI hashtags or leftover stray characters completely
+  // 3. Scrub raw AI hashtags completely
   formatted = formatted.replace(/#+/g, '');
 
-  // 4. Transform structured headers into clean executive text divisions
+  // 4. Transform structured headers into clean text divisions
   formatted = formatted
     .replace(/^###\s+(.+)$/gm, '<div class="scholarly-h3">$1</div>')
     .replace(/^#\s+(.+)$/gm, '<div class="scholarly-h2">$1</div>');
 
-  // 5. Build rigid academic list groupings rather than raw markdown string slop
+  // 5. Build rigid academic list groupings
   formatted = formatted.replace(/^-\s+\*\*(.+?)\*\*:\s*(.+)$/gm, '<li class="scholarly-item"><strong>$1</strong>: $2</li>');
   formatted = formatted.replace(/^\*\s+(.+)$/gm, '<li class="scholarly-item">$1</li>');
   formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -68,7 +68,7 @@ function formatResponseText(text) {
   // 7. Clean up decorative divider lines
   formatted = formatted.replace(/^---$/gm, '<hr style="border: 0; border-top: 1px solid var(--border-subtle); margin: 32px 0;" />');
   
-  // 8. Convert remaining standard line breaks cleanly
+  // 8. Convert remaining line breaks
   formatted = formatted.replace(/\n/g, '<br />');
 
   return formatted;
@@ -200,6 +200,15 @@ async function emergencyClientFetch(rawQuery) {
     answer: finalMarkdownOutput + `\n\n--- \n> 🛡️ *Verified Fact-Checker Protection Mode: Context parsed natively through Wikipedia Open Registry, arXiv Technical Archives, and Europe PMC Literature paths.*`,
     sources: masterSources
   };
+}
+
+function BrainLogo({ strokeColor = "#ffffff" }) {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={strokeColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, display: 'block' }}>
+      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
+      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
+    </svg>
+  );
 }
 
 function App() {
