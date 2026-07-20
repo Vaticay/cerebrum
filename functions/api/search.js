@@ -175,7 +175,7 @@ export async function onRequest(context) {
     const envGrid = context.env || {};
     const googleKey = envGrid.GOOGLE_SEARCH_API_KEY || "";
     const googleCx = envGrid.GOOGLE_SEARCH_CX || "";
-    const groqToken = envGrid.GROQ_API_KEY;
+    const openRouterToken = envGrid.OPENROUTER_API_KEY;
 
     const sources = await gatherAllData(query, googleKey, googleCx);
 
@@ -192,13 +192,14 @@ export async function onRequest(context) {
 
     let systemGeneratedAnswer = "";
 
-    if (!groqToken) {
-      systemGeneratedAnswer = `Configuration error: GROQ_API_KEY environment variable is not set in the Cloudflare dashboard.`;
+    if (!openRouterToken) {
+      systemGeneratedAnswer = `Configuration error: OPENROUTER_API_KEY environment variable is not set in the Cloudflare dashboard.`;
     } else {
-      const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
+      const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
       
       const promptPayload = {
-        model: "llama3-8b-8192",
+        // Utilizing highly stable and fast open-source Llama 3 8B through OpenRouter
+        model: "meta-llama/llama-3-8b-instruct:free",
         messages: [
           {
             role: "system",
@@ -213,21 +214,23 @@ export async function onRequest(context) {
         max_tokens: 500
       };
 
-      const groqResponse = await fetch(groqUrl, {
+      const orResponse = await fetch(openRouterUrl, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${groqToken}`
+          "Authorization": `Bearer ${openRouterToken}`,
+          "HTTP-Referer": "https://cerebrum.pages.dev", 
+          "X-Title": "Cerebrum Search"
         },
         body: JSON.stringify(promptPayload)
       });
 
-      if (groqResponse.ok) {
-        const groqData = await groqResponse.json();
-        systemGeneratedAnswer = groqData?.choices?.[0]?.message?.content || "Unable to read synthesis stream.";
+      if (orResponse.ok) {
+        const orData = await orResponse.json();
+        systemGeneratedAnswer = orData?.choices?.[0]?.message?.content || "Unable to read synthesis stream.";
       } else {
-        const errText = await groqResponse.text().catch(() => "");
-        systemGeneratedAnswer = `Inference engine dropped connection (Status: ${groqResponse.status}). Details: ${errText}`;
+        const errText = await orResponse.text().catch(() => "");
+        systemGeneratedAnswer = `Inference engine dropped connection (Status: ${orResponse.status}). Details: ${errText}`;
       }
     }
 
@@ -236,7 +239,7 @@ export async function onRequest(context) {
         answer: systemGeneratedAnswer.trim(),
         sources: sources,
         source: "Open-Source Knowledge Grid",
-        note: "Processed via Groq successfully."
+        note: "Processed via OpenRouter successfully."
       }),
       {
         status: 200,
