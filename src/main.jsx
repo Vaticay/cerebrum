@@ -6,6 +6,7 @@ function simpleTokenize(data) {
   return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
 }
 
+// --- Dynamic Fail-Safe Recovery ---
 function simpleDetokenize(token) {
   try {
     return JSON.parse(decodeURIComponent(escape(atob(token))));
@@ -20,12 +21,12 @@ function formatResponseText(text) {
   
   let formatted = text;
 
-  // 1. Standalone Block Math Parser ($$...$$) -> Wraps in centers
+  // 1. Standalone Block Math Parser ($ Rhine Elements)
   formatted = formatted.replace(/\$\$\s*([\s\S]+?)\s*\$\$/g, (match, math) => {
     return `<div class="math-block-container" data-math="${encodeURIComponent(math)}"><span class="katex-display-fallback">${math}</span></div>`;
   });
 
-  // 2. Inline Math Parser ($...$) -> Wraps in specialized token inline markers
+  // 2. Inline Math Parser ($...$) 
   formatted = formatted.replace(/\$([^\$\n]+?)\$/g, (match, math) => {
     return `<span class="math-inline-container" data-math="${encodeURIComponent(math)}">${math}</span>`;
   });
@@ -67,7 +68,7 @@ function App() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Auto-render math expressions upon delivery using window global triggers
+  // Auto-render math expressions upon deployment using global triggers
   useEffect(() => {
     if (data && !loading && window.renderMathInElement) {
       window.renderMathInElement(document.body, {
@@ -118,7 +119,8 @@ function App() {
     setData(null);
 
     try {
-      const response = await fetch('/functions/api/search', {
+      // FIX: URL mapped directly to Cloudflare Pages deployment router rules
+      const response = await fetch('/api/search', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
