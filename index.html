@@ -1,12 +1,259 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cerebrum — science search</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cerebrum | Next-Gen Academic Intelligence</title>
+  
+  <style>
+    /* --- Cerebrum Premium Organic Design System --- */
+    :root {
+      --bg-primary: #fcfbfa;       /* Soft linen warm-white */
+      --bg-card: #ffffff;
+      --text-main: #2d312e;       /* Earthy deep slate charcoal */
+      --text-muted: #626864;
+      --accent-green: #4a5d4e;    /* Sophisticated matte sage green */
+      --accent-orange: #d97741;   /* Warm organic clay orange accent */
+      --border-subtle: #e6e4e0;
+      --shadow-sm: 0 2px 8px rgba(45, 49, 46, 0.04);
+      --shadow-md: 0 10px 30px rgba(45, 49, 46, 0.06);
+      --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      font-family: var(--font-stack);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #root {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* --- Container Layout --- */
+    .app-container {
+      width: 100%;
+      max-width: 840px;
+      padding: 60px 20px;
+      box-sizing: border-box;
+    }
+
+    /* --- Brand Header --- */
+    .brand-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 40px;
+    }
+
+    .brand-header h1 {
+      font-size: 1.65rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+      margin: 0;
+    }
+
+    /* --- The Search Bar Container --- */
+    .search-wrapper {
+      position: relative;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 24px;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      box-shadow: var(--shadow-md);
+      transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+      margin-bottom: 35px;
+    }
+
+    .search-wrapper:focus-within {
+      border-color: var(--accent-green);
+      box-shadow: 0 12px 40px rgba(74, 93, 78, 0.12);
+      transform: translateY(-1px);
+    }
+
+    .search-input {
+      width: 100%;
+      border: none;
+      outline: none;
+      font-size: 1.1rem;
+      padding: 12px 8px;
+      color: var(--text-main);
+      background: transparent;
+    }
+
+    .search-button {
+      background: var(--accent-green);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+
+    .search-button:hover {
+      background: #3c4c40;
+      transform: scale(1.04);
+    }
+
+    /* --- AI Answer Output Grid (Markdown Render Targets) --- */
+    .answer-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 36px;
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 35px;
+      line-height: 1.68;
+      font-size: 1.05rem;
+    }
+
+    .answer-box h3 {
+      font-size: 1.3rem;
+      margin-top: 28px;
+      margin-bottom: 14px;
+      color: var(--text-main);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .answer-box h3:first-child {
+      margin-top: 0;
+    }
+
+    .answer-box p {
+      margin-top: 0;
+      margin-bottom: 16px;
+    }
+
+    .answer-box ul, .answer-box ol {
+      padding-left: 24px;
+      margin-bottom: 20px;
+    }
+
+    .answer-box li {
+      margin-bottom: 10px;
+    }
+
+    .answer-box strong {
+      color: #1a1c1a;
+      font-weight: 600;
+    }
+
+    /* --- Citations & Source Badges --- */
+    .citation-tag {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0edf8;
+      color: var(--accent-green);
+      font-size: 0.75rem;
+      font-weight: 700;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      margin-left: 4px;
+      vertical-align: super;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    
+    .citation-tag:hover {
+      background: #e2def2;
+    }
+
+    /* --- Sources Layout Grid --- */
+    .sources-section {
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 28px;
+      width: 100%;
+    }
+
+    .sources-header {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+      font-weight: 600;
+    }
+
+    .sources-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      width: 100%;
+    }
+
+    .source-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 18px;
+      text-decoration: none;
+      color: inherit;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 90px;
+    }
+
+    .source-card:hover {
+      border-color: var(--accent-green);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(45, 49, 46, 0.05);
+    }
+
+    .source-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-main);
+      line-height: 1.4;
+      margin-bottom: 10px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .source-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  </style>
+</head>
+<body>
+  <!-- Vite App Mounting Node -->
+  <div id="root"></div>
+
+  <!-- Vite Dynamic Script Asset Pipeline Entry Point -->
+  <script type="module" src="/src/main.jsx"></script>
+</body>
 </html>
