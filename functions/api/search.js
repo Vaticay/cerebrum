@@ -59,7 +59,7 @@ async function liveWebSearch(refinedQuery, apiKey, cxId) {
       journal: "Live Web Search",
       abstract: (item.snippet || "").slice(0, 500),
       type: "web",
-      score: 1.0 // Base score for web results
+      score: 1.0 
     }));
   } catch { return []; }
 }
@@ -85,7 +85,7 @@ async function europePMC(refinedQuery, limit = 3) {
       journal: r.journalInfo?.journal?.title || "Europe PMC",
       abstract: stripTags(r.abstractText).slice(0, 500),
       type: "publication",
-      score: 1.5 // Premium weight given to formal peer-reviewed academic publications
+      score: 1.5 
     }));
   } catch { return []; }
 }
@@ -158,7 +158,6 @@ async function gatherAndRankData(rawQuery, googleKey, googleCx) {
   const distinctSources = [];
   const trackedTitles = new Set();
 
-  // Keyword scoring arrays
   const searchTerms = refinedQuery.split(/\s+/);
 
   for (const item of masterList) {
@@ -166,20 +165,17 @@ async function gatherAndRankData(rawQuery, googleKey, googleCx) {
     if (!trackedTitles.has(normalizedTitle)) {
       trackedTitles.add(normalizedTitle);
 
-      // Dynamically grade relevance text density
       const textPool = `${item.title} ${item.abstract}`.toLowerCase();
       let matchCount = 0;
       searchTerms.forEach(term => {
         if (textPool.includes(term)) matchCount += 1;
       });
 
-      // Final Sorting Matrix Score = (Base Source Type Weight) * (Keyword Term Density Score)
       item.score = item.score * (1 + matchCount * 0.2);
       distinctSources.push(item);
     }
   }
 
-  // Sort descending by highest intelligence density score, returning the top 5 premium items
   return distinctSources.sort((a, b) => b.score - a.score).slice(0, 5);
 }
 
@@ -212,7 +208,6 @@ export async function onRequest(context) {
     const googleCx = envGrid.GOOGLE_SEARCH_CX || "";
     const openRouterToken = envGrid.OPENROUTER_API_KEY;
 
-    // Execute intelligence data pipeline mapping
     const sources = await gatherAndRankData(query, googleKey, googleCx);
 
     if (sources.length === 0) {
@@ -222,7 +217,6 @@ export async function onRequest(context) {
       }), { status: 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
     }
 
-    // Compile clean metadata context block for model injection
     const knowledgeContext = sources.map((s, i) => 
       `[Source Block ${i + 1}] (${s.type.toUpperCase()})\nTitle: ${s.title}\nPublisher/Location: ${s.journal}\nAuthors/Credits: ${s.authors}\nData Extract: ${s.abstract}\n`
     ).join("\n");
@@ -234,45 +228,66 @@ export async function onRequest(context) {
     } else {
       const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
       
-      const promptPayload = {
-        model: "meta-llama/llama-3-8b-instruct:free",
-        messages: [
-          {
-            role: "system",
-            content: `You are Cerebrum, a premium, hyper-intelligent AI search assistant designed to compete directly with leading modern AI platforms. Your task is to analyze the user's inquiry and provide a beautifully structured, authoritative response based exclusively on the provided context matrix.
+      // Dynamic cascading array of fully supported free production endpoints on OpenRouter
+      const modelsToTry = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-lite-preview-02-05:free"
+      ];
+      
+      let orResponse;
+      let usedModel = "";
+
+      for (const model of modelsToTry) {
+        usedModel = model;
+        
+        const promptPayload = {
+          model: model,
+          messages: [
+            {
+              role: "system",
+              content: `You are Cerebrum, a premium, hyper-intelligent AI search assistant designed to compete directly with leading modern AI platforms. Your task is to analyze the user's inquiry and provide a beautifully structured, authoritative response based exclusively on the provided context matrix.
 
 CRITICAL INSTRUCTIONS:
 1. Do NOT speak like a simple search bot. Sound incredibly sharp, sophisticated, and polished.
 2. Structure your output clearly using clean Markdown: utilize bold paragraph headers (e.g., '### Core Analysis') and clean lists to make information scannable. Avoid plain walls of text.
 3. You MUST ground every insight with inline source brackets pointing to the correct source block number (e.g., [1], [2]) directly following the fact or metric.
 4. If the sources contain contradictory info, balance them intelligently. Seamlessly weave formal academic publications and live web data together.`
-          },
-          {
-            role: "user",
-            content: `User Inquiry: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}`
-          }
-        ],
-        temperature: 0.2,
-        max_tokens: 650
-      };
+            },
+            {
+              role: "user",
+              content: `User Inquiry: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}`
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 650
+        };
 
-      const orResponse = await fetch(openRouterUrl, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${openRouterToken}`,
-          "HTTP-Referer": "https://cerebrum.pages.dev", 
-          "X-Title": "Cerebrum Engine"
-        },
-        body: JSON.stringify(promptPayload)
-      });
+        try {
+          orResponse = await fetch(openRouterUrl, {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${openRouterToken}`,
+              "HTTP-Referer": "https://cerebrum.pages.dev", 
+              "X-Title": "Cerebrum Engine"
+            },
+            body: JSON.stringify(promptPayload)
+          });
 
-      if (orResponse.ok) {
+          // If the model hits successfully, break the cascade loop
+          if (orResponse.ok) break;
+        } catch (e) {
+          // Fall through to backup model on connection issues
+        }
+      }
+
+      if (orResponse && orResponse.ok) {
         const orData = await orResponse.json();
         systemGeneratedAnswer = orData?.choices?.[0]?.message?.content || "Unable to extract synthesis stream.";
       } else {
-        const errText = await orResponse.text().catch(() => "");
-        systemGeneratedAnswer = `### Search Pipeline Interrupted\n\nAn upstream error occurred during synthesis processing. (Status: ${orResponse.status}). Details: ${errText}`;
+        const statusVal = orResponse ? orResponse.status : "unknown";
+        const errText = orResponse ? await orResponse.text().catch(() => "") : "Network level timeout";
+        systemGeneratedAnswer = `### Search Pipeline Interrupted\n\nAn upstream error occurred during synthesis processing. (Status: ${statusVal}). Details: ${errText}`;
       }
     }
 
