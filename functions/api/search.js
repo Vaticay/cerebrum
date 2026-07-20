@@ -1,11 +1,24 @@
-// --- Core Utility Helpers with Timeouts & Token Trimming ---
+// --- Advanced Text & Query Cleaning Utilities ---
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Strips conversational filler to distill the query down to high-value keywords
+ * for the underlying search indexes.
+ */
+function refineSearchQuery(query) {
+  return query
+    .toLowerCase()
+    .replace(/\b(can you)?\b\s*\b(find|search|tell me about|look up|show me|what is|how does)\b/g, "")
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function getJSON(url, headers = {}) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1500); 
+  const timeoutId = setTimeout(() => controller.abort(), 2000); 
   try {
     const res = await fetch(url, { headers, signal: controller.signal });
     clearTimeout(timeoutId);
@@ -19,7 +32,7 @@ async function getJSON(url, headers = {}) {
 
 async function getText(url, headers = {}) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1500); 
+  const timeoutId = setTimeout(() => controller.abort(), 2000); 
   try {
     const res = await fetch(url, { headers, signal: controller.signal });
     clearTimeout(timeoutId);
@@ -31,31 +44,31 @@ async function getText(url, headers = {}) {
   }
 }
 
-// --- Live Web Search Engine Adapter (Google CSE / Programmable Search) ---
-async function liveWebSearch(query, apiKey, cxId) {
+// --- High-Fidelity Data Ingestion Adapters ---
+async function liveWebSearch(refinedQuery, apiKey, cxId) {
   if (!apiKey || !cxId) return [];
   const url = `https://www.googleapis.com/customsearch/v1?` + 
-    new URLSearchParams({ q: query, key: apiKey, cx: cxId, num: "3" });
+    new URLSearchParams({ q: refinedQuery, key: apiKey, cx: cxId, num: "4" });
   try {
     const data = await getJSON(url);
     return (data.items || []).map(item => ({
-      title: item.title || "Web Result",
+      title: item.title || "Web Resource",
       url: item.link || "",
       year: "2026",
-      citations: null,
-      authors: "Web Resource",
-      journal: "Google Live Search",
-      abstract: (item.snippet || "").slice(0, 400) 
+      authors: "Web Network",
+      journal: "Live Web Search",
+      abstract: (item.snippet || "").slice(0, 500),
+      type: "web",
+      score: 1.0 // Base score for web results
     }));
   } catch { return []; }
 }
 
-// --- Global Academic Index Adapters ---
-async function europePMC(query, limit = 2) {
+async function europePMC(refinedQuery, limit = 3) {
   const currentYear = new Date().getFullYear();
   const fastUrl = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
     new URLSearchParams({
-      query: `${query} AND PUB_YEAR:[2024 TO ${currentYear}]`,
+      query: `${refinedQuery} AND PUB_YEAR:[2020 TO ${currentYear}]`,
       resultType: "core",
       pageSize: String(limit),
       format: "json",
@@ -65,18 +78,18 @@ async function europePMC(query, limit = 2) {
     const data = await getJSON(fastUrl);
     const rows = data?.resultList?.result || [];
     return rows.filter((r) => r.abstractText).map((r) => ({
-      title: r.title || "Untitled",
+      title: r.title || "Untitled Publication",
       url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
       year: r.pubYear || "N/A",
-      citations: r.citedByCount ?? null,
-      authors: r.authorString || "Academic Source",
-      journal: "Europe PMC",
-      abstract: stripTags(r.abstractText).slice(0, 400), 
+      authors: r.authorString || "Academic Author",
+      journal: r.journalInfo?.journal?.title || "Europe PMC",
+      abstract: stripTags(r.abstractText).slice(0, 500),
+      type: "publication",
+      score: 1.5 // Premium weight given to formal peer-reviewed academic publications
     }));
   } catch { return []; }
 }
 
-// --- High-Speed Date-Bounded University OAI-PMH Scraper ---
 const UNIVERSITY_REPOSITORIES = [
   { name: "UTK TRACE", url: "https://trace.tennessee.edu/do/oai/?verb=ListRecords&metadataPrefix=oai_dc&set=publication:utk_graddiss" },
   { name: "MIT DSpace", url: "https://dspace.mit.edu/oai/request?verb=ListRecords&metadataPrefix=oai_dc" }
@@ -92,33 +105,37 @@ function fastExtractUniversityRecords(xmlText, sourceName, terms) {
   };
   let rm;
   let count = 0;
-  while ((rm = recRe.exec(xmlText)) && count < 1) {
+  while ((rm = recRe.exec(xmlText)) && count < 2) {
     const block = rm[0];
     const title = tag(block, "title");
     const abstract = tag(block, "abstract") || tag(block, "description");
     if (!title || !abstract) continue;
+    
     const hay = `${title} ${abstract}`.toLowerCase();
-    if (!terms.some(t => hay.includes(t))) continue;
+    const matchesAll = terms.every(t => hay.includes(t));
+    if (!matchesAll) continue; 
+
     records.push({
       title: stripTags(title),
       url: (block.match(/<identifier[^>]*>(http[\s\S]*?)<\/identifier>/i) || [])[1] || "",
       year: (tag(block, "date") || "").slice(0, 4) || "2026",
-      citations: null,
-      authors: "University Scholar",
+      authors: tag(block, "creator") || "University Researcher",
       journal: sourceName,
-      abstract: stripTags(abstract).slice(0, 400) 
+      abstract: stripTags(abstract).slice(0, 500),
+      type: "publication",
+      score: 1.4
     });
     count++;
   }
   return records;
 }
 
-async function scanUniversityNetworks(query) {
-  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 3);
+async function scanUniversityNetworks(refinedQuery) {
+  const terms = refinedQuery.split(/\s+/).filter(t => t.length > 3);
   if (terms.length === 0) return [];
   const searchPromises = UNIVERSITY_REPOSITORIES.map(async (repo) => {
     try {
-      const text = await getText(`${repo.url}&from=2025-01-01`);
+      const text = await getText(`${repo.url}&from=2024-01-01`);
       return fastExtractUniversityRecords(text, repo.name, terms);
     } catch { return []; }
   });
@@ -126,26 +143,44 @@ async function scanUniversityNetworks(query) {
   return aggregateResults.flat();
 }
 
-// --- Master Aggregator Pipeline ---
-async function gatherAllData(query, googleKey, googleCx) {
+// --- Intelligent Context Aggregator & Relevance Ranker ---
+async function gatherAndRankData(rawQuery, googleKey, googleCx) {
+  const refinedQuery = refineSearchQuery(rawQuery);
+  if (!refinedQuery) return [];
+
   const [webResults, ePMCResults, collegeResults] = await Promise.all([
-    liveWebSearch(query, googleKey, googleCx),
-    europePMC(query, 2),
-    scanUniversityNetworks(query)
+    liveWebSearch(refinedQuery, googleKey, googleCx),
+    europePMC(refinedQuery, 3),
+    scanUniversityNetworks(refinedQuery)
   ]);
 
-  const masterList = [...webResults, ...collegeResults, ...ePMCResults];
+  const masterList = [...ePMCResults, ...collegeResults, ...webResults];
   const distinctSources = [];
   const trackedTitles = new Set();
+
+  // Keyword scoring arrays
+  const searchTerms = refinedQuery.split(/\s+/);
 
   for (const item of masterList) {
     const normalizedTitle = item.title.toLowerCase().trim();
     if (!trackedTitles.has(normalizedTitle)) {
       trackedTitles.add(normalizedTitle);
+
+      // Dynamically grade relevance text density
+      const textPool = `${item.title} ${item.abstract}`.toLowerCase();
+      let matchCount = 0;
+      searchTerms.forEach(term => {
+        if (textPool.includes(term)) matchCount += 1;
+      });
+
+      // Final Sorting Matrix Score = (Base Source Type Weight) * (Keyword Term Density Score)
+      item.score = item.score * (1 + matchCount * 0.2);
       distinctSources.push(item);
     }
   }
-  return distinctSources.slice(0, 5);
+
+  // Sort descending by highest intelligence density score, returning the top 5 premium items
+  return distinctSources.sort((a, b) => b.score - a.score).slice(0, 5);
 }
 
 // --- CLOUDFLARE MAIN OPERATION PIPELINE ---
@@ -177,41 +212,48 @@ export async function onRequest(context) {
     const googleCx = envGrid.GOOGLE_SEARCH_CX || "";
     const openRouterToken = envGrid.OPENROUTER_API_KEY;
 
-    const sources = await gatherAllData(query, googleKey, googleCx);
+    // Execute intelligence data pipeline mapping
+    const sources = await gatherAndRankData(query, googleKey, googleCx);
 
     if (sources.length === 0) {
       return new Response(JSON.stringify({
-        answer: "No valid internet resources or university records returned matching your query.",
+        answer: "### No Direct References Found\n\nI couldn't locate precise live documents or academic records matching those exact parameters. Please try broadening your keywords slightly.",
         sources: []
       }), { status: 200, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
     }
 
+    // Compile clean metadata context block for model injection
     const knowledgeContext = sources.map((s, i) => 
-      `Source [${i + 1}]:\nTitle: ${s.title}\nLocation: ${s.journal}\nData: ${s.abstract}\n`
+      `[Source Block ${i + 1}] (${s.type.toUpperCase()})\nTitle: ${s.title}\nPublisher/Location: ${s.journal}\nAuthors/Credits: ${s.authors}\nData Extract: ${s.abstract}\n`
     ).join("\n");
 
     let systemGeneratedAnswer = "";
 
     if (!openRouterToken) {
-      systemGeneratedAnswer = `Configuration error: OPENROUTER_API_KEY environment variable is not set in the Cloudflare dashboard.`;
+      systemGeneratedAnswer = `### System Integration Error\n\nThe environment key \`OPENROUTER_API_KEY\` is missing from your hosting console grid. Please update your variables configuration layer.`;
     } else {
       const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
       
       const promptPayload = {
-        // Utilizing highly stable and fast open-source Llama 3 8B through OpenRouter
         model: "meta-llama/llama-3-8b-instruct:free",
         messages: [
           {
             role: "system",
-            content: "You are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs."
+            content: `You are Cerebrum, a premium, hyper-intelligent AI search assistant designed to compete directly with leading modern AI platforms. Your task is to analyze the user's inquiry and provide a beautifully structured, authoritative response based exclusively on the provided context matrix.
+
+CRITICAL INSTRUCTIONS:
+1. Do NOT speak like a simple search bot. Sound incredibly sharp, sophisticated, and polished.
+2. Structure your output clearly using clean Markdown: utilize bold paragraph headers (e.g., '### Core Analysis') and clean lists to make information scannable. Avoid plain walls of text.
+3. You MUST ground every insight with inline source brackets pointing to the correct source block number (e.g., [1], [2]) directly following the fact or metric.
+4. If the sources contain contradictory info, balance them intelligently. Seamlessly weave formal academic publications and live web data together.`
           },
           {
             role: "user",
-            content: `Question: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}`
+            content: `User Inquiry: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}`
           }
         ],
         temperature: 0.2,
-        max_tokens: 500
+        max_tokens: 650
       };
 
       const orResponse = await fetch(openRouterUrl, {
@@ -220,26 +262,26 @@ export async function onRequest(context) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${openRouterToken}`,
           "HTTP-Referer": "https://cerebrum.pages.dev", 
-          "X-Title": "Cerebrum Search"
+          "X-Title": "Cerebrum Engine"
         },
         body: JSON.stringify(promptPayload)
       });
 
       if (orResponse.ok) {
         const orData = await orResponse.json();
-        systemGeneratedAnswer = orData?.choices?.[0]?.message?.content || "Unable to read synthesis stream.";
+        systemGeneratedAnswer = orData?.choices?.[0]?.message?.content || "Unable to extract synthesis stream.";
       } else {
         const errText = await orResponse.text().catch(() => "");
-        systemGeneratedAnswer = `Inference engine dropped connection (Status: ${orResponse.status}). Details: ${errText}`;
+        systemGeneratedAnswer = `### Search Pipeline Interrupted\n\nAn upstream error occurred during synthesis processing. (Status: ${orResponse.status}). Details: ${errText}`;
       }
     }
 
     return new Response(
       JSON.stringify({
         answer: systemGeneratedAnswer.trim(),
-        sources: sources,
-        source: "Open-Source Knowledge Grid",
-        note: "Processed via OpenRouter successfully."
+        sources: sources.map(({ title, url, journal, authors, year, type }) => ({ title, url, journal, authors, year, type })),
+        source: "Cerebrum Intelligent Knowledge Grid",
+        note: "Data synthesis complete."
       }),
       {
         status: 200,
