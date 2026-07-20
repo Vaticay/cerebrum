@@ -11,27 +11,11 @@ const SUGGESTIONS = [
 function Logo({ size = 28 }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="#1b6b5a"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#1b6b5a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
         <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
       </svg>
-      <span
-        style={{
-          fontSize: size * 0.72,
-          fontWeight: 700,
-          letterSpacing: "-0.5px",
-          color: "#202124",
-        }}
-      >
+      <span style={{ fontSize: size * 0.72, fontWeight: 700, letterSpacing: "-0.5px", color: "#202124" }}>
         Cerebrum
       </span>
     </span>
@@ -58,14 +42,7 @@ function Answer({ text, sources }) {
             const n = parseInt(m[1], 10);
             const src = sources[n - 1];
             return (
-              
-                key={pi}
-                href={src?.url || "#"}
-                target="_blank"
-                rel="noreferrer"
-                title={src?.title || ""}
-                style={S.cite}
-              >
+              <a key={pi} href={src?.url || "#"} target="_blank" rel="noreferrer" title={src?.title || ""} style={S.cite}>
                 {n}
               </a>
             );
@@ -129,22 +106,11 @@ function App() {
   return (
     <div style={S.page}>
       <div style={{ ...S.wrap, paddingTop: compact ? 26 : 130 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: compact ? "flex-start" : "center",
-            marginBottom: compact ? 20 : 30,
-          }}
-        >
+        <div style={{ display: "flex", justifyContent: compact ? "flex-start" : "center", marginBottom: compact ? 20 : 30 }}>
           <Logo size={compact ? 26 : 42} />
         </div>
 
-        <div
-          style={{
-            maxWidth: compact ? "100%" : 560,
-            margin: compact ? "0" : "0 auto",
-          }}
-        >
+        <div style={{ maxWidth: compact ? "100%" : 560, margin: compact ? "0" : "0 auto" }}>
           <div style={S.inputWrap}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
               <circle cx="11" cy="11" r="7" stroke="#9aa0a6" strokeWidth="2" />
@@ -200,21 +166,13 @@ function App() {
                   {dbSource && <span style={S.dbTag}>via {dbSource}</span>}
                 </div>
                 {sources.map((s, i) => (
-                  
-                    key={i}
-                    href={s.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={S.source}
-                  >
+                  <a key={i} href={s.url} target="_blank" rel="noreferrer" style={S.source}>
                     <span style={S.num}>{i + 1}</span>
                     <span style={S.sBody}>
                       <span style={S.sTitle}>{s.title || s.url}</span>
                       <span style={S.sMeta}>
                         {[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}
-                        {typeof s.citations === "number" && (
-                          <span style={S.cc}> · cited {s.citations}×</span>
-                        )}
+                        {typeof s.citations === "number" && <span style={S.cc}> · cited {s.citations}×</span>}
                       </span>
                       <span style={S.sHost}>{host(s.url)}</span>
                     </span>
@@ -226,8 +184,7 @@ function App() {
         )}
 
         <div style={S.footer}>
-          Cerebrum searches real scientific databases. Always verify claims against
-          the original sources.
+          Cerebrum searches real scientific databases. Always verify claims against the original sources.
         </div>
       </div>
     </div>
@@ -235,157 +192,36 @@ function App() {
 }
 
 const S = {
-  page: {
-    minHeight: "100vh",
-    background: "#fff",
-    color: "#202124",
-    fontFamily: "system-ui, 'Segoe UI', Arial, sans-serif",
-  },
+  page: { minHeight: "100vh", background: "#fff", color: "#202124", fontFamily: "system-ui, 'Segoe UI', Arial, sans-serif" },
   wrap: { maxWidth: 720, margin: "0 auto", padding: "0 20px 80px" },
-  inputWrap: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "0 16px",
-    height: 50,
-    border: "1px solid #dfe1e5",
-    borderRadius: 25,
-    boxShadow: "0 1px 6px rgba(32,33,36,0.10)",
-  },
-  input: {
-    flex: 1,
-    border: "none",
-    outline: "none",
-    fontSize: 16,
-    background: "transparent",
-    color: "#202124",
-  },
-  go: {
-    border: "none",
-    background: "#1b6b5a",
-    color: "#fff",
-    width: 32,
-    height: 32,
-    borderRadius: "50%",
-    cursor: "pointer",
-    fontSize: 17,
-  },
-  suggWrap: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "center",
-    marginTop: 26,
-    maxWidth: 560,
-    marginLeft: "auto",
-    marginRight: "auto",
-  },
-  sugg: {
-    padding: "8px 14px",
-    fontSize: 13,
-    background: "#f1f3f4",
-    color: "#3c4043",
-    border: "none",
-    borderRadius: 16,
-    cursor: "pointer",
-  },
-  loading: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    color: "#5f6368",
-    fontSize: 14,
-    marginTop: 30,
-  },
-  spinner: {
-    width: 16,
-    height: 16,
-    border: "2px solid #dfe1e5",
-    borderTopColor: "#1b6b5a",
-    borderRadius: "50%",
-    display: "inline-block",
-    animation: "spin 0.7s linear infinite",
-  },
-  error: {
-    marginTop: 26,
-    padding: 14,
-    background: "#fce8e6",
-    color: "#c5221f",
-    borderRadius: 8,
-    fontSize: 14,
-  },
-  answerBox: {
-    background: "#f8faf9",
-    border: "1px solid #e6efec",
-    borderLeft: "3px solid #1b6b5a",
-    borderRadius: 8,
-    padding: "18px 22px",
-  },
+  inputWrap: { display: "flex", alignItems: "center", gap: 12, padding: "0 16px", height: 50, border: "1px solid #dfe1e5", borderRadius: 25, boxShadow: "0 1px 6px rgba(32,33,36,0.10)" },
+  input: { flex: 1, border: "none", outline: "none", fontSize: 16, background: "transparent", color: "#202124" },
+  go: { border: "none", background: "#1b6b5a", color: "#fff", width: 32, height: 32, borderRadius: "50%", cursor: "pointer", fontSize: 17 },
+  suggWrap: { display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 26, maxWidth: 560, marginLeft: "auto", marginRight: "auto" },
+  sugg: { padding: "8px 14px", fontSize: 13, background: "#f1f3f4", color: "#3c4043", border: "none", borderRadius: 16, cursor: "pointer" },
+  loading: { display: "flex", alignItems: "center", gap: 10, color: "#5f6368", fontSize: 14, marginTop: 30 },
+  spinner: { width: 16, height: 16, border: "2px solid #dfe1e5", borderTopColor: "#1b6b5a", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" },
+  error: { marginTop: 26, padding: 14, background: "#fce8e6", color: "#c5221f", borderRadius: 8, fontSize: 14 },
+  answerBox: { background: "#f8faf9", border: "1px solid #e6efec", borderLeft: "3px solid #1b6b5a", borderRadius: 8, padding: "18px 22px" },
   para: { fontSize: 16, lineHeight: 1.7, margin: "0 0 14px" },
-  cite: {
-    fontSize: 11,
-    verticalAlign: "super",
-    color: "#1b6b5a",
-    textDecoration: "none",
-    fontWeight: 700,
-    marginLeft: 1,
-  },
+  cite: { fontSize: 11, verticalAlign: "super", color: "#1b6b5a", textDecoration: "none", fontWeight: 700, marginLeft: 1 },
   sources: { marginTop: 28, paddingTop: 20, borderTop: "1px solid #ececec" },
-  sourcesLabel: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: "#5f6368",
-    marginBottom: 12,
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  },
-  dbTag: {
-    fontSize: 11,
-    fontWeight: 500,
-    color: "#1b6b5a",
-    background: "#e8f3ef",
-    padding: "2px 8px",
-    borderRadius: 10,
-  },
-  source: {
-    display: "flex",
-    gap: 12,
-    padding: "10px 0",
-    textDecoration: "none",
-    color: "#202124",
-    alignItems: "flex-start",
-  },
-  num: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: "#1b6b5a",
-    background: "#e8f3ef",
-    minWidth: 22,
-    height: 22,
-    borderRadius: "50%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  sourcesLabel: { fontSize: 13, fontWeight: 600, color: "#5f6368", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 },
+  dbTag: { fontSize: 11, fontWeight: 500, color: "#1b6b5a", background: "#e8f3ef", padding: "2px 8px", borderRadius: 10 },
+  source: { display: "flex", gap: 12, padding: "10px 0", textDecoration: "none", color: "#202124", alignItems: "flex-start" },
+  num: { fontSize: 12, fontWeight: 600, color: "#1b6b5a", background: "#e8f3ef", minWidth: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" },
   sBody: { display: "flex", flexDirection: "column", gap: 2 },
   sTitle: { fontSize: 15, color: "#1a0dab", lineHeight: 1.35 },
   sMeta: { fontSize: 12.5, color: "#3c4043", lineHeight: 1.4 },
   sHost: { fontSize: 12, color: "#5f6368", marginTop: 2 },
   cc: { color: "#1b6b5a", fontWeight: 500 },
-  footer: {
-    marginTop: 50,
-    fontSize: 12,
-    color: "#9aa0a6",
-    textAlign: "center",
-  },
+  footer: { marginTop: 50, fontSize: 12, color: "#9aa0a6", textAlign: "center" },
 };
 
 if (typeof document !== "undefined" && !document.getElementById("spin-style")) {
   const st = document.createElement("style");
   st.id = "spin-style";
-  st.textContent =
-    "@keyframes spin{to{transform:rotate(360deg)}} *{box-sizing:border-box} body{margin:0}";
+  st.textContent = "@keyframes spin{to{transform:rotate(360deg)}} *{box-sizing:border-box} body{margin:0}";
   document.head.appendChild(st);
 }
 
