@@ -195,11 +195,11 @@ export async function onRequest(context) {
     if (!hfToken) {
       systemGeneratedAnswer = `Configuration error: HUGGINGFACE_API_KEY environment variable is not set in the Cloudflare dashboard.`;
     } else {
-      // Swapping to Qwen2.5-7B-Instruct (Highly available, bypasses old DNS inference paths)
-      const hfUrl = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct";
+      // Swapping to the ultra-reliable Llama 3.2 3B Instruct production highway
+      const hfUrl = "https://api-inference.huggingface.co/models/meta-llama/Llama-3.2-3B-Instruct";
       
       const promptPayload = {
-        inputs: `<|im_start|>system\nYou are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs.<|im_end|>\n<|im_start|>user\nQuestion: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}<|im_end|>\n<|im_start|>assistant\n`,
+        inputs: `<|begin_of_text|><|start_header_id|>system<|end_header_id|>\nYou are Cerebrum, an objective, advanced scientific research assistant. Your task is to accurately synthesize the provided search documents to fully answer the user's question. Use numeric brackets like [1], [2] right after statements to credit your sources. Keep the answer clear and under 3 short paragraphs.<|eot_id|><|start_header_id|>user<|end_header_id|>\nQuestion: "${query}"\n\nScanned Sources Context Matrix:\n${knowledgeContext}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n`,
         parameters: {
           max_new_tokens: 500,
           temperature: 0.2,
