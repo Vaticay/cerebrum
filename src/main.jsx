@@ -1,381 +1,392 @@
-import React, { useState, useEffect } from 'react';
-import ReactDOM from 'react-dom/client';
+import React, { useState, useRef, useEffect } from "react";
+import { createRoot } from "react-dom/client";
 
-// --- Encryption and State Persistence Utilities ---
-function simpleTokenize(data) {
-  return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-}
-function simpleDetokenize(token) {
-  try { return JSON.parse(decodeURIComponent(escape(atob(token)))); } catch (e) { return []; }
+const SUGGESTIONS = [
+  "How does CRISPR-Cas9 achieve target specificity?",
+  "Mechanism of quorum sensing in bacteria",
+  "Why is the SN2 reaction stereospecific?",
+  "How do chaperone proteins prevent misfolding?",
+];
+
+function Logo({ size = 28 }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#1b6b5a"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
+        <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
+      </svg>
+      <span
+        style={{
+          fontSize: size * 0.72,
+          fontWeight: 700,
+          letterSpacing: "-0.5px",
+          color: "#202124",
+        }}
+      >
+        Cerebrum
+      </span>
+    </span>
+  );
 }
 
-function cleanStrings(s) {
-  return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-}
-
-function refineClientQuery(query) {
-  return query.toLowerCase()
-    .replace(/\b(can you)?\b\s*\b(find|search|tell me about|look up|show me|what is|how does|what the|who is|papers by|publications by)\b/g, "")
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function detectAuthorIntent(query) {
-  const clean = query.trim().toLowerCase();
-  if (clean.startsWith("papers by ") || clean.startsWith("publications by ") || clean.startsWith("who is ")) return true;
-  const words = query.trim().split(/\s+/);
-  if (words.length >= 2 && words.length <= 3) {
-    const isFirstLetterCapitalized = words.every(w => w && w[0] === w[0].toUpperCase());
-    if (isFirstLetterCapitalized && !['What', 'How', 'Why', 'Is', 'Can'].includes(words[0])) return true;
+function host(url) {
+  try {
+    return new URL(url).hostname.replace("www.", "");
+  } catch {
+    return "";
   }
-  return false;
 }
 
-// --- Premium Scholarly Layout Renderer ---
-function formatResponseText(text) {
-  if (!text) return "";
-  let formatted = text;
-
-  formatted = formatted.replace(/\$\$\s*([\s\S]+?)\s*\$\$/g, (m, math) => `<div class="math-block-container"><span class="katex-display-fallback">${math}</span></div>`);
-  formatted = formatted.replace(/\$([^\$\n]+?)\$/g, (m, math) => `<span class="math-inline-container">${math}</span>`);
-  formatted = formatted.replace(/#+/g, '');
-
-  formatted = formatted
-    .replace(/^###\s+(.+)$/gm, '<div class="scholarly-h3">$1</div>')
-    .replace(/^#\s+(.+)$/gm, '<div class="scholarly-h2">$1</div>');
-
-  formatted = formatted.replace(/^-\s+\*\*(.+?)\*\*:\s*(.+)$/gm, '<li class="scholarly-item"><strong>$1</strong>: $2</li>');
-  formatted = formatted.replace(/^\*\s+(.+)$/gm, '<li class="scholarly-item">$1</li>');
-  formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  formatted = formatted.replace(/^>\s+(.+)$/gm, '<div class="scholarly-abstract-callout">$1</div>');
-  formatted = formatted.replace(/^---$/gm, '<hr style="border: 0; border-top: 1px solid var(--border-subtle); margin: 32px 0;" />');
-  formatted = formatted.replace(/\n/g, '<br />');
-
-  return formatted;
-}
-
-// --- Conversational Intent Router ---
-function handleConversationalIntent(query) {
-  const normalized = query.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-  const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'greetings', 'howdy'];
-  const statusInquiries = ['how are you', 'hows it going', 'who are you', 'what are you', 'whats your name'];
-
-  if (greetings.includes(normalized)) {
-    return {
-      answer: `### 👋 Welcome to Cerebrum\n\nHello! I am Cerebrum, your advanced academic intelligence workspace. What scientific mechanics, research papers, or complex datasets can I help you synthesize or fact-check today?`,
-      sources: []
-    };
-  }
-  if (statusInquiries.includes(normalized)) {
-    return {
-      answer: `### 🧠 System Framework Active\n\nI am Cerebrum, an adaptive intelligence assistant designed for crisp data analysis, structural synthesis, and scholarly deep-diving. Enter your prompt above, and I will analyze live reference repositories instantly.`,
-      sources: []
-    };
-  }
-  return null;
-}
-
-// --- INTELLIGENT SEMANTIC FAILOVER HUB ---
-async function emergencyClientFetch(rawQuery) {
-  const isAuthorSearch = detectAuthorIntent(rawQuery);
-  const searchTopic = refineClientQuery(rawQuery);
-  if (!searchTopic || searchTopic.length < 2) {
-    return { answer: "### 🔍 System Query Guide\n\nPlease supply a distinct topic keyword or research question to execute an intelligent data extraction.", sources: [] };
-  }
-
-  let semanticSummary = "";
-  let masterSources = [];
-  const tasks = [];
-
-  // Engine Phase 1: Dynamic Knowledge Registry Extraction
-  if (!isAuthorSearch) {
-    tasks.push((async () => {
-      try {
-        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchTopic)}&format=json&origin=*`;
-        const searchRes = await fetch(searchUrl);
-        const searchData = await searchRes.json();
-        const exactTitle = searchData?.query?.search?.[0]?.title;
-
-        if (exactTitle) {
-          const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(exactTitle.replace(/\s+/g, '_'))}`;
-          const summaryRes = await fetch(summaryUrl);
-          if (summaryRes.ok) {
-            const summaryData = await summaryRes.json();
-            // Store the true encylopedic fact check context
-            semanticSummary = summaryData.extract;
+function Answer({ text, sources }) {
+  return text.split("\n").map((line, li) => {
+    if (!line.trim()) return null;
+    const parts = line.split(/(\[\d+\])/g);
+    return (
+      <p key={li} style={S.para}>
+        {parts.map((part, pi) => {
+          const m = part.match(/^\[(\d+)\]$/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            const src = sources[n - 1];
+            return (
+              
+                key={pi}
+                href={src?.url || "#"}
+                target="_blank"
+                rel="noreferrer"
+                title={src?.title || ""}
+                style={S.cite}
+              >
+                {n}
+              </a>
+            );
           }
-        }
-      } catch (e) {}
-    })());
-  }
-
-  // Engine Phase 2: Open Academic Repositories Scanning (Europe PMC & arXiv)
-  tasks.push((async () => {
-    try {
-      const currentYear = new Date().getFullYear();
-      const queryParam = isAuthorSearch ? `AUTH:"${searchTopic}"` : searchTopic;
-      const pmcUrl = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(queryParam)}%20AND%20PUB_YEAR:[2020%20TO%20${currentYear}]&resultType=core&pageSize=3&format=json`;
-      const res = await fetch(pmcUrl);
-      if (res.ok) {
-        const data = await res.json();
-        const rows = data?.resultList?.result || [];
-        rows.filter(r => r.abstractText || r.title).forEach((r) => {
-          masterSources.push({
-            title: r.title || "Academic Archive Record",
-            url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
-            year: r.pubYear || "2026",
-            journal: r.journalInfo?.journal?.title || "Europe PMC Core",
-            abstract: cleanStrings(r.abstractText || "Abstract entry listed in source.").slice(0, 300)
-          });
-        });
-      }
-    } catch (e) {}
-  })());
-
-  tasks.push((async () => {
-    try {
-      const queryParam = isAuthorSearch ? `au:${searchTopic}` : `all:${searchTopic}`;
-      const arxivUrl = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(queryParam)}&max_results=2`;
-      const res = await fetch(arxivUrl);
-      if (res.ok) {
-        const text = await res.text();
-        const entryRe = /<entry>([\s\S]*?)<\/entry>/g;
-        let match;
-        while ((match = entryRe.exec(text)) !== null) {
-          const block = match[1];
-          const title = (block.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || "arXiv Research Paper";
-          const summary = (block.match(/<summary>([\s\S]*?)<\/summary>/) || [])[1] || "";
-          const id = (block.match(/<id>([\s\S]*?)<\/id>/) || [])[1] || "";
-          masterSources.push({
-            title: cleanStrings(title),
-            url: id.trim(),
-            year: "arXiv Index",
-            journal: "arXiv Repository",
-            abstract: cleanStrings(summary).slice(0, 300)
-          });
-        }
-      }
-    } catch (e) {}
-  })());
-
-  await Promise.all(tasks);
-
-  // --- CONTEXTUAL RESPONSE SYNTHESIZER ---
-  // Formulates a natural, conversational response using verified live metrics
-  let AIStructuredResponse = "";
-
-  if (isAuthorSearch) {
-    AIStructuredResponse = `### 🧑‍🔬 Author Research Compilation\n\nI have parsed the global scientific indexes for publications matching **"${rawQuery}"**. Here is the verified bibliography profile containing recent academic releases:\n\n`;
-  } else if (semanticSummary) {
-    // Generate a conversational, human-like AI answer leveraging the exact fact checker matrix data
-    const normalizedTopic = searchTopic.charAt(0).toUpperCase() + searchTopic.slice(1);
-    AIStructuredResponse = `### ⚡ Live Intelligence Synthesis\n\nBased on verified scientific records, here is the clear structural breakdown regarding **${normalizedTopic}**:\n\n` + 
-    `> ${semanticSummary}\n\n` +
-    `To cross-reference this and support your workspace with concrete evidence, I have located relevant peer-reviewed literature and scientific publications matching your query parameters below:\n\n`;
-  } else {
-    AIStructuredResponse = `### 🔬 Scanned Repository Stream\n\nI evaluated global data nodes for **"${rawQuery}"**. While a central registry definition wasn't located, I parsed relevant peer-reviewed papers containing related technical criteria:\n\n`;
-  }
-
-  // Map the papers clearly underneath without raw formatting artifacts
-  if (masterSources.length > 0) {
-    AIStructuredResponse += masterSources.map((s, idx) => {
-      return `#### [${idx + 1}] ${s.title}\n` +
-             `*   **Repository Source:** ${s.journal} | **Context Token:** ${s.year}\n` +
-             `*   **Abstract Metric:** ${s.abstract}...\n` +
-             `*   **Direct Link:** [Open Reference Document](${s.url})`;
-    }).join("\n\n");
-  } else if (!semanticSummary) {
-    return { answer: "### 🔍 Zero Matrix Hits\n\nI checked active scientific repositories but found no verified data matches. Try modifying your phrasing.", sources: [] };
-  }
-
-  return {
-    answer: AIStructuredResponse + `\n\n---\n> 🛡️ *System Status: Operating in High-Fidelity Local Synthesis Mode. Cross-referencing active entries via Wikipedia Open Registry, arXiv Technical Archives, and Europe PMC paths.*`,
-    sources: masterSources
-  };
+          return <span key={pi}>{part}</span>;
+        })}
+      </p>
+    );
+  });
 }
 
 function App() {
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState(null);
-  const [user, setUser] = useState(() => localStorage.getItem('cerebrum_user') || 'Guest');
-  const [chats, setChats] = useState(() => {
-    const encryptedData = localStorage.getItem('cerebrum_vault');
-    return encryptedData ? simpleDetokenize(encryptedData) : [];
-  });
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState("idle");
+  const [answer, setAnswer] = useState("");
+  const [sources, setSources] = useState([]);
+  const [dbSource, setDbSource] = useState("");
+  const [error, setError] = useState("");
+  const inputRef = useRef(null);
 
   useEffect(() => {
-    if (data && !loading && window.renderMathInElement) {
-      window.renderMathInElement(document.body, {
-        delimiters: [
-          {left: '$$', right: '$$', display: true},
-          {left: '$', right: '$', display: false}
-        ],
-        throwOnError: false
+    inputRef.current?.focus();
+  }, [submitted]);
+
+  async function run(q) {
+    const question = (q ?? query).trim();
+    if (!question) return;
+    setQuery(question);
+    setSubmitted(true);
+    setStatus("searching");
+    setAnswer("");
+    setSources([]);
+    setDbSource("");
+    setError("");
+
+    try {
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: question }),
       });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Search failed.");
+        setStatus("error");
+        return;
+      }
+      setAnswer(data.answer || "");
+      setSources(data.sources || []);
+      setDbSource(data.source || "");
+      setStatus("done");
+    } catch (e) {
+      setError(`Could not reach the search backend. (${e.message})`);
+      setStatus("error");
     }
-  }, [data, loading]);
+  }
 
-  useEffect(() => {
-    localStorage.setItem('cerebrum_vault', simpleTokenize(chats));
-  }, [chats]);
-
-  const clearHistory = () => { localStorage.removeItem('cerebrum_vault'); window.location.reload(); };
+  const compact = submitted;
 
   return (
-    <div className="dashboard-layout">
-      <aside className={`sidebar-container ${sidebarOpen ? 'open' : 'closed'}`}>
-        <div className="sidebar-header">
-          <div className="brand-header">
-            <BrainLogo strokeColor="#ffffff" />
-            <h1 style={{ color: '#ffffff' }}>Cerebrum</h1>
-          </div>
+    <div style={S.page}>
+      <div style={{ ...S.wrap, paddingTop: compact ? 26 : 130 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: compact ? "flex-start" : "center",
+            marginBottom: compact ? 20 : 30,
+          }}
+        >
+          <Logo size={compact ? 26 : 42} />
         </div>
-        <div className="sidebar-scroll-grid">
-          <div className="sidebar-section-title">Encrypted Log History</div>
-          {chats.length === 0 ? (
-            <div className="empty-sidebar-notice">No stored search vectors detected.</div>
-          ) : (
-            chats.map((chat, idx) => (
-              <button key={idx} className="sidebar-chat-link" onClick={() => setData({ answer: chat.answer, sources: chat.sources || [] })}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                <span className="sidebar-link-text">{chat.query}</span>
-              </button>
-            ))
-          )}
-        </div>
-        <div className="sidebar-footer">
-          <div className="user-profile-plate">
-            <div className="profile-avatar">{user ? user[0].toUpperCase() : 'G'}</div>
-            <div className="profile-info">
-              <div className="profile-name" style={{ color: '#ffffff' }}>{user}</div>
-              <div className="profile-status">Secure Sandbox Active</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-            <button className="utility-btn-dark" onClick={clearHistory}>Clear</button>
-            <button className="utility-btn-dark" onClick={() => { localStorage.removeItem('cerebrum_user'); setUser('Guest'); window.location.reload(); }}>Disconnect</button>
-          </div>
-        </div>
-      </aside>
 
-      <main className="main-content-area">
-        <button className="sidebar-toggle-trigger" onClick={() => setSidebarOpen(!sidebarOpen)}>
-          {sidebarOpen ? '✕ Hide Sidebar' : '☰ Open History'}
-        </button>
-
-        <div className="app-container">
-          <form onSubmit={async (e) => {
-            e.preventDefault();
-            if (!query.trim()) return;
-            setLoading(true);
-            setData(null);
-
-            const conversationalResult = handleConversationalIntent(query);
-            if (conversationalResult) {
-              setData(conversationalResult);
-              setChats(prev => [{ query: query.trim(), answer: conversationalResult.answer, sources: [] }, ...prev]);
-              setQuery("");
-              setLoading(false);
-              return;
-            }
-
-            try {
-              const response = await fetch('/api/search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ query: query.trim() }),
-              });
-              
-              const textData = await response.text();
-              let result;
-              
-              if (response.ok && textData.trim().length > 0) {
-                try { result = JSON.parse(textData); } catch(jE) { result = { answer: textData, sources: [] }; }
-              } else {
-                result = await emergencyClientFetch(query.trim());
-              }
-
-              setData(result);
-              setChats(prev => [{ query: query.trim(), answer: result.answer, sources: result.sources || [] }, ...prev]);
-              setQuery("");
-            } catch (err) {
-              const backupResult = await emergencyClientFetch(query.trim());
-              setData(backupResult);
-              setChats(prev => [{ query: query.trim(), answer: backupResult.answer, sources: backupResult.sources || [] }, ...prev]);
-              setQuery("");
-            } finally {
-              setLoading(false);
-            }
-          }} className="search-wrapper">
+        <div
+          style={{
+            maxWidth: compact ? "100%" : 560,
+            margin: compact ? "0" : "0 auto",
+          }}
+        >
+          <div style={S.inputWrap}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+              <circle cx="11" cy="11" r="7" stroke="#9aa0a6" strokeWidth="2" />
+              <path d="M21 21l-4-4" stroke="#9aa0a6" strokeWidth="2" strokeLinecap="round" />
+            </svg>
             <input
-              type="text"
-              className="search-input"
-              placeholder="Ask anything across live indexes..."
+              ref={inputRef}
+              style={S.input}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              disabled={loading}
+              onKeyDown={(e) => e.key === "Enter" && run()}
+              placeholder="Search the scientific literature"
             />
-            <button type="submit" className="search-button" disabled={loading}>
-              {loading ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="loading-spinner">
-                  <path d="M21 12a9 9 0 11-6.219-8.56" />
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                  <polyline points="12 5 19 12 12 19"></polyline>
-                </svg>
-              )}
-            </button>
-          </form>
-
-          {loading && (
-            <div className="answer-box">
-              <div className="loading-shimmer" style={{ width: '40%' }}></div>
-              <div className="loading-shimmer" style={{ width: '95%' }}></div>
-              <div className="loading-shimmer" style={{ width: '85%' }}></div>
-            </div>
-          )}
-
-          {data && !loading && (
-            <>
-              <div className="answer-box" dangerouslySetInnerHTML={{ __html: formatResponseText(data.answer) }} />
-              {data.sources && data.sources.length > 0 && (
-                <div className="sources-section">
-                  <div className="sources-header">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-                    Verified Knowledge Context
-                  </div>
-                  <div className="sources-grid">
-                    {data.sources.map((src, index) => (
-                      <a key={index} href={src.url} target="_blank" rel="noopener noreferrer" className="source-card">
-                        <div className="source-title">{src.title}</div>
-                        <div className="source-meta">
-                          <span className="citation-tag" style={{ margin: '0 4px 0 0', verticalAlign: 'middle' }}>{index + 1}</span>
-                          {src.journal || "Resource"}
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          <footer className="system-legal-disclaimer">
-            Cerebrum is an AI search engine synthesis tool. Always verify critical metrics back to original index sources.
-          </footer>
+            {query && (
+              <button style={S.go} onClick={() => run()}>
+                →
+              </button>
+            )}
+          </div>
         </div>
-      </main>
+
+        {!compact && (
+          <div style={S.suggWrap}>
+            {SUGGESTIONS.map((s) => (
+              <button key={s} style={S.sugg} onClick={() => run(s)}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {status === "searching" && (
+          <div style={S.loading}>
+            <span style={S.spinner} />
+            searching databases and writing your answer
+          </div>
+        )}
+
+        {error && <div style={S.error}>{error}</div>}
+
+        {status === "done" && (
+          <div style={{ marginTop: 28 }}>
+            {answer && (
+              <div style={S.answerBox}>
+                <Answer text={answer} sources={sources} />
+              </div>
+            )}
+
+            {sources.length > 0 && (
+              <div style={S.sources}>
+                <div style={S.sourcesLabel}>
+                  Sources
+                  {dbSource && <span style={S.dbTag}>via {dbSource}</span>}
+                </div>
+                {sources.map((s, i) => (
+                  
+                    key={i}
+                    href={s.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={S.source}
+                  >
+                    <span style={S.num}>{i + 1}</span>
+                    <span style={S.sBody}>
+                      <span style={S.sTitle}>{s.title || s.url}</span>
+                      <span style={S.sMeta}>
+                        {[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}
+                        {typeof s.citations === "number" && (
+                          <span style={S.cc}> · cited {s.citations}×</span>
+                        )}
+                      </span>
+                      <span style={S.sHost}>{host(s.url)}</span>
+                    </span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={S.footer}>
+          Cerebrum searches real scientific databases. Always verify claims against
+          the original sources.
+        </div>
+      </div>
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+const S = {
+  page: {
+    minHeight: "100vh",
+    background: "#fff",
+    color: "#202124",
+    fontFamily: "system-ui, 'Segoe UI', Arial, sans-serif",
+  },
+  wrap: { maxWidth: 720, margin: "0 auto", padding: "0 20px 80px" },
+  inputWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "0 16px",
+    height: 50,
+    border: "1px solid #dfe1e5",
+    borderRadius: 25,
+    boxShadow: "0 1px 6px rgba(32,33,36,0.10)",
+  },
+  input: {
+    flex: 1,
+    border: "none",
+    outline: "none",
+    fontSize: 16,
+    background: "transparent",
+    color: "#202124",
+  },
+  go: {
+    border: "none",
+    background: "#1b6b5a",
+    color: "#fff",
+    width: 32,
+    height: 32,
+    borderRadius: "50%",
+    cursor: "pointer",
+    fontSize: 17,
+  },
+  suggWrap: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "center",
+    marginTop: 26,
+    maxWidth: 560,
+    marginLeft: "auto",
+    marginRight: "auto",
+  },
+  sugg: {
+    padding: "8px 14px",
+    fontSize: 13,
+    background: "#f1f3f4",
+    color: "#3c4043",
+    border: "none",
+    borderRadius: 16,
+    cursor: "pointer",
+  },
+  loading: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    color: "#5f6368",
+    fontSize: 14,
+    marginTop: 30,
+  },
+  spinner: {
+    width: 16,
+    height: 16,
+    border: "2px solid #dfe1e5",
+    borderTopColor: "#1b6b5a",
+    borderRadius: "50%",
+    display: "inline-block",
+    animation: "spin 0.7s linear infinite",
+  },
+  error: {
+    marginTop: 26,
+    padding: 14,
+    background: "#fce8e6",
+    color: "#c5221f",
+    borderRadius: 8,
+    fontSize: 14,
+  },
+  answerBox: {
+    background: "#f8faf9",
+    border: "1px solid #e6efec",
+    borderLeft: "3px solid #1b6b5a",
+    borderRadius: 8,
+    padding: "18px 22px",
+  },
+  para: { fontSize: 16, lineHeight: 1.7, margin: "0 0 14px" },
+  cite: {
+    fontSize: 11,
+    verticalAlign: "super",
+    color: "#1b6b5a",
+    textDecoration: "none",
+    fontWeight: 700,
+    marginLeft: 1,
+  },
+  sources: { marginTop: 28, paddingTop: 20, borderTop: "1px solid #ececec" },
+  sourcesLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#5f6368",
+    marginBottom: 12,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  dbTag: {
+    fontSize: 11,
+    fontWeight: 500,
+    color: "#1b6b5a",
+    background: "#e8f3ef",
+    padding: "2px 8px",
+    borderRadius: 10,
+  },
+  source: {
+    display: "flex",
+    gap: 12,
+    padding: "10px 0",
+    textDecoration: "none",
+    color: "#202124",
+    alignItems: "flex-start",
+  },
+  num: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#1b6b5a",
+    background: "#e8f3ef",
+    minWidth: 22,
+    height: 22,
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sBody: { display: "flex", flexDirection: "column", gap: 2 },
+  sTitle: { fontSize: 15, color: "#1a0dab", lineHeight: 1.35 },
+  sMeta: { fontSize: 12.5, color: "#3c4043", lineHeight: 1.4 },
+  sHost: { fontSize: 12, color: "#5f6368", marginTop: 2 },
+  cc: { color: "#1b6b5a", fontWeight: 500 },
+  footer: {
+    marginTop: 50,
+    fontSize: 12,
+    color: "#9aa0a6",
+    textAlign: "center",
+  },
+};
+
+if (typeof document !== "undefined" && !document.getElementById("spin-style")) {
+  const st = document.createElement("style");
+  st.id = "spin-style";
+  st.textContent =
+    "@keyframes spin{to{transform:rotate(360deg)}} *{box-sizing:border-box} body{margin:0}";
+  document.head.appendChild(st);
+}
+
+createRoot(document.getElementById("root")).render(<App />);
