@@ -15,8 +15,6 @@ function decodeInverted(inv) {
   return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
-// Per-call timeout (ms). Main sources get 6s; enrichment calls pass a shorter one
-// so a slow extra never stalls the whole search.
 async function getJSON(url, headers = {}, timeoutMs = 6000) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
@@ -670,103 +668,6 @@ async function base(query, limit = 6) {
   } catch { return []; }
 }
 
-// ---------- Source: Educational Video Search Engine ----------
-async function searchInvidiousVideos(query, limit = 4, ytApiKey = "") {
-  const academicQuery = `${cleanQuery(query)} university lecture science`;
-  const seenIds = new Set();
-  const results = [];
-
-  // 1. YouTube Data API v3 (if env key present)
-  if (ytApiKey) {
-    try {
-      const url = "https://www.googleapis.com/youtube/v3/search?" + new URLSearchParams({
-        part: "snippet", maxResults: String(limit), q: academicQuery, type: "video", key: ytApiKey
-      });
-      const data = await getJSON(url, {}, 3500);
-      if (data?.items && Array.isArray(data.items)) {
-        for (const item of data.items) {
-          const id = item.id?.videoId;
-          if (id && !seenIds.has(id)) {
-            seenIds.add(id);
-            results.push({
-              title: item.snippet?.title || "Untitled Video",
-              videoId: id,
-              url: `https://www.youtube.com/watch?v=${id}`,
-              author: item.snippet?.channelTitle || "Educational Source",
-              thumbnail: item.snippet?.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
-            });
-          }
-        }
-        if (results.length >= limit) return results.slice(0, limit);
-      }
-    } catch {}
-  }
-
-  // 2. Invidious Public Instances
-  const invidiousInstances = [
-    "https://inv.nadeko.net",
-    "https://invidious.nerdvpn.de",
-    "https://iv.ggtyler.dev",
-    "https://invidious.protokolla.fi",
-    "https://invidious.perennialte.ch"
-  ];
-  for (const instance of invidiousInstances) {
-    try {
-      const url = `${instance}/api/v1/search?` + new URLSearchParams({ q: academicQuery, type: "video", sort: "relevance" });
-      const data = await getJSON(url, {}, 2500);
-      if (Array.isArray(data) && data.length > 0) {
-        for (const v of data) {
-          if (v.videoId && !seenIds.has(v.videoId)) {
-            seenIds.add(v.videoId);
-            results.push({
-              title: v.title || "Untitled Video",
-              videoId: v.videoId,
-              url: `https://www.youtube.com/watch?v=${v.videoId}`,
-              author: v.author || "Educational Source",
-              viewCount: v.viewCount || 0,
-              thumbnail: v.videoThumbnails?.find(t => t.quality === "medium")?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`
-            });
-          }
-        }
-        if (results.length >= limit) return results.slice(0, limit);
-      }
-    } catch { continue; }
-  }
-
-  // 3. Piped Public Instances
-  const pipedInstances = [
-    "https://api.piped.privacydev.net",
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.tokhmi.xyz"
-  ];
-  for (const instance of pipedInstances) {
-    try {
-      const url = `${instance}/search?` + new URLSearchParams({ q: academicQuery, filter: "videos" });
-      const data = await getJSON(url, {}, 2500);
-      const items = data?.items || [];
-      if (Array.isArray(items) && items.length > 0) {
-        for (const v of items) {
-          const id = v.url?.replace("/watch?v=", "") || "";
-          if (id && !seenIds.has(id)) {
-            seenIds.add(id);
-            results.push({
-              title: v.title || "Untitled Video",
-              videoId: id,
-              url: `https://www.youtube.com/watch?v=${id}`,
-              author: v.uploaderName || "Educational Source",
-              viewCount: v.views || 0,
-              thumbnail: v.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
-            });
-          }
-        }
-        if (results.length >= limit) return results.slice(0, limit);
-      }
-    } catch { continue; }
-  }
-
-  return results.slice(0, limit);
-}
-
 async function wikipedia(query, limit = 2) {
   try {
     const searchUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
@@ -1178,21 +1079,14 @@ export async function onRequest(context) {
     const lengthHint = answerLength === "short" ? "Keep it to one tight paragraph." : answerLength === "long" ? "Give a thorough, well-structured explanation." : "Keep it to a few short paragraphs.";
 
     let papers = [];
-    let videos = [];
     let utk = false;
-    const ytKey = env.YOUTUBE_API_KEY || env.YOUTUBE_KEY || "";
 
     try {
-      const [g, vList] = await Promise.all([
-        gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25 }),
-        searchInvidiousVideos(query, 4, ytKey).catch(() => [])
-      ]);
+      const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25 });
       papers = g.papers;
       utk = g.utk;
-      videos = vList;
     } catch {
       papers = [];
-      videos = [];
     }
 
     const hasPapers = papers.length > 0;
@@ -1408,7 +1302,7 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({
       answer,
       sources: sourceList,
-      videos,
+      videos: [],
       factCheck,
       related,
       source: aiOK && useEvidence ? `${dbUsed} + AI` : aiOK && useWeb ? `${dbUsed} + AI` : aiOK ? "General knowledge (AI)" : dbUsed,
