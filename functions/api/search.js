@@ -843,10 +843,68 @@ export async function onRequest(context) {
       }
     }
 
+    // ---- Fact-check pass (opt-in via settings.factCheck) ----
+    // A SECOND model call verifies each claim against the actual abstracts.
+    // Honest by design: it can only confirm whether the cited sources SUPPORT
+    // a claim, not whether the science is objectively true.
+    let factCheck = null;
+    if (settings.factCheck && aiOK && hasPapers && token) {
+      const fcSystem = "You are a strict scientific fact-checker. You are given an ANSWER and the SOURCE ABSTRACTS it cites. Your only job is to judge whether each factual claim in the answer is actually supported by the provided abstracts. You do NOT judge whether claims are true in the real world, only whether these sources back them up. Return ONLY valid JSON, no prose, no markdown, in this exact shape: {\"overall\":\"supported\"|\"partly\"|\"unsupported\",\"summary\":\"one plain sentence\",\"claims\":[{\"claim\":\"short quote or paraphrase\",\"status\":\"supported\"|\"thin\"|\"unsupported\",\"note\":\"why, one short sentence\"}]}. Mark 'thin' when a source loosely relates but doesn't directly state the claim. Mark 'unsupported' when no provided abstract backs it. Be skeptical; flag confident claims that the abstracts don't actually establish.";
+      const fcUser = `ANSWER:\n${answer}\n\nSOURCE ABSTRACTS:\n${evidence}`;
+      const fcModels = ["google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free", "openrouter/free"];
+      for (const model of fcModels) {
+        try {
+          const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "HTTP-Referer": "https://cerebrum.pages.dev", "X-Title": "Cerebrum" },
+            body: JSON.stringify({ model, temperature: 0, max_tokens: 700, messages: [{ role: "system", content: fcSystem }, { role: "user", content: fcUser }] }),
+          });
+          if (r.ok) {
+            const j = await r.json();
+            let c = j?.choices?.[0]?.message?.content?.trim() || "";
+            c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
+            try {
+              const parsed = JSON.parse(c);
+              if (parsed && parsed.overall) { factCheck = parsed; break; }
+            } catch { /* try next model */ }
+          }
+        } catch { /* try next model */ }
+      }
+    }
+
+    // ---- Related questions (cheap, single fast call, best-effort) ----
+    let related = [];
+    if (aiOK && token) {
+      try {
+        const rq = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "HTTP-Referer": "https://cerebrum.pages.dev", "X-Title": "Cerebrum" },
+          body: JSON.stringify({
+            model: "google/gemini-2.0-flash-exp:free",
+            temperature: 0.5,
+            max_tokens: 160,
+            messages: [
+              { role: "system", content: "Given a science question and its answer, propose exactly 3 natural follow-up questions a curious researcher would ask next. Return ONLY a JSON array of 3 short strings, no prose, no markdown. Example: [\"...\",\"...\",\"...\"]" },
+              { role: "user", content: `Question: ${query}\n\nAnswer: ${answer.slice(0, 1200)}` },
+            ],
+          }),
+        });
+        if (rq.ok) {
+          const j = await rq.json();
+          let c = j?.choices?.[0]?.message?.content?.trim() || "";
+          c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
+          const arr = JSON.parse(c);
+          if (Array.isArray(arr)) related = arr.filter((x) => typeof x === "string").slice(0, 3);
+        }
+      } catch { related = []; }
+    }
+
     const dbUsed = utk ? "Databases + UTK TRACE" : hasPapers ? "Scientific databases" : "Cerebrum AI";
     return new Response(JSON.stringify({
       answer,
       sources: sourceList,
+      factCheck,
+      related,
       source: aiOK && hasPapers ? `${dbUsed} + OpenRouter` : aiOK ? "Cerebrum AI" : dbUsed,
     }), { status: 200, headers: cors });
   } catch (e) {
