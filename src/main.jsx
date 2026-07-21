@@ -9,6 +9,59 @@ const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(n
 const MOD = IS_MAC ? "⌘" : "Ctrl";
 const kbdLabel = (key) => `${MOD}${IS_MAC ? "" : "+"}${key}`;
 
+const LOADING_MESSAGES = [
+  "Looking through the microscope",
+  "Consulting the literature",
+  "Cross-referencing citations",
+  "Peering into petri dishes",
+  "Aligning the sequences",
+  "Calibrating the spectrometer",
+  "Sifting through preprints",
+  "Interrogating the abstracts",
+  "Following the paper trail",
+  "Centrifuging the results",
+  "Decoding the methods sections",
+  "Chasing down DOIs",
+  "Scanning the stacks",
+  "Titrating the findings",
+  "Querying fourteen databases",
+  "Reading between the citations",
+  "Isolating the signal",
+  "Culturing conclusions",
+  "Amplifying the relevant hits",
+  "Filtering out the noise",
+  "Consulting the peer reviewers",
+  "Dusting off the journals",
+  "Mining the metadata",
+  "Sequencing the sources",
+  "Distilling the abstracts",
+  "Weighing the evidence",
+  "Tracing the references",
+  "Pipetting the papers",
+  "Surveying the field",
+  "Parsing the preprints",
+  "Examining the specimens",
+  "Reviewing the methodology",
+  "Synthesizing the studies",
+  "Gathering the citations",
+  "Focusing the lens",
+  "Running the analysis",
+  "Cataloguing the results",
+  "Combing the archives",
+  "Digging through the data",
+  "Assembling the bibliography",
+  "Checking the replication",
+  "Measuring the effect sizes",
+  "Extracting the key findings",
+  "Screening the abstracts",
+  "Collating the research",
+  "Verifying the sources",
+  "Indexing the literature",
+  "Untangling the results",
+  "Polishing the conclusions",
+  "Consulting fourteen databases at once",
+];
+
 const SUGGESTION_POOL = [
   "How does CRISPR-Cas9 achieve target specificity?",
   "Mechanism of quorum sensing in bacteria",
@@ -237,6 +290,20 @@ function useIsMobile() {
   const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < 900 : false);
   useEffect(() => { const onR = () => setM(window.innerWidth < 900); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
   return m;
+}
+
+function LoadingLine({ P, accent, S }) {
+  const [msg, setMsg] = useState(() => LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
+  useEffect(() => {
+    const id = setInterval(() => { setMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]); }, 1800);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div style={S.loading}>
+      <span style={S.spinner} />
+      <span key={msg} className="cb-fade">{msg}…</span>
+    </div>
+  );
 }
 
 function Intro({ accent, P, onEnter }) {
@@ -607,7 +674,7 @@ function App() {
                   <div style={S.turn}>
                     <div style={S.qLabel}><span style={S.qDot} />Searching</div>
                     <Skeleton P={P} />
-                    <div style={S.loading}><span style={S.spinner} /><span>Searching fourteen databases…</span></div>
+                    <LoadingLine P={P} accent={accent} S={S} />
                   </div>
                 )}
                 {error && <div style={S.error}>{error}</div>}
@@ -912,7 +979,8 @@ if (typeof document !== "undefined") {
       .cb-gate { animation: cbGate 0.7s cubic-bezier(.2,.8,.2,1) forwards; }
       .cb-hero { animation: cbHero 0.6s cubic-bezier(.2,.8,.2,1) forwards; }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-      html, body { margin: 0; }
+      html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
+      a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
       input { font-size: 16px; }
       input::placeholder { color: inherit; opacity: 0.5; }
       ::-webkit-scrollbar { width: 10px; }
