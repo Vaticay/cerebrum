@@ -124,6 +124,47 @@ async function saveToZotero(sources, apiKey, userId) {
 }
 function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
+// ---------- Sound Generator API ----------
+const Audio = (() => {
+  let ctx = null, ambient = null, lfoTimer = null;
+  function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } } return ctx; }
+  function tone(freq, dur, vol) { const c = ac(); if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.02); }
+  function click() { tone(660, 0.08, 0.045); }
+  function pop() { tone(880, 0.06, 0.04); }
+  function startAmbient(mode = "pulse") {
+    const c = ac(); if (!c || ambient) return;
+    if (mode === "minimal") { tone(523.25, 0.5, 0.05); return; }
+    const now = c.currentTime; const g = c.createGain(); g.gain.setValueAtTime(0.0001, now); g.connect(c.destination);
+    const oscs = [];
+    if (mode === "shimmer") {
+      const o = c.createOscillator(), o2 = c.createOscillator(); o.type = "sine"; o.frequency.value = 587.33; o2.type = "sine"; o2.frequency.value = 880;
+      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2);
+      g.gain.exponentialRampToValueAtTime(0.02, now + 0.6);
+    } else if (mode === "warm") {
+      [98, 146.83, 196].forEach((freq) => { const o = c.createOscillator(); o.type = "sine"; o.frequency.value = freq; o.connect(g); o.start(); oscs.push(o); });
+      g.gain.exponentialRampToValueAtTime(0.024, now + 0.5);
+    } else {
+      const o = c.createOscillator(), o2 = c.createOscillator(); o.type = "sine"; o.frequency.value = 110; o2.type = "sine"; o2.frequency.value = 164.81;
+      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2);
+      let up = true; g.gain.exponentialRampToValueAtTime(0.03, now + 0.8);
+      lfoTimer = setInterval(() => {
+        if (!ctx) return; const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.exponentialRampToValueAtTime(up ? 0.012 : 0.032, t + 1.4); up = !up;
+      }, 1400);
+    }
+    ambient = { g, oscs };
+  }
+  function stopAmbient() {
+    if (lfoTimer) { clearInterval(lfoTimer); lfoTimer = null; }
+    if (!ambient || !ctx) return;
+    try { ambient.g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); ambient.oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch {} }); } catch {}
+    ambient = null;
+  }
+  function preview(mode) { startAmbient(mode); setTimeout(stopAmbient, 1400); }
+  return { click, pop, startAmbient, stopAmbient, preview };
+})();
+
 // ---------- Multi-Engine Video Discovery with Unique Thumbnails ----------
 const STOPWORDS = new Set([
   "what","whats","how","does","do","did","is","are","was","were","the","a","an",
@@ -186,59 +227,6 @@ async function fetchVideosMultiSource(query) {
 
   return results.slice(0, 6);
 }
-
-const Audio = (() => {
-  let ctx = null, ambient = null, lfoTimer = null;
-  function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } } return ctx; }
-  function tone(freq, dur, vol) { const c = ac(); if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.02); }
-  function click() { tone(660, 0.08, 0.045); }
-  function pop() { tone(880, 0.06, 0.04); }
-  function startAmbient(mode = "pulse") {
-    const c = ac(); if (!c || ambient) return;
-    if (mode === "minimal") { tone(523.25, 0.5, 0.05); return; }
-    const now = c.currentTime;
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001, now);
-    g.connect(c.destination);
-    const oscs = [];
-    if (mode === "shimmer") {
-      const o = c.createOscillator(), o2 = c.createOscillator();
-      o.type = "sine"; o.frequency.value = 587.33; o2.type = "sine"; o2.frequency.value = 880;
-      const lfo = c.createOscillator(), lfoG = c.createGain();
-      lfo.frequency.value = 0.25; lfoG.gain.value = 6; lfo.connect(lfoG); lfoG.connect(o.detune); lfo.start();
-      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2, lfo);
-      g.gain.exponentialRampToValueAtTime(0.02, now + 0.6);
-    } else if (mode === "warm") {
-      const f = [98, 146.83, 196];
-      f.forEach((freq) => { const o = c.createOscillator(); o.type = "sine"; o.frequency.value = freq; o.connect(g); o.start(); oscs.push(o); });
-      g.gain.exponentialRampToValueAtTime(0.024, now + 0.5);
-    } else {
-      const o = c.createOscillator(), o2 = c.createOscillator();
-      o.type = "sine"; o.frequency.value = 110; o2.type = "sine"; o2.frequency.value = 164.81;
-      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2);
-      let up = true;
-      g.gain.exponentialRampToValueAtTime(0.03, now + 0.8);
-      lfoTimer = setInterval(() => {
-        if (!ctx) return;
-        const t = ctx.currentTime;
-        g.gain.cancelScheduledValues(t);
-        g.gain.setValueAtTime(g.gain.value, t);
-        g.gain.exponentialRampToValueAtTime(up ? 0.012 : 0.032, t + 1.4);
-        up = !up;
-      }, 1400);
-    }
-    ambient = { g, oscs };
-  }
-  function stopAmbient() {
-    if (lfoTimer) { clearInterval(lfoTimer); lfoTimer = null; }
-    if (!ambient || !ctx) return;
-    const { g, oscs } = ambient;
-    try { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(g.gain.value, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch {} }); } catch {}
-    ambient = null;
-  }
-  function preview(mode) { startAmbient(mode); setTimeout(stopAmbient, 1400); }
-  return { click, pop, startAmbient, stopAmbient, preview };
-})();
 
 function Mark({ size = 26, accent, glow }) {
   return (
@@ -324,7 +312,7 @@ function FactCheck({ fc, P, accent }) {
 function Skeleton({ P }) {
   const bar = (w) => <div style={{ height: 14, width: w, borderRadius: 6, background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.3s infinite" }} />;
   return (
-    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "28px 32px", boxShadow: P.shadow, display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "32px 38px", boxShadow: P.shadow, display: "flex", flexDirection: "column", gap: 14 }}>
       {bar("92%")}{bar("98%")}{bar("85%")}<div style={{ height: 6 }} />{bar("95%")}{bar("70%")}
     </div>
   );
@@ -378,23 +366,79 @@ function FAQView({ P, accent, at, onBack }) {
 
 function Intro({ accent, P, onEnter }) {
   const canvasRef = useRef(null);
+  const [phase, setPhase] = useState("idle");
+  const rafRef = useRef(0);
+  const startRef = useRef(0);
+
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => { canvas.width = canvas.offsetWidth * dpr; canvas.height = canvas.offsetHeight * dpr; };
+    resize(); window.addEventListener("resize", resize);
     const ctx = canvas.getContext("2d");
-    let raf;
-    const draw = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); raf = requestAnimationFrame(draw); };
-    draw();
-    return () => cancelAnimationFrame(raf);
-  }, []);
+
+    const CX = () => canvas.width / 2, CY = () => canvas.height / 2;
+    const R = () => Math.min(canvas.width, canvas.height) * 0.26;
+    const N = 22;
+    const nodes = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2 * 3 + i;
+      const rr = R() * (0.35 + 0.65 * ((i * 7) % N) / N);
+      const tx = Math.cos(a) * rr, ty = Math.sin(a) * rr * 0.72;
+      nodes.push({ tx, ty, sx: (Math.random() - 0.5) * canvas.width * 1.6, sy: (Math.random() - 0.5) * canvas.height * 1.6, r: 2.2 * dpr + Math.random() * 2.4 * dpr, delay: Math.random() * 0.35 });
+    }
+    const bonds = [];
+    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+      if (Math.hypot(nodes[i].tx - nodes[j].tx, nodes[i].ty - nodes[j].ty) < R() * 0.55) bonds.push([i, j]);
+    }
+
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+    const h = accent.replace("#", ""); const [ar, ag, ab] = [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+
+    function draw(now) {
+      if (!startRef.current) startRef.current = now;
+      const elapsed = (now - startRef.current) / 1000;
+      const assembling = phase === "assembling";
+      const prog = assembling ? Math.min(1, elapsed / 1.1) : Math.min(1, elapsed / 2.2);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const spin = assembling ? elapsed * 1.4 : elapsed * 0.25;
+      const cx = CX(), cy = CY();
+
+      const pos = nodes.map((n) => {
+        const t = ease(Math.max(0, Math.min(1, (prog - n.delay) / (1 - n.delay))));
+        const bx = n.sx * (1 - t) + n.tx * t, by = n.sy * (1 - t) + n.ty * t;
+        const ca = Math.cos(spin), sa = Math.sin(spin);
+        return { x: cx + (bx * ca - by * sa), y: cy + (bx * sa + by * ca), t };
+      });
+
+      for (const [i, j] of bonds) {
+        const a = pos[i], b = pos[j]; const alpha = Math.min(a.t, b.t);
+        if (alpha <= 0.02) continue;
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.28 * alpha})`; ctx.lineWidth = 1.1 * dpr;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+      for (let i = 0; i < pos.length; i++) {
+        const p = pos[i]; if (p.t <= 0.02) continue;
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${p.t})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, nodes[i].r, 0, Math.PI * 2); ctx.fill();
+      }
+      if (assembling && elapsed >= 1.1) {
+        if ((elapsed - 1.1) / 0.35 >= 1) { cancelAnimationFrame(rafRef.current); onEnter(); return; }
+      }
+      rafRef.current = requestAnimationFrame(draw);
+    }
+    rafRef.current = requestAnimationFrame(draw);
+    return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener("resize", resize); };
+  }, [phase, accent, onEnter]);
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: P.bg, fontFamily: "sans-serif", padding: 20 }}>
-      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} />
-      <div style={{ textAlign: "center", zIndex: 1 }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: P.bg, fontFamily: "'Inter', sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.9 }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center", opacity: phase === "assembling" ? 0 : 1, transition: "opacity 0.5s" }}>
         <Mark size={54} accent={accent} glow={P.dark} />
         <h1 style={{ fontSize: 52, fontWeight: 750, color: P.ink, margin: "16px 0 8px" }}>Cerebrum</h1>
         <p style={{ fontSize: 17, color: P.ink2, marginBottom: 32 }}>Peer-reviewed answers, on demand.</p>
-        <button onClick={onEnter} style={{ padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer" }}>
+        <button onClick={() => setPhase("assembling")} style={{ padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}` }}>
           Initialize →
         </button>
       </div>
@@ -479,12 +523,41 @@ export default function App() {
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
   useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [turns, busy]);
+  useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
   useEffect(() => { document.body.style.background = P.bg; }, [P]);
+  useEffect(() => { setCookie("cb_snd", soundMode); setCookie("cb_len", answerLength); setCookie("cb_fc", factCheck ? "1" : "0"); setCookie("cb_muted", muted ? "1" : "0"); setCookie("cb_tw", typewriter ? "1" : "0"); setCookie("cb_pal", paletteName); setCookie("cb_accent", accentName); setCookie("cb_ca", customAccent); }, [soundMode, answerLength, factCheck, muted, typewriter, paletteName, accentName, customAccent]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
+      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setSavedOpen(false); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); setTurns([]); setAllSources([]); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  function toggleSave(s) { sfx(); setSaved((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
+  const isSaved = (s) => saved.some((x) => (x.title || "").toLowerCase() === (s.title || "").toLowerCase());
+  async function doZotero() { setZMsg(""); const list = saved.length ? saved : allSources; if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; } try { await saveToZotero(list, zKey.trim(), zUser.trim()); setZMsg(`Saved ${list.length} items.`); } catch (e) { setZMsg(`Failed: ${e.message}`); } }
+
+  const commands = [
+    { label: "New investigation", hint: kbdLabel("J"), run: () => { setTurns([]); setAllSources(); setCmdOpen(false); } },
+    { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
+    { label: "Open FAQ & Docs", run: () => { setCmdOpen(false); setCurrentView("faq"); } },
+    { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
+    { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
+    { label: "Toggle light / dark", run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
+  ];
+  const filteredCmds = commands.filter((c) => c.label.toLowerCase().includes(cmdQuery.toLowerCase()));
 
   if (!entered) return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} />;
   if (currentView === "faq") return <FAQView P={P} accent={accent} at={at} onBack={() => setCurrentView("app")} />;
 
   const started = turns.length > 0 || busy;
+  const exportList = saved.length ? saved : allSources;
   const currentVideos = turns.length > 0 ? (turns[turns.length - 1].videos || []) : [];
 
   const filteredSources = allSources.filter((s) => {
@@ -497,6 +570,9 @@ export default function App() {
     <div key={i} style={{ ...S.srcItem, background: hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent" }}>
       <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: P.ink }}>{s.title || s.url}</a>
       <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}</div>
+      <div style={{ marginTop: 6 }}>
+        <button style={{ ...S.chipMini, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}>{isSaved(s) ? "★ Saved" : "☆ Save"}</button>
+      </div>
     </div>
   );
 
@@ -513,6 +589,19 @@ export default function App() {
 
       {panelTab === "sources" ? (
         <>
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
+            <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.bib", toBibTeX(exportList)); }}>BibTeX</button>
+            <button style={S.sBtnP} onClick={() => { sfx(); setZoteroOpen(!zoteroOpen); }}>Zotero</button>
+          </div>
+          {zoteroOpen && (
+            <div style={S.zBox}>
+              <input style={S.zIn} placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} />
+              <input style={S.zIn} placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)} />
+              <button style={S.sBtnP} onClick={doZotero}>Save {exportList.length}</button>
+              {zMsg && <div style={S.zMsg}>{zMsg}</div>}
+            </div>
+          )}
           <input style={S.srcFilterInput} placeholder="Filter sources…" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
           <div style={S.srcList}>
             {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
@@ -527,9 +616,7 @@ export default function App() {
             currentVideos.map((vid, i) => (
               <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", background: P.raised, borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line2}`, boxShadow: P.shadowSm, transition: "transform 0.15s" }}>
                 <div style={{ position: "relative", width: "100%", height: 140, background: P.dark ? "#181b1f" : "#e5e7eb" }}>
-                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => {
-                    e.target.style.display = 'none';
-                  }} />
+                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = 'none'; }} />
                   <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.8)", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
                     LECTURE
                   </div>
@@ -554,10 +641,12 @@ export default function App() {
       <div style={S.grain} />
       <header style={S.header}>
         <div style={S.headInner}>
-          <div style={S.brandRow} onClick={() => { sfx(); newSession(); }}><Mark size={22} accent={accent} glow={P.dark} /><span style={S.brand}>Cerebrum</span></div>
+          <div style={S.brandRow} onClick={() => { sfx(); setTurns([]); setAllSources([]); }}><Mark size={22} accent={accent} glow={P.dark} /><span style={S.brand}>Cerebrum</span></div>
           <div style={S.headActions}>
-            <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
+            <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setTurns([]); setAllSources([]); }}>New</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setCurrentView("faq"); }}>FAQ</button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>Saved ({saved.length})</button>
             <button style={S.iconBtn} onClick={() => setMuted(!muted)}>{muted ? "🔇" : "🔊"}</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>Settings</button>
           </div>
@@ -593,12 +682,37 @@ export default function App() {
                     <LoadingLine P={P} />
                   </div>
                 )}
+                {error && <div style={S.error}>{error}</div>}
               </div>
               <aside style={S.panel}>{SourcesInner}</aside>
             </div>
           )}
         </div>
       </div>
+
+      {cmdOpen && (
+        <div style={S.cmdWrap} onClick={() => setCmdOpen(false)}>
+          <div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop">
+            <div style={S.cmdInputRow}>
+              <input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} placeholder="Type a command…" />
+              <kbd style={S.kbd}>esc</kbd>
+            </div>
+            <div style={S.cmdList}>
+              {filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {savedOpen && (
+        <div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-fade">
+          <div style={S.modal} onClick={(e) => e.stopPropagation()} className="cb-pop">
+            <div style={S.modalTitle}>Saved articles ({saved.length})</div>
+            <button style={{ ...S.modalClose, marginTop: 16 }} onClick={() => setSavedOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSaved, close: () => setSettingsOpen(false) }} />}
     </div>
   );
@@ -638,6 +752,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
 }
 
 function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSaved, close }) {
+  const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
   return (
     <div style={S.modalWrap} onClick={close} className="cb-fade">
       <div style={S.modal} onClick={(e) => e.stopPropagation()} className="cb-pop">
@@ -647,6 +762,14 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
           {Object.keys(PALETTES).map((pn) => (
             <button key={pn} style={{ ...S.palCard, background: PALETTES[pn].bg, borderColor: paletteName === pn ? accent : PALETTES[pn].line2 }} onClick={() => { sfx(); setPaletteName(pn); }}>
               <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: 550 }}>{pn}</span>
+            </button>
+          ))}
+        </div>
+        <div style={S.setLabel}>Sound Mode</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
+          {SOUND_MODES.map(([id, name]) => (
+            <button key={id} style={{ padding: "10px", background: soundMode === id ? accent : P.bg, color: soundMode === id ? at : P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontWeight: 550 }} onClick={() => { setSoundMode(id); Audio.preview(id); }}>
+              {name}
             </button>
           ))}
         </div>
@@ -667,6 +790,8 @@ function makeStyles(P, accent, at, isMobile = false) {
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
     brand: { fontWeight: 700, fontSize: 19, color: P.ink },
     headActions: { display: "flex", alignItems: "center", gap: 8 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontFamily: font },
+    kbd: { fontSize: 11, fontFamily: font, color: P.faint, background: P.bg, border: `1px solid ${P.line2}`, borderRadius: 5, padding: "1px 6px", fontWeight: 550 },
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 550 },
     iconBtn: { background: "transparent", border: "none", color: P.ink2, width: 38, height: 38, borderRadius: 8, cursor: "pointer", fontSize: 16 },
     scroll: { flex: 1, overflowY: "auto" },
@@ -704,8 +829,17 @@ function makeStyles(P, accent, at, isMobile = false) {
     srcItem: { padding: "14px 14px", borderRadius: 12, borderBottom: `1px solid ${P.line}` },
     srcTitle: { fontSize: 14, textDecoration: "none", fontWeight: 600, display: "block", marginBottom: 6, lineHeight: 1.4 },
     srcMeta: { fontSize: 12, color: P.ink2 },
-    foot: { marginTop: "auto", padding: "30px 0 36px", textAlign: "center" },
-    disclaimer: { fontSize: 12, color: P.ink2, lineHeight: 1.6, maxWidth: 600, margin: "0 auto 16px", padding: "12px 18px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 12 },
+    sBtn: { flex: 1, fontSize: 11.5, padding: "7px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 7, cursor: "pointer", fontWeight: 600 },
+    sBtnP: { flex: 1, fontSize: 11.5, padding: "7px", background: accent, color: at, border: "none", borderRadius: 7, cursor: "pointer", fontWeight: 600 },
+    zBox: { background: P.bg, border: `1px solid ${P.line}`, borderRadius: 10, padding: 10, marginBottom: 12, display: "flex", flexDirection: "column", gap: 6 },
+    zIn: { padding: "8px", fontSize: 12, border: `1px solid ${P.line2}`, background: P.surface, color: P.ink, borderRadius: 6, outline: "none" },
+    zMsg: { fontSize: 11, color: accent },
+    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, backdropFilter: "blur(6px)" },
+    cmdBox: { width: 520, maxWidth: "92vw", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", overflow: "hidden" },
+    cmdInputRow: { display: "flex", alignItems: "center", gap: 11, padding: "14px 18px", borderBottom: `1px solid ${P.line}` },
+    cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 15, color: P.ink },
+    cmdList: { maxHeight: 300, overflowY: "auto", padding: 8 },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", textAlign: "left" },
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
     modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 32, width: 460, maxWidth: "100%" },
     modalTitle: { fontSize: 22, fontWeight: 700, color: P.ink, marginBottom: 24 },
