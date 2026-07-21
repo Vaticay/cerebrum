@@ -46,14 +46,18 @@ async function getText(url, headers = {}) {
 
 // ---------- Source: Europe PMC (bio/chem, keyless) ----------
 async function europePMC(query, limit = 6) {
+  // Expand organism acronyms so the spelled-out form is searched too.
+  const toks = query.toLowerCase().split(/\s+/);
+  const exp = expansionsFor(toks);
+  const q = exp.length ? `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})` : query;
   const url =
     "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
     new URLSearchParams({
-      query,
+      query: q,
       resultType: "core",
       pageSize: String(limit),
       format: "json",
-      sort: "CITED desc",
+      sort: "relevance",
     });
   try {
     const data = await getJSON(url);
@@ -701,31 +705,51 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, limit = 6, browse 
 
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
   const expansions = expansionsFor(terms); // e.g. bsfl -> "black soldier fly larvae"
+  // Terms that are just an organism/acronym with a spelled-out expansion (e.g. "bsfl")
+  // are "topic-neutral" — matching them alone doesn't make a paper on-topic.
+  const neutralTerms = new Set(terms.filter((t) => SYNONYMS[t.toLowerCase()]));
+  const contentTerms = terms.filter((t) => !neutralTerms.has(t)); // e.g. plastics, transcriptional
   const scored = merged
     .map((p) => {
       const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
       const titleHay = (p.title || "").toLowerCase();
-      let hits = terms.filter((t) => hay.includes(t)).length;
-      // Title matches count extra — a term in the title is a strong signal.
+      // Light stem match: strip a trailing s/es/al/ion so plastic~plastics,
+      // transcription~transcriptional count as hits.
+      const stem = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
+      const has = (t) => hay.includes(t) || hay.includes(stem(t));
+      const hitTerms = terms.filter(has);
+      const contentHits = contentTerms.filter(has).length;      // the terms that define the topic
+      const neutralHit = [...neutralTerms].some(has);            // organism present at all?
       const titleHits = terms.filter((t) => titleHay.includes(t)).length;
-      // Any expanded phrase that appears counts as a strong hit for its acronym.
-      let expHits = 0;
-      for (const phrase of expansions) { if (hay.includes(phrase)) expHits += 1; }
-      const effHits = hits + expHits;
-      const coverage = terms.length ? Math.min(1, effHits / terms.length) : 0;
-      let score = effHits * 1.5 + titleHits * 1.5 + coverage * 2;
-      if (expHits > 0) score += 1.5; // reward acronym-expansion matches
-      if (p.abstract) score += 0.5;  // prefer papers we can actually read, but don't exclude others
-      if (typeof p.citations === "number") score += Math.min(p.citations / 500, 1.5);
-      // Small recency nudge so current work isn't buried.
+      // Expansions: does a spelled-out organism name appear? (covers acronym-only papers)
+      let expHit = false;
+      for (const phrase of expansions) { if (hay.includes(phrase)) expHit = true; }
+      const organismPresent = neutralHit || expHit;
+
+      // Content coverage is what matters most for relevance.
+      const contentCoverage = contentTerms.length ? contentHits / contentTerms.length : 1;
+
+      let score = 0;
+      score += contentHits * 4;                 // each specific/topical term is worth a lot
+      score += contentCoverage * 5;             // hitting ALL topical terms is strongly rewarded
+      score += titleHits * 2;                   // title matches are a strong signal
+      if (organismPresent && contentHits > 0) score += 3; // right organism AND right topic
+      if (expHit) score += 1;
+      if (p.abstract) score += 0.5;
+      if (typeof p.citations === "number") score += Math.min(p.citations / 800, 1.2);
       const yr = parseInt(p.year, 10);
       if (yr && yr >= 2015) score += 0.3;
-      return { ...p, score, coverage, effHits };
+
+      return { ...p, score, contentHits, contentCoverage, organismPresent };
     })
-    // PERMISSIVE: keep any paper with at least one real hit (term or expansion).
-    // We rank by score and slice, rather than hard-excluding on coverage, so
-    // known-relevant papers with sparse abstracts are never silently dropped.
-    .filter((p) => (terms.length === 0 ? true : p.effHits > 0))
+    // Relevance gate: if the query has topical terms, a paper must hit at least one of them.
+    // A paper that only matches the organism (e.g. a BSFL dog-feed study for a plastics query)
+    // is dropped WHEN topical terms exist. If the query is only an organism/name, keep by presence.
+    .filter((p) => {
+      if (terms.length === 0) return true;
+      if (contentTerms.length > 0) return p.contentHits > 0;   // must touch the actual topic
+      return p.organismPresent;                                 // organism-only query
+    })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
