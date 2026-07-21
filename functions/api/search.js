@@ -81,6 +81,7 @@ async function europePMC(query, limit = 6) {
         authors: r.authorString || "",
         journal: r.journalTitle || "Europe PMC",
         abstract: stripTags(r.abstractText),
+        pmcid: r.pmcid || (r.source === "PMC" ? r.id : "") || "",
       }));
   } catch {
     return [];
@@ -554,6 +555,87 @@ async function hal(query, limit = 4) {
 }
 
 // ---------- CORE: 250M+ OA papers (optional key) ----------
+// ---------- Source: PLOS (full-text open journals, keyless) ----------
+async function plos(query, limit = 6) {
+  try {
+    const url = "https://api.plos.org/search?" + new URLSearchParams({
+      q: query,
+      fl: "id,title_display,author_display,journal,publication_date,abstract",
+      wt: "json",
+      rows: String(limit),
+    });
+    const data = await getJSON(url);
+    const docs = data?.response?.docs || [];
+    return docs.map((d) => ({
+      title: Array.isArray(d.title_display) ? d.title_display[0] : (d.title_display || "Untitled"),
+      url: d.id ? `https://doi.org/${d.id}` : "",
+      year: (d.publication_date || "").slice(0, 4),
+      citations: null,
+      authors: (d.author_display || []).slice(0, 1).join("") + ((d.author_display || []).length > 1 ? " et al." : ""),
+      journal: d.journal || "PLOS",
+      abstract: stripTags(Array.isArray(d.abstract) ? d.abstract.join(" ") : (d.abstract || "")),
+    })).filter((p) => p.title);
+  } catch { return []; }
+}
+
+// ---------- Source: BASE (Bielefeld, 300M+ docs, keyless HTML-free JSON) ----------
+async function base(query, limit = 6) {
+  try {
+    const url = "https://www.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?" + new URLSearchParams({
+      func: "PerformSearch",
+      query,
+      format: "json",
+      hits: String(limit),
+    });
+    const data = await getJSON(url);
+    const docs = data?.response?.docs || [];
+    return docs.map((d) => ({
+      title: d.dctitle || "Untitled",
+      url: d.dclink || (d.dcidentifier ? d.dcidentifier : ""),
+      year: (d.dcyear || "").toString().slice(0, 4),
+      citations: null,
+      authors: Array.isArray(d.dccreator) ? (d.dccreator[0] + (d.dccreator.length > 1 ? " et al." : "")) : (d.dccreator || ""),
+      journal: d.dcpublisher || "BASE",
+      abstract: stripTags(Array.isArray(d.dcdescription) ? d.dcdescription.join(" ") : (d.dcdescription || "")),
+    })).filter((p) => p.title);
+  } catch { return []; }
+}
+
+// ---------- Enrichment: Unpaywall adds a free full-text link for a DOI (keyless w/ email) ----------
+async function unpaywallLink(doi) {
+  if (!doi) return "";
+  try {
+    const clean = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+    const data = await getJSON(`https://api.unpaywall.org/v2/${encodeURIComponent(clean)}?email=noreply@example.com`);
+    return data?.best_oa_location?.url_for_pdf || data?.best_oa_location?.url || "";
+  } catch { return ""; }
+}
+
+// ---------- Enrichment: BioC full text for PMC open-access articles (keyless) ----------
+// Returns the full article text for a PMC id, or "" if unavailable.
+// BioC JSON shape: [ { documents: [ { passages: [ { text, infons:{section_type} } ] } ] } ]
+async function biocFullText(pmcid) {
+  if (!pmcid) return "";
+  const id = String(pmcid).replace(/^PMC/i, "");
+  try {
+    const data = await getJSON(`https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_json/PMC${id}/unicode`);
+    const collections = Array.isArray(data) ? data : [data];
+    const parts = [];
+    for (const coll of collections) {
+      const docs = coll?.documents || [];
+      for (const doc of docs) {
+        for (const pass of (doc.passages || [])) {
+          const sec = pass?.infons?.section_type || "";
+          // Skip references and figure captions to keep it focused; keep the science.
+          if (["REF", "FIG", "TABLE"].includes(sec)) continue;
+          if (pass.text && pass.text.length > 1) parts.push(pass.text);
+        }
+      }
+    }
+    return parts.join(" ").replace(/\s+/g, " ").trim();
+  } catch { return ""; }
+}
+
 async function core(query, limit = 6, key = "") {
   if (!key) return [];
   try {
@@ -718,6 +800,8 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, limit = 6, browse 
     datacite(query, 6),
     openaire(query, 6),
     hal(query, 6),
+    plos(query, 6),
+    base(query, 6),
     core(query, 8, coreKey),
   ];
   const results = await Promise.all(jobs);
@@ -908,8 +992,19 @@ export async function onRequest(context) {
 
     const sourceList = (useEvidence ? papers : []).map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations }));
 
+    // Full-text enrichment: for the top papers that have a PMC id, pull BioC
+    // full text so the answer/fact-check see the whole paper, not just the abstract.
+    // Limited to the top 3 (with a PMC id) to keep latency reasonable.
+    if (useEvidence) {
+      const toEnrich = papers.filter((p) => p.pmcid).slice(0, 3);
+      await Promise.all(toEnrich.map(async (p) => {
+        const ft = await biocFullText(p.pmcid);
+        if (ft && ft.length > (p.abstract || "").length) p.fullText = ft.slice(0, 6000);
+      }));
+    }
+
     const evidence = useEvidence
-      ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract || "(no abstract available for this record)"}`).join("\n\n")
+      ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\n${p.fullText ? "Full text: " + p.fullText : "Abstract: " + (p.abstract || "(no abstract available for this record)")}`).join("\n\n")
       : "";
 
     const systemPrompt = (useEvidence
@@ -933,7 +1028,16 @@ export async function onRequest(context) {
 
     const token = env.OPENROUTER_API_KEY;
     if (token) {
-      const models = ["openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free"];
+      // Expanded free-model chain: if one is busy/rate-limited, try the next.
+      const models = [
+        "openrouter/free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+        "qwen/qwen-2.5-72b-instruct:free",
+        "mistralai/mistral-small-3.1-24b-instruct:free",
+        "deepseek/deepseek-chat:free",
+        "meta-llama/llama-3.1-8b-instruct:free",
+      ];
       for (const model of models) {
         try {
           const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -952,6 +1056,20 @@ export async function onRequest(context) {
             if (c) { answer = c; aiOK = true; break; }
           }
         } catch { /* try next model */ }
+      }
+    }
+
+    // FINAL FALLBACK: Cloudflare Workers AI (no external key, runs at the edge).
+    // Only used if OpenRouter produced nothing. Requires the [ai] binding in
+    // wrangler config; if it's absent we skip silently.
+    if (!aiOK && env.AI && typeof env.AI.run === "function") {
+      const cfModels = ["@cf/meta/llama-3.1-8b-instruct", "@cf/meta/llama-3-8b-instruct", "@cf/mistral/mistral-7b-instruct-v0.1"];
+      for (const m of cfModels) {
+        try {
+          const out = await env.AI.run(m, { messages, max_tokens: Math.min(maxTokens, 1024) });
+          const c = (out?.response || "").trim();
+          if (c) { answer = c; aiOK = true; break; }
+        } catch { /* try next CF model */ }
       }
     }
 
