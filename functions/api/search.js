@@ -47,29 +47,24 @@ async function getText(url, headers = {}, timeoutMs = 6000) {
 
 // ---------- Source: Europe PMC (bio/chem, keyless) ----------
 async function europePMC(query, limit = 6) {
-  const toks = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  const exp = expansionsFor(toks);
-  const neutral = new Set(toks.filter((t) => SYNONYMS[t.toLowerCase()]));
-  const content = toks.filter((t) => !neutral.has(t));
-  let q = query;
-  if (neutral.size && content.length) {
-    const orgForms = [...neutral, ...exp].map((e) => (e.includes(" ") ? `"${e}"` : e));
-    q = `(${orgForms.join(" OR ")}) AND (${content.join(" OR ")})`;
-  } else if (exp.length) {
-    q = `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})`;
-  }
-  const url =
-    "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
-    new URLSearchParams({
-      query: q,
-      resultType: "core",
-      pageSize: String(limit),
-      format: "json",
-      sort: "relevance",
-    });
-  try {
+  const q = buildStructuredQuery(query);
+  const runSearch = async (queryStr) => {
+    const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
+      new URLSearchParams({ query: queryStr, resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
     const data = await getJSON(url);
-    const rows = data?.resultList?.result || [];
+    return data?.resultList?.result || [];
+  };
+  try {
+    let rows = await runSearch(q);
+    // If the structured query is too strict, fall back to organism-only, then plain.
+    if (!rows.length && q !== query) {
+      const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
+      if (hasOrganism) {
+        const orgOnly = orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
+        rows = await runSearch(orgOnly);
+      }
+      if (!rows.length) rows = await runSearch(query);
+    }
     return rows
       .filter((r) => r.title)
       .map((r) => ({
@@ -136,31 +131,34 @@ async function pubmed(query, limit = 6, apiKey = "") {
   const tool = "&tool=cerebrum&email=noreply@example.com" + keyParam;
   try {
     const toks = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-    const exp = expansionsFor(toks);
-    const neutral = new Set(toks.filter((t) => SYNONYMS[t.toLowerCase()]));
-    const content = toks.filter((t) => !neutral.has(t)); // topical terms
-
-    // Build a query that requires the organism AND the topical terms, so we get
-    // e.g. BSFL+plastics papers, not every BSFL paper.
-    let term = query;
-    if (neutral.size && content.length) {
-      const orgForms = [...neutral, ...exp].map((e) => (e.includes(" ") ? `"${e}"` : e));
-      term = `(${orgForms.join(" OR ")}) AND (${content.join(" OR ")})`;
-    } else if (exp.length) {
-      term = `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})`;
-    }
+    // Build (organism) AND (topic) query — detects spelled-out organism, not just acronym.
+    const structured = buildStructuredQuery(query);
+    let term = structured;
 
     const es = await getJSON(
       "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
         new URLSearchParams({ db: "pubmed", term, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
     );
     let ids = es?.esearchresult?.idlist || [];
+    // If the structured query is too strict and returns nothing, retry with a looser
+    // organism-only query, then the plain query. Never come back empty when papers exist.
     if (!ids.length && term !== query) {
-      const es2 = await getJSON(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
-          new URLSearchParams({ db: "pubmed", term: query, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
-      );
-      ids = es2?.esearchresult?.idlist || [];
+      const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
+      if (hasOrganism) {
+        const orgOnly = orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
+        const es2 = await getJSON(
+          "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
+            new URLSearchParams({ db: "pubmed", term: orgOnly, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
+        );
+        ids = es2?.esearchresult?.idlist || [];
+      }
+      if (!ids.length) {
+        const es3 = await getJSON(
+          "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
+            new URLSearchParams({ db: "pubmed", term: query, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
+        );
+        ids = es3?.esearchresult?.idlist || [];
+      }
     }
     if (!ids.length) return [];
     const idStr = ids.join(",");
@@ -377,6 +375,43 @@ function expansionsFor(tokens) {
     if (SYNONYMS[key]) out.push(...SYNONYMS[key]);
   }
   return out;
+}
+
+// Known multi-word organism phrases (spelled-out forms) so we can detect the organism
+// even when the user doesn't use the acronym. Extend as needed.
+const ORGANISM_PHRASES = [
+  "black soldier fly larvae", "black soldier fly", "hermetia illucens",
+];
+const ORGANISM_WORDS = new Set(["black", "soldier", "fly", "larvae", "larva", "hermetia", "illucens"]);
+
+// Split a cleaned query into an organism group (phrases to OR) and topic terms.
+// Detects both the acronym (via SYNONYMS) and the spelled-out organism phrase, so
+// "black soldier fly larvae plastics" → org:["black soldier fly larvae",...], topic:["plastics"].
+function splitOrganismTopic(query) {
+  const q = query.toLowerCase();
+  const toks = q.split(/\s+/).filter((t) => t.length > 2);
+  const exp = expansionsFor(toks);
+  const orgPhrases = new Set(exp);
+  // Detect spelled-out organism phrases present in the query.
+  for (const phrase of ORGANISM_PHRASES) { if (q.includes(phrase)) orgPhrases.add(phrase); }
+  // Acronym tokens themselves are organism terms.
+  for (const t of toks) { if (SYNONYMS[t]) orgPhrases.add(t); }
+  // Topic = tokens that are neither an organism word nor an acronym.
+  const topic = toks.filter((t) => !ORGANISM_WORDS.has(t) && !SYNONYMS[t]);
+  return { orgPhrases: [...orgPhrases], topic, hasOrganism: orgPhrases.size > 0 };
+}
+
+// Construct a database query string: (org OR org) AND (topic OR topic).
+function buildStructuredQuery(query) {
+  const { orgPhrases, topic, hasOrganism } = splitOrganismTopic(query);
+  if (hasOrganism && topic.length) {
+    const org = orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
+    return `(${org}) AND (${topic.join(" OR ")})`;
+  }
+  if (hasOrganism) {
+    return orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
+  }
+  return query; // no organism → plain query
 }
 
 const STOPWORDS = new Set([
