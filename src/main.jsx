@@ -339,25 +339,142 @@ function LoadingLine({ P }) {
 }
 
 const FAQ_DATA = [
-  { category: "Getting Started", q: "What is Cerebrum?", a: "Cerebrum is an independent, high-performance search instrument built exclusively for scientific research." },
-  { category: "Zotero Integration", q: "How do I connect Zotero?", a: "Click the Zotero button in the Sources panel and input your User ID and API key." }
+  {
+    category: "Getting Started",
+    q: "What is Cerebrum?",
+    a: "Cerebrum is an independent, high-performance search instrument built exclusively for scientific research. It queries global scholarly archives in parallel, synthesizes factual answers grounded strictly in peer-reviewed literature, and provides verifiable inline citations."
+  },
+  {
+    category: "Getting Started",
+    q: "Do I need to create an account or pay to use Cerebrum?",
+    a: "No account or login is required to search or read literature. Cerebrum runs completely free on client-side routing and edge serverless pathways, ensuring total privacy."
+  },
+  {
+    category: "Data Sources",
+    q: "Which scholarly databases does Cerebrum query?",
+    a: "Cerebrum queries multiple global and open-access scientific indexes simultaneously: Europe PMC (life sciences/chemistry), PubMed (biomedical), OpenAlex (250M+ multidisciplinary works and preprints), Crossref, arXiv (physics/math/CS), Semantic Scholar, DOAJ, Zenodo, DataCite, OpenAIRE, HAL, PLOS, BASE, and the University of Tennessee Knoxville (UTK) TRACE repository."
+  },
+  {
+    category: "Data Sources",
+    q: "How does Cerebrum prevent off-topic or irrelevant papers from showing up?",
+    a: "Cerebrum uses an advanced query-structuring engine that splits your question into specific organism phrases and topical keywords. It applies strict relevance gates so that unrelated papers sharing a single common word (such as an entomology paper appearing for a general biochemical query) are automatically dropped."
+  },
+  {
+    category: "Zotero Integration",
+    q: "How do I connect Cerebrum to my Zotero account?",
+    a: "To sync your saved articles directly to Zotero, click the 'Zotero' button in the Sources panel. You will need to input your Zotero User ID and a Private API Key."
+  },
+  {
+    category: "Zotero Integration",
+    q: "Where do I find my Zotero User ID and API Key?",
+    a: "1. Log into your account at zotero.org.\n2. Go to your Account Settings -> Feeds/API (or visit zotero.org/settings/keys).\n3. Copy the 7-digit number listed as your userID.\n4. Click 'Create new private key', ensure boxes for 'Allow library access' and 'Allow write access' are checked, and save it. Copy the generated key immediately."
+  },
+  {
+    category: "Features & Output",
+    q: "What are the small superscript numbers (e.g., ¹) inside the answers?",
+    a: "Those are active inline citation links. Each number corresponds directly to a source in your sidebar. Clicking or hovering over them reveals the exact source material that backs up that specific scientific claim."
+  },
+  {
+    category: "Features & Output",
+    q: "How does the Fact-Checker feature work?",
+    a: "When enabled in Settings, a secondary validation model evaluates each factual claim in the generated answer against the source abstracts provided. It scores the response to ensure the conclusions are genuinely supported by the retrieved literature."
+  },
+  {
+    category: "Features & Output",
+    q: "Where do the Related Videos come from?",
+    a: "Cerebrum uses a multi-engine keyless discovery system querying Piped, Invidious, and PeerTube (Sepia Search) directly from your browser to pull educational university lectures and laboratory demonstrations."
+  },
+  {
+    category: "Privacy & Tech",
+    q: "Is my search history saved on a server?",
+    a: "No. Your chat history, search tokens, and saved articles are stored securely in your browser's local storage (`localStorage`). Nothing is tracked or retained on a central database."
+  }
 ];
 
 function FAQView({ P, accent, at, onBack }) {
+  const [search, setSearch] = useState("");
+  const [openCategory, setOpenCategory] = useState("All");
+  const categories = ["All", "Getting Started", "Data Sources", "Zotero Integration", "Features & Output", "Privacy & Tech"];
+
+  const filtered = FAQ_DATA.filter((item) => {
+    const matchesCat = openCategory === "All" || item.category === openCategory;
+    const matchesQuery = item.q.toLowerCase().includes(search.toLowerCase()) || item.a.toLowerCase().includes(search.toLowerCase());
+    return matchesCat && matchesQuery;
+  });
+
   return (
-    <div style={{ minHeight: "100vh", background: P.bg, color: P.ink, padding: "40px 20px", fontFamily: "sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: P.bg, color: P.ink, fontFamily: "'Inter', -apple-system, sans-serif", padding: "40px 20px" }}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
-        <button onClick={onBack} style={{ background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontWeight: 600, fontSize: 13.5, marginBottom: 20 }}>
-          ← Back to Cerebrum
-        </button>
-        <h1 style={{ fontSize: 36, fontWeight: 750, marginBottom: 10 }}>Frequently Asked Questions</h1>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 20 }}>
-          {FAQ_DATA.map((item, idx) => (
-            <div key={idx} style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 14, padding: "20px 24px" }}>
-              <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 8px 0" }}>{item.q}</h3>
-              <p style={{ fontSize: 14.5, color: P.ink2, margin: 0, lineHeight: 1.6 }}>{item.a}</p>
-            </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 40 }}>
+          <button onClick={onBack} style={{ background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontWeight: 600, fontSize: 13.5 }}>
+            ← Back to Cerebrum
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Mark size={20} accent={accent} />
+            <span style={{ fontWeight: 700, fontSize: 16, color: P.ink }}>Cerebrum Docs</span>
+          </div>
+        </div>
+
+        <h1 style={{ fontSize: 38, fontWeight: 750, letterSpacing: "-0.03em", marginBottom: 10, color: P.ink }}>Frequently Asked Questions</h1>
+        <p style={{ fontSize: 16, color: P.ink2, marginBottom: 30, lineHeight: 1.5 }}>Everything you need to know about how Cerebrum indexes research, grounds its citations, and connects with tools like Zotero.</p>
+
+        <div style={{ marginBottom: 24 }}>
+          <input
+            type="text"
+            placeholder="Search questions (e.g. Zotero, databases, citations)…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: "100%", padding: "14px 18px", fontSize: 15, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 12, color: P.ink, outline: "none", boxShadow: P.shadowSm }}
+          />
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 32 }}>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setOpenCategory(cat)}
+              style={{
+                padding: "7px 14px",
+                fontSize: 13,
+                fontWeight: 600,
+                borderRadius: 20,
+                border: "1px solid",
+                borderColor: openCategory === cat ? accent : P.line2,
+                background: openCategory === cat ? accent : P.surface,
+                color: openCategory === cat ? at : P.ink2,
+                cursor: "pointer",
+                transition: "all 0.15s"
+              }}
+            >
+              {cat}
+            </button>
           ))}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "50px 0", color: P.faint, fontSize: 15 }}>
+              No matching questions found for "{search}".
+            </div>
+          ) : (
+            filtered.map((item, idx) => (
+              <div key={idx} style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 14, padding: "22px 24px", boxShadow: P.shadowSm }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: accent, marginBottom: 8 }}>
+                  {item.category}
+                </div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: P.ink, margin: "0 0 10px 0", letterSpacing: "-0.01em" }}>
+                  {item.q}
+                </h3>
+                <p style={{ fontSize: 14.5, color: P.ink2, margin: 0, lineHeight: 1.6, whiteSpace: "pre-line" }}>
+                  {item.a}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 60, fontSize: 12.5, color: P.faint, borderTop: `1px solid ${P.line}`, paddingTop: 24 }}>
+          Cerebrum Research Instrument · Built for absolute scientific transparency.
         </div>
       </div>
     </div>
@@ -431,6 +548,8 @@ function Intro({ accent, P, onEnter }) {
     return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener("resize", resize); };
   }, [phase, accent, onEnter]);
 
+  const go = () => { if (phase !== "idle") return; startRef.current = 0; setPhase("assembling"); };
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: P.bg, fontFamily: "'Inter', sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.9 }} />
@@ -438,7 +557,7 @@ function Intro({ accent, P, onEnter }) {
         <Mark size={54} accent={accent} glow={P.dark} />
         <h1 style={{ fontSize: 52, fontWeight: 750, color: P.ink, margin: "16px 0 8px" }}>Cerebrum</h1>
         <p style={{ fontSize: 17, color: P.ink2, marginBottom: 32 }}>Peer-reviewed answers, on demand.</p>
-        <button onClick={() => setPhase("assembling")} style={{ padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}` }}>
+        <button onClick={go} style={{ padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}` }}>
           Initialize →
         </button>
       </div>
@@ -457,12 +576,15 @@ export default function App() {
   const [allSources, setAllSources] = useState([]);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
   const [savedOpen, setSavedOpen] = useState(false);
-  const [suggestions] = useState(pick());
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [mobilePanel, setMobilePanel] = useState(false);
+  const [suggestions, setSuggestions] = useState(pick());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const [panelTab, setPanelTab] = useState("sources");
+  const [srcSort, setSrcSort] = useState("relevance");
   const [srcFilter, setSrcFilter] = useState("");
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
@@ -491,7 +613,7 @@ export default function App() {
     const question = (q ?? input).trim();
     if (!question || busy) return;
     if (!mutedRef.current) Audio.click();
-    setInput(""); setBusy(true); setError(""); setCmdOpen(false);
+    setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer }); });
     try {
@@ -519,7 +641,7 @@ export default function App() {
       if (!mutedRef.current) Audio.pop();
     } catch (e) { setError(`Could not reach the backend. (${e.message})`); }
     finally { setBusy(false); }
-  }, [input, busy, turns, answerLength, factCheck, typewriter]);
+  }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile]);
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
   useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [turns, busy]);
@@ -530,28 +652,32 @@ export default function App() {
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
-      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setSavedOpen(false); }
+      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); setSavedOpen(false); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
-      else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); setTurns([]); setAllSources([]); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
   const isSaved = (s) => saved.some((x) => (x.title || "").toLowerCase() === (s.title || "").toLowerCase());
   async function doZotero() { setZMsg(""); const list = saved.length ? saved : allSources; if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; } try { await saveToZotero(list, zKey.trim(), zUser.trim()); setZMsg(`Saved ${list.length} items.`); } catch (e) { setZMsg(`Failed: ${e.message}`); } }
 
   const commands = [
-    { label: "New investigation", hint: kbdLabel("J"), run: () => { setTurns([]); setAllSources(); setCmdOpen(false); } },
+    { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
     { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
     { label: "Open FAQ & Docs", run: () => { setCmdOpen(false); setCurrentView("faq"); } },
     { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Toggle light / dark", run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
+    { label: factCheck ? "Turn off fact-check" : "Turn on fact-check", run: () => { setFactCheck(!factCheck); setCmdOpen(false); } },
+    { label: "Export saved as BibTeX", run: () => { download("cerebrum.bib", toBibTeX(saved.length ? saved : allSources)); setCmdOpen(false); } },
   ];
   const filteredCmds = commands.filter((c) => c.label.toLowerCase().includes(cmdQuery.toLowerCase()));
+  const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
 
   if (!entered) return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} />;
   if (currentView === "faq") return <FAQView P={P} accent={accent} at={at} onBack={() => setCurrentView("app")} />;
@@ -565,20 +691,47 @@ export default function App() {
     const f = srcFilter.toLowerCase();
     return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f);
   });
+  const sortedSources = [...filteredSources].sort((a, b) => {
+    if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0);
+    if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || "");
+    return (b.relevance ?? 0) - (a.relevance ?? 0);
+  });
+  const grouped = (() => {
+    if (srcSort === "database") {
+      const g = {};
+      for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); }
+      return Object.entries(g);
+    }
+    if (srcSort === "date") {
+      const g = {};
+      for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); }
+      return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0));
+    }
+    return null;
+  })();
+
+  const relColor = (r) => r >= 75 ? "#10b981" : r >= 45 ? "#d9a520" : P.faint;
+  const typeColor = (t) => t === "Preprint" ? "#d97706" : t === "Reference" ? "#7c3aed" : t === "Dataset" ? "#0284c7" : accent;
 
   const SourceCard = (s, i) => (
-    <div key={i} style={{ ...S.srcItem, background: hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent" }}>
-      <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: P.ink }}>{s.title || s.url}</a>
-      <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}</div>
-      <div style={{ marginTop: 6 }}>
+    <div key={i} style={{ ...S.srcItem, background: hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent" }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, flexWrap: "wrap" }}>
+        {s.type && <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.type}</span>}
+        {typeof s.relevance === "number" && <span style={{ fontSize: 9.5, fontWeight: 700, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.relevance}% match</span>}
+        {s.year && <span style={{ fontSize: 10, color: P.faint }}>{s.year}</span>}
+      </div>
+      <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title || s.url}</a>
+      <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} citations`}</div>
+      <div style={S.srcRow}>
         <button style={{ ...S.chipMini, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}>{isSaved(s) ? "★ Saved" : "☆ Save"}</button>
+        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
       </div>
     </div>
   );
 
   const SourcesInner = (
     <>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <button style={{ ...S.sortTab, ...(panelTab === "sources" ? S.sortTabActive : {}) }} onClick={() => setPanelTab("sources")}>
           Sources ({allSources.length})
         </button>
@@ -589,11 +742,18 @@ export default function App() {
 
       {panelTab === "sources" ? (
         <>
-          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <div style={S.srcActions}>
             <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
             <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.bib", toBibTeX(exportList)); }}>BibTeX</button>
             <button style={S.sBtnP} onClick={() => { sfx(); setZoteroOpen(!zoteroOpen); }}>Zotero</button>
           </div>
+          <input style={S.srcFilterInput} placeholder="Filter sources…" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
+          <div style={S.sortTabs}>
+            {[["relevance", "Relevance"], ["date", "Date"], ["database", "Type"]].map(([k, label]) => (
+              <button key={k} style={{ ...S.sortTab, ...(srcSort === k ? S.sortTabActive : {}) }} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
+            ))}
+          </div>
+          {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
           {zoteroOpen && (
             <div style={S.zBox}>
               <input style={S.zIn} placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} />
@@ -602,30 +762,41 @@ export default function App() {
               {zMsg && <div style={S.zMsg}>{zMsg}</div>}
             </div>
           )}
-          <input style={S.srcFilterInput} placeholder="Filter sources…" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
           <div style={S.srcList}>
             {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
-              filteredSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
+              sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
+              grouped ? grouped.map(([label, items]) => (
+                <div key={label}>
+                  <div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>
+                  {items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}
+                </div>
+              )) : sortedSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
           </div>
         </>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {currentVideos.length === 0 ? (
             <div style={S.empty}>No related educational videos found for this query.</div>
           ) : (
             currentVideos.map((vid, i) => (
-              <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", background: P.raised, borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line2}`, boxShadow: P.shadowSm, transition: "transform 0.15s" }}>
-                <div style={{ position: "relative", width: "100%", height: 140, background: P.dark ? "#181b1f" : "#e5e7eb" }}>
-                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = 'none'; }} />
-                  <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.8)", color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
+              <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", background: P.raised, borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line2}`, boxShadow: P.shadowSm, transition: "transform 0.15s, border-color 0.15s" }}>
+                <div style={{ position: "relative", width: "100%", height: 130, background: P.dark ? "#181b1f" : "#e5e7eb" }}>
+                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }} />
+                  <div style={{ display: "none", position: "absolute", inset: 0, background: `linear-gradient(135deg, ${withAlpha(accent, 0.4)}, #111)`, alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>
+                    ▶ WATCH LECTURE
+                  </div>
+                  <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.75)", color: "#fff", fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
                     LECTURE
                   </div>
                 </div>
-                <div style={{ padding: "14px 16px" }}>
-                  <div style={{ fontSize: 14, fontWeight: 650, color: P.ink, lineHeight: 1.4, marginBottom: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{vid.title}</div>
+                <div style={{ padding: "12px 14px" }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 650, color: P.ink, lineHeight: 1.35, marginBottom: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{vid.title}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 11.5, color: accent, fontWeight: 600 }}>{vid.author}</span>
-                    <span style={{ fontSize: 11, color: P.faint, fontWeight: 500 }}>Watch →</span>
+                    <span style={{ fontSize: 11, color: accent, fontWeight: 600 }}>{vid.author}</span>
+                    <span style={{ fontSize: 10, color: P.faint }}>Watch →</span>
                   </div>
                 </div>
               </a>
@@ -641,14 +812,14 @@ export default function App() {
       <div style={S.grain} />
       <header style={S.header}>
         <div style={S.headInner}>
-          <div style={S.brandRow} onClick={() => { sfx(); setTurns([]); setAllSources([]); }}><Mark size={22} accent={accent} glow={P.dark} /><span style={S.brand}>Cerebrum</span></div>
+          <div style={S.brandRow} onClick={() => { sfx(); newSession(); }}><Mark size={22} accent={accent} glow={P.dark} /><span style={S.brand}>Cerebrum</span></div>
           <div style={S.headActions}>
-            <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>
-            <button style={S.ghostBtn} onClick={() => { sfx(); setTurns([]); setAllSources([]); }}>New</button>
+            {!isMobile && <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>}
+            <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setCurrentView("faq"); }}>FAQ</button>
-            <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>Saved ({saved.length})</button>
-            <button style={S.iconBtn} onClick={() => setMuted(!muted)}>{muted ? "🔇" : "🔊"}</button>
-            <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>Settings</button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>{isMobile ? "★" : "Saved"}{saved.length > 0 ? (isMobile ? ` ${saved.length}` : ` · ${saved.length}`) : ""}</button>
+            <button style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>{isMobile ? "⚙" : "Settings"}</button>
           </div>
         </div>
       </header>
@@ -662,18 +833,23 @@ export default function App() {
               <h1 style={S.heroTitle}>Cerebrum</h1>
               <p style={S.heroSub}>Your research sidekick.</p>
               <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a research question..." />
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
+                <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
                 <button style={S.searchBtn} onClick={() => ask()}>Inquire</button>
               </div>
               <div style={S.chips}>
-                {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={S.chip} onClick={() => ask(s)}>{s}</button>))}
+                {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}), animationDelay: `${120 + i * 70}ms` }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
+              </div>
+              <div style={S.trustRow}>
+                {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "arXiv", "Semantic Scholar"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
+                <span style={{ ...S.trustItem, color: P.faint }}>+8 more</span>
               </div>
             </div>
           ) : (
-            <div style={S.workspace}>
+            <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : {}) }}>
               <div style={S.thread}>
                 {turns.map((t, ti) => (
-                  <Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} />
+                  <Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} />
                 ))}
                 {busy && (
                   <div style={S.turn}>
@@ -683,22 +859,39 @@ export default function App() {
                   </div>
                 )}
                 {error && <div style={S.error}>{error}</div>}
+                {turns.length > 0 && !busy && (
+                  <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
+                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a follow-up — it remembers the thread" />
+                    <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
+                  </div>
+                )}
               </div>
-              <aside style={S.panel}>{SourcesInner}</aside>
+              {!isMobile && panelOpen && <aside style={S.panel}>{SourcesInner}</aside>}
             </div>
           )}
+          <div style={S.foot}>
+            <div style={S.disclaimer}>Cerebrum is an AI research tool. Answers are generated by a language model from real published sources and may contain errors. Always verify against the cited papers before relying on them.</div>
+            <span style={S.footDbs}>Europe PMC · PubMed · OpenAlex · Crossref · arXiv · Semantic Scholar · DOAJ · Zenodo · DataCite · OpenAIRE · HAL · UTK TRACE</span>
+          </div>
         </div>
       </div>
+
+      {started && isMobile && <button style={S.mobSrcBtn} onClick={() => setMobilePanel(true)}>Sources · {allSources.length}</button>}
+      {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} /><aside style={{ ...S.panel, ...S.panelMobile }}><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
 
       {cmdOpen && (
         <div style={S.cmdWrap} onClick={() => setCmdOpen(false)}>
           <div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop">
             <div style={S.cmdInputRow}>
-              <input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} placeholder="Type a command…" />
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
+              <input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" />
               <kbd style={S.kbd}>esc</kbd>
             </div>
             <div style={S.cmdList}>
-              {filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}
+              {cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}
+              {cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.1)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}
+              <div style={S.cmdSection}>Commands</div>
+              {filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.1)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}
             </div>
           </div>
         </div>
@@ -706,9 +899,37 @@ export default function App() {
 
       {savedOpen && (
         <div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-fade">
-          <div style={S.modal} onClick={(e) => e.stopPropagation()} className="cb-pop">
-            <div style={S.modalTitle}>Saved articles ({saved.length})</div>
-            <button style={{ ...S.modalClose, marginTop: 16 }} onClick={() => setSavedOpen(false)}>Done</button>
+          <div style={{ ...S.modal, width: 560 }} onClick={(e) => e.stopPropagation()} className="cb-pop">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div style={S.modalTitle}>Saved articles</div>
+              <span style={S.srcCount}>{saved.length}</span>
+            </div>
+            {saved.length === 0 ? (
+              <div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>
+                No saved articles yet.<br /><span style={{ fontSize: 13, color: P.faint }}>Tap ☆ Save on any source to keep it here. Saved articles stay on this device across sessions.</span>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                  <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button>
+                  <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button>
+                  <button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>
+                  {saved.map((s, i) => (
+                    <div key={i} style={{ padding: "14px 12px", margin: "0 -12px", borderBottom: `1px solid ${P.line}` }}>
+                      <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14.5 }}>{s.title || s.url}</a>
+                      <div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} citations`}</div>
+                      <div style={S.srcRow}>
+                        <button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>
+                        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button>
           </div>
         </div>
       )}
@@ -729,7 +950,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
         {done && t.source && (
           <div style={S.byline}>
-            <span style={S.aiTag}>AI-generated · verified with literature</span>
+            <span style={S.aiTag}>AI-generated · verify with sources</span>
             <span style={{ marginLeft: "auto", color: P.faint }}>{readingTime(t.answer)}</span>
           </div>
         )}
@@ -740,7 +961,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
           <div style={S.relatedLabel}>Continue the investigation</div>
           <div style={S.relatedList}>
             {t.related.map((r, i) => (
-              <button key={i} style={S.relatedBtn} onClick={() => onRelated(r)}>
+              <button key={i} style={S.relatedBtn} onClick={() => onRelated(r)} onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}>
                 <span>{r}</span><span style={{ color: accent }}>→</span>
               </button>
             ))}
@@ -760,20 +981,39 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         <div style={S.setLabel}>Appearance</div>
         <div style={S.palRow}>
           {Object.keys(PALETTES).map((pn) => (
-            <button key={pn} style={{ ...S.palCard, background: PALETTES[pn].bg, borderColor: paletteName === pn ? accent : PALETTES[pn].line2 }} onClick={() => { sfx(); setPaletteName(pn); }}>
+            <button key={pn} style={{ ...S.palCard, background: PALETTES[pn].bg, borderColor: paletteName === pn ? accent : PALETTES[pn].line2, borderWidth: paletteName === pn ? 2 : 1 }} onClick={() => { sfx(); setPaletteName(pn); }}>
+              <div style={{ display: "flex", gap: 4 }}><span style={{ width: 22, height: 22, borderRadius: 6, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} /><span style={{ width: 22, height: 22, borderRadius: 6, background: accent }} /></div>
               <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: 550 }}>{pn}</span>
             </button>
           ))}
         </div>
-        <div style={S.setLabel}>Sound Mode</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
+        <div style={S.setLabel}>Accent</div>
+        <div style={S.accentRow}>
+          {Object.keys(ACCENTS).map((an) => (<button key={an} title={an} style={{ ...S.accentDot, background: ACCENTS[an], transform: (!customAccent && accentName === an) ? "scale(1.15)" : "none", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${P.surface}, 0 0 0 4px ${ACCENTS[an]}` : "none" }} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }} />))}
+          <label style={S.customDot} title="Custom"><input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} /><span style={{ fontSize: 15, color: P.ink2 }}>+</span></label>
+        </div>
+        <div style={S.setLabel}>Answer length</div>
+        <div style={S.segment}>{["short", "medium", "long"].map((v) => (<button key={v} style={{ ...S.segBtn, ...(answerLength === v ? S.segActive : {}) }} onClick={() => { sfx(); setAnswerLength(v); }}>{v}</button>))}</div>
+        <div style={S.setLabel}>Fact-check</div>
+        <button style={{ ...S.toggle, ...(factCheck ? S.toggleOn : {}) }} onClick={() => { sfx(); setFactCheck(!factCheck); }}><span>{factCheck ? "Verification on" : "Verification off"}</span><span style={{ ...S.toggleKnob, transform: factCheck ? "translateX(20px)" : "none", background: factCheck ? at : P.faint }} /></button>
+        <div style={S.setNote}>A second model checks each claim against the cited abstracts and flags anything unsupported. It verifies source-support, not real-world truth.</div>
+        <div style={S.setLabel}>Typewriter reveal</div>
+        <button style={{ ...S.toggle, ...(typewriter ? S.toggleOn : {}) }} onClick={() => { sfx(); setTypewriter(!typewriter); }}><span>{typewriter ? "Animated reveal on" : "Instant answers"}</span><span style={{ ...S.toggleKnob, transform: typewriter ? "translateX(20px)" : "none", background: typewriter ? at : P.faint }} /></button>
+        <div style={S.setLabel}>Sound</div>
+        <button style={{ ...S.toggle, ...(!muted ? S.toggleOn : {}) }} onClick={() => setMuted(!muted)}><span>{muted ? "Sound off" : "Sound on"}</span><span style={{ ...S.toggleKnob, transform: !muted ? "translateX(20px)" : "none", background: !muted ? at : P.faint }} /></button>
+        <div style={{ ...S.setLabel, opacity: muted ? 0.4 : 1 }}>Search sound</div>
+        <div style={{ ...S.soundGrid, opacity: muted ? 0.4 : 1, pointerEvents: muted ? "none" : "auto" }}>
           {SOUND_MODES.map(([id, name]) => (
-            <button key={id} style={{ padding: "10px", background: soundMode === id ? accent : P.bg, color: soundMode === id ? at : P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontWeight: 550 }} onClick={() => { setSoundMode(id); Audio.preview(id); }}>
-              {name}
+            <button key={id} style={{ ...S.soundBtn, ...(soundMode === id ? S.soundBtnActive : {}) }} onClick={() => { setSoundMode(id); Audio.preview(id); }}>
+              <span>{name}</span>
+              {soundMode === id && <span style={{ color: accent, fontSize: 12 }}>♪</span>}
             </button>
           ))}
         </div>
+        <div style={S.setNote}>Plays while searching. Tap a style to preview it.</div>
+        <button style={S.clearAll} onClick={() => { setSaved([]); }}>Clear saved</button>
         <button style={S.modalClose} onClick={close}>Done</button>
+        <div style={S.shortcuts}>{kbdLabel("K")} search · {kbdLabel("J")} new · {kbdLabel("B")} saved · {kbdLabel("/")} settings · esc close</div>
       </div>
     </div>
   );
@@ -781,73 +1021,142 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
 
 function makeStyles(P, accent, at, isMobile = false) {
   const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-  const pad = isMobile ? 16 : 28;
+  const pad = isMobile ? 16 : 24;
   return {
-    page: { minHeight: "100vh", height: "100vh", background: P.bg, color: P.ink, fontFamily: font, display: "flex", flexDirection: "column", position: "relative" },
+    page: { minHeight: "100vh", height: "100vh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
     header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 20 },
-    headInner: { maxWidth: 1140, margin: "0 auto", padding: `0 ${pad}px`, height: 62, display: "flex", alignItems: "center", justifyContent: "space-between" },
+    headInner: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, height: 58, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
-    brand: { fontWeight: 700, fontSize: 19, color: P.ink },
-    headActions: { display: "flex", alignItems: "center", gap: 8 },
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontFamily: font },
+    brand: { fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", color: P.ink },
+    headActions: { display: "flex", alignItems: "center", gap: 6 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontFamily: font, boxShadow: P.shadowSm },
     kbd: { fontSize: 11, fontFamily: font, color: P.faint, background: P.bg, border: `1px solid ${P.line2}`, borderRadius: 5, padding: "1px 6px", fontWeight: 550 },
-    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 550 },
-    iconBtn: { background: "transparent", border: "none", color: P.ink2, width: 38, height: 38, borderRadius: 8, cursor: "pointer", fontSize: 16 },
+    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px 8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: isMobile ? 14 : 13.5, fontWeight: 550, fontFamily: font, letterSpacing: "-0.01em" },
+    iconBtn: { background: "transparent", border: "none", color: P.ink2, width: 36, height: 36, borderRadius: 8, cursor: "pointer", fontSize: 15 },
     scroll: { flex: 1, overflowY: "auto" },
-    container: { maxWidth: 1140, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
-    hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "60px 0 80px", position: "relative" },
-    heroGlow: { position: "absolute", width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, 0.08)}, transparent 65%)`, top: "8%", filter: "blur(40px)", pointerEvents: "none" },
+    container: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
+    hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px 0 60px", position: "relative" },
+    heroGlow: { position: "absolute", width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.1 : 0.06)}, transparent 65%)`, top: "8%", filter: "blur(40px)", pointerEvents: "none" },
     heroMark: { marginBottom: 26, position: "relative" },
-    heroTitle: { fontSize: 72, fontWeight: 750, color: P.ink, marginBottom: 14, lineHeight: 1, letterSpacing: "-0.03em" },
-    heroSub: { fontSize: 18, color: P.ink2, maxWidth: 500, lineHeight: 1.65, marginBottom: 40 },
-    searchShell: { display: "flex", alignItems: "center", gap: 12, width: "100%", maxWidth: 620, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: "9px 9px 9px 18px", boxShadow: P.shadow },
+    heroTitle: { fontSize: isMobile ? 46 : 68, fontWeight: 750, letterSpacing: "-0.04em", lineHeight: 1, color: P.ink, marginBottom: 12, position: "relative" },
+    heroSub: { fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em", position: "relative" },
+    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 580, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, padding: isMobile ? "6px 6px 6px 12px" : "7px 7px 7px 14px", boxShadow: P.shadow, transition: "all 0.2s", position: "relative" },
     searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 3px ${withAlpha(accent, 0.12)}` },
-    searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16.5, color: P.ink },
-    searchBtn: { fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", padding: "12px 24px", borderRadius: 10, cursor: "pointer", boxShadow: `0 2px 10px ${withAlpha(accent, 0.3)}` },
-    chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 26, maxWidth: 660 },
-    chip: { fontSize: 14, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 22, padding: "10px 18px", cursor: "pointer", boxShadow: P.shadowSm },
-    workspace: { display: "grid", gridTemplateColumns: "1fr 340px", gap: 48, alignItems: "start", padding: "48px 0 30px", flex: 1 },
+    searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
+    searchBtn: { fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", padding: isMobile ? "11px 14px" : "11px 20px", borderRadius: 9, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 8px ${withAlpha(accent, 0.3)}` },
+    chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 22, maxWidth: 600, position: "relative" },
+    chip: { fontSize: 13.5, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "9px 15px", cursor: "pointer", transition: "all 0.18s", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
+    trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
+    trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
+    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
+    workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
-    turn: { marginBottom: 48 },
-    qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 },
-    qDot: { width: 6, height: 6, borderRadius: "50%", background: accent },
-    headline: { fontWeight: 750, fontSize: 30, lineHeight: 1.25, marginBottom: 22, color: P.ink, letterSpacing: "-0.02em" },
-    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "32px 38px", boxShadow: P.shadow },
-    byline: { fontSize: 12, color: P.faint, borderTop: `1px solid ${P.line}`, paddingTop: 16, marginTop: 22, display: "flex" },
-    aiTag: { fontSize: 11.5, color: P.faint, fontWeight: 550 },
-    relatedWrap: { marginTop: 22 },
-    relatedLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 12 },
-    relatedList: { display: "flex", flexDirection: "column", gap: 10 },
-    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, textAlign: "left", padding: "14px 18px", fontSize: 14.5, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 12, cursor: "pointer", boxShadow: P.shadowSm },
-    panel: { position: "sticky", top: 28, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "20px", boxShadow: P.shadow, maxHeight: "calc(100vh - 120px)", overflowY: "auto" },
-    sortTab: { flex: 1, padding: "8px", fontSize: 12, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 },
-    sortTabActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm },
-    srcFilterInput: { width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 10, outline: "none", marginBottom: 14 },
-    srcList: { display: "flex", flexDirection: "column", gap: 6 },
-    empty: { fontSize: 13.5, color: P.faint, padding: "20px 0", textAlign: "center" },
-    srcItem: { padding: "14px 14px", borderRadius: 12, borderBottom: `1px solid ${P.line}` },
-    srcTitle: { fontSize: 14, textDecoration: "none", fontWeight: 600, display: "block", marginBottom: 6, lineHeight: 1.4 },
-    srcMeta: { fontSize: 12, color: P.ink2 },
-    sBtn: { flex: 1, fontSize: 11.5, padding: "7px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 7, cursor: "pointer", fontWeight: 600 },
-    sBtnP: { flex: 1, fontSize: 11.5, padding: "7px", background: accent, color: at, border: "none", borderRadius: 7, cursor: "pointer", fontWeight: 600 },
-    zBox: { background: P.bg, border: `1px solid ${P.line}`, borderRadius: 10, padding: 10, marginBottom: 12, display: "flex", flexDirection: "column", gap: 6 },
-    zIn: { padding: "8px", fontSize: 12, border: `1px solid ${P.line2}`, background: P.surface, color: P.ink, borderRadius: 6, outline: "none" },
-    zMsg: { fontSize: 11, color: accent },
+    turn: { marginBottom: 40 },
+    qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
+    qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
+    headline: { fontWeight: 700, fontSize: isMobile ? 21 : 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
+    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: isMobile ? "18px 18px" : "22px 26px", boxShadow: P.shadow },
+    byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
+    error: { padding: "14px 16px", background: withAlpha("#e5484d", 0.1), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.25)}` },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 13, padding: "6px 6px 6px 16px", boxShadow: P.shadow, transition: "all 0.2s", marginTop: 8 },
+    relatedWrap: { marginTop: 18 },
+    relatedLabel: { fontSize: 11.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 10 },
+    relatedList: { display: "flex", flexDirection: "column", gap: 8 },
+    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", padding: "12px 16px", fontSize: 14, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 11, cursor: "pointer", fontFamily: font, transition: "all 0.15s", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    panel: { position: "sticky", top: 24, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "18px 18px", boxShadow: P.shadow, maxHeight: "calc(100vh - 130px)", overflowY: "auto" },
+    panelMobile: { position: "fixed", top: 0, right: 0, height: "100vh", width: "88vw", maxWidth: 350, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" },
+    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, fontWeight: 650, color: P.ink, marginBottom: 14, letterSpacing: "-0.01em" },
+    srcCount: { fontSize: 11.5, fontWeight: 600, color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 20 },
+    srcActions: { display: "flex", gap: 6, marginBottom: 12 },
+    srcFilterInput: { width: "100%", padding: "8px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: font, marginBottom: 8 },
+    sortTabs: { display: "flex", gap: 3, background: P.bg, padding: 3, borderRadius: 9, marginBottom: 14, border: `1px solid ${P.line}` },
+    sortTab: { flex: 1, padding: "6px", fontSize: 11.5, background: "transparent", color: P.ink2, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: font, fontWeight: 550, transition: "all 0.15s" },
+    sortTabActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
+    srcGroupLabel: { fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: accent, margin: "14px 0 8px", paddingBottom: 5, borderBottom: `1px solid ${P.line}` },
+    sBtn: { flex: 1, fontSize: 12, padding: "8px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: font, fontWeight: 550 },
+    sBtnP: { flex: 1, fontSize: 12, padding: "8px", background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: font },
+    savedNote: { fontSize: 11.5, color: accent, marginBottom: 12 },
+    zBox: { background: P.bg, border: `1px solid ${P.line}`, borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 7 },
+    zIn: { padding: "9px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.surface, color: P.ink, borderRadius: 7, outline: "none", fontFamily: font },
+    zMsg: { fontSize: 11.5, color: accent },
+    srcList: { display: "flex", flexDirection: "column", gap: 4 },
+    empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "8px 0" },
+    srcItem: { padding: "13px 12px", margin: "0 -12px", borderRadius: 12, transition: "background 0.15s", borderBottom: `1px solid ${P.line}` },
+    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 5, transition: "color 0.15s", letterSpacing: "-0.01em" },
+    srcMeta: { fontSize: 12, color: P.ink2, lineHeight: 1.45 },
+    srcRow: { display: "flex", gap: 7, marginTop: 9 },
+    chipMini: { fontSize: 11.5, padding: "5px 10px", border: "1px solid", borderRadius: 7, cursor: "pointer", fontFamily: font, fontWeight: 550, background: "transparent", transition: "all 0.15s" },
+    foot: { marginTop: "auto", padding: "20px 0 26px", textAlign: "center" },
+    disclaimer: { fontSize: 11.5, color: P.ink2, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 16px", padding: "10px 16px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 10 },
+    footDbs: { fontSize: 11, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7 },
+    aiTag: { fontSize: 11, color: P.faint, fontWeight: 550, letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 5 },
+    mobSrcBtn: { position: "fixed", bottom: 20, right: 20, background: accent, color: at, border: "none", borderRadius: 26, padding: "13px 22px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: `0 8px 24px ${withAlpha(accent, 0.4)}`, zIndex: 20, fontFamily: font },
+    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25, backdropFilter: "blur(3px)" },
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, backdropFilter: "blur(6px)" },
-    cmdBox: { width: 520, maxWidth: "92vw", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", overflow: "hidden" },
-    cmdInputRow: { display: "flex", alignItems: "center", gap: 11, padding: "14px 18px", borderBottom: `1px solid ${P.line}` },
-    cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 15, color: P.ink },
-    cmdList: { maxHeight: 300, overflowY: "auto", padding: 8 },
-    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", textAlign: "left" },
-    modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
-    modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 32, width: 460, maxWidth: "100%" },
-    modalTitle: { fontSize: 22, fontWeight: 700, color: P.ink, marginBottom: 24 },
-    setLabel: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: P.faint, marginBottom: 12, fontWeight: 650 },
-    palRow: { display: "flex", gap: 10, marginBottom: 24 },
-    palCard: { flex: 1, padding: "14px", borderRadius: 12, cursor: "pointer", border: "1px solid" },
-    modalClose: { width: "100%", padding: "14px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 12, cursor: "pointer" }
+    cmdBox: { width: 560, maxWidth: "92vw", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", overflow: "hidden", fontFamily: font },
+    cmdInputRow: { display: "flex", alignItems: "center", gap: 11, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
+    cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, color: P.ink, fontFamily: font },
+    cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
+    cmdSection: { fontSize: 11, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, padding: "10px 12px 6px" },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", fontSize: 14, color: P.ink, background: "transparent", border: "none", borderRadius: 9, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.12s" },
+    modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16, backdropFilter: "blur(6px)" },
+    modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 28, width: 440, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 70px rgba(0,0,0,0.4)" },
+    modalTitle: { fontSize: 21, fontWeight: 700, color: P.ink, marginBottom: 22, letterSpacing: "-0.02em" },
+    setLabel: { fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.08em", color: P.faint, marginBottom: 10, marginTop: 4, fontWeight: 650 },
+    palRow: { display: "flex", gap: 10, marginBottom: 22 },
+    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 10, padding: "12px", borderRadius: 12, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
+    accentRow: { display: "flex", flexWrap: "wrap", gap: 13, marginBottom: 22, alignItems: "center" },
+    accentDot: { width: 26, height: 26, borderRadius: "50%", border: "none", cursor: "pointer", transition: "transform 0.15s" },
+    customDot: { width: 26, height: 26, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
+    segment: { display: "flex", gap: 4, background: P.bg, padding: 4, borderRadius: 11, marginBottom: 22, border: `1px solid ${P.line}` },
+    segBtn: { flex: 1, padding: "9px", fontSize: 13, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", textTransform: "capitalize", fontFamily: font, fontWeight: 550, transition: "all 0.15s" },
+    segActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
+    toggle: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", fontSize: 13.5, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: font, fontWeight: 550, marginBottom: 8 },
+    toggleOn: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
+    toggleKnob: { width: 34, height: 20, borderRadius: 12, position: "relative", transition: "all 0.2s", display: "inline-block", flexShrink: 0 },
+    setNote: { fontSize: 12, color: P.faint, lineHeight: 1.5, marginBottom: 18, marginTop: 2 },
+    clearAll: { width: "100%", padding: "11px", fontSize: 13, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 10, cursor: "pointer", marginBottom: 12, marginTop: 8, fontFamily: font, fontWeight: 550 },
+    modalClose: { width: "100%", padding: "13px", fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 11, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
+    shortcuts: { fontSize: 11, color: P.faint, textAlign: "center", marginTop: 16, letterSpacing: "0.02em" },
+    soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4, transition: "opacity 0.15s" },
+    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 13px", fontSize: 13, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 9, cursor: "pointer", fontFamily: font, fontWeight: 550 },
+    soundBtnActive: { color: P.ink, borderColor: withAlpha(accent, 0.5), background: withAlpha(accent, 0.06) },
   };
+}
+
+if (typeof document !== "undefined") {
+  if (!document.getElementById("cb-fonts")) {
+    const l = document.createElement("link");
+    l.id = "cb-fonts"; l.rel = "stylesheet";
+    l.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;650;700;750&display=swap";
+    document.head.appendChild(l);
+  }
+  if (!document.getElementById("cb-anim")) {
+    const st = document.createElement("style");
+    st.id = "cb-anim";
+    st.textContent = `
+      @keyframes cbspin { to { transform: rotate(360deg); } }
+      @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes cbRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes cbPop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+      .cb-fade { animation: cbFade 0.4s ease forwards; }
+      .cb-rise { animation: cbRise 0.5s cubic-bezier(.2,.8,.2,1) forwards; }
+      .cb-pop { animation: cbPop 0.28s cubic-bezier(.2,.9,.3,1) forwards; }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
+      a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
+      input { font-size: 16px; }
+      input::placeholder { color: inherit; opacity: 0.5; }
+      ::-webkit-scrollbar { width: 10px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.25); border-radius: 5px; border: 3px solid transparent; background-clip: padding-box; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.4); background-clip: padding-box; }
+    `;
+    document.head.appendChild(st);
+  }
 }
 
 createRoot(document.getElementById("root")).render(<App />);
