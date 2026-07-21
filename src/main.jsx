@@ -124,8 +124,8 @@ async function saveToZotero(sources, apiKey, userId) {
 }
 function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
-// ---------- Precision-Filtered Video Discovery Engine ----------
-const VIDEO_STOPWORDS = new Set([
+// ---------- Highly Relevant, High-Yield Video Discovery Engine ----------
+const STOPWORDS = new Set([
   "what","whats","how","does","do","did","is","are","was","were","the","a","an",
   "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
   "why","when","where","which","who","can","you","please","give","show","find",
@@ -133,68 +133,78 @@ const VIDEO_STOPWORDS = new Set([
 ]);
 
 async function fetchVideosMultiSource(query) {
-  const cleanTokens = query.toLowerCase().replace(/[^\w\s-]/g, " ").split(/\s+/).filter(w => w.length > 2 && !VIDEO_STOPWORDS.has(w));
+  const cleanTokens = query.toLowerCase().replace(/[^\w\s-]/g, " ").split(/\s+/).filter(w => w.length > 2 && !STOPWORDS.has(w));
   if (cleanTokens.length === 0) return [];
 
   const coreTopic = cleanTokens.join(" ");
-  const scientificQuery = `${coreTopic} science lecture tutorial`;
-
-  const results = [];
-  const seenIds = new Set();
-
-  const proxyEndpoints = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(scientificQuery)}&filter=videos`)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.piped.privacydev.net/search?q=${encodeURIComponent(scientificQuery)}&filter=videos`)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(scientificQuery)}&type=video`)}`
+  const scientificQueries = [
+    `${coreTopic} lecture university science`,
+    `${coreTopic} mechanism tutorial`,
+    coreTopic
   ];
 
-  for (const endpoint of proxyEndpoints) {
-    if (results.length >= 5) break;
-    try {
-      const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 3500);
-      const res = await fetch(endpoint, { signal: c.signal });
-      clearTimeout(t);
-      if (!res.ok) continue;
-      const data = await res.json();
+  let results = [];
+  let seenIds = new Set();
 
-      let items = [];
-      if (Array.isArray(data)) items = data;
-      else if (data?.items && Array.isArray(data.items)) items = data.items;
+  for (const qTerm of scientificQueries) {
+    if (results.length >= 8) break;
 
-      for (const item of items) {
-        const vId = item.videoId || item.url?.replace("/watch?v=", "") || "";
-        const vTitle = item.title || "";
-        const vAuthor = item.author || item.uploaderName || "Educational Source";
+    const proxyEndpoints = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(qTerm)}&filter=videos`)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.piped.privacydev.net/search?q=${encodeURIComponent(qTerm)}&filter=videos`)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(qTerm)}&type=video`)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(qTerm)}&type=video`)}`
+    ];
 
-        if (vId && !seenIds.has(vId)) {
-          // Relevance filter: ensure title shares at least one core topic token or academic term
-          const titleLower = vTitle.toLowerCase();
-          const isRelevant = cleanTokens.some(token => titleLower.includes(token)) || titleLower.includes("lecture") || titleLower.includes("science") || titleLower.includes("chemistry") || titleLower.includes("biology") || titleLower.includes("physics");
+    for (const endpoint of proxyEndpoints) {
+      if (results.length >= 8) break;
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 3500);
+        const res = await fetch(endpoint, { signal: c.signal });
+        clearTimeout(t);
+        if (!res.ok) continue;
+        const data = await res.json();
 
-          if (isRelevant) {
-            seenIds.add(vId);
-            results.push({
-              title: vTitle,
-              url: `https://www.youtube.com/watch?v=${vId}`,
-              author: vAuthor,
-              thumbnail: item.thumbnail || item.videoThumbnails?.find(x => x.quality === "medium")?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
-              id: vId
-            });
+        let items = [];
+        if (Array.isArray(data)) items = data;
+        else if (data?.items && Array.isArray(data.items)) items = data.items;
+
+        for (const item of items) {
+          const vId = item.videoId || item.url?.replace("/watch?v=", "") || "";
+          const vTitle = item.title || "";
+          const vAuthor = item.author || item.uploaderName || "University Lecture";
+
+          if (vId && !seenIds.has(vId)) {
+            const titleLower = vTitle.toLowerCase();
+            // Strict relevance gate: must match at least one core topic keyword or major academic descriptor
+            const matchesTopic = cleanTokens.some(token => titleLower.includes(token));
+            const isAcademic = titleLower.includes("lecture") || titleLower.includes("mechanism") || titleLower.includes("science") || titleLower.includes("biol") || titleLower.includes("chem") || titleLower.includes("phys") || titleLower.includes("research") || titleLower.includes("professor");
+
+            if (matchesTopic || isAcademic) {
+              seenIds.add(vId);
+              results.push({
+                title: vTitle,
+                url: `https://www.youtube.com/watch?v=${vId}`,
+                author: vAuthor,
+                thumbnail: item.thumbnail || item.videoThumbnails?.find(x => x.quality === "medium")?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                id: vId
+              });
+            }
           }
         }
+      } catch {
+        continue;
       }
-    } catch {
-      continue;
     }
   }
 
-  // Fallback to PeerTube SepiaSearch if needed
-  if (results.length < 3) {
+  // PeerTube SepiaSearch Supplement
+  if (results.length < 6) {
     try {
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), 3000);
-      const res = await fetch(`https://sepiasearch.org/api/v1/search/videos?search=${encodeURIComponent(coreTopic)}&count=4`, { signal: c.signal });
+      const res = await fetch(`https://sepiasearch.org/api/v1/search/videos?search=${encodeURIComponent(coreTopic)}&count=6`, { signal: c.signal });
       clearTimeout(t);
       if (res.ok) {
         const data = await res.json();
@@ -202,9 +212,9 @@ async function fetchVideosMultiSource(query) {
           if (item.uuid && !seenIds.has(item.uuid)) {
             seenIds.add(item.uuid);
             results.push({
-              title: item.name || "Academic Lecture",
+              title: item.name || "Academic Lecture Broadcast",
               url: item.url || `https://${item.host}/w/${item.uuid}`,
-              author: item.channel?.displayName || item.account?.displayName || "Open Science Broadcast",
+              author: item.channel?.displayName || item.account?.displayName || "Open University",
               thumbnail: item.thumbnailPath ? (item.thumbnailPath.startsWith("http") ? item.thumbnailPath : `https://${item.host || "sepiasearch.org"}${item.thumbnailPath}`) : "https://joinpeertube.org/img/logo.svg",
               id: item.uuid
             });
@@ -214,7 +224,7 @@ async function fetchVideosMultiSource(query) {
     } catch {}
   }
 
-  return results.slice(0, 5);
+  return results.slice(0, 8);
 }
 
 const Audio = (() => {
@@ -708,7 +718,7 @@ export default function App() {
       rawAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
       rawAnswer = rawAnswer.replace(/^.*?(Here is the answer|Protons are|Note:).*?[\r\n]+/i, (match) => match.includes("Note:") ? match : "").trim();
 
-      // Fetch Relevant Related Videos
+      // Fetch Highly Relevant Related Videos
       const videos = await fetchVideosMultiSource(question);
 
       const nt = { 
@@ -872,16 +882,24 @@ export default function App() {
           </div>
         </>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {currentVideos.length === 0 ? (
             <div style={S.empty}>No related educational videos found for this query.</div>
           ) : (
             currentVideos.map((vid, i) => (
-              <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "block", background: P.bg, borderRadius: 10, overflow: "hidden", border: `1px solid ${P.line}` }}>
-                <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: 120, objectFit: "cover" }} onError={(e) => e.target.style.display = 'none'} />
-                <div style={{ padding: 10 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: P.ink, lineHeight: 1.3, marginBottom: 4 }}>{vid.title}</div>
-                  <div style={{ fontSize: 11, color: P.faint }}>{vid.author}</div>
+              <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", background: P.raised, borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line2}`, boxShadow: P.shadowSm, transition: "transform 0.15s, border-color 0.15s" }}>
+                <div style={{ position: "relative", width: "100%", height: 130, background: "#000" }}>
+                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.9 }} onError={(e) => e.target.style.display = 'none'} />
+                  <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.75)", color: "#fff", fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
+                    LECTURE
+                  </div>
+                </div>
+                <div style={{ padding: "12px 14px" }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 650, color: P.ink, lineHeight: 1.35, marginBottom: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{vid.title}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 11, color: accent, fontWeight: 600 }}>{vid.author}</span>
+                    <span style={{ fontSize: 10, color: P.faint }}>Watch →</span>
+                  </div>
                 </div>
               </a>
             ))
