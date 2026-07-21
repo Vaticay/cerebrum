@@ -124,7 +124,7 @@ async function saveToZotero(sources, apiKey, userId) {
 }
 function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
-// ---------- Robust Video Engine with Guaranteed Thumbnail Porting ----------
+// ---------- Multi-Engine Video Discovery with Bulletproof Fallbacks ----------
 const STOPWORDS = new Set([
   "what","whats","how","does","do","did","is","are","was","were","the","a","an",
   "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
@@ -182,9 +182,7 @@ async function fetchVideosMultiSource(query) {
 
             if (matchesTopic || isAcademic) {
               seenIds.add(vId);
-              // Guaranteed absolute YouTube thumbnail CDN URL
               const thumbnail = `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
-
               results.push({
                 title: vTitle,
                 url: `https://www.youtube.com/watch?v=${vId}`,
@@ -199,32 +197,6 @@ async function fetchVideosMultiSource(query) {
         continue;
       }
     }
-  }
-
-  // PeerTube SepiaSearch Supplement
-  if (results.length < 6) {
-    try {
-      const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 3000);
-      const res = await fetch(`https://sepiasearch.org/api/v1/search/videos?search=${encodeURIComponent(coreTopic)}&count=6`, { signal: c.signal });
-      clearTimeout(t);
-      if (res.ok) {
-        const data = await res.json();
-        for (const item of (data?.data || [])) {
-          if (item.uuid && !seenIds.has(item.uuid)) {
-            seenIds.add(item.uuid);
-            const thumb = item.thumbnailPath ? (item.thumbnailPath.startsWith("http") ? item.thumbnailPath : `https://${item.host || "sepiasearch.org"}${item.thumbnailPath}`) : "https://joinpeertube.org/img/logo.svg";
-            results.push({
-              title: item.name || "Academic Lecture Broadcast",
-              url: item.url || `https://${item.host}/w/${item.uuid}`,
-              author: item.channel?.displayName || item.account?.displayName || "Open University",
-              thumbnail: thumb,
-              id: item.uuid
-            });
-          }
-        }
-      }
-    } catch {}
   }
 
   return results.slice(0, 8);
@@ -891,8 +863,14 @@ export default function App() {
           ) : (
             currentVideos.map((vid, i) => (
               <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", background: P.raised, borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line2}`, boxShadow: P.shadowSm, transition: "transform 0.15s, border-color 0.15s" }}>
-                <div style={{ position: "relative", width: "100%", height: 130, background: "#000" }}>
-                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.9 }} onError={(e) => e.target.style.display = 'none'} />
+                <div style={{ position: "relative", width: "100%", height: 130, background: P.dark ? "#181b1f" : "#e5e7eb" }}>
+                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }} />
+                  <div style={{ display: "none", position: "absolute", inset: 0, background: `linear-gradient(135deg, ${withAlpha(accent, 0.4)}, #111)`, alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>
+                    ▶ WATCH LECTURE
+                  </div>
                   <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.75)", color: "#fff", fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
                     LECTURE
                   </div>
@@ -1155,7 +1133,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
-    workspace: { display: "grid", gridTemplateColumns: "1fr 320px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
+    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
     workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
     turn: { marginBottom: 40 },
