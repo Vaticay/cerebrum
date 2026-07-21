@@ -56,7 +56,6 @@ async function europePMC(query, limit = 6) {
   };
   try {
     let rows = await runSearch(q);
-    // If the structured query is too strict, fall back to organism-only, then plain.
     if (!rows.length && q !== query) {
       const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
       if (hasOrganism) {
@@ -130,8 +129,6 @@ async function pubmed(query, limit = 6, apiKey = "") {
   const keyParam = apiKey ? `&api_key=${apiKey}` : "";
   const tool = "&tool=cerebrum&email=noreply@example.com" + keyParam;
   try {
-    const toks = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-    // Build (organism) AND (topic) query — detects spelled-out organism, not just acronym.
     const structured = buildStructuredQuery(query);
     let term = structured;
 
@@ -140,8 +137,6 @@ async function pubmed(query, limit = 6, apiKey = "") {
         new URLSearchParams({ db: "pubmed", term, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
     );
     let ids = es?.esearchresult?.idlist || [];
-    // If the structured query is too strict and returns nothing, retry with a looser
-    // organism-only query, then the plain query. Never come back empty when papers exist.
     if (!ids.length && term !== query) {
       const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
       if (hasOrganism) {
@@ -163,20 +158,15 @@ async function pubmed(query, limit = 6, apiKey = "") {
     if (!ids.length) return [];
     const idStr = ids.join(",");
 
-    // Fetch full records (abstracts), structured summaries, and citation counts in
-    // parallel. efetch = abstracts; esummary = clean JSON metadata fallback;
-    // elink = "cited in" counts for ranking.
     const [xml, summaryJson, citeJson] = await Promise.all([
       getText("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" + new URLSearchParams({ db: "pubmed", id: idStr, retmode: "xml" }) + tool).catch(() => ""),
       getJSON("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?" + new URLSearchParams({ db: "pubmed", id: idStr, retmode: "json" }) + tool).catch(() => null),
       getJSON("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?" + new URLSearchParams({ dbfrom: "pubmed", db: "pubmed", id: idStr, linkname: "pubmed_pubmed_citedin", retmode: "json" }) + tool).catch(() => null),
     ]);
 
-    // Parse efetch XML (primary).
     const fetched = xml ? parsePubmedXML(xml) : [];
     const byTitle = new Map(fetched.map((p) => [(p.title || "").toLowerCase().trim(), p]));
 
-    // esummary fallback: build/patch records from clean JSON metadata.
     const sumResult = summaryJson?.result || {};
     const merged = [];
     for (const pmid of ids) {
@@ -186,7 +176,6 @@ async function pubmed(query, limit = 6, apiKey = "") {
         const title = s.title || "";
         rec = byTitle.get(title.toLowerCase().trim()) || null;
         if (!rec) {
-          // efetch missed it — construct from esummary so we don't drop it.
           rec = {
             title: title || "Untitled",
             url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
@@ -202,17 +191,13 @@ async function pubmed(query, limit = 6, apiKey = "") {
           if (!rec.year && s.pubdate) rec.year = (s.pubdate || "").slice(0, 4);
           if ((!rec.authors || !rec.authors.length) && s.authors) rec.authors = (s.authors || []).slice(0, 1).map((a) => a.name).join("") + ((s.authors || []).length > 1 ? " et al." : "");
         }
-      } else {
-        // No summary; use whatever efetch gave (matched by order isn't reliable, skip if none).
       }
       if (rec && rec.title) merged.push(rec);
     }
-    // Include any efetch records not already matched by pmid.
     for (const p of fetched) {
       if (!merged.some((m) => (m.title || "").toLowerCase() === (p.title || "").toLowerCase())) merged.push(p);
     }
 
-    // elink citation counts → attach by pmid.
     try {
       const linksets = citeJson?.linksets || [];
       const countByPmid = {};
@@ -225,7 +210,7 @@ async function pubmed(query, limit = 6, apiKey = "") {
       for (const rec of merged) {
         if (rec.pmid && typeof countByPmid[rec.pmid] === "number") rec.citations = countByPmid[rec.pmid];
       }
-    } catch { /* citations are a bonus; ignore failures */ }
+    } catch {}
 
     return merged;
   } catch {
@@ -233,12 +218,11 @@ async function pubmed(query, limit = 6, apiKey = "") {
   }
 }
 
-// ---------- Source: OpenAlex (250M+ works, KEYLESS — indexes bioRxiv/medRxiv preprints) ----------
+// ---------- Source: OpenAlex ----------
 async function openAlex(query, limit = 6, key = "") {
   try {
     const params = new URLSearchParams({
       search: query,
-      // No is_oa filter — we want ALL works including preprints (bioRxiv/medRxiv).
       sort: "relevance_score:desc",
       per_page: String(limit),
       select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids",
@@ -267,23 +251,17 @@ async function openAlex(query, limit = 6, key = "") {
   }
 }
 
-// ---------- Source: UTK TRACE (OAI-PMH, harvest + filter) ----------
+// ---------- Source: UTK TRACE ----------
 function extractTraceRecords(xmlText) {
   const records = [];
   const recRe = /<record\b[\s\S]*?<\/record>/g;
   const tag = (block, name) => {
-    const re = new RegExp(
-      `<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`,
-      "i"
-    );
+    const re = new RegExp(`<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`, "i");
     const m = block.match(re);
     return m ? m[1].trim() : "";
   };
   const tagAll = (block, name) => {
-    const re = new RegExp(
-      `<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`,
-      "gi"
-    );
+    const re = new RegExp(`<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`, "gi");
     const out = [];
     let m;
     while ((m = re.exec(block))) out.push(m[1].trim());
@@ -309,20 +287,10 @@ async function traceUTK(query) {
   const all = [];
   for (const set of sets) {
     try {
-      const text = await getText(
-        "https://trace.tennessee.edu/do/oai/?" +
-          new URLSearchParams({
-            verb: "ListRecords",
-            metadataPrefix: "dcq",
-            set,
-          })
-      );
+      const text = await getText("https://trace.tennessee.edu/do/oai/?" + new URLSearchParams({ verb: "ListRecords", metadataPrefix: "dcq", set }));
       all.push(...extractTraceRecords(text));
-    } catch {
-      /* best effort */
-    }
+    } catch {}
   }
-  // Match on ANY term (not all), score by how many match.
   const scored = all
     .map((r) => {
       const hay = `${r.title} ${r.abstract}`.toLowerCase();
@@ -343,9 +311,6 @@ async function traceUTK(query) {
   }));
 }
 
-// Strip filler/question words so only real topic terms hit the databases.
-// Common science acronyms/synonyms → expansions, so a query using an acronym
-// still matches papers that spell it out (and vice versa). Bidirectional at match time.
 const SYNONYMS = {
   bsfl: ["black soldier fly larvae", "hermetia illucens"],
   bsf: ["black soldier fly", "hermetia illucens"],
@@ -367,7 +332,7 @@ const SYNONYMS = {
   pe: ["polyethylene"],
   pp: ["polypropylene"],
 };
-// Build the list of extra phrases implied by a query's tokens.
+
 function expansionsFor(tokens) {
   const out = [];
   for (const t of tokens) {
@@ -377,31 +342,22 @@ function expansionsFor(tokens) {
   return out;
 }
 
-// Known multi-word organism phrases (spelled-out forms) so we can detect the organism
-// even when the user doesn't use the acronym. Extend as needed.
 const ORGANISM_PHRASES = [
   "black soldier fly larvae", "black soldier fly", "hermetia illucens",
 ];
 const ORGANISM_WORDS = new Set(["black", "soldier", "fly", "larvae", "larva", "hermetia", "illucens"]);
 
-// Split a cleaned query into an organism group (phrases to OR) and topic terms.
-// Detects both the acronym (via SYNONYMS) and the spelled-out organism phrase, so
-// "black soldier fly larvae plastics" → org:["black soldier fly larvae",...], topic:["plastics"].
 function splitOrganismTopic(query) {
   const q = query.toLowerCase();
   const toks = q.split(/\s+/).filter((t) => t.length > 2);
   const exp = expansionsFor(toks);
   const orgPhrases = new Set(exp);
-  // Detect spelled-out organism phrases present in the query.
   for (const phrase of ORGANISM_PHRASES) { if (q.includes(phrase)) orgPhrases.add(phrase); }
-  // Acronym tokens themselves are organism terms.
   for (const t of toks) { if (SYNONYMS[t]) orgPhrases.add(t); }
-  // Topic = tokens that are neither an organism word nor an acronym.
   const topic = toks.filter((t) => !ORGANISM_WORDS.has(t) && !SYNONYMS[t]);
   return { orgPhrases: [...orgPhrases], topic, hasOrganism: orgPhrases.size > 0 };
 }
 
-// Construct a database query string: (org OR org) AND (topic OR topic).
 function buildStructuredQuery(query) {
   const { orgPhrases, topic, hasOrganism } = splitOrganismTopic(query);
   if (hasOrganism && topic.length) {
@@ -411,7 +367,7 @@ function buildStructuredQuery(query) {
   if (hasOrganism) {
     return orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
   }
-  return query; // no organism → plain query
+  return query;
 }
 
 const STOPWORDS = new Set([
@@ -432,11 +388,9 @@ function cleanQuery(raw) {
     .filter((w) => w.length > 2 && !STOPWORDS.has(w))
     .join(" ")
     .trim();
-  // If stripping removed everything, fall back to the original.
   return cleaned || raw.trim();
 }
 
-// ---------- Crossref: 150M+ works, keyless ----------
 async function crossref(query, limit = 8) {
   try {
     const url = "https://api.crossref.org/works?" +
@@ -456,7 +410,6 @@ async function crossref(query, limit = 8) {
   } catch { return []; }
 }
 
-// ---------- arXiv: physics/math/CS preprints, keyless (Atom XML) ----------
 async function arxiv(query, limit = 6) {
   try {
     const url = "https://export.arxiv.org/api/query?" +
@@ -483,7 +436,6 @@ async function arxiv(query, limit = 6) {
   } catch { return []; }
 }
 
-// ---------- Semantic Scholar: 200M+, keyless shared pool ----------
 async function semanticScholar(query, limit = 6) {
   try {
     const url = "https://api.semanticscholar.org/graph/v1/paper/search?" +
@@ -505,7 +457,6 @@ async function semanticScholar(query, limit = 6) {
   } catch { return []; }
 }
 
-// ---------- DOAJ: open-access journals, keyless ----------
 async function doaj(query, limit = 6) {
   try {
     const url = `https://doaj.org/api/search/articles/${encodeURIComponent(query)}?pageSize=${limit}`;
@@ -527,7 +478,6 @@ async function doaj(query, limit = 6) {
   } catch { return []; }
 }
 
-// ---------- bioRxiv / medRxiv via their API (keyless) ----------
 async function biorxiv(query, limit = 4) {
   const out = [];
   try {
@@ -553,7 +503,7 @@ async function biorxiv(query, limit = 4) {
         abstract: decodeInverted(w.abstract_inverted_index),
       });
     }
-  } catch { /* fall through */ }
+  } catch {}
   try {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       new URLSearchParams({ query: `${query} AND (SRC:PPR)`, resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
@@ -570,15 +520,13 @@ async function biorxiv(query, limit = 4) {
         abstract: stripTags(r.abstractText),
       });
     }
-  } catch { /* ignore */ }
+  } catch {}
   return out;
 }
 
-// ---------- Zenodo: open research outputs, keyless ----------
 async function zenodo(query, limit = 4) {
   try {
-    const url = "https://zenodo.org/api/records?" +
-      new URLSearchParams({ q: query, size: String(limit), sort: "mostrecent" });
+    const url = "https://zenodo.org/api/records?" + new URLSearchParams({ q: query, size: String(limit), sort: "mostrecent" });
     const data = await getJSON(url);
     return (data?.hits?.hits || []).map((r) => {
       const md = r.metadata || {};
@@ -595,11 +543,9 @@ async function zenodo(query, limit = 4) {
   } catch { return []; }
 }
 
-// ---------- DataCite: datasets and DOIs, keyless ----------
 async function datacite(query, limit = 4) {
   try {
-    const url = "https://api.datacite.org/dois?" +
-      new URLSearchParams({ query, "page[size]": String(limit) });
+    const url = "https://api.datacite.org/dois?" + new URLSearchParams({ query, "page[size]": String(limit) });
     const data = await getJSON(url);
     return (data?.data || []).map((r) => {
       const a = r.attributes || {};
@@ -618,11 +564,9 @@ async function datacite(query, limit = 4) {
   } catch { return []; }
 }
 
-// ---------- OpenAIRE: European open science aggregator, keyless ----------
 async function openaire(query, limit = 4) {
   try {
-    const url = "https://api.openaire.eu/search/publications?" +
-      new URLSearchParams({ keywords: query, size: String(limit), format: "json" });
+    const url = "https://api.openaire.eu/search/publications?" + new URLSearchParams({ keywords: query, size: String(limit), format: "json" });
     const data = await getJSON(url);
     const results = data?.response?.results?.result || [];
     const arr = Array.isArray(results) ? results : [results];
@@ -644,11 +588,9 @@ async function openaire(query, limit = 4) {
   } catch { return []; }
 }
 
-// ---------- HAL: French open archive, keyless ----------
 async function hal(query, limit = 4) {
   try {
-    const url = "https://api.archives-ouvertes.fr/search/?" +
-      new URLSearchParams({ q: query, rows: String(limit), fl: "title_s,abstract_s,producedDateY_i,authFullName_s,uri_s,journalTitle_s", wt: "json" });
+    const url = "https://api.archives-ouvertes.fr/search/?" + new URLSearchParams({ q: query, rows: String(limit), fl: "title_s,abstract_s,producedDateY_i,authFullName_s,uri_s,journalTitle_s", wt: "json" });
     const data = await getJSON(url);
     return (data?.response?.docs || []).map((d) => ({
       title: Array.isArray(d.title_s) ? d.title_s[0] : d.title_s || "Untitled",
@@ -662,15 +604,9 @@ async function hal(query, limit = 4) {
   } catch { return []; }
 }
 
-// ---------- Source: PLOS (full-text open journals, keyless) ----------
 async function plos(query, limit = 6) {
   try {
-    const url = "https://api.plos.org/search?" + new URLSearchParams({
-      q: query,
-      fl: "id,title_display,author_display,journal,publication_date,abstract",
-      wt: "json",
-      rows: String(limit),
-    });
+    const url = "https://api.plos.org/search?" + new URLSearchParams({ q: query, fl: "id,title_display,author_display,journal,publication_date,abstract", wt: "json", rows: String(limit) });
     const data = await getJSON(url);
     const docs = data?.response?.docs || [];
     return docs.map((d) => ({
@@ -685,15 +621,9 @@ async function plos(query, limit = 6) {
   } catch { return []; }
 }
 
-// ---------- Source: BASE (Bielefeld, 300M+ docs, keyless HTML-free JSON) ----------
 async function base(query, limit = 6) {
   try {
-    const url = "https://www.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?" + new URLSearchParams({
-      func: "PerformSearch",
-      query,
-      format: "json",
-      hits: String(limit),
-    });
+    const url = "https://www.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?" + new URLSearchParams({ func: "PerformSearch", query, format: "json", hits: String(limit) });
     const data = await getJSON(url);
     const docs = data?.response?.docs || [];
     return docs.map((d) => ({
@@ -744,20 +674,14 @@ async function searchInvidiousVideos(query, limit = 4) {
 
 async function wikipedia(query, limit = 2) {
   try {
-    const searchUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
-      action: "query", list: "search", srsearch: query, srlimit: String(limit),
-      format: "json", origin: "*",
-    });
+    const searchUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({ action: "query", list: "search", srsearch: query, srlimit: String(limit), format: "json", origin: "*" });
     const sdata = await getJSON(searchUrl, {}, 5000);
     const hits = sdata?.query?.search || [];
     const out = [];
     for (const h of hits) {
       const title = h.title;
       try {
-        const exUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
-          action: "query", prop: "extracts", exintro: "1", explaintext: "1",
-          titles: title, format: "json", origin: "*",
-        });
+        const exUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({ action: "query", prop: "extracts", exintro: "1", explaintext: "1", titles: title, format: "json", origin: "*" });
         const ex = await getJSON(exUrl, {}, 5000);
         const pages = ex?.query?.pages || {};
         const page = Object.values(pages)[0] || {};
@@ -772,7 +696,7 @@ async function wikipedia(query, limit = 2) {
           abstract: extract.slice(0, 1200),
           isEncyclopedia: true,
         });
-      } catch { /* skip */ }
+      } catch {}
     }
     return out;
   } catch { return []; }
@@ -780,9 +704,7 @@ async function wikipedia(query, limit = 2) {
 
 async function duckduckgo(query) {
   try {
-    const url = "https://api.duckduckgo.com/?" + new URLSearchParams({
-      q: query, format: "json", no_html: "1", skip_disambig: "1",
-    });
+    const url = "https://api.duckduckgo.com/?" + new URLSearchParams({ q: query, format: "json", no_html: "1", skip_disambig: "1" });
     const data = await getJSON(url, {}, 5000);
     const out = [];
     const abstract = (data?.AbstractText || "").trim();
@@ -961,86 +883,6 @@ async function gatherByAuthor(name, { openAlexKey }) {
   }
   const papers = merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 25);
   return { papers, confirmed: !!ssRes.matched, matchedName: ssRes.matched };
-}
-
-const SYNONYMS = {
-  bsfl: ["black soldier fly larvae", "hermetia illucens"],
-  bsf: ["black soldier fly", "hermetia illucens"],
-  crispr: ["clustered regularly interspaced short palindromic repeats"],
-  pcr: ["polymerase chain reaction"],
-  dna: ["deoxyribonucleic acid"],
-  rna: ["ribonucleic acid"],
-  mrna: ["messenger rna"],
-  utr: ["untranslated region"],
-  gwas: ["genome wide association"],
-  qtl: ["quantitative trait loci"],
-  ros: ["reactive oxygen species"],
-  er: ["endoplasmic reticulum"],
-  atp: ["adenosine triphosphate"],
-  ecm: ["extracellular matrix"],
-  tcr: ["t cell receptor"],
-  llps: ["liquid liquid phase separation"],
-  pet: ["polyethylene terephthalate"],
-  pe: ["polyethylene"],
-  pp: ["polypropylene"],
-};
-
-function expansionsFor(tokens) {
-  const out = [];
-  for (const t of tokens) {
-    const key = t.toLowerCase();
-    if (SYNONYMS[key]) out.push(...SYNONYMS[key]);
-  }
-  return out;
-}
-
-const ORGANISM_PHRASES = [
-  "black soldier fly larvae", "black soldier fly", "hermetia illucens",
-];
-const ORGANISM_WORDS = new Set(["black", "soldier", "fly", "larvae", "larva", "hermetia", "illucens"]);
-
-function splitOrganismTopic(query) {
-  const q = query.toLowerCase();
-  const toks = q.split(/\s+/).filter((t) => t.length > 2);
-  const exp = expansionsFor(toks);
-  const orgPhrases = new Set(exp);
-  for (const phrase of ORGANISM_PHRASES) { if (q.includes(phrase)) orgPhrases.add(phrase); }
-  for (const t of toks) { if (SYNONYMS[t]) orgPhrases.add(t); }
-  const topic = toks.filter((t) => !ORGANISM_WORDS.has(t) && !SYNONYMS[t]);
-  return { orgPhrases: [...orgPhrases], topic, hasOrganism: orgPhrases.size > 0 };
-}
-
-function buildStructuredQuery(query) {
-  const { orgPhrases, topic, hasOrganism } = splitOrganismTopic(query);
-  if (hasOrganism && topic.length) {
-    const org = orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
-    return `(${org}) AND (${topic.join(" OR ")})`;
-  }
-  if (hasOrganism) {
-    return orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
-  }
-  return query;
-}
-
-const STOPWORDS = new Set([
-  "what","whats","how","does","do","did","is","are","was","were","the","a","an",
-  "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
-  "why","when","where","which","who","can","you","please","give","show","find",
-  "search","look","up","that","this","these","those","it","its","work","works",
-  "happen","happens","mean","means","between","into","from","as","at","be","been",
-  "get","got","i","my","we","our","use","used","using","there","their","they",
-  "responding","respond","level","levels","basis","role","effect","effects",
-]);
-
-function cleanQuery(raw) {
-  const cleaned = raw
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
-    .join(" ")
-    .trim();
-  return cleaned || raw.trim();
 }
 
 async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limit = 6, browse = false }) {
@@ -1352,7 +1194,7 @@ export async function onRequest(context) {
               if (c) { answer = c; aiOK = true; break; }
             }
           }
-        } catch { /* try next model */ }
+        } catch {}
       }
     }
 
@@ -1363,7 +1205,7 @@ export async function onRequest(context) {
           const out = await env.AI.run(m, { messages, max_tokens: Math.min(maxTokens, 1024) });
           const c = (out?.response || "").trim();
           if (c) { answer = c; aiOK = true; break; }
-        } catch { /* try next CF model */ }
+        } catch {}
       }
     }
 
@@ -1392,9 +1234,9 @@ export async function onRequest(context) {
             const j = await r.json();
             let c = j?.choices?.[0]?.message?.content?.trim() || "";
             c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
-            try { const parsed = JSON.parse(c); if (parsed && parsed.overall) return parsed; } catch { /* next */ }
+            try { const parsed = JSON.parse(c); if (parsed && parsed.overall) return parsed; } catch {}
           }
-        } catch { /* next */ }
+        } catch {}
       }
       return null;
     }
@@ -1422,7 +1264,7 @@ export async function onRequest(context) {
           const arr = JSON.parse(c);
           if (Array.isArray(arr)) return arr.filter((x) => typeof x === "string").slice(0, 3);
         }
-      } catch { /* ignore */ }
+      } catch {}
       return [];
     }
 
