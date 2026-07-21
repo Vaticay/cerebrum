@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 
 function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} }
@@ -24,22 +24,15 @@ function pick(n = 3) {
   return a.slice(0, n);
 }
 
-// ---------- Palettes: light (paper) + dark, each with the editorial structure ----------
 const PALETTES = {
-  Paper: { light: true, bg: "#f3efe7", panel: "#fbf8f2", card: "#ece5d8", ink: "#232a25", ink2: "#57605a", faint: "#98a09a", rule: "#e0dccf", rule2: "#cfcabb", link: "#1a5fb4" },
-  Slate: { light: false, bg: "#14181c", panel: "#1b2127", card: "#232a31", ink: "#e4e9ec", ink2: "#9aa6ad", faint: "#5f6d75", rule: "#2a323a", rule2: "#3a444d", link: "#7fb0d4" },
-  Ink:   { light: false, bg: "#0f1210", panel: "#171b18", card: "#1f2521", ink: "#e6ebe6", ink2: "#9aa69e", faint: "#5c6961", rule: "#232a25", rule2: "#333c35", link: "#8fc7a8" },
+  Light: { dark: false, bg: "#f6f5f2", surface: "#ffffff", raised: "#ffffff", ink: "#1a1c1e", ink2: "#565a5f", faint: "#9a9ea3", line: "#eceae5", line2: "#dfdcd5", shadow: "0 1px 2px rgba(20,22,25,.04), 0 8px 24px rgba(20,22,25,.06)", shadowSm: "0 1px 2px rgba(20,22,25,.05), 0 2px 8px rgba(20,22,25,.04)", grain: 0.015, skel: "linear-gradient(90deg, #eceae5 25%, #f3f1ec 50%, #eceae5 75%)" },
+  Dark:  { dark: true, bg: "#0c0e10", surface: "#141719", raised: "#1a1e21", ink: "#eef1f3", ink2: "#a3abb2", faint: "#606970", line: "#20252a", line2: "#2b3237", shadow: "0 1px 2px rgba(0,0,0,.3), 0 12px 40px rgba(0,0,0,.4)", shadowSm: "0 1px 3px rgba(0,0,0,.3)", grain: 0.02, skel: "linear-gradient(90deg, #1a1e21 25%, #232a2f 50%, #1a1e21 75%)" },
+  Mid:   { dark: true, bg: "#16130f", surface: "#1e1a15", raised: "#252019", ink: "#f0ebe3", ink2: "#b0a695", faint: "#6e6455", line: "#282219", line2: "#352e22", shadow: "0 1px 2px rgba(0,0,0,.3), 0 12px 40px rgba(0,0,0,.45)", shadowSm: "0 1px 3px rgba(0,0,0,.3)", grain: 0.022, skel: "linear-gradient(90deg, #252019 25%, #2f2820 50%, #252019 75%)" },
 };
-const ACCENTS = { Forest: "#1f7a5a", Oxblood: "#8a3b2e", Neon: "#12b886", Cobalt: "#2f6fd0", Amber: "#b8791f", Plum: "#7b4a8a", Slate: "#3f5847" };
+const ACCENTS = { Emerald: "#059669", Indigo: "#4f46e5", Sky: "#0284c7", Amber: "#d97706", Rose: "#e11d48", Violet: "#7c3aed", Teal: "#0d9488" };
 
-function accentText(hex) {
-  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#111" : "#fff";
-}
-function withAlpha(hex, a) {
-  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${a})`;
-}
+function accentText(hex) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#111" : "#fff"; }
+function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
 
 function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
 function toRIS(sources) {
@@ -66,75 +59,61 @@ function toBibTeX(sources) {
     return `@article{cerebrum${s.year || ""}_${i + 1},\n${fields.join(",\n")}\n}`;
   }).join("\n\n");
 }
-function download(fn, text) {
-  const blob = new Blob([text], { type: "text/plain" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = fn; a.click();
-  URL.revokeObjectURL(a.href);
-}
+function download(fn, text) { const blob = new Blob([text], { type: "text/plain" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fn; a.click(); URL.revokeObjectURL(a.href); }
 async function saveToZotero(sources, apiKey, userId) {
-  const items = sources.map((s) => ({
-    itemType: "journalArticle", title: s.title || "",
-    creators: (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean).map((name) => ({ creatorType: "author", name })),
-    publicationTitle: s.journal || "", date: String(s.year || ""), url: s.url || "",
-  }));
-  const res = await fetch(`https://api.zotero.org/users/${userId}/items`, {
-    method: "POST", headers: { "Zotero-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify(items),
-  });
+  const items = sources.map((s) => ({ itemType: "journalArticle", title: s.title || "", creators: (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean).map((name) => ({ creatorType: "author", name })), publicationTitle: s.journal || "", date: String(s.year || ""), url: s.url || "" }));
+  const res = await fetch(`https://api.zotero.org/users/${userId}/items`, { method: "POST", headers: { "Zotero-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify(items) });
   if (!res.ok) throw new Error(`Zotero ${res.status}`);
   return res.json();
 }
+function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
 const Audio = (() => {
   let ctx = null, ambient = null;
   function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } } return ctx; }
-  function click() {
-    const c = ac(); if (!c) return;
-    const o = c.createOscillator(), g = c.createGain();
-    o.type = "sine"; o.frequency.value = 620;
-    g.gain.setValueAtTime(0.0001, c.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.06, c.currentTime + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.09);
-    o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + 0.1);
-  }
-  function startAmbient() {
-    const c = ac(); if (!c || ambient) return;
-    const o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain();
-    o.type = "sine"; o.frequency.value = 110; o2.type = "sine"; o2.frequency.value = 164.81;
-    g.gain.setValueAtTime(0.0001, c.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.03, c.currentTime + 0.4);
-    o.connect(g); o2.connect(g); g.connect(c.destination); o.start(); o2.start();
-    ambient = { o, o2, g };
-  }
-  function stopAmbient() {
-    if (!ambient || !ctx) return;
-    const { o, o2, g } = ambient;
-    try { g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3); o.stop(ctx.currentTime + 0.35); o2.stop(ctx.currentTime + 0.35); } catch {}
-    ambient = null;
-  }
-  return { click, startAmbient, stopAmbient };
+  function tone(freq, dur, vol) { const c = ac(); if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.02); }
+  function click() { tone(660, 0.08, 0.045); }
+  function pop() { tone(880, 0.06, 0.04); }
+  function startAmbient() { const c = ac(); if (!c || ambient) return; const o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = 98; o2.type = "sine"; o2.frequency.value = 146.83; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(0.022, c.currentTime + 0.5); o.connect(g); o2.connect(g); g.connect(c.destination); o.start(); o2.start(); ambient = { o, o2, g }; }
+  function stopAmbient() { if (!ambient || !ctx) return; const { o, o2, g } = ambient; try { g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); o.stop(ctx.currentTime + 0.45); o2.stop(ctx.currentTime + 0.45); } catch {} ambient = null; }
+  return { click, pop, startAmbient, stopAmbient };
 })();
 
 function Mark({ size = 26, accent, glow }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 6px ${withAlpha(accent, 0.5)})` : "none" }}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 10px ${withAlpha(accent, 0.45)})` : "none" }}>
       <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
       <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
     </svg>
   );
 }
 
-function renderAnswer(text, sources, P, accent) {
+// Typewriter reveal for answer text
+function useTypewriter(full, on) {
+  const [out, setOut] = useState(on ? "" : full);
+  useEffect(() => {
+    if (!on) { setOut(full); return; }
+    setOut(""); let i = 0; const step = Math.max(2, Math.round(full.length / 240));
+    const id = setInterval(() => { i += step; setOut(full.slice(0, i)); if (i >= full.length) { setOut(full); clearInterval(id); } }, 12);
+    return () => clearInterval(id);
+  }, [full, on]);
+  return out;
+}
+
+function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   const clean = (text || "").replace(/^#{1,6}\s*/gm, "");
   return clean.split(/\n{2,}/).map((para, pi) => (
-    <p key={pi} style={{ fontSize: 16.5, lineHeight: 1.72, margin: "0 0 15px", color: P.ink }}>
+    <p key={pi} style={{ fontSize: 16, lineHeight: 1.7, margin: "0 0 16px", color: P.ink, letterSpacing: "-0.006em" }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {line.split(/(\*\*[^*]+\*\*|\[\d+\])/g).map((seg, si) => {
             const b = seg.match(/^\*\*([^*]+)\*\*$/);
-            if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 600 }}>{b[1]}</strong>;
+            if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 650 }}>{b[1]}</strong>;
             const c = seg.match(/^\[(\d+)\]$/);
-            if (c) { const n = parseInt(c[1], 10); const src = sources[n - 1]; return <a key={si} href={src?.url || "#"} target="_blank" rel="noreferrer" title={src?.title || ""} style={{ fontSize: 11, verticalAlign: "super", color: accent, textDecoration: "none", fontWeight: 700 }}>{n}</a>; }
+            if (c) {
+              const n = parseInt(c[1], 10); const src = sources[n - 1];
+              return <a key={si} href={src?.url || "#"} target="_blank" rel="noreferrer" title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)} style={{ fontSize: 10.5, verticalAlign: "super", color: at2(accent), textDecoration: "none", fontWeight: 700, padding: "1px 4px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s", cursor: "pointer", ...( { color: accent } ) }}>{n}</a>;
+            }
             return <span key={si}>{seg}</span>;
           })}
           {li < para.split("\n").length - 1 && <br />}
@@ -143,28 +122,26 @@ function renderAnswer(text, sources, P, accent) {
     </p>
   ));
 }
+function at2(a) { return a; }
 
 function FactCheck({ fc, P, accent }) {
-  const colors = { supported: "#3faa6a", partly: "#c9a227", unsupported: "#c0533f", thin: "#c9a227" };
+  const colors = { supported: "#10b981", partly: "#d9a520", unsupported: "#e5484d", thin: "#d9a520" };
   const label = { supported: "Supported by sources", partly: "Partly supported", unsupported: "Not supported by sources" };
   const oc = colors[fc.overall] || P.ink2;
   return (
-    <div style={{ marginTop: 14, border: `1px solid ${P.rule}`, borderLeft: `3px solid ${oc}`, borderRadius: 4, background: P.panel, padding: "13px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: fc.claims && fc.claims.length ? 10 : 0 }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: oc }} />
-        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: oc }}>{label[fc.overall] || fc.overall}</span>
-        <span style={{ fontSize: 11.5, color: P.faint, marginLeft: "auto" }}>checked against cited abstracts</span>
+    <div style={{ marginTop: 16, border: `1px solid ${P.line}`, borderRadius: 12, background: P.surface, padding: "14px 16px", boxShadow: P.shadowSm }} className="cb-rise">
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: fc.claims && fc.claims.length ? 12 : 0 }}>
+        <span style={{ width: 18, height: 18, borderRadius: "50%", background: withAlpha(oc, 0.15), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: oc }} /></span>
+        <span style={{ fontSize: 12.5, fontWeight: 650, letterSpacing: "-0.01em", color: oc }}>{label[fc.overall] || fc.overall}</span>
+        <span style={{ fontSize: 11, color: P.faint, marginLeft: "auto" }}>checked vs. cited abstracts</span>
       </div>
-      {fc.summary && <div style={{ fontSize: 13.5, color: P.ink2, marginBottom: fc.claims && fc.claims.length ? 10 : 0, lineHeight: 1.5 }}>{fc.summary}</div>}
+      {fc.summary && <div style={{ fontSize: 13.5, color: P.ink2, marginBottom: fc.claims && fc.claims.length ? 12 : 0, lineHeight: 1.55 }}>{fc.summary}</div>}
       {fc.claims && fc.claims.map((c, i) => {
-        const cc = colors[c.status] || P.ink2;
+        const cc = colors[c.status] || P.ink2; const sym = c.status === "supported" ? "✓" : c.status === "thin" ? "~" : "✕";
         return (
-          <div key={i} style={{ display: "flex", gap: 9, padding: "7px 0", borderTop: i ? `1px solid ${P.rule}` : "none" }}>
-            <span style={{ color: cc, fontSize: 13, flexShrink: 0, fontWeight: 700 }}>{c.status === "supported" ? "✓" : c.status === "thin" ? "~" : "✕"}</span>
-            <div>
-              <div style={{ fontSize: 13.5, color: P.ink, lineHeight: 1.4 }}>{c.claim}</div>
-              {c.note && <div style={{ fontSize: 12, color: P.faint, marginTop: 2, lineHeight: 1.4 }}>{c.note}</div>}
-            </div>
+          <div key={i} style={{ display: "flex", gap: 10, padding: "9px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+            <span style={{ color: cc, fontSize: 12, flexShrink: 0, fontWeight: 700, width: 16, height: 16, borderRadius: 5, background: withAlpha(cc, 0.13), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>{sym}</span>
+            <div><div style={{ fontSize: 13.5, color: P.ink, lineHeight: 1.45 }}>{c.claim}</div>{c.note && <div style={{ fontSize: 12, color: P.faint, marginTop: 3, lineHeight: 1.45 }}>{c.note}</div>}</div>
           </div>
         );
       })}
@@ -172,9 +149,18 @@ function FactCheck({ fc, P, accent }) {
   );
 }
 
+function Skeleton({ P }) {
+  const bar = (w) => <div style={{ height: 13, width: w, borderRadius: 6, background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.3s infinite" }} />;
+  return (
+    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "22px 26px", boxShadow: P.shadow, display: "flex", flexDirection: "column", gap: 11 }}>
+      {bar("92%")}{bar("98%")}{bar("85%")}<div style={{ height: 6 }} />{bar("95%")}{bar("70%")}
+    </div>
+  );
+}
+
 function useIsMobile() {
-  const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < 860 : false);
-  useEffect(() => { const onR = () => setM(window.innerWidth < 860); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
+  const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < 900 : false);
+  useEffect(() => { const onR = () => setM(window.innerWidth < 900); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
   return m;
 }
 
@@ -192,70 +178,104 @@ function App() {
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [cmdQuery, setCmdQuery] = useState("");
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(() => getCookie("cb_fc") === "1");
   const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
-  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Paper");
-  const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Forest");
+  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
+  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Light");
+  const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
   const [hover, setHover] = useState("");
+  const [hoverCite, setHoverCite] = useState(0);
   const inputRef = useRef(null);
+  const cmdRef = useRef(null);
   const threadRef = useRef(null);
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
-  const P = PALETTES[paletteName] || PALETTES.Paper;
-  const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (ACCENTS[accentName] || ACCENTS.Forest);
+  const P = PALETTES[paletteName] || PALETTES.Light;
+  const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (ACCENTS[accentName] || ACCENTS.Emerald);
   const at = accentText(accent);
   const S = makeStyles(P, accent, at);
-
   const sfx = () => { if (!mutedRef.current) Audio.click(); };
 
-  useEffect(() => { if (entered && !isMobile) inputRef.current?.focus(); }, [entered, isMobile]);
+  const ask = useCallback(async (q, opts = {}) => {
+    const question = (q ?? input).trim();
+    if (!question || busy) return;
+    if (!mutedRef.current) Audio.click();
+    setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    const prior = [];
+    turns.forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer }); });
+    try {
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Search failed."); setBusy(false); return; }
+      const nt = { q: question, answer: data.answer || "", sources: data.sources || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
+      setTurns((t) => [...t, nt]);
+      setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
+      if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
+      if (!mutedRef.current) Audio.pop();
+    } catch (e) { setError(`Could not reach the backend. (${e.message})`); }
+    finally { setBusy(false); }
+  }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile]);
+
+  useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
   useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [turns, busy]);
   useEffect(() => { if (busy && !muted) Audio.startAmbient(); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted]);
   useEffect(() => { document.body.style.background = P.bg; }, [P]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
   useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
+  useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
 
-  async function ask(q) {
-    const question = (q ?? input).trim();
-    if (!question || busy) return;
-    sfx(); setInput(""); setBusy(true); setError("");
-    const priorThread = [];
-    turns.forEach((t) => { priorThread.push({ role: "user", content: t.q }); priorThread.push({ role: "assistant", content: t.answer }); });
-    try {
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: priorThread, settings: { answerLength, factCheck } }) });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || "Search failed."); setBusy(false); return; }
-      const nt = { q: question, answer: data.answer || "", sources: data.sources || [], source: data.source || "", factCheck: data.factCheck || null };
-      setTurns((t) => [...t, nt]);
-      setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
-      if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 30));
-    } catch (e) { setError(`Could not reach the backend. (${e.message})`); }
-    finally { setBusy(false); }
-  }
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
+      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen(true); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
-  function newSession() { sfx(); setTurns([]); setAllSources([]); setInput(""); setError(""); setSuggestions(pick()); setTimeout(() => inputRef.current?.focus(), 50); }
+  function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
   const isSaved = (s) => saved.some((x) => (x.title || "").toLowerCase() === (s.title || "").toLowerCase());
   async function doZotero() { setZMsg(""); const list = saved.length ? saved : allSources; if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; } try { await saveToZotero(list, zKey.trim(), zUser.trim()); setZMsg(`Saved ${list.length} items.`); } catch (e) { setZMsg(`Failed: ${e.message}`); } }
 
+  const commands = [
+    { label: "New investigation", hint: "⌘J", run: () => newSession() },
+    { label: "Open settings", hint: "⌘/", run: () => { setCmdOpen(false); setSettingsOpen(true); } },
+    { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
+    { label: "Toggle light / dark", run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
+    { label: factCheck ? "Turn off fact-check" : "Turn on fact-check", run: () => { setFactCheck(!factCheck); setCmdOpen(false); } },
+    { label: "Export saved as BibTeX", run: () => { download("cerebrum.bib", toBibTeX(saved.length ? saved : allSources)); setCmdOpen(false); } },
+  ];
+  const filteredCmds = commands.filter((c) => c.label.toLowerCase().includes(cmdQuery.toLowerCase()));
+  const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
+
   if (!entered) {
     return (
       <div style={S.gate}>
-        <div style={S.gateInner}>
-          <div style={{ marginBottom: 18 }}><Mark size={54} accent={accent} glow={!P.light} /></div>
+        <div style={S.gateGlow} />
+        <div style={S.gateInner} className="cb-gate">
+          <div style={{ marginBottom: 22 }}><Mark size={52} accent={accent} glow={P.dark} /></div>
+          <div style={S.gateKicker}>A Research Instrument</div>
           <div style={S.gateTitle}>Cerebrum</div>
-          <div style={S.gateSub}>the scientific literature, read closely and cited plainly</div>
-          <button style={S.gateBtn} onClick={() => { sfx(); setEntered(true); }}>Enter as guest</button>
-          <div style={S.gateNote}>No account. Nothing stored on a server.</div>
+          <div style={S.gateSub}>Ask the scientific literature anything. Fourteen databases, one considered answer, every claim cited.</div>
+          <button style={S.gateBtn} onClick={() => { sfx(); setEntered(true); }} onMouseEnter={() => setHover("gate")} onMouseLeave={() => setHover("")}>
+            <span>Enter</span><span style={{ transform: hover === "gate" ? "translateX(3px)" : "none", transition: "transform .2s", display: "inline-block" }}>→</span>
+          </button>
+          <div style={S.gateNote}>No account · nothing stored on a server · press ⌘K anytime</div>
         </div>
       </div>
     );
@@ -266,7 +286,7 @@ function App() {
 
   const SourcesInner = (
     <>
-      <div style={S.srcHead}>Sources cited · {allSources.length}</div>
+      <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
       {allSources.length > 0 && (
         <div style={S.srcActions}>
           <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
@@ -284,14 +304,14 @@ function App() {
         </div>
       )}
       <div style={S.srcList}>
-        {allSources.length === 0 ? <div style={S.empty}>Sources appear here as you research.</div> :
+        {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
           allSources.map((s, i) => (
-            <div key={i} style={S.srcItem}>
-              <a href={s.url} target="_blank" rel="noreferrer" style={S.srcTitle}>{s.title || s.url}</a>
-              <div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · cited ${s.citations}×`}</div>
+            <div key={i} style={{ ...S.srcItem, background: hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent" }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
+              <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title || s.url}</a>
+              <div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} citations`}</div>
               <div style={S.srcRow}>
-                <button style={{ ...S.star, color: isSaved(s) ? accent : P.faint }} onClick={() => toggleSave(s)}>{isSaved(s) ? "★ saved" : "☆ save"}</button>
-                {s.authors && <button style={S.authorLink} onClick={() => { setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>author →</button>}
+                <button style={{ ...S.chipMini, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}>{isSaved(s) ? "★ Saved" : "☆ Save"}</button>
+                {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
               </div>
             </div>
           ))}
@@ -301,114 +321,120 @@ function App() {
 
   return (
     <div style={S.page}>
-      <div style={S.wrap}>
-        <div style={S.masthead}>
-          <div style={S.mastTop}>
-            <button style={S.mastBtn} onClick={() => { sfx(); newSession(); }}>New</button>
-            <span style={S.mastMeta}>A Research Instrument · 2026</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button style={S.mastBtn} onClick={() => setMuted(!muted)}>{muted ? "🔇" : "🔊"}</button>
-              <button style={S.mastBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>Settings</button>
-            </div>
+      <div style={S.grain} />
+      <header style={S.header}>
+        <div style={S.headInner}>
+          <div style={S.brandRow} onClick={() => { sfx(); newSession(); }}><Mark size={22} accent={accent} glow={P.dark} /><span style={S.brand}>Cerebrum</span></div>
+          <div style={S.headActions}>
+            <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>⌘K</kbd></button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
+            <button style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>Settings</button>
           </div>
-          <div style={S.brandRow}><Mark size={26} accent={accent} glow={!P.light} /><span style={S.brand}>Cerebrum</span></div>
-          <div style={S.tagline}>the scientific literature, read closely and cited plainly</div>
-          <div style={S.ruleThin} />
         </div>
+      </header>
 
-        <div style={S.searchBand}>
-          <div style={{ ...S.search, boxShadow: hover === "in" ? `0 0 0 1px ${accent}${P.light ? "" : ", 0 0 20px " + withAlpha(accent, 0.25)}` : "none" }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-            <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
-            <button style={S.searchBtn} onClick={() => ask()}>Inquire</button>
-          </div>
-          {!started && (
-            <div style={S.chips}>
-              {suggestions.map((s, i) => (
-                <button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}), animationDelay: `${i * 70}ms` }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>
-              ))}
+      <div style={S.scroll} ref={threadRef}>
+        <div style={S.container}>
+          {!started ? (
+            <div style={S.hero} className="cb-hero">
+              <div style={S.heroGlow} />
+              <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
+              <h1 style={S.heroTitle}>The scientific literature,<br />answered plainly.</h1>
+              <p style={S.heroSub}>Fourteen databases searched at once. A cited answer in seconds. Every claim traceable to a real paper.</p>
+              <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
+                <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
+                <button style={S.searchBtn} onClick={() => ask()}>Inquire</button>
+              </div>
+              <div style={S.chips}>
+                {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}), animationDelay: `${120 + i * 70}ms` }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
+              </div>
+              <div style={S.trustRow}>
+                {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "arXiv", "Semantic Scholar"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
+                <span style={{ ...S.trustItem, color: P.faint }}>+8 more</span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : {}) }}>
+              <div style={S.thread}>
+                {turns.map((t, ti) => (
+                  <Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} />
+                ))}
+                {busy && (
+                  <div style={S.turn}>
+                    <div style={S.qLabel}><span style={S.qDot} />Searching</div>
+                    <Skeleton P={P} />
+                    <div style={S.loading}><span style={S.spinner} /><span>Searching fourteen databases…</span></div>
+                  </div>
+                )}
+                {error && <div style={S.error}>{error}</div>}
+                {turns.length > 0 && !busy && (
+                  <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
+                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a follow-up — it remembers the thread" />
+                    <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
+                  </div>
+                )}
+              </div>
+              {!isMobile && panelOpen && <aside style={S.panel}>{SourcesInner}</aside>}
             </div>
           )}
+          <div style={S.foot}><span style={S.footDbs}>Europe PMC · PubMed · OpenAlex · Crossref · arXiv · Semantic Scholar · DOAJ · Zenodo · DataCite · OpenAIRE · HAL · UTK TRACE</span></div>
         </div>
-
-        {started && (
-          <div style={S.article}>
-            <div style={S.column} ref={threadRef}>
-              {turns.map((t, ti) => (
-                <div key={ti} style={S.turn} className="cb-rise">
-                  <div style={S.qLabel}><span style={S.qDot} />On the question of</div>
-                  <div style={S.headline}>{t.q}</div>
-                  <div style={S.body}>{renderAnswer(t.answer, t.sources, P, accent)}</div>
-                  {t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
-                  {t.source && <div style={S.byline}>{t.source}</div>}
-                </div>
-              ))}
-              {busy && <div style={S.loading}><span style={S.spinner} />searching 14 databases…</div>}
-              {error && <div style={S.error}>{error}</div>}
-              {turns.length > 0 && !busy && (
-                <div style={S.followRow}>
-                  <input style={S.followIn} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a follow-up… (remembers the thread)" />
-                  <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
-                </div>
-              )}
-            </div>
-
-            {!isMobile && panelOpen && <aside style={S.sources}>{SourcesInner}</aside>}
-          </div>
-        )}
-
-        <div style={S.foot}>Europe PMC · PubMed · OpenAlex · Crossref · arXiv · Semantic Scholar · DOAJ · Zenodo · DataCite · OpenAIRE · HAL · UTK TRACE</div>
       </div>
 
-      {started && isMobile && (
-        <button style={S.mobSrcBtn} onClick={() => setMobilePanel(true)}>Sources · {allSources.length}</button>
+      {started && isMobile && <button style={S.mobSrcBtn} onClick={() => setMobilePanel(true)}>Sources · {allSources.length}</button>}
+      {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} /><aside style={{ ...S.panel, ...S.panelMobile }}><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
+
+      {cmdOpen && (
+        <div style={S.cmdWrap} onClick={() => setCmdOpen(false)}>
+          <div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop">
+            <div style={S.cmdInputRow}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
+              <input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" />
+              <kbd style={S.kbd}>esc</kbd>
+            </div>
+            <div style={S.cmdList}>
+              {cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}
+              {cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.1)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}
+              <div style={S.cmdSection}>Commands</div>
+              {filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.1)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}
+            </div>
+          </div>
+        </div>
       )}
-      {started && isMobile && mobilePanel && (
-        <>
-          <div style={S.scrim} onClick={() => setMobilePanel(false)} />
-          <aside style={{ ...S.sources, ...S.sourcesMobile }}><button style={S.mastBtn} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside>
-        </>
-      )}
 
-      {settingsOpen && (
-        <div style={S.modalWrap} onClick={() => setSettingsOpen(false)}>
-          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
-            <div style={S.modalTitle}>Settings</div>
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
+    </div>
+  );
+}
 
-            <div style={S.setLabel}>Palette</div>
-            <div style={S.palRow}>
-              {Object.keys(PALETTES).map((pn) => (
-                <button key={pn} style={{ ...S.palSwatch, background: PALETTES[pn].panel, color: PALETTES[pn].ink, border: paletteName === pn ? `2px solid ${accent}` : `1px solid ${PALETTES[pn].rule2}` }} onClick={() => { sfx(); setPaletteName(pn); }}>
-                  <span style={{ width: 12, height: 12, borderRadius: "50%", background: PALETTES[pn].bg, border: `1px solid ${PALETTES[pn].rule2}` }} />{pn}
-                </button>
-              ))}
-            </div>
-
-            <div style={S.setLabel}>Accent</div>
-            <div style={S.accentRow}>
-              {Object.keys(ACCENTS).map((an) => (
-                <button key={an} title={an} style={{ ...S.accentDot, background: ACCENTS[an], outline: (!customAccent && accentName === an) ? `2px solid ${P.ink}` : "none", outlineOffset: 2 }} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }} />
-              ))}
-            </div>
-
-            <div style={S.setLabel}>Custom accent</div>
-            <div style={S.pickRow}>
-              <input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={S.colorInput} />
-              <input type="text" value={customAccent || accent} onChange={(e) => /^#[0-9a-fA-F]{0,6}$/.test(e.target.value) && setCustomAccent(e.target.value)} style={S.hexInput} />
-              {customAccent && <button style={S.clearBtn} onClick={() => setCustomAccent("")}>reset</button>}
-            </div>
-
-            <div style={S.setLabel}>Answer length</div>
-            <div style={S.setRow}>{["short", "medium", "long"].map((v) => (<button key={v} style={{ ...S.setOpt, ...(answerLength === v ? S.setOptActive : {}) }} onClick={() => { sfx(); setAnswerLength(v); }}>{v}</button>))}</div>
-
-            <div style={S.setLabel}>Fact-check</div>
-            <button style={{ ...S.setOpt, width: "100%", marginBottom: 8, ...(factCheck ? S.setOptActive : {}) }} onClick={() => { sfx(); setFactCheck(!factCheck); }}>{factCheck ? "Verification on" : "Verification off"}</button>
-            <div style={{ ...S.setNote, marginBottom: 16 }}>When on, a second model checks each claim against the cited abstracts and flags anything the sources don't support. It verifies source-support, not real-world truth, and adds a few seconds.</div>
-
-            <div style={S.setLabel}>Sound</div>
-            <button style={{ ...S.setOpt, width: "100%", marginBottom: 16, ...(muted ? {} : S.setOptActive) }} onClick={() => setMuted(!muted)}>{muted ? "Sound off" : "Sound on"}</button>
-
-            <button style={S.clearAll} onClick={() => { setSessions([]); setSaved([]); }}>Clear sessions & saved</button>
-            <button style={S.modalClose} onClick={() => setSettingsOpen(false)}>Done</button>
+function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated }) {
+  const shown = useTypewriter(t.answer, typewriter && t.fresh);
+  const done = shown === t.answer;
+  return (
+    <div style={S.turn} className="cb-rise">
+      <div style={S.qLabel}><span style={S.qDot} />Inquiry</div>
+      <h2 style={S.headline}>{t.q}</h2>
+      <div style={S.answerCard}>
+        {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
+        {done && t.source && (
+          <div style={S.byline}>
+            <span>{t.source}</span>
+            <span style={{ marginLeft: "auto", color: P.faint }}>{readingTime(t.answer)}</span>
+          </div>
+        )}
+      </div>
+      {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
+      {done && t.related && t.related.length > 0 && (
+        <div style={S.relatedWrap} className="cb-fade">
+          <div style={S.relatedLabel}>Continue the investigation</div>
+          <div style={S.relatedList}>
+            {t.related.map((r, i) => (
+              <button key={i} style={S.relatedBtn} onClick={() => onRelated(r)} onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}>
+                <span>{r}</span><span style={{ color: accent }}>→</span>
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -416,91 +442,145 @@ function App() {
   );
 }
 
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, sfx, setSessions, setSaved, close }) {
+  return (
+    <div style={S.modalWrap} onClick={close} className="cb-fade">
+      <div style={S.modal} onClick={(e) => e.stopPropagation()} className="cb-pop">
+        <div style={S.modalTitle}>Settings</div>
+        <div style={S.setLabel}>Appearance</div>
+        <div style={S.palRow}>
+          {Object.keys(PALETTES).map((pn) => (
+            <button key={pn} style={{ ...S.palCard, background: PALETTES[pn].bg, borderColor: paletteName === pn ? accent : PALETTES[pn].line2, borderWidth: paletteName === pn ? 2 : 1 }} onClick={() => { sfx(); setPaletteName(pn); }}>
+              <div style={{ display: "flex", gap: 4 }}><span style={{ width: 22, height: 22, borderRadius: 6, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} /><span style={{ width: 22, height: 22, borderRadius: 6, background: accent }} /></div>
+              <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: 550 }}>{pn}</span>
+            </button>
+          ))}
+        </div>
+        <div style={S.setLabel}>Accent</div>
+        <div style={S.accentRow}>
+          {Object.keys(ACCENTS).map((an) => (<button key={an} title={an} style={{ ...S.accentDot, background: ACCENTS[an], transform: (!customAccent && accentName === an) ? "scale(1.15)" : "none", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${P.surface}, 0 0 0 4px ${ACCENTS[an]}` : "none" }} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }} />))}
+          <label style={S.customDot} title="Custom"><input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} /><span style={{ fontSize: 15, color: P.ink2 }}>+</span></label>
+        </div>
+        <div style={S.setLabel}>Answer length</div>
+        <div style={S.segment}>{["short", "medium", "long"].map((v) => (<button key={v} style={{ ...S.segBtn, ...(answerLength === v ? S.segActive : {}) }} onClick={() => { sfx(); setAnswerLength(v); }}>{v}</button>))}</div>
+        <div style={S.setLabel}>Fact-check</div>
+        <button style={{ ...S.toggle, ...(factCheck ? S.toggleOn : {}) }} onClick={() => { sfx(); setFactCheck(!factCheck); }}><span>{factCheck ? "Verification on" : "Verification off"}</span><span style={{ ...S.toggleKnob, transform: factCheck ? "translateX(20px)" : "none", background: factCheck ? at : P.faint }} /></button>
+        <div style={S.setNote}>A second model checks each claim against the cited abstracts and flags anything unsupported. It verifies source-support, not real-world truth.</div>
+        <div style={S.setLabel}>Typewriter reveal</div>
+        <button style={{ ...S.toggle, ...(typewriter ? S.toggleOn : {}) }} onClick={() => { sfx(); setTypewriter(!typewriter); }}><span>{typewriter ? "Animated reveal on" : "Instant answers"}</span><span style={{ ...S.toggleKnob, transform: typewriter ? "translateX(20px)" : "none", background: typewriter ? at : P.faint }} /></button>
+        <div style={S.setLabel}>Sound</div>
+        <button style={{ ...S.toggle, ...(!muted ? S.toggleOn : {}) }} onClick={() => setMuted(!muted)}><span>{muted ? "Sound off" : "Sound on"}</span><span style={{ ...S.toggleKnob, transform: !muted ? "translateX(20px)" : "none", background: !muted ? at : P.faint }} /></button>
+        <button style={S.clearAll} onClick={() => { setSessions([]); setSaved([]); }}>Clear sessions & saved</button>
+        <button style={S.modalClose} onClick={close}>Done</button>
+        <div style={S.shortcuts}>⌘K search · ⌘J new · ⌘/ settings · esc close</div>
+      </div>
+    </div>
+  );
+}
+
 function makeStyles(P, accent, at) {
-  const serifless = "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif";
+  const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   return {
-    gate: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: P.light ? "linear-gradient(160deg,#f0ebe1,#e6dfd1)" : `linear-gradient(160deg,${P.panel},${P.bg})`, padding: 20, fontFamily: serifless },
-    gateInner: { textAlign: "center", maxWidth: 420 },
-    gateTitle: { fontSize: 42, fontWeight: 800, letterSpacing: "-0.02em", color: P.ink, marginBottom: 8 },
-    gateSub: { fontSize: 15, color: P.ink2, marginBottom: 30, lineHeight: 1.5 },
-    gateBtn: { padding: "13px 30px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer" },
-    gateNote: { fontSize: 12, color: P.faint, marginTop: 14 },
-
-    page: { minHeight: "100vh", background: P.bg, color: P.ink, fontFamily: serifless, WebkitFontSmoothing: "antialiased" },
-    wrap: { maxWidth: 960, margin: "0 auto", padding: "0 28px" },
-    masthead: { borderBottom: `2px solid ${P.ink}`, paddingTop: 22, paddingBottom: 12 },
-    mastTop: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint },
-    mastMeta: { fontSize: 11, letterSpacing: "0.14em" },
-    mastBtn: { background: "transparent", border: `1px solid ${P.rule2}`, color: P.ink2, padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600, fontFamily: "inherit" },
-    brandRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 11, margin: "14px 0 6px" },
-    brand: { fontWeight: 800, fontSize: 38, letterSpacing: "-0.02em", color: P.ink },
-    tagline: { textAlign: "center", fontSize: 14, color: P.ink2 },
-    ruleThin: { borderBottom: `1px solid ${P.ink}`, marginTop: 12 },
-
-    searchBand: { padding: "30px 0 6px", textAlign: "center" },
-    search: { display: "flex", alignItems: "center", gap: 10, maxWidth: 600, margin: "0 auto", background: P.panel, border: `1px solid ${P.rule2}`, borderRadius: 10, padding: "5px 6px 5px 18px", transition: "box-shadow 0.2s" },
-    searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 16, color: P.ink, minWidth: 0 },
-    searchBtn: { fontSize: 13, fontWeight: 600, background: accent, color: at, border: "none", padding: "11px 18px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 },
-    chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 18 },
-    chip: { fontSize: 13, color: P.ink2, background: P.panel, border: `1px solid ${P.rule2}`, borderRadius: 20, padding: "8px 14px", cursor: "pointer", transition: "all 0.18s", fontFamily: "inherit" },
-    chipHover: { borderColor: accent, color: accent },
-
-    article: { marginTop: 34, display: "grid", gridTemplateColumns: "1fr 250px", gap: 34, alignItems: "start" },
-    column: { minWidth: 0 },
-    turn: { marginBottom: 34 },
-    qLabel: { fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: accent, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 },
-    qDot: { width: 7, height: 7, borderRadius: "50%", background: accent, boxShadow: P.light ? "none" : `0 0 8px ${accent}` },
-    headline: { fontWeight: 700, fontSize: 26, lineHeight: 1.24, marginBottom: 16, color: P.ink, letterSpacing: "-0.01em" },
-    body: {},
-    byline: { fontSize: 12, color: P.faint, letterSpacing: "0.02em", borderTop: `1px solid ${P.rule}`, paddingTop: 12, marginTop: 20 },
-    loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "10px 0" },
-    spinner: { width: 16, height: 16, border: `2px solid ${P.rule2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
-    error: { padding: 14, background: withAlpha("#c0533f", 0.12), color: "#c0533f", borderRadius: 8, fontSize: 14, border: `1px solid ${withAlpha("#c0533f", 0.3)}` },
-    followRow: { display: "flex", gap: 8, marginTop: 10, marginBottom: 20 },
-    followIn: { flex: 1, padding: "11px 15px", fontSize: 15, background: P.panel, color: P.ink, border: `1px solid ${P.rule2}`, borderRadius: 8, outline: "none", fontFamily: "inherit" },
-
-    sources: { borderLeft: `1px solid ${P.rule2}`, paddingLeft: 22, position: "sticky", top: 20 },
-    sourcesMobile: { position: "fixed", top: 0, right: 0, height: "100vh", width: "86vw", maxWidth: 340, background: P.bg, borderLeft: `1px solid ${P.rule2}`, padding: "18px 18px", overflowY: "auto", zIndex: 30, boxShadow: "-6px 0 30px rgba(0,0,0,0.3)" },
-    srcHead: { fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, borderBottom: `1px solid ${P.ink}`, paddingBottom: 7, marginBottom: 14, fontWeight: 700 },
-    srcActions: { display: "flex", gap: 6, marginBottom: 10 },
-    sBtn: { flex: 1, fontSize: 12, padding: "7px", background: P.panel, color: P.ink2, border: `1px solid ${P.rule2}`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" },
-    sBtnP: { flex: 1, fontSize: 12, padding: "7px", background: accent, color: at, border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontFamily: "inherit" },
-    savedNote: { fontSize: 11, color: accent, marginBottom: 10 },
-    zBox: { background: P.panel, border: `1px solid ${P.rule}`, borderRadius: 8, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 7 },
-    zIn: { padding: "8px 10px", fontSize: 12, border: `1px solid ${P.rule2}`, background: P.bg, color: P.ink, borderRadius: 6, outline: "none", fontFamily: "inherit" },
-    zMsg: { fontSize: 11, color: accent },
-    srcList: { display: "flex", flexDirection: "column", gap: 15 },
-    empty: { fontSize: 12.5, color: P.faint, fontStyle: "italic", lineHeight: 1.5 },
-    srcItem: { paddingBottom: 14, borderBottom: `1px solid ${P.rule}` },
-    srcTitle: { fontSize: 14, color: P.link, textDecoration: "none", lineHeight: 1.35, fontWeight: 500, display: "block", marginBottom: 4 },
-    srcMeta: { fontSize: 12, color: P.ink2 },
-    srcRow: { display: "flex", gap: 12, marginTop: 6 },
-    star: { background: "none", border: "none", cursor: "pointer", fontSize: 12, padding: 0, fontFamily: "inherit" },
-    authorLink: { background: "none", border: "none", color: accent, fontSize: 12, cursor: "pointer", padding: 0, fontFamily: "inherit", fontWeight: 500 },
-
-    foot: { marginTop: 46, borderTop: `2px solid ${P.ink}`, padding: "12px 0 30px", textAlign: "center", fontSize: 10.5, letterSpacing: "0.06em", color: P.faint, textTransform: "uppercase" },
-
-    mobSrcBtn: { position: "fixed", bottom: 18, right: 18, background: accent, color: at, border: "none", borderRadius: 24, padding: "12px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 20px rgba(0,0,0,0.25)", zIndex: 20, fontFamily: "inherit" },
-    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25 },
-
-    modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16, backdropFilter: "blur(3px)" },
-    modal: { background: P.panel, border: `1px solid ${P.rule2}`, borderRadius: 14, padding: 26, width: 420, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: serifless },
-    modalTitle: { fontSize: 20, fontWeight: 700, color: P.ink, marginBottom: 20 },
-    setLabel: { fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", color: P.faint, marginBottom: 9, marginTop: 6, fontWeight: 600 },
-    palRow: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 },
-    palSwatch: { display: "flex", alignItems: "center", gap: 7, padding: "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontFamily: "inherit" },
-    accentRow: { display: "flex", flexWrap: "wrap", gap: 11, marginBottom: 18 },
-    accentDot: { width: 26, height: 26, borderRadius: "50%", border: "none", cursor: "pointer" },
-    pickRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 18 },
-    colorInput: { width: 42, height: 36, padding: 0, border: `1px solid ${P.rule2}`, borderRadius: 8, background: "none", cursor: "pointer" },
-    hexInput: { width: 96, padding: "8px 10px", fontSize: 13, border: `1px solid ${P.rule2}`, background: P.bg, color: P.ink, borderRadius: 6, outline: "none", fontFamily: "monospace" },
-    clearBtn: { fontSize: 12, background: "transparent", border: `1px solid ${P.rule2}`, color: P.ink2, borderRadius: 6, padding: "7px 10px", cursor: "pointer", fontFamily: "inherit" },
-    setRow: { display: "flex", gap: 8, marginBottom: 16 },
-    setOpt: { flex: 1, padding: "10px", fontSize: 13, background: P.bg, color: P.ink2, border: `1px solid ${P.rule2}`, borderRadius: 8, cursor: "pointer", textTransform: "capitalize", fontFamily: "inherit" },
-    setOptActive: { background: accent, color: at, borderColor: accent, fontWeight: 600 },
-    setNote: { fontSize: 12, color: P.faint, lineHeight: 1.5 },
-    clearAll: { width: "100%", padding: "10px", fontSize: 13, background: P.bg, color: "#c0533f", border: `1px solid ${withAlpha("#c0533f", 0.4)}`, borderRadius: 8, cursor: "pointer", marginBottom: 16, fontFamily: "inherit" },
-    modalClose: { width: "100%", padding: "13px", fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" },
+    gate: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: P.bg, padding: 20, fontFamily: font, position: "relative", overflow: "hidden" },
+    gateGlow: { position: "absolute", width: 600, height: 600, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.14 : 0.08)}, transparent 68%)`, top: "20%", filter: "blur(30px)", pointerEvents: "none" },
+    gateInner: { textAlign: "center", maxWidth: 440, position: "relative", zIndex: 1 },
+    gateKicker: { fontSize: 12, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: accent, marginBottom: 14 },
+    gateTitle: { fontSize: 46, fontWeight: 750, letterSpacing: "-0.03em", color: P.ink, marginBottom: 14, lineHeight: 1 },
+    gateSub: { fontSize: 16, color: P.ink2, marginBottom: 32, lineHeight: 1.6, letterSpacing: "-0.01em" },
+    gateBtn: { display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 28px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: font, boxShadow: `0 4px 16px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em" },
+    gateNote: { fontSize: 12.5, color: P.faint, marginTop: 18 },
+    page: { minHeight: "100vh", height: "100vh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
+    grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
+    header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 20 },
+    headInner: { maxWidth: 1080, margin: "0 auto", padding: "0 24px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" },
+    brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
+    brand: { fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", color: P.ink },
+    headActions: { display: "flex", alignItems: "center", gap: 6 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontFamily: font, boxShadow: P.shadowSm },
+    kbd: { fontSize: 11, fontFamily: font, color: P.faint, background: P.bg, border: `1px solid ${P.line2}`, borderRadius: 5, padding: "1px 6px", fontWeight: 550 },
+    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13.5, fontWeight: 550, fontFamily: font, letterSpacing: "-0.01em" },
+    iconBtn: { background: "transparent", border: "none", color: P.ink2, width: 36, height: 36, borderRadius: 8, cursor: "pointer", fontSize: 15 },
+    scroll: { flex: 1, overflowY: "auto" },
+    container: { maxWidth: 1080, margin: "0 auto", padding: "0 24px", minHeight: "100%", display: "flex", flexDirection: "column" },
+    hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px 0 60px", position: "relative" },
+    heroGlow: { position: "absolute", width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.1 : 0.06)}, transparent 65%)`, top: "8%", filter: "blur(40px)", pointerEvents: "none" },
+    heroMark: { marginBottom: 26, position: "relative" },
+    heroTitle: { fontSize: 44, fontWeight: 750, letterSpacing: "-0.035em", lineHeight: 1.08, color: P.ink, marginBottom: 18, position: "relative" },
+    heroSub: { fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em", position: "relative" },
+    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 580, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, padding: "7px 7px 7px 14px", boxShadow: P.shadow, transition: "all 0.2s", position: "relative" },
+    searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 3px ${withAlpha(accent, 0.12)}` },
+    searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
+    searchBtn: { fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", padding: "11px 20px", borderRadius: 9, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 8px ${withAlpha(accent, 0.3)}` },
+    chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 22, maxWidth: 600, position: "relative" },
+    chip: { fontSize: 13.5, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "9px 15px", cursor: "pointer", transition: "all 0.18s", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
+    trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
+    trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
+    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: "36px 0 20px", flex: 1 },
+    workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
+    thread: { minWidth: 0 },
+    turn: { marginBottom: 40 },
+    qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
+    qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
+    headline: { fontWeight: 700, fontSize: 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
+    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "22px 26px", boxShadow: P.shadow },
+    byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
+    loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
+    spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
+    error: { padding: "14px 16px", background: withAlpha("#e5484d", 0.1), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.25)}` },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 13, padding: "6px 6px 6px 16px", boxShadow: P.shadow, transition: "all 0.2s", marginTop: 8 },
+    relatedWrap: { marginTop: 18 },
+    relatedLabel: { fontSize: 11.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 10 },
+    relatedList: { display: "flex", flexDirection: "column", gap: 8 },
+    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", padding: "12px 16px", fontSize: 14, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 11, cursor: "pointer", fontFamily: font, transition: "all 0.15s", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    panel: { position: "sticky", top: 24, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "18px 18px", boxShadow: P.shadow, maxHeight: "calc(100vh - 130px)", overflowY: "auto" },
+    panelMobile: { position: "fixed", top: 0, right: 0, height: "100vh", width: "88vw", maxWidth: 350, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" },
+    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, fontWeight: 650, color: P.ink, marginBottom: 14, letterSpacing: "-0.01em" },
+    srcCount: { fontSize: 11.5, fontWeight: 600, color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 20 },
+    srcActions: { display: "flex", gap: 6, marginBottom: 12 },
+    sBtn: { flex: 1, fontSize: 12, padding: "8px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: font, fontWeight: 550 },
+    sBtnP: { flex: 1, fontSize: 12, padding: "8px", background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: font },
+    savedNote: { fontSize: 11.5, color: accent, marginBottom: 12 },
+    zBox: { background: P.bg, border: `1px solid ${P.line}`, borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 7 },
+    zIn: { padding: "9px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.surface, color: P.ink, borderRadius: 7, outline: "none", fontFamily: font },
+    zMsg: { fontSize: 11.5, color: accent },
+    srcList: { display: "flex", flexDirection: "column", gap: 4 },
+    empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "8px 0" },
+    srcItem: { padding: "13px 12px", margin: "0 -12px", borderRadius: 12, transition: "background 0.15s", borderBottom: `1px solid ${P.line}` },
+    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 5, transition: "color 0.15s", letterSpacing: "-0.01em" },
+    srcMeta: { fontSize: 12, color: P.ink2, lineHeight: 1.45 },
+    srcRow: { display: "flex", gap: 7, marginTop: 9 },
+    chipMini: { fontSize: 11.5, padding: "5px 10px", border: "1px solid", borderRadius: 7, cursor: "pointer", fontFamily: font, fontWeight: 550, background: "transparent", transition: "all 0.15s" },
+    foot: { marginTop: "auto", padding: "20px 0 26px", textAlign: "center" },
+    footDbs: { fontSize: 11, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7 },
+    mobSrcBtn: { position: "fixed", bottom: 20, right: 20, background: accent, color: at, border: "none", borderRadius: 26, padding: "13px 22px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: `0 8px 24px ${withAlpha(accent, 0.4)}`, zIndex: 20, fontFamily: font },
+    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25, backdropFilter: "blur(3px)" },
+    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, backdropFilter: "blur(6px)" },
+    cmdBox: { width: 560, maxWidth: "92vw", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", overflow: "hidden", fontFamily: font },
+    cmdInputRow: { display: "flex", alignItems: "center", gap: 11, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
+    cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, color: P.ink, fontFamily: font },
+    cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
+    cmdSection: { fontSize: 11, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, padding: "10px 12px 6px" },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", fontSize: 14, color: P.ink, background: "transparent", border: "none", borderRadius: 9, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.12s" },
+    modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16, backdropFilter: "blur(6px)" },
+    modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 28, width: 440, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 70px rgba(0,0,0,0.4)" },
+    modalTitle: { fontSize: 21, fontWeight: 700, color: P.ink, marginBottom: 22, letterSpacing: "-0.02em" },
+    setLabel: { fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.08em", color: P.faint, marginBottom: 10, marginTop: 4, fontWeight: 650 },
+    palRow: { display: "flex", gap: 10, marginBottom: 22 },
+    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 10, padding: "12px", borderRadius: 12, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
+    accentRow: { display: "flex", flexWrap: "wrap", gap: 13, marginBottom: 22, alignItems: "center" },
+    accentDot: { width: 26, height: 26, borderRadius: "50%", border: "none", cursor: "pointer", transition: "transform 0.15s" },
+    customDot: { width: 26, height: 26, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
+    segment: { display: "flex", gap: 4, background: P.bg, padding: 4, borderRadius: 11, marginBottom: 22, border: `1px solid ${P.line}` },
+    segBtn: { flex: 1, padding: "9px", fontSize: 13, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", textTransform: "capitalize", fontFamily: font, fontWeight: 550, transition: "all 0.15s" },
+    segActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
+    toggle: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", fontSize: 13.5, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: font, fontWeight: 550, marginBottom: 8 },
+    toggleOn: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
+    toggleKnob: { width: 34, height: 20, borderRadius: 12, position: "relative", transition: "all 0.2s", display: "inline-block", flexShrink: 0 },
+    setNote: { fontSize: 12, color: P.faint, lineHeight: 1.5, marginBottom: 18, marginTop: 2 },
+    clearAll: { width: "100%", padding: "11px", fontSize: 13, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 10, cursor: "pointer", marginBottom: 12, marginTop: 8, fontFamily: font, fontWeight: 550 },
+    modalClose: { width: "100%", padding: "13px", fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 11, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
+    shortcuts: { fontSize: 11, color: P.faint, textAlign: "center", marginTop: 16, letterSpacing: "0.02em" },
   };
 }
 
@@ -508,7 +588,7 @@ if (typeof document !== "undefined") {
   if (!document.getElementById("cb-fonts")) {
     const l = document.createElement("link");
     l.id = "cb-fonts"; l.rel = "stylesheet";
-    l.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
+    l.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;650;700;750&display=swap";
     document.head.appendChild(l);
   }
   if (!document.getElementById("cb-anim")) {
@@ -516,16 +596,25 @@ if (typeof document !== "undefined") {
     st.id = "cb-anim";
     st.textContent = `
       @keyframes cbspin { to { transform: rotate(360deg); } }
-      @keyframes cbFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-      @keyframes cbRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-      .cb-fade { opacity: 0; animation: cbFade 0.5s ease forwards; }
-      .cb-rise { animation: cbRise 0.45s cubic-bezier(.2,.8,.2,1) forwards; }
+      @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes cbRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes cbPop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+      @keyframes cbGate { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes cbHero { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+      .cb-fade { animation: cbFade 0.4s ease forwards; }
+      .cb-rise { animation: cbRise 0.5s cubic-bezier(.2,.8,.2,1) forwards; }
+      .cb-pop { animation: cbPop 0.28s cubic-bezier(.2,.9,.3,1) forwards; }
+      .cb-gate { animation: cbGate 0.7s cubic-bezier(.2,.8,.2,1) forwards; }
+      .cb-hero { animation: cbHero 0.6s cubic-bezier(.2,.8,.2,1) forwards; }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; }
       input { font-size: 16px; }
-      @media (max-width: 860px) { .cb-article { grid-template-columns: 1fr !important; } }
-      ::-webkit-scrollbar { width: 8px; }
-      ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.3); border-radius: 4px; }
+      input::placeholder { color: inherit; opacity: 0.5; }
+      ::-webkit-scrollbar { width: 10px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.25); border-radius: 5px; border: 3px solid transparent; background-clip: padding-box; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.4); background-clip: padding-box; }
     `;
     document.head.appendChild(st);
   }
