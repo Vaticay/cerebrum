@@ -234,35 +234,32 @@ async function pubmed(query, limit = 6, apiKey = "") {
   }
 }
 
-// ---------- Source: OpenAlex (needs key) ----------
+// ---------- Source: OpenAlex (250M+ works, KEYLESS — indexes bioRxiv/medRxiv preprints) ----------
 async function openAlex(query, limit = 6, key = "") {
-  if (!key) return [];
   try {
     const params = new URLSearchParams({
       search: query,
-      filter: "is_oa:true",
+      // No is_oa filter — we want ALL works including preprints (bioRxiv/medRxiv).
       sort: "relevance_score:desc",
       per_page: String(limit),
-      select:
-        "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
-      api_key: key,
+      select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids",
+      mailto: "noreply@example.com",
     });
+    if (key) params.set("api_key", key);
     const data = await getJSON(`https://api.openalex.org/works?${params}`);
     return (data.results || [])
       .map((w) => {
         const first = w.authorships?.[0]?.author?.display_name || "";
+        const pmcid = (w.ids?.pmcid || "").replace(/^https?:\/\/.*?\/(PMC\d+)$/i, "$1").replace(/[^0-9]/g, "");
         return {
           title: w.title || "Untitled",
-          url:
-            w.doi ||
-            w.primary_location?.landing_page_url ||
-            w.primary_location?.pdf_url ||
-            "",
+          url: w.doi || w.primary_location?.landing_page_url || w.primary_location?.pdf_url || "",
           year: w.publication_year || "",
           citations: w.cited_by_count ?? null,
           authors: w.authorships?.length > 1 ? `${first} et al.` : first,
           journal: w.primary_location?.source?.display_name || "OpenAlex",
           abstract: decodeInverted(w.abstract_inverted_index),
+          pmcid: pmcid || "",
         };
       })
       .filter((p) => p.title);
@@ -496,22 +493,54 @@ async function doaj(query, limit = 6) {
 
 // ---------- bioRxiv / medRxiv via their API (keyless) ----------
 async function biorxiv(query, limit = 4) {
-  // bioRxiv has no keyword search endpoint; use Europe PMC's index filtered to preprints.
+  // bioRxiv/medRxiv have no keyword-search API of their own (only date/DOI lookups
+  // + a paid AWS full-text bucket). OpenAlex indexes their preprints and is keyless,
+  // so we query OpenAlex filtered to preprints. Also try Europe PMC's preprint index.
+  const out = [];
+  // 1) OpenAlex, restricted to preprint type.
+  try {
+    const params = new URLSearchParams({
+      search: query,
+      filter: "type:preprint",
+      sort: "relevance_score:desc",
+      per_page: String(limit),
+      select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
+      mailto: "noreply@example.com",
+    });
+    const data = await getJSON(`https://api.openalex.org/works?${params}`);
+    for (const w of (data.results || [])) {
+      const first = w.authorships?.[0]?.author?.display_name || "";
+      if (!w.title) continue;
+      out.push({
+        title: w.title,
+        url: w.doi || w.primary_location?.landing_page_url || "",
+        year: w.publication_year || "",
+        citations: w.cited_by_count ?? null,
+        authors: w.authorships?.length > 1 ? `${first} et al.` : first,
+        journal: w.primary_location?.source?.display_name || "Preprint",
+        abstract: decodeInverted(w.abstract_inverted_index),
+      });
+    }
+  } catch { /* fall through */ }
+  // 2) Europe PMC preprint index (catches some OpenAlex misses).
   try {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
-      new URLSearchParams({ query: `${query} AND (SRC:PPR)`, resultType: "core", pageSize: String(limit), format: "json" });
+      new URLSearchParams({ query: `${query} AND (SRC:PPR)`, resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
     const data = await getJSON(url);
-    const rows = data?.resultList?.result || [];
-    return rows.filter((r) => r.title).map((r) => ({
-      title: r.title || "Untitled",
-      url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
-      year: r.pubYear || "",
-      citations: r.citedByCount ?? null,
-      authors: r.authorString || "",
-      journal: r.journalTitle || "Preprint",
-      abstract: stripTags(r.abstractText),
-    }));
-  } catch { return []; }
+    for (const r of (data?.resultList?.result || [])) {
+      if (!r.title) continue;
+      out.push({
+        title: r.title,
+        url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
+        year: r.pubYear || "",
+        citations: r.citedByCount ?? null,
+        authors: r.authorString || "",
+        journal: r.journalTitle || "Preprint",
+        abstract: stripTags(r.abstractText),
+      });
+    }
+  } catch { /* ignore */ }
+  return out;
 }
 
 // ---------- Zenodo: open research outputs, keyless ----------
@@ -843,7 +872,7 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
     arxiv(query, 8),
     semanticScholar(query, 10),
     doaj(query, 8),
-    biorxiv(query, 6),
+    biorxiv(query, 10),
     zenodo(query, 6),
     datacite(query, 6),
     openaire(query, 6),
