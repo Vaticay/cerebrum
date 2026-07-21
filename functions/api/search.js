@@ -130,8 +130,9 @@ function parsePubmedXML(xmlText) {
     };
   });
 }
-async function pubmed(query, limit = 6) {
-  const tool = "&tool=cerebrum&email=noreply@example.com";
+async function pubmed(query, limit = 6, apiKey = "") {
+  const keyParam = apiKey ? `&api_key=${apiKey}` : "";
+  const tool = "&tool=cerebrum&email=noreply@example.com" + keyParam;
   try {
     const toks = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
     const exp = expansionsFor(toks);
@@ -139,48 +140,95 @@ async function pubmed(query, limit = 6) {
     const content = toks.filter((t) => !neutral.has(t)); // topical terms
 
     // Build a query that requires the organism AND the topical terms, so we get
-    // e.g. BSFL+plastics papers, not every BSFL paper. Organism group = acronym
-    // OR its spelled-out forms; topic group = the remaining content words (OR'd).
+    // e.g. BSFL+plastics papers, not every BSFL paper.
     let term = query;
     if (neutral.size && content.length) {
       const orgForms = [...neutral, ...exp].map((e) => (e.includes(" ") ? `"${e}"` : e));
-      const orgGroup = `(${orgForms.join(" OR ")})`;
-      const topicGroup = `(${content.join(" OR ")})`;
-      term = `${orgGroup} AND ${topicGroup}`;
+      term = `(${orgForms.join(" OR ")}) AND (${content.join(" OR ")})`;
     } else if (exp.length) {
       term = `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})`;
     }
 
     const es = await getJSON(
       "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
-        new URLSearchParams({
-          db: "pubmed",
-          term,
-          retmax: String(limit),
-          retmode: "json",
-          sort: "relevance",
-        }) +
-        tool
+        new URLSearchParams({ db: "pubmed", term, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
     );
     let ids = es?.esearchresult?.idlist || [];
-    // If the strict organism-AND-topic query finds nothing, fall back to the
-    // plain query so we never come back empty when something does exist.
     if (!ids.length && term !== query) {
       const es2 = await getJSON(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
-          new URLSearchParams({ db: "pubmed", term: query, retmax: String(limit), retmode: "json", sort: "relevance" }) +
-          tool
+          new URLSearchParams({ db: "pubmed", term: query, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
       );
       ids = es2?.esearchresult?.idlist || [];
     }
     if (!ids.length) return [];
-    const xml = await getText(
-      "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
-        new URLSearchParams({ db: "pubmed", id: ids.join(","), retmode: "xml" }) +
-        tool
-    );
-    // Keep papers even if the record has no stored abstract — they're still real hits.
-    return parsePubmedXML(xml);
+    const idStr = ids.join(",");
+
+    // Fetch full records (abstracts), structured summaries, and citation counts in
+    // parallel. efetch = abstracts; esummary = clean JSON metadata fallback;
+    // elink = "cited in" counts for ranking.
+    const [xml, summaryJson, citeJson] = await Promise.all([
+      getText("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" + new URLSearchParams({ db: "pubmed", id: idStr, retmode: "xml" }) + tool).catch(() => ""),
+      getJSON("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?" + new URLSearchParams({ db: "pubmed", id: idStr, retmode: "json" }) + tool).catch(() => null),
+      getJSON("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?" + new URLSearchParams({ dbfrom: "pubmed", db: "pubmed", id: idStr, linkname: "pubmed_pubmed_citedin", retmode: "json" }) + tool).catch(() => null),
+    ]);
+
+    // Parse efetch XML (primary).
+    const fetched = xml ? parsePubmedXML(xml) : [];
+    const byTitle = new Map(fetched.map((p) => [(p.title || "").toLowerCase().trim(), p]));
+
+    // esummary fallback: build/patch records from clean JSON metadata.
+    const sumResult = summaryJson?.result || {};
+    const merged = [];
+    for (const pmid of ids) {
+      const s = sumResult[pmid];
+      let rec = null;
+      if (s) {
+        const title = s.title || "";
+        rec = byTitle.get(title.toLowerCase().trim()) || null;
+        if (!rec) {
+          // efetch missed it — construct from esummary so we don't drop it.
+          rec = {
+            title: title || "Untitled",
+            url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+            year: (s.pubdate || "").slice(0, 4),
+            citations: null,
+            authors: (s.authors || []).slice(0, 1).map((a) => a.name).join("") + ((s.authors || []).length > 1 ? " et al." : ""),
+            journal: s.fulljournalname || s.source || "PubMed",
+            abstract: "",
+            pmid,
+          };
+        } else {
+          rec.pmid = pmid;
+          if (!rec.year && s.pubdate) rec.year = (s.pubdate || "").slice(0, 4);
+          if ((!rec.authors || !rec.authors.length) && s.authors) rec.authors = (s.authors || []).slice(0, 1).map((a) => a.name).join("") + ((s.authors || []).length > 1 ? " et al." : "");
+        }
+      } else {
+        // No summary; use whatever efetch gave (matched by order isn't reliable, skip if none).
+      }
+      if (rec && rec.title) merged.push(rec);
+    }
+    // Include any efetch records not already matched by pmid.
+    for (const p of fetched) {
+      if (!merged.some((m) => (m.title || "").toLowerCase() === (p.title || "").toLowerCase())) merged.push(p);
+    }
+
+    // elink citation counts → attach by pmid.
+    try {
+      const linksets = citeJson?.linksets || [];
+      const countByPmid = {};
+      for (const ls of linksets) {
+        const src = (ls.ids || [])[0] || ls.id;
+        const dbs = ls.linksetdbs || [];
+        const citedin = dbs.find((d) => d.linkname === "pubmed_pubmed_citedin");
+        if (src && citedin) countByPmid[src] = (citedin.links || []).length;
+      }
+      for (const rec of merged) {
+        if (rec.pmid && typeof countByPmid[rec.pmid] === "number") rec.citations = countByPmid[rec.pmid];
+      }
+    } catch { /* citations are a bonus; ignore failures */ }
+
+    return merged;
   } catch {
     return [];
   }
@@ -781,14 +829,14 @@ async function gatherByAuthor(name, { openAlexKey }) {
 }
 
 // ---------- Gather + rank ----------
-async function gatherPapers(rawQuery, { openAlexKey, coreKey, limit = 6, browse = false }) {
+async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limit = 6, browse = false }) {
   const query = cleanQuery(rawQuery);
 
   // All sources run in parallel. Each is wrapped so one failure/slowness
   // never blocks the rest (they already catch internally and return []).
   const jobs = [
     europePMC(query, 12),
-    pubmed(query, 12),
+    pubmed(query, 12, ncbiKey),
     traceUTK(query),
     openAlex(query, 12, openAlexKey),
     crossref(query, 10),
@@ -945,7 +993,7 @@ export async function onRequest(context) {
     if (body.mode === "browse") {
       let bp = [];
       try {
-        const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", limit: 25, browse: true });
+        const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25, browse: true });
         bp = g.papers;
       } catch {
         bp = [];
@@ -967,7 +1015,7 @@ export async function onRequest(context) {
     let papers = [];
     let utk = false;
     try {
-      const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", limit: 6 });
+      const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 6 });
       papers = g.papers;
       utk = g.utk;
     } catch {
