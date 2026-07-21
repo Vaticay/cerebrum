@@ -529,11 +529,7 @@ async function doaj(query, limit = 6) {
 
 // ---------- bioRxiv / medRxiv via their API (keyless) ----------
 async function biorxiv(query, limit = 4) {
-  // bioRxiv/medRxiv have no keyword-search API of their own (only date/DOI lookups
-  // + a paid AWS full-text bucket). OpenAlex indexes their preprints and is keyless,
-  // so we query OpenAlex filtered to preprints. Also try Europe PMC's preprint index.
   const out = [];
-  // 1) OpenAlex, restricted to preprint type.
   try {
     const params = new URLSearchParams({
       search: query,
@@ -558,7 +554,6 @@ async function biorxiv(query, limit = 4) {
       });
     }
   } catch { /* fall through */ }
-  // 2) Europe PMC preprint index (catches some OpenAlex misses).
   try {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       new URLSearchParams({ query: `${query} AND (SRC:PPR)`, resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
@@ -667,7 +662,6 @@ async function hal(query, limit = 4) {
   } catch { return []; }
 }
 
-// ---------- CORE: 250M+ OA papers (optional key) ----------
 // ---------- Source: PLOS (full-text open journals, keyless) ----------
 async function plos(query, limit = 6) {
   try {
@@ -714,25 +708,42 @@ async function base(query, limit = 6) {
   } catch { return []; }
 }
 
-// ---------- Enrichment: Unpaywall adds a free full-text link for a DOI (keyless w/ email) ----------
-async function unpaywallLink(doi) {
-  if (!doi) return "";
-  try {
-    const clean = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
-    const data = await getJSON(`https://api.unpaywall.org/v2/${encodeURIComponent(clean)}?email=noreply@example.com`);
-    return data?.best_oa_location?.url_for_pdf || data?.best_oa_location?.url || "";
-  } catch { return ""; }
+// ---------- Source: Invidious API (Keyless Video Search) ----------
+async function searchInvidiousVideos(query, limit = 4) {
+  const instances = [
+    "https://vid.puffyan.us",
+    "https://invidious.nerdvpn.de",
+    "https://inv.nadeko.net"
+  ];
+  const academicQuery = `${query} university lecture laboratory demonstration science`;
+
+  for (const instance of instances) {
+    try {
+      const url = `${instance}/api/v1/search?` + new URLSearchParams({
+        q: academicQuery,
+        type: "video",
+        sort: "relevance"
+      });
+      const data = await getJSON(url, {}, 4000);
+      if (!Array.isArray(data) || data.length === 0) continue;
+
+      return data.slice(0, limit).map((v) => ({
+        title: v.title || "Untitled Video",
+        videoId: v.videoId,
+        url: `https://www.youtube.com/watch?v=${v.videoId}`,
+        author: v.author || "Educational Source",
+        viewCount: v.viewCount || 0,
+        thumbnail: v.videoThumbnails?.find(t => t.quality === "medium")?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`
+      }));
+    } catch {
+      continue;
+    }
+  }
+  return [];
 }
 
-// ---------- Enrichment: BioC full text for PMC open-access articles (keyless) ----------
-// Returns the full article text for a PMC id, or "" if unavailable.
-// BioC JSON shape: [ { documents: [ { passages: [ { text, infons:{section_type} } ] } ] } ]
-// ---------- Source: Wikipedia (keyless REST API) ----------
-// Not peer-reviewed, but excellent for established science topics and always free.
-// Flagged clearly so the UI/answer can distinguish it from primary literature.
 async function wikipedia(query, limit = 2) {
   try {
-    // Search for matching page titles.
     const searchUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
       action: "query", list: "search", srsearch: query, srlimit: String(limit),
       format: "json", origin: "*",
@@ -742,7 +753,6 @@ async function wikipedia(query, limit = 2) {
     const out = [];
     for (const h of hits) {
       const title = h.title;
-      // Pull the plain-text intro extract for this page.
       try {
         const exUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
           action: "query", prop: "extracts", exintro: "1", explaintext: "1",
@@ -762,14 +772,12 @@ async function wikipedia(query, limit = 2) {
           abstract: extract.slice(0, 1200),
           isEncyclopedia: true,
         });
-      } catch { /* skip this page */ }
+      } catch { /* skip */ }
     }
     return out;
   } catch { return []; }
 }
 
-// ---------- Fallback: DuckDuckGo Instant Answer (keyless) ----------
-// Returns an encyclopedic summary + related topics when available. No API key.
 async function duckduckgo(query) {
   try {
     const url = "https://api.duckduckgo.com/?" + new URLSearchParams({
@@ -806,7 +814,6 @@ async function biocFullText(pmcid) {
       for (const doc of docs) {
         for (const pass of (doc.passages || [])) {
           const sec = pass?.infons?.section_type || "";
-          // Skip references and figure captions to keep it focused; keep the science.
           if (["REF", "FIG", "TABLE"].includes(sec)) continue;
           if (pass.text && pass.text.length > 1) parts.push(pass.text);
         }
@@ -838,7 +845,6 @@ async function core(query, limit = 6, key = "") {
   } catch { return []; }
 }
 
-// ---------- Author search ----------
 function detectAuthor(raw) {
   const q = raw.trim();
   const lower = q.toLowerCase();
@@ -906,7 +912,6 @@ async function authorSemanticScholar(name, limit = 20) {
     const cands = sdata?.data || [];
     if (!cands.length) return { papers: [], matched: null };
 
-    // Require the candidate's name to genuinely match the query, not just "most papers".
     const wanted = name.toLowerCase().split(/\s+/).filter(Boolean);
     const scoreName = (candName) => {
       const cn = (candName || "").toLowerCase();
@@ -917,7 +922,6 @@ async function authorSemanticScholar(name, limit = 20) {
       .sort((a, b) => (b.match - a.match) || ((b.c.paperCount || 0) - (a.c.paperCount || 0)));
 
     const best = ranked[0];
-    // Need every queried name token present (full match) to trust it.
     if (!best || best.match < 0.99) return { papers: [], matched: null };
 
     const authorId = best.c.authorId;
@@ -956,16 +960,91 @@ async function gatherByAuthor(name, { openAlexKey }) {
     }
   }
   const papers = merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 25);
-  // "confirmed" only if Semantic Scholar found a real name match with papers.
   return { papers, confirmed: !!ssRes.matched, matchedName: ssRes.matched };
 }
 
-// ---------- Gather + rank ----------
+const SYNONYMS = {
+  bsfl: ["black soldier fly larvae", "hermetia illucens"],
+  bsf: ["black soldier fly", "hermetia illucens"],
+  crispr: ["clustered regularly interspaced short palindromic repeats"],
+  pcr: ["polymerase chain reaction"],
+  dna: ["deoxyribonucleic acid"],
+  rna: ["ribonucleic acid"],
+  mrna: ["messenger rna"],
+  utr: ["untranslated region"],
+  gwas: ["genome wide association"],
+  qtl: ["quantitative trait loci"],
+  ros: ["reactive oxygen species"],
+  er: ["endoplasmic reticulum"],
+  atp: ["adenosine triphosphate"],
+  ecm: ["extracellular matrix"],
+  tcr: ["t cell receptor"],
+  llps: ["liquid liquid phase separation"],
+  pet: ["polyethylene terephthalate"],
+  pe: ["polyethylene"],
+  pp: ["polypropylene"],
+};
+
+function expansionsFor(tokens) {
+  const out = [];
+  for (const t of tokens) {
+    const key = t.toLowerCase();
+    if (SYNONYMS[key]) out.push(...SYNONYMS[key]);
+  }
+  return out;
+}
+
+const ORGANISM_PHRASES = [
+  "black soldier fly larvae", "black soldier fly", "hermetia illucens",
+];
+const ORGANISM_WORDS = new Set(["black", "soldier", "fly", "larvae", "larva", "hermetia", "illucens"]);
+
+function splitOrganismTopic(query) {
+  const q = query.toLowerCase();
+  const toks = q.split(/\s+/).filter((t) => t.length > 2);
+  const exp = expansionsFor(toks);
+  const orgPhrases = new Set(exp);
+  for (const phrase of ORGANISM_PHRASES) { if (q.includes(phrase)) orgPhrases.add(phrase); }
+  for (const t of toks) { if (SYNONYMS[t]) orgPhrases.add(t); }
+  const topic = toks.filter((t) => !ORGANISM_WORDS.has(t) && !SYNONYMS[t]);
+  return { orgPhrases: [...orgPhrases], topic, hasOrganism: orgPhrases.size > 0 };
+}
+
+function buildStructuredQuery(query) {
+  const { orgPhrases, topic, hasOrganism } = splitOrganismTopic(query);
+  if (hasOrganism && topic.length) {
+    const org = orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
+    return `(${org}) AND (${topic.join(" OR ")})`;
+  }
+  if (hasOrganism) {
+    return orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
+  }
+  return query;
+}
+
+const STOPWORDS = new Set([
+  "what","whats","how","does","do","did","is","are","was","were","the","a","an",
+  "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
+  "why","when","where","which","who","can","you","please","give","show","find",
+  "search","look","up","that","this","these","those","it","its","work","works",
+  "happen","happens","mean","means","between","into","from","as","at","be","been",
+  "get","got","i","my","we","our","use","used","using","there","their","they",
+  "responding","respond","level","levels","basis","role","effect","effects",
+]);
+
+function cleanQuery(raw) {
+  const cleaned = raw
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+    .join(" ")
+    .trim();
+  return cleaned || raw.trim();
+}
+
 async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limit = 6, browse = false }) {
   const query = cleanQuery(rawQuery);
-
-  // All sources run in parallel. Each is wrapped so one failure/slowness
-  // never blocks the rest (they already catch internally and return []).
   const jobs = [
     europePMC(query, 12),
     pubmed(query, 12, ncbiKey),
@@ -999,11 +1078,7 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
   }
 
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
-  const expansions = expansionsFor(terms); // e.g. bsfl -> "black soldier fly larvae"
-  // Build the "topic-neutral" word set: the acronym AND every word of its spelled-out
-  // forms, plus common organism words. This way "black soldier fly larvae" is treated as
-  // the organism, not topical content — otherwise off-topic papers (dog-food, biodiesel)
-  // that share those words score as full matches.
+  const expansions = expansionsFor(terms);
   const neutralWords = new Set(terms.filter((t) => SYNONYMS[t.toLowerCase()]));
   for (const phrase of expansions) {
     for (const w of phrase.toLowerCase().split(/\s+/)) { if (w.length > 2) neutralWords.add(w); }
@@ -1012,15 +1087,15 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
     if (terms.includes(w)) neutralWords.add(w);
   });
   const neutralTerms = neutralWords;
-  const contentTerms = terms.filter((t) => !neutralTerms.has(t)); // the REAL topic, e.g. plastics, transcriptional
+  const contentTerms = terms.filter((t) => !neutralTerms.has(t));
   const scored = merged
     .map((p) => {
       const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
       const titleHay = (p.title || "").toLowerCase();
       const stem = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
       const has = (t) => hay.includes(t) || hay.includes(stem(t));
-      const contentHits = contentTerms.filter(has).length;      // the terms that define the topic
-      const neutralHit = [...neutralTerms].some(has);            // organism present at all?
+      const contentHits = contentTerms.filter(has).length;
+      const neutralHit = [...neutralTerms].some(has);
       const titleContentHits = contentTerms.filter((t) => titleHay.includes(t) || titleHay.includes(stem(t))).length;
       let expHit = false;
       for (const phrase of expansions) { if (hay.includes(phrase)) expHit = true; }
@@ -1029,10 +1104,10 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
       const contentCoverage = contentTerms.length ? contentHits / contentTerms.length : 1;
 
       let score = 0;
-      score += contentHits * 5;                 // each specific/topical term is worth a lot
-      score += contentCoverage * 6;             // hitting ALL topical terms is strongly rewarded
-      score += titleContentHits * 3;            // topical term in the title = very strong
-      if (organismPresent && contentHits > 0) score += 3; // right organism AND right topic
+      score += contentHits * 5;
+      score += contentCoverage * 6;
+      score += titleContentHits * 3;
+      if (organismPresent && contentHits > 0) score += 3;
       if (p.abstract) score += 0.5;
       if (typeof p.citations === "number") score += Math.min(p.citations / 800, 1.0);
       const yr = parseInt(p.year, 10);
@@ -1040,31 +1115,19 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
 
       return { ...p, score, contentHits, contentCoverage, organismPresent };
     })
-    // Relevance gate. Two rules, so an off-topic paper that merely shares one generic
-    // word (e.g. an ANT paper mentioning "transcription" for a BSFL-plastics query)
-    // cannot pass:
-    //   1. If the query names an organism (neutral words present), a paper MUST contain
-    //      that organism AND hit at least one topic word. An ant paper has no BSFL term,
-    //      so it is dropped even if it says "transcription".
-    //   2. If the query names no organism, require hitting the topic (>=1, or >=half when
-    //      there are several topic words) so a single generic-word match isn't enough.
     .filter((p) => {
       if (terms.length === 0) return true;
       const queryNamesOrganism = neutralTerms.size > 0;
       if (queryNamesOrganism) {
-        // must be about the right organism AND touch the topic
         return p.organismPresent && (contentTerms.length === 0 || p.contentHits > 0);
       }
       if (contentTerms.length === 0) return true;
       if (contentTerms.length <= 2) return p.contentHits > 0;
-      // several topic words: require at least ~40% coverage to avoid single-word flukes
       return p.contentHits / contentTerms.length >= 0.4;
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
-  // Normalize relevance to 0–100 (relative to the top hit) and tag a type,
-  // so the frontend can show scores, sort, and group.
   const maxScore = scored.length ? Math.max(...scored.map((p) => p.score)) : 1;
   for (const p of scored) {
     p.relevance = maxScore > 0 ? Math.round((p.score / maxScore) * 100) : 0;
@@ -1079,7 +1142,6 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
   return { papers: scored, utk: usedUTK };
 }
 
-// ---------- The endpoint ----------
 const cors = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
@@ -1109,18 +1171,17 @@ export async function onRequest(context) {
       });
     }
 
-    // Small talk: quick friendly reply, no search.
     const small = query.toLowerCase().replace(/[^a-z\s]/g, "").trim();
     const greetings = ["hi", "hello", "hey", "yo", "sup", "howdy", "hiya"];
     if (greetings.includes(small)) {
       return new Response(JSON.stringify({
-        answer: "Hi! I'm Cerebrum. Ask me anything \u2014 science questions get answers backed by real papers with citations, and I'll do my best with general questions too.",
+        answer: "Hi! I'm Cerebrum. Ask me anything — science questions get answers backed by real papers with citations, and I'll do my best with general questions too.",
         sources: [],
+        videos: [],
         source: "Cerebrum",
       }), { status: 200, headers: cors });
     }
 
-    // Author search: "papers by X" or a person's name -> their publications.
     const authorName = detectAuthor(query);
     if (authorName && body.mode !== "browse") {
       let ar = { papers: [], confirmed: false, matchedName: null };
@@ -1128,27 +1189,25 @@ export async function onRequest(context) {
         ar = await gatherByAuthor(authorName, { openAlexKey: env.OPENALEX_KEY || "" });
       } catch { ar = { papers: [], confirmed: false, matchedName: null }; }
 
-      // Only present an author page when we actually confirmed the person.
       if (ar.confirmed && ar.papers.length) {
         return new Response(JSON.stringify({
           answer: `Publications associated with **${ar.matchedName || authorName}**, ranked by citations. These are pulled directly from this author's record. If it's not who you meant, add a field like "${authorName} microbiology".`,
           sources: ar.papers.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations })),
+          videos: [],
           source: `${ar.papers.length} publications by ${ar.matchedName || authorName}`,
         }), { status: 200, headers: cors });
       }
 
-      // Could not confirm the author. Be honest; do NOT dress up loose matches as their work.
       if (!ar.confirmed) {
         return new Response(JSON.stringify({
           answer: `I couldn't confirm a researcher named **${authorName}** in the author databases (Semantic Scholar, Crossref, OpenAlex). This can happen when someone has few indexed publications, publishes under a different name form, or the name is spelled differently in the record. Try the full name as it appears on their papers, add a middle initial, or search a topic instead and open the papers to find them.`,
           sources: [],
+          videos: [],
           source: "author not confirmed",
         }), { status: 200, headers: cors });
       }
-      // (confirmed but zero papers is unlikely; fall through to normal search.)
     }
 
-    // Browse mode: return the full ranked publication list, no AI answer.
     if (body.mode === "browse") {
       let bp = [];
       try {
@@ -1160,33 +1219,33 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({
         answer: "",
         sources: bp.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations })),
+        videos: [],
         source: `${bp.length} publications ranked by relevance`,
       }), { status: 200, headers: cors });
     }
 
-    // Settings from the client (all optional).
     const settings = body.settings || {};
-    const answerLength = settings.answerLength || "medium"; // short | medium | long
+    const answerLength = settings.answerLength || "medium";
     const maxTokens = answerLength === "short" ? 450 : answerLength === "long" ? 1400 : 900;
     const lengthHint = answerLength === "short" ? "Keep it to one tight paragraph." : answerLength === "long" ? "Give a thorough, well-structured explanation." : "Keep it to a few short paragraphs.";
 
-    // Gather papers (best effort; may be empty for non-science questions).
     let papers = [];
+    let videos = [];
     let utk = false;
     try {
-      const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25 });
+      const [g, vList] = await Promise.all([
+        gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25 }),
+        searchInvidiousVideos(query, 4).catch(() => [])
+      ]);
       papers = g.papers;
       utk = g.utk;
+      videos = vList;
     } catch {
       papers = [];
+      videos = [];
     }
 
     const hasPapers = papers.length > 0;
-
-    // Judge whether the retrieved papers actually address the QUESTION's topic.
-    // If they don't (e.g. only off-topic organism papers came back), we don't want
-    // the model to say "the papers don't cover this" — we want a real answer from
-    // its own knowledge, clearly labeled as not-from-retrieved-sources.
     const qToks = cleanQuery(query).toLowerCase().split(/\s+/).filter((t) => t.length > 2);
     const qExp = expansionsFor(qToks);
     const qNeutral = new Set(qToks.filter((t) => SYNONYMS[t.toLowerCase()]));
@@ -1195,9 +1254,7 @@ export async function onRequest(context) {
     const qContent = qToks.filter((t) => !qNeutral.has(t));
     const stemW = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
     const queryNamesOrganism = qNeutral.size > 0;
-    // A paper "hits the topic" only if it is about the right ORGANISM (when the query
-    // names one) AND touches a topic word. This stops an ant paper that merely says
-    // "transcription" from being treated as a valid BSFL-plastics result.
+    
     const paperOnTopic = (p) => {
       const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
       const hitsTopic = qContent.length === 0 || qContent.some((t) => hay.includes(t) || hay.includes(stemW(t)));
@@ -1207,14 +1264,9 @@ export async function onRequest(context) {
     };
     const papersHitTopic = hasPapers && (qContent.length > 0 || queryNamesOrganism)
       ? papers.some(paperOnTopic)
-      : hasPapers; // no specific topic or organism → any papers count
-    const weakRetrieval = hasPapers && !papersHitTopic;
+      : hasPapers;
     let useEvidence = hasPapers && papersHitTopic;
 
-    // WEB FALLBACK: if no peer-reviewed papers matched the topic, pull free keyless
-    // encyclopedic sources (Wikipedia + DuckDuckGo) so the answer is grounded in
-    // real referenced material instead of pure model memory. Clearly labeled as
-    // non-primary. Only runs when papers came up weak/empty (keeps normal searches fast).
     let webRefs = [];
     if (!useEvidence) {
       try {
@@ -1233,9 +1285,6 @@ export async function onRequest(context) {
 
     const sourceList = (useEvidence ? papers : useWeb ? webRefs : []).map(({ title, url, journal, authors, year, citations, relevance, type }) => ({ title, url, journal, authors, year, citations, relevance: relevance ?? null, type: type || "Reference" }));
 
-    // Full-text enrichment: for the top papers that have a PMC id, pull BioC
-    // full text so the answer/fact-check see the whole paper, not just the abstract.
-    // Limited to the top 3 (with a PMC id) to keep latency reasonable.
     if (useEvidence) {
       const toEnrich = papers.filter((p) => p.pmcid).slice(0, 3);
       await Promise.all(toEnrich.map(async (p) => {
@@ -1258,7 +1307,6 @@ export async function onRequest(context) {
       lengthHint +
       " Format in clean prose. CRITICAL RULE: Provide ONLY the final answer. Do NOT narrate your thought process, do NOT use <think> tags, and do NOT use phrases like 'Now I will' or 'I need to'. Do NOT use markdown heading symbols like # or ###. You may use **bold** sparingly and blank lines between paragraphs, nothing else.";
 
-    // Follow-up: include prior turns if the client sent them.
     const messages = [{ role: "system", content: systemPrompt }];
     const historyTurns = Array.isArray(body.history) ? body.history.slice(-4) : [];
     for (const turn of historyTurns) {
@@ -1273,7 +1321,6 @@ export async function onRequest(context) {
 
     const token = env.OPENROUTER_API_KEY;
     if (token) {
-      // Expanded free-model chain: if one is busy/rate-limited, try the next.
       const models = [
         "openrouter/free",
         "meta-llama/llama-3.3-70b-instruct:free",
@@ -1299,10 +1346,7 @@ export async function onRequest(context) {
             const j = await r.json();
             let c = j?.choices?.[0]?.message?.content?.trim();
             if (c) { 
-              // Instantly shred any internal <think> blocks generated by reasoning models
               c = c.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-              
-              // Strip stray conversational AI narrations at the very beginning of the response
               c = c.replace(/^(Okay, let me think|Now we need to|I will now|Here is the answer|First, I'll).*?[\r\n]+/i, '').trim();
 
               if (c) { answer = c; aiOK = true; break; }
@@ -1312,9 +1356,6 @@ export async function onRequest(context) {
       }
     }
 
-    // FINAL FALLBACK: Cloudflare Workers AI (no external key, runs at the edge).
-    // Only used if OpenRouter produced nothing. Requires the [ai] binding in
-    // wrangler config; if it's absent we skip silently.
     if (!aiOK && env.AI && typeof env.AI.run === "function") {
       const cfModels = ["@cf/meta/llama-3.1-8b-instruct", "@cf/meta/llama-3-8b-instruct", "@cf/mistral/mistral-7b-instruct-v0.1"];
       for (const m of cfModels) {
@@ -1335,7 +1376,6 @@ export async function onRequest(context) {
       }
     }
 
-    // ---- Fact-check + related questions run IN PARALLEL (independent) ----
     async function runFactCheck() {
       if (!(settings.factCheck && aiOK && useEvidence && token)) return null;
       const fcSystem = "You are a strict scientific fact-checker. You are given an ANSWER and the SOURCE ABSTRACTS it cites. Your only job is to judge whether each factual claim in the answer is actually supported by the provided abstracts. You do NOT judge whether claims are true in the real world, only whether these sources back them up. Return ONLY valid JSON, no prose, no markdown, in this exact shape: {\"overall\":\"supported\"|\"partly\"|\"unsupported\",\"summary\":\"one plain sentence\",\"claims\":[{\"claim\":\"short quote or paraphrase\",\"status\":\"supported\"|\"thin\"|\"unsupported\",\"note\":\"why, one short sentence\"}]}. Mark 'thin' when a source loosely relates but doesn't directly state the claim. Mark 'unsupported' when no provided abstract backs it. Be skeptical; flag confident claims that the abstracts don't actually establish.";
@@ -1392,6 +1432,7 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({
       answer,
       sources: sourceList,
+      videos,
       factCheck,
       related,
       source: aiOK && useEvidence ? `${dbUsed} + OpenRouter` : aiOK && useWeb ? `${dbUsed} + AI` : aiOK ? "General knowledge (AI)" : dbUsed,
