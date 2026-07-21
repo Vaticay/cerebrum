@@ -69,14 +69,59 @@ async function saveToZotero(sources, apiKey, userId) {
 function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
 const Audio = (() => {
-  let ctx = null, ambient = null;
+  let ctx = null, ambient = null, lfoTimer = null;
   function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } } return ctx; }
   function tone(freq, dur, vol) { const c = ac(); if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.02); }
   function click() { tone(660, 0.08, 0.045); }
   function pop() { tone(880, 0.06, 0.04); }
-  function startAmbient() { const c = ac(); if (!c || ambient) return; const o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = 98; o2.type = "sine"; o2.frequency.value = 146.83; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(0.022, c.currentTime + 0.5); o.connect(g); o2.connect(g); g.connect(c.destination); o.start(); o2.start(); ambient = { o, o2, g }; }
-  function stopAmbient() { if (!ambient || !ctx) return; const { o, o2, g } = ambient; try { g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); o.stop(ctx.currentTime + 0.45); o2.stop(ctx.currentTime + 0.45); } catch {} ambient = null; }
-  return { click, pop, startAmbient, stopAmbient };
+  // mode: 'pulse' | 'shimmer' | 'warm' | 'minimal'
+  function startAmbient(mode = "pulse") {
+    const c = ac(); if (!c || ambient) return;
+    if (mode === "minimal") { tone(523.25, 0.5, 0.05); return; } // one soft "thinking" tone, no loop
+    const now = c.currentTime;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.connect(c.destination);
+    const oscs = [];
+    if (mode === "shimmer") {
+      const o = c.createOscillator(), o2 = c.createOscillator();
+      o.type = "sine"; o.frequency.value = 587.33; o2.type = "sine"; o2.frequency.value = 880;
+      const lfo = c.createOscillator(), lfoG = c.createGain();
+      lfo.frequency.value = 0.25; lfoG.gain.value = 6; lfo.connect(lfoG); lfoG.connect(o.detune); lfo.start();
+      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2, lfo);
+      g.gain.exponentialRampToValueAtTime(0.02, now + 0.6);
+    } else if (mode === "warm") {
+      const f = [98, 146.83, 196];
+      f.forEach((freq) => { const o = c.createOscillator(); o.type = "sine"; o.frequency.value = freq; o.connect(g); o.start(); oscs.push(o); });
+      g.gain.exponentialRampToValueAtTime(0.024, now + 0.5);
+    } else { // pulse (default): low tone that breathes
+      const o = c.createOscillator(), o2 = c.createOscillator();
+      o.type = "sine"; o.frequency.value = 110; o2.type = "sine"; o2.frequency.value = 164.81;
+      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2);
+      // breathing via periodic gain ramps
+      let up = true;
+      g.gain.exponentialRampToValueAtTime(0.03, now + 0.8);
+      lfoTimer = setInterval(() => {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.exponentialRampToValueAtTime(up ? 0.012 : 0.032, t + 1.4);
+        up = !up;
+      }, 1400);
+    }
+    ambient = { g, oscs };
+  }
+  function stopAmbient() {
+    if (lfoTimer) { clearInterval(lfoTimer); lfoTimer = null; }
+    if (!ambient || !ctx) return;
+    const { g, oscs } = ambient;
+    try { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(g.gain.value, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch {} }); } catch {}
+    ambient = null;
+  }
+  // Preview a mode briefly (for settings)
+  function preview(mode) { startAmbient(mode); setTimeout(stopAmbient, 1400); }
+  return { click, pop, startAmbient, stopAmbient, preview };
 })();
 
 function Mark({ size = 26, accent, glow }) {
@@ -185,6 +230,7 @@ function App() {
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(() => getCookie("cb_fc") === "1");
   const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
+  const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
   const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Light");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
@@ -225,8 +271,9 @@ function App() {
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
   useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [turns, busy]);
-  useEffect(() => { if (busy && !muted) Audio.startAmbient(); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted]);
+  useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
   useEffect(() => { document.body.style.background = P.bg; }, [P]);
+  useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
   useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
@@ -271,7 +318,7 @@ function App() {
           <div style={{ marginBottom: 22 }}><Mark size={52} accent={accent} glow={P.dark} /></div>
           <div style={S.gateKicker}>A Research Instrument</div>
           <div style={S.gateTitle}>Cerebrum</div>
-          <div style={S.gateSub}>Ask the scientific literature anything. Fourteen databases, one considered answer, every claim cited.</div>
+          <div style={S.gateSub}>Your research sidekick. Ask the scientific literature anything, fourteen databases, one considered answer, every claim cited.</div>
           <button style={S.gateBtn} onClick={() => { sfx(); setEntered(true); }} onMouseEnter={() => setHover("gate")} onMouseLeave={() => setHover("")}>
             <span>Enter</span><span style={{ transform: hover === "gate" ? "translateX(3px)" : "none", transition: "transform .2s", display: "inline-block" }}>→</span>
           </button>
@@ -341,7 +388,7 @@ function App() {
               <div style={S.heroGlow} />
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
               <h1 style={S.heroTitle}>The scientific literature,<br />answered plainly.</h1>
-              <p style={S.heroSub}>Fourteen databases searched at once. A cited answer in seconds. Every claim traceable to a real paper.</p>
+              <p style={S.heroSub}>Your research sidekick. Fourteen databases searched at once, a cited answer in seconds, every claim traceable to a real paper.</p>
               <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
                 <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
@@ -404,7 +451,7 @@ function App() {
         </div>
       )}
 
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
     </div>
   );
 }
@@ -442,7 +489,8 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
   );
 }
 
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, sfx, setSessions, setSaved, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close }) {
+  const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
   return (
     <div style={S.modalWrap} onClick={close} className="cb-fade">
       <div style={S.modal} onClick={(e) => e.stopPropagation()} className="cb-pop">
@@ -470,6 +518,16 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         <button style={{ ...S.toggle, ...(typewriter ? S.toggleOn : {}) }} onClick={() => { sfx(); setTypewriter(!typewriter); }}><span>{typewriter ? "Animated reveal on" : "Instant answers"}</span><span style={{ ...S.toggleKnob, transform: typewriter ? "translateX(20px)" : "none", background: typewriter ? at : P.faint }} /></button>
         <div style={S.setLabel}>Sound</div>
         <button style={{ ...S.toggle, ...(!muted ? S.toggleOn : {}) }} onClick={() => setMuted(!muted)}><span>{muted ? "Sound off" : "Sound on"}</span><span style={{ ...S.toggleKnob, transform: !muted ? "translateX(20px)" : "none", background: !muted ? at : P.faint }} /></button>
+        <div style={{ ...S.setLabel, opacity: muted ? 0.4 : 1 }}>Search sound</div>
+        <div style={{ ...S.soundGrid, opacity: muted ? 0.4 : 1, pointerEvents: muted ? "none" : "auto" }}>
+          {SOUND_MODES.map(([id, name]) => (
+            <button key={id} style={{ ...S.soundBtn, ...(soundMode === id ? S.soundBtnActive : {}) }} onClick={() => { setSoundMode(id); Audio.preview(id); }}>
+              <span>{name}</span>
+              {soundMode === id && <span style={{ color: accent, fontSize: 12 }}>♪</span>}
+            </button>
+          ))}
+        </div>
+        <div style={S.setNote}>Plays while searching. Tap a style to preview it.</div>
         <button style={S.clearAll} onClick={() => { setSessions([]); setSaved([]); }}>Clear sessions & saved</button>
         <button style={S.modalClose} onClick={close}>Done</button>
         <div style={S.shortcuts}>⌘K search · ⌘J new · ⌘/ settings · esc close</div>
@@ -581,6 +639,9 @@ function makeStyles(P, accent, at) {
     clearAll: { width: "100%", padding: "11px", fontSize: 13, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 10, cursor: "pointer", marginBottom: 12, marginTop: 8, fontFamily: font, fontWeight: 550 },
     modalClose: { width: "100%", padding: "13px", fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 11, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
     shortcuts: { fontSize: 11, color: P.faint, textAlign: "center", marginTop: 16, letterSpacing: "0.02em" },
+    soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4, transition: "opacity 0.15s" },
+    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 13px", fontSize: 13, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 9, cursor: "pointer", fontFamily: font, fontWeight: 550 },
+    soundBtnActive: { color: P.ink, borderColor: withAlpha(accent, 0.5), background: withAlpha(accent, 0.06) },
   };
 }
 
