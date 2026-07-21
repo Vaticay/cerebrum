@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} }
 function getCookie(k) { try { const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : null; } catch { return null; } }
 
-// Platform-aware modifier label: ⌘ on Mac, Ctrl elsewhere.
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
 const MOD = IS_MAC ? "⌘" : "Ctrl";
 const kbdLabel = (key) => `${MOD}${IS_MAC ? "" : "+"}${key}`;
@@ -92,7 +91,6 @@ const ACCENTS = { Emerald: "#059669", Indigo: "#4f46e5", Sky: "#0284c7", Amber: 
 function accentText(hex) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#111" : "#fff"; }
 function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
 
-function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
 function toRIS(sources) {
   return sources.map((s) => {
     const authors = (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean);
@@ -132,10 +130,9 @@ const Audio = (() => {
   function tone(freq, dur, vol) { const c = ac(); if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.02); }
   function click() { tone(660, 0.08, 0.045); }
   function pop() { tone(880, 0.06, 0.04); }
-  // mode: 'pulse' | 'shimmer' | 'warm' | 'minimal'
   function startAmbient(mode = "pulse") {
     const c = ac(); if (!c || ambient) return;
-    if (mode === "minimal") { tone(523.25, 0.5, 0.05); return; } // one soft "thinking" tone, no loop
+    if (mode === "minimal") { tone(523.25, 0.5, 0.05); return; }
     const now = c.currentTime;
     const g = c.createGain();
     g.gain.setValueAtTime(0.0001, now);
@@ -152,11 +149,10 @@ const Audio = (() => {
       const f = [98, 146.83, 196];
       f.forEach((freq) => { const o = c.createOscillator(); o.type = "sine"; o.frequency.value = freq; o.connect(g); o.start(); oscs.push(o); });
       g.gain.exponentialRampToValueAtTime(0.024, now + 0.5);
-    } else { // pulse (default): low tone that breathes
+    } else {
       const o = c.createOscillator(), o2 = c.createOscillator();
       o.type = "sine"; o.frequency.value = 110; o2.type = "sine"; o2.frequency.value = 164.81;
       o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2);
-      // breathing via periodic gain ramps
       let up = true;
       g.gain.exponentialRampToValueAtTime(0.03, now + 0.8);
       lfoTimer = setInterval(() => {
@@ -177,7 +173,6 @@ const Audio = (() => {
     try { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(g.gain.value, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch {} }); } catch {}
     ambient = null;
   }
-  // Preview a mode briefly (for settings)
   function preview(mode) { startAmbient(mode); setTimeout(stopAmbient, 1400); }
   return { click, pop, startAmbient, stopAmbient, preview };
 })();
@@ -191,7 +186,6 @@ function Mark({ size = 26, accent, glow }) {
   );
 }
 
-// Typewriter reveal for answer text
 function useTypewriter(full, on) {
   const [out, setOut] = useState(on ? "" : full);
   useEffect(() => {
@@ -215,7 +209,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
             const c = seg.match(/^\[(\d+)\]$/);
             if (c) {
               const n = parseInt(c[1], 10); const src = sources[n - 1];
-              return <a key={si} href={src?.url || "#"} target="_blank" rel="noreferrer" title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)} style={{ fontSize: 10.5, verticalAlign: "super", color: at2(accent), textDecoration: "none", fontWeight: 700, padding: "1px 4px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s", cursor: "pointer", ...( { color: accent } ) }}>{n}</a>;
+              return <a key={si} href={src?.url || "#"} target="_blank" rel="noreferrer" title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)} style={{ fontSize: 10.5, verticalAlign: "super", color: accent, textDecoration: "none", fontWeight: 700, padding: "1px 4px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s", cursor: "pointer" }}>{n}</a>;
             }
             return <span key={si}>{seg}</span>;
           })}
@@ -225,7 +219,6 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     </p>
   ));
 }
-function at2(a) { return a; }
 
 function FactCheck({ fc, P, accent }) {
   const colors = { supported: "#10b981", partly: "#d9a520", unsupported: "#e5484d", thin: "#d9a520" };
@@ -236,7 +229,6 @@ function FactCheck({ fc, P, accent }) {
   const nThin = claims.filter((c) => c.status === "thin").length;
   const nUns = claims.filter((c) => c.status === "unsupported").length;
   const total = claims.length;
-  // Honest score: supported = full weight, thin = half, unsupported = zero.
   const score = total ? Math.round(((nSup + nThin * 0.5) / total) * 100) : null;
   const scoreColor = score === null ? P.ink2 : score >= 75 ? "#10b981" : score >= 45 ? "#d9a520" : "#e5484d";
   return (
@@ -292,23 +284,166 @@ function useIsMobile() {
   return m;
 }
 
-function LoadingLine({ P, accent, S }) {
+function LoadingLine({ P }) {
   const [msg, setMsg] = useState(() => LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
   useEffect(() => {
     const id = setInterval(() => { setMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]); }, 1800);
     return () => clearInterval(id);
   }, []);
   return (
-    <div style={S.loading}>
-      <span style={S.spinner} />
+    <div style={{ display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" }}>
+      <span style={{ width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: P.ink, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" }} />
       <span key={msg} className="cb-fade">{msg}…</span>
+    </div>
+  );
+}
+
+const FAQ_DATA = [
+  {
+    category: "Getting Started",
+    q: "What is Cerebrum?",
+    a: "Cerebrum is an independent, high-performance search instrument built exclusively for scientific research. It queries global scholarly archives in parallel, synthesizes factual answers grounded strictly in peer-reviewed literature, and provides verifiable inline citations."
+  },
+  {
+    category: "Getting Started",
+    q: "Do I need to create an account or pay to use Cerebrum?",
+    a: "No account or login is required to search or read literature. Cerebrum runs completely free on client-side routing and edge serverless pathways, ensuring total privacy."
+  },
+  {
+    category: "Data Sources",
+    q: "Which scholarly databases does Cerebrum query?",
+    a: "Cerebrum queries multiple global and open-access scientific indexes simultaneously: Europe PMC (life sciences/chemistry), PubMed (biomedical), OpenAlex (250M+ multidisciplinary works and preprints), Crossref, arXiv (physics/math/CS), Semantic Scholar, DOAJ, Zenodo, DataCite, OpenAIRE, HAL, PLOS, BASE, and the University of Tennessee Knoxville (UTK) TRACE repository."
+  },
+  {
+    category: "Data Sources",
+    q: "How does Cerebrum prevent off-topic or irrelevant papers from showing up?",
+    a: "Cerebrum uses an advanced query-structuring engine that splits your question into specific organism phrases and topical keywords. It applies strict relevance gates so that unrelated papers sharing a single common word (such as an entomology paper appearing for a general biochemical query) are automatically dropped."
+  },
+  {
+    category: "Zotero Integration",
+    q: "How do I connect Cerebrum to my Zotero account?",
+    a: "To sync your saved articles directly to Zotero, click the 'Zotero' button in the Sources panel. You will need to input your Zotero User ID and a Private API Key."
+  },
+  {
+    category: "Zotero Integration",
+    q: "Where do I find my Zotero User ID and API Key?",
+    a: "1. Log into your account at zotero.org.\n2. Go to your Account Settings -> Feeds/API (or visit zotero.org/settings/keys).\n3. Copy the 7-digit number listed as your userID.\n4. Click 'Create new private key', ensure boxes for 'Allow library access' and 'Allow write access' are checked, and save it. Copy the generated key immediately."
+  },
+  {
+    category: "Features & Output",
+    q: "What are the small superscript numbers (e.g., ¹) inside the answers?",
+    a: "Those are active inline citation links. Each number corresponds directly to a source in your sidebar. Clicking or hovering over them reveals the exact source material that backs up that specific scientific claim."
+  },
+  {
+    category: "Features & Output",
+    q: "How does the Fact-Checker feature work?",
+    a: "When enabled in Settings, a secondary validation model evaluates each factual claim in the generated answer against the source abstracts provided. It scores the response to ensure the conclusions are genuinely supported by the retrieved literature."
+  },
+  {
+    category: "Features & Output",
+    q: "Where do the Related Videos come from?",
+    a: "Cerebrum uses a keyless public Invidious API wrapper to query educational platforms for university lectures, laboratory protocols, and scientific demonstrations relevant to your search query, filtering out non-scholarly vlogs."
+  },
+  {
+    category: "Privacy & Tech",
+    q: "Is my search history saved on a server?",
+    a: "No. Your chat history, search tokens, and saved articles are encrypted client-side and stored securely in your browser's local storage (`localStorage`). Nothing is tracked or retained on a central database."
+  }
+];
+
+function FAQView({ P, accent, at, onBack }) {
+  const [search, setSearch] = useState("");
+  const [openCategory, setOpenCategory] = useState("All");
+  const categories = ["All", "Getting Started", "Data Sources", "Zotero Integration", "Features & Output", "Privacy & Tech"];
+
+  const filtered = FAQ_DATA.filter((item) => {
+    const matchesCat = openCategory === "All" || item.category === openCategory;
+    const matchesQuery = item.q.toLowerCase().includes(search.toLowerCase()) || item.a.toLowerCase().includes(search.toLowerCase());
+    return matchesCat && matchesQuery;
+  });
+
+  return (
+    <div style={{ minHeight: "100vh", background: P.bg, color: P.ink, fontFamily: "'Inter', -apple-system, sans-serif", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 760, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 40 }}>
+          <button onClick={onBack} style={{ background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontWeight: 600, fontSize: 13.5 }}>
+            ← Back to Cerebrum
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Mark size={20} accent={accent} />
+            <span style={{ fontWeight: 700, fontSize: 16, color: P.ink }}>Cerebrum Docs</span>
+          </div>
+        </div>
+
+        <h1 style={{ fontSize: 38, fontWeight: 750, letterSpacing: "-0.03em", marginBottom: 10, color: P.ink }}>Frequently Asked Questions</h1>
+        <p style={{ fontSize: 16, color: P.ink2, marginBottom: 30, lineHeight: 1.5 }}>Everything you need to know about how Cerebrum indexes research, grounds its citations, and connects with tools like Zotero.</p>
+
+        <div style={{ marginBottom: 24 }}>
+          <input
+            type="text"
+            placeholder="Search questions (e.g. Zotero, databases, citations)…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: "100%", padding: "14px 18px", fontSize: 15, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 12, color: P.ink, outline: "none", boxShadow: P.shadowSm }}
+          />
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 32 }}>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setOpenCategory(cat)}
+              style={{
+                padding: "7px 14px",
+                fontSize: 13,
+                fontWeight: 600,
+                borderRadius: 20,
+                border: "1px solid",
+                borderColor: openCategory === cat ? accent : P.line2,
+                background: openCategory === cat ? accent : P.surface,
+                color: openCategory === cat ? at : P.ink2,
+                cursor: "pointer",
+                transition: "all 0.15s"
+              }}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "50px 0", color: P.faint, fontSize: 15 }}>
+              No matching questions found for "{search}".
+            </div>
+          ) : (
+            filtered.map((item, idx) => (
+              <div key={idx} style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 14, padding: "22px 24px", boxShadow: P.shadowSm }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: accent, marginBottom: 8 }}>
+                  {item.category}
+                </div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: P.ink, margin: "0 0 10px 0", letterSpacing: "-0.01em" }}>
+                  {item.q}
+                </h3>
+                <p style={{ fontSize: 14.5, color: P.ink2, margin: 0, lineHeight: 1.6, whiteSpace: "pre-line" }}>
+                  {item.a}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 60, fontSize: 12.5, color: P.faint, borderTop: `1px solid ${P.line}`, paddingTop: 24 }}>
+          Cerebrum Research Instrument · Built for absolute scientific transparency.
+        </div>
+      </div>
     </div>
   );
 }
 
 function Intro({ accent, P, onEnter }) {
   const canvasRef = useRef(null);
-  const [phase, setPhase] = useState("idle"); // idle -> assembling -> done
+  const [phase, setPhase] = useState("idle");
   const rafRef = useRef(0);
   const startRef = useRef(0);
 
@@ -319,7 +454,6 @@ function Intro({ accent, P, onEnter }) {
     resize(); window.addEventListener("resize", resize);
     const ctx = canvas.getContext("2d");
 
-    // Build a molecule: nodes on a lattice + bonds between near ones.
     const CX = () => canvas.width / 2, CY = () => canvas.height / 2;
     const R = () => Math.min(canvas.width, canvas.height) * 0.26;
     const N = 22;
@@ -330,7 +464,6 @@ function Intro({ accent, P, onEnter }) {
       const tx = Math.cos(a) * rr, ty = Math.sin(a) * rr * 0.72;
       nodes.push({
         tx, ty,
-        // start off-screen from random directions
         sx: (Math.random() - 0.5) * canvas.width * 1.6,
         sy: (Math.random() - 0.5) * canvas.height * 1.6,
         r: 2.2 * dpr + Math.random() * 2.4 * dpr,
@@ -351,25 +484,21 @@ function Intro({ accent, P, onEnter }) {
       if (!startRef.current) startRef.current = now;
       const elapsed = (now - startRef.current) / 1000;
       const assembling = phase === "assembling";
-      // In idle: gentle drift near target. In assembling: converge hard, then spin.
       const prog = assembling ? Math.min(1, elapsed / 1.1) : Math.min(1, elapsed / 2.2);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const spin = (assembling ? elapsed * 1.4 : elapsed * 0.25);
       const cx = CX(), cy = CY();
 
-      // compute positions
       const pos = nodes.map((n, i) => {
         const t = ease(Math.max(0, Math.min(1, (prog - n.delay) / (1 - n.delay))));
         const baseX = n.sx * (1 - t) + n.tx * t;
         const baseY = n.sy * (1 - t) + n.ty * t;
-        // rotate around center once assembled-ish
         const ca = Math.cos(spin), sa = Math.sin(spin);
         const rx = baseX * ca - baseY * sa;
         const ry = baseX * sa + baseY * ca;
         return { x: cx + rx, y: cy + ry, t };
       });
 
-      // bonds
       for (const [i, j] of bonds) {
         const a = pos[i], b = pos[j]; const alpha = Math.min(a.t, b.t);
         if (alpha <= 0.02) continue;
@@ -377,7 +506,6 @@ function Intro({ accent, P, onEnter }) {
         ctx.lineWidth = 1.1 * dpr;
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       }
-      // nodes
       for (let i = 0; i < pos.length; i++) {
         const p = pos[i]; if (p.t <= 0.02) continue;
         const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, nodes[i].r * 4);
@@ -389,7 +517,6 @@ function Intro({ accent, P, onEnter }) {
         ctx.beginPath(); ctx.arc(p.x, p.y, nodes[i].r, 0, Math.PI * 2); ctx.fill();
       }
 
-      // flash + finish on assembling
       if (assembling && elapsed >= 1.1) {
         const f = Math.min(1, (elapsed - 1.1) / 0.35);
         ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.5 * (1 - Math.abs(f - 0.5) * 2)})`;
@@ -428,9 +555,10 @@ function Intro({ accent, P, onEnter }) {
   );
 }
 
-function App() {
+export default function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
+  const [currentView, setCurrentView] = useState("app"); // "app" | "faq"
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -438,7 +566,6 @@ function App() {
   const [allSources, setAllSources] = useState([]);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
   const [savedOpen, setSavedOpen] = useState(false);
-  const [sessions, setSessions] = useState([]);
   const [panelOpen, setPanelOpen] = useState(true);
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
@@ -446,7 +573,8 @@ function App() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [zoteroOpen, setZoteroOpen] = useState(false);
-  const [srcSort, setSrcSort] = useState("relevance"); // relevance | date | database
+  const [panelTab, setPanelTab] = useState("sources"); // "sources" | "videos"
+  const [srcSort, setSrcSort] = useState("relevance");
   const [srcFilter, setSrcFilter] = useState("");
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
@@ -482,10 +610,14 @@ function App() {
       const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Search failed."); setBusy(false); return; }
-      const nt = { q: question, answer: data.answer || "", sources: data.sources || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
+
+      let rawAnswer = data.answer || "";
+      rawAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+      rawAnswer = rawAnswer.replace(/^.*?(Here is the answer|Protons are|Note:).*?[\r\n]+/i, (match) => match.includes("Note:") ? match : "").trim();
+
+      const nt = { q: question, answer: rawAnswer, sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
       setTurns((t) => [...t, nt]);
       setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
-      if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Audio.pop();
     } catch (e) { setError(`Could not reach the backend. (${e.message})`); }
     finally { setBusy(false); }
@@ -505,7 +637,6 @@ function App() {
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
   useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
@@ -526,6 +657,7 @@ function App() {
   const commands = [
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
     { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
+    { label: "Open FAQ & Docs", run: () => { setCmdOpen(false); setCurrentView("faq"); } },
     { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Toggle light / dark", run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
@@ -539,10 +671,14 @@ function App() {
     return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} />;
   }
 
+  if (currentView === "faq") {
+    return <FAQView P={P} accent={accent} at={at} onBack={() => setCurrentView("app")} />;
+  }
+
   const started = turns.length > 0 || busy;
   const exportList = saved.length ? saved : allSources;
+  const currentVideos = turns.length > 0 ? (turns[turns.length - 1].videos || []) : [];
 
-  // Sort + filter + group the sources.
   const filteredSources = allSources.filter((s) => {
     if (!srcFilter.trim()) return true;
     const f = srcFilter.toLowerCase();
@@ -551,9 +687,8 @@ function App() {
   const sortedSources = [...filteredSources].sort((a, b) => {
     if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0);
     if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || "");
-    return (b.relevance ?? 0) - (a.relevance ?? 0); // relevance
+    return (b.relevance ?? 0) - (a.relevance ?? 0);
   });
-  // Group when sorting by database or date.
   const grouped = (() => {
     if (srcSort === "database") {
       const g = {};
@@ -565,7 +700,7 @@ function App() {
       for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); }
       return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0));
     }
-    return null; // relevance = flat list
+    return null;
   })();
 
   const relColor = (r) => r >= 75 ? "#10b981" : r >= 45 ? "#d9a520" : P.faint;
@@ -589,8 +724,16 @@ function App() {
 
   const SourcesInner = (
     <>
-      <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
-      {allSources.length > 0 && (
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <button style={{ ...S.sortTab, ...(panelTab === "sources" ? S.sortTabActive : {}) }} onClick={() => setPanelTab("sources")}>
+          Sources ({allSources.length})
+        </button>
+        <button style={{ ...S.sortTab, ...(panelTab === "videos" ? S.sortTabActive : {}) }} onClick={() => setPanelTab("videos")}>
+          Videos ({currentVideos.length})
+        </button>
+      </div>
+
+      {panelTab === "sources" ? (
         <>
           <div style={S.srcActions}>
             <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
@@ -603,27 +746,43 @@ function App() {
               <button key={k} style={{ ...S.sortTab, ...(srcSort === k ? S.sortTabActive : {}) }} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
             ))}
           </div>
+          {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
+          {zoteroOpen && (
+            <div style={S.zBox}>
+              <input style={S.zIn} placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} />
+              <input style={S.zIn} placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)} />
+              <button style={S.sBtnP} onClick={doZotero}>Save {exportList.length}</button>
+              {zMsg && <div style={S.zMsg}>{zMsg}</div>}
+            </div>
+          )}
+          <div style={S.srcList}>
+            {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
+              sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
+              grouped ? grouped.map(([label, items]) => (
+                <div key={label}>
+                  <div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>
+                  {items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}
+                </div>
+              )) : sortedSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
+          </div>
         </>
-      )}
-      {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
-      {zoteroOpen && (
-        <div style={S.zBox}>
-          <input style={S.zIn} placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} />
-          <input style={S.zIn} placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)} />
-          <button style={S.sBtnP} onClick={doZotero}>Save {exportList.length}</button>
-          {zMsg && <div style={S.zMsg}>{zMsg}</div>}
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {currentVideos.length === 0 ? (
+            <div style={S.empty}>No related educational videos found for this query.</div>
+          ) : (
+            currentVideos.map((vid, i) => (
+              <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "block", background: P.bg, borderRadius: 10, overflow: "hidden", border: `1px solid ${P.line}` }}>
+                <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: 120, objectFit: "cover" }} onError={(e) => e.target.style.display = 'none'} />
+                <div style={{ padding: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: P.ink, lineHeight: 1.3, marginBottom: 4 }}>{vid.title}</div>
+                  <div style={{ fontSize: 11, color: P.faint }}>{vid.author}</div>
+                </div>
+              </a>
+            ))
+          )}
         </div>
       )}
-      <div style={S.srcList}>
-        {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
-          sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
-          grouped ? grouped.map(([label, items]) => (
-            <div key={label}>
-              <div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>
-              {items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}
-            </div>
-          )) : sortedSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
-      </div>
     </>
   );
 
@@ -636,6 +795,7 @@ function App() {
           <div style={S.headActions}>
             {!isMobile && <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>}
             <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setCurrentView("faq"); }}>FAQ</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>{isMobile ? "★" : "Saved"}{saved.length > 0 ? (isMobile ? ` ${saved.length}` : ` · ${saved.length}`) : ""}</button>
             <button style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>{isMobile ? "⚙" : "Settings"}</button>
@@ -674,7 +834,7 @@ function App() {
                   <div style={S.turn}>
                     <div style={S.qLabel}><span style={S.qDot} />Searching</div>
                     <Skeleton P={P} />
-                    <LoadingLine P={P} accent={accent} S={S} />
+                    <LoadingLine P={P} />
                   </div>
                 )}
                 {error && <div style={S.error}>{error}</div>}
@@ -753,7 +913,7 @@ function App() {
         </div>
       )}
 
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSaved, close: () => setSettingsOpen(false) }} />}
     </div>
   );
 }
@@ -791,7 +951,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
   );
 }
 
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSaved, close }) {
   const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
   return (
     <div style={S.modalWrap} onClick={close} className="cb-fade">
@@ -830,7 +990,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
           ))}
         </div>
         <div style={S.setNote}>Plays while searching. Tap a style to preview it.</div>
-        <button style={S.clearAll} onClick={() => { setSessions([]); setSaved([]); }}>Clear sessions & saved</button>
+        <button style={S.clearAll} onClick={() => { setSaved([]); }}>Clear saved</button>
         <button style={S.modalClose} onClick={close}>Done</button>
         <div style={S.shortcuts}>{kbdLabel("K")} search · {kbdLabel("J")} new · {kbdLabel("B")} saved · {kbdLabel("/")} settings · esc close</div>
       </div>
@@ -842,14 +1002,6 @@ function makeStyles(P, accent, at, isMobile = false) {
   const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   const pad = isMobile ? 16 : 24;
   return {
-    gate: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: P.bg, padding: 20, fontFamily: font, position: "relative", overflow: "hidden" },
-    gateGlow: { position: "absolute", width: 600, height: 600, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.14 : 0.08)}, transparent 68%)`, top: "20%", filter: "blur(30px)", pointerEvents: "none" },
-    gateInner: { textAlign: "center", maxWidth: 440, position: "relative", zIndex: 1 },
-    gateKicker: { fontSize: 12, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: accent, marginBottom: 14 },
-    gateTitle: { fontSize: 46, fontWeight: 750, letterSpacing: "-0.03em", color: P.ink, marginBottom: 14, lineHeight: 1 },
-    gateSub: { fontSize: 16, color: P.ink2, marginBottom: 32, lineHeight: 1.6, letterSpacing: "-0.01em" },
-    gateBtn: { display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 28px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: font, boxShadow: `0 4px 16px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em" },
-    gateNote: { fontSize: 12.5, color: P.faint, marginTop: 18 },
     page: { minHeight: "100vh", height: "100vh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
     header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 20 },
@@ -886,8 +1038,6 @@ function makeStyles(P, accent, at, isMobile = false) {
     headline: { fontWeight: 700, fontSize: isMobile ? 21 : 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
     answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: isMobile ? "18px 18px" : "22px 26px", boxShadow: P.shadow },
     byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
-    loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
-    spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     error: { padding: "14px 16px", background: withAlpha("#e5484d", 0.1), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.25)}` },
     followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 13, padding: "6px 6px 6px 16px", boxShadow: P.shadow, transition: "all 0.2s", marginTop: 8 },
     relatedWrap: { marginTop: 18 },
@@ -971,13 +1121,9 @@ if (typeof document !== "undefined") {
       @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
       @keyframes cbRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes cbPop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-      @keyframes cbGate { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-      @keyframes cbHero { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       .cb-fade { animation: cbFade 0.4s ease forwards; }
       .cb-rise { animation: cbRise 0.5s cubic-bezier(.2,.8,.2,1) forwards; }
       .cb-pop { animation: cbPop 0.28s cubic-bezier(.2,.9,.3,1) forwards; }
-      .cb-gate { animation: cbGate 0.7s cubic-bezier(.2,.8,.2,1) forwards; }
-      .cb-hero { animation: cbHero 0.6s cubic-bezier(.2,.8,.2,1) forwards; }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
       a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
