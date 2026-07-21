@@ -15,10 +15,11 @@ function decodeInverted(inv) {
   return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
-// Reasonable timeout: scholarly APIs are often slow. 9s, not 2s.
-async function getJSON(url, headers = {}) {
+// Per-call timeout (ms). Main sources get 6s; enrichment calls pass a shorter one
+// so a slow extra never stalls the whole search.
+async function getJSON(url, headers = {}, timeoutMs = 6000) {
   const c = new AbortController();
-  const t = setTimeout(() => c.abort(), 9000);
+  const t = setTimeout(() => c.abort(), timeoutMs);
   try {
     const res = await fetch(url, { headers, signal: c.signal });
     clearTimeout(t);
@@ -30,9 +31,9 @@ async function getJSON(url, headers = {}) {
   }
 }
 
-async function getText(url, headers = {}) {
+async function getText(url, headers = {}, timeoutMs = 6000) {
   const c = new AbortController();
-  const t = setTimeout(() => c.abort(), 9000);
+  const t = setTimeout(() => c.abort(), timeoutMs);
   try {
     const res = await fetch(url, { headers, signal: c.signal });
     clearTimeout(t);
@@ -691,11 +692,78 @@ async function unpaywallLink(doi) {
 // ---------- Enrichment: BioC full text for PMC open-access articles (keyless) ----------
 // Returns the full article text for a PMC id, or "" if unavailable.
 // BioC JSON shape: [ { documents: [ { passages: [ { text, infons:{section_type} } ] } ] } ]
+// ---------- Source: Wikipedia (keyless REST API) ----------
+// Not peer-reviewed, but excellent for established science topics and always free.
+// Flagged clearly so the UI/answer can distinguish it from primary literature.
+async function wikipedia(query, limit = 2) {
+  try {
+    // Search for matching page titles.
+    const searchUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
+      action: "query", list: "search", srsearch: query, srlimit: String(limit),
+      format: "json", origin: "*",
+    });
+    const sdata = await getJSON(searchUrl, {}, 5000);
+    const hits = sdata?.query?.search || [];
+    const out = [];
+    for (const h of hits) {
+      const title = h.title;
+      // Pull the plain-text intro extract for this page.
+      try {
+        const exUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
+          action: "query", prop: "extracts", exintro: "1", explaintext: "1",
+          titles: title, format: "json", origin: "*",
+        });
+        const ex = await getJSON(exUrl, {}, 5000);
+        const pages = ex?.query?.pages || {};
+        const page = Object.values(pages)[0] || {};
+        const extract = (page.extract || "").replace(/\s+/g, " ").trim();
+        out.push({
+          title: `${title} (Wikipedia)`,
+          url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`,
+          year: "",
+          citations: null,
+          authors: "Wikipedia contributors",
+          journal: "Wikipedia",
+          abstract: extract.slice(0, 1200),
+          isEncyclopedia: true,
+        });
+      } catch { /* skip this page */ }
+    }
+    return out;
+  } catch { return []; }
+}
+
+// ---------- Fallback: DuckDuckGo Instant Answer (keyless) ----------
+// Returns an encyclopedic summary + related topics when available. No API key.
+async function duckduckgo(query) {
+  try {
+    const url = "https://api.duckduckgo.com/?" + new URLSearchParams({
+      q: query, format: "json", no_html: "1", skip_disambig: "1",
+    });
+    const data = await getJSON(url, {}, 5000);
+    const out = [];
+    const abstract = (data?.AbstractText || "").trim();
+    if (abstract) {
+      out.push({
+        title: `${data.Heading || query} (${data.AbstractSource || "Web"})`,
+        url: data.AbstractURL || "",
+        year: "",
+        citations: null,
+        authors: data.AbstractSource || "Web",
+        journal: data.AbstractSource || "Web",
+        abstract: abstract.slice(0, 1000),
+        isEncyclopedia: true,
+      });
+    }
+    return out;
+  } catch { return []; }
+}
+
 async function biocFullText(pmcid) {
   if (!pmcid) return "";
   const id = String(pmcid).replace(/^PMC/i, "");
   try {
-    const data = await getJSON(`https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_json/PMC${id}/unicode`);
+    const data = await getJSON(`https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_json/PMC${id}/unicode`, {}, 4000);
     const collections = Array.isArray(data) ? data : [data];
     const parts = [];
     for (const coll of collections) {
@@ -945,6 +1013,18 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
+  // Normalize relevance to 0–100 (relative to the top hit) and tag a type,
+  // so the frontend can show scores, sort, and group.
+  const maxScore = scored.length ? Math.max(...scored.map((p) => p.score)) : 1;
+  for (const p of scored) {
+    p.relevance = maxScore > 0 ? Math.round((p.score / maxScore) * 100) : 0;
+    const j = (p.journal || "").toLowerCase();
+    if (/wikipedia/.test(j)) p.type = "Reference";
+    else if (/preprint|biorxiv|medrxiv|arxiv|ssrn|research square/.test(j)) p.type = "Preprint";
+    else if (/zenodo|datacite|figshare|dryad/.test(j)) p.type = "Dataset";
+    else p.type = "Journal";
+  }
+
   const usedUTK = scored.some((p) => p.journal === "UTK TRACE");
   return { papers: scored, utk: usedUTK };
 }
@@ -1044,7 +1124,7 @@ export async function onRequest(context) {
     let papers = [];
     let utk = false;
     try {
-      const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 6 });
+      const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25 });
       papers = g.papers;
       utk = g.utk;
     } catch {
@@ -1065,9 +1145,29 @@ export async function onRequest(context) {
       ? papers.some((p) => { const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase(); return qContent.some((t) => hay.includes(t) || hay.includes(stemW(t))); })
       : hasPapers; // if no specific topic terms, any papers count
     const weakRetrieval = hasPapers && !papersHitTopic;
-    const useEvidence = hasPapers && papersHitTopic;
+    let useEvidence = hasPapers && papersHitTopic;
 
-    const sourceList = (useEvidence ? papers : []).map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations }));
+    // WEB FALLBACK: if no peer-reviewed papers matched the topic, pull free keyless
+    // encyclopedic sources (Wikipedia + DuckDuckGo) so the answer is grounded in
+    // real referenced material instead of pure model memory. Clearly labeled as
+    // non-primary. Only runs when papers came up weak/empty (keeps normal searches fast).
+    let webRefs = [];
+    if (!useEvidence) {
+      try {
+        const [wiki, ddg] = await Promise.all([
+          wikipedia(cleanQuery(query), 2).catch(() => []),
+          duckduckgo(query).catch(() => []),
+        ]);
+        const seen = new Set();
+        for (const r of [...wiki, ...ddg]) {
+          const k = (r.title || "").toLowerCase();
+          if (r.abstract && !seen.has(k)) { seen.add(k); webRefs.push(r); }
+        }
+      } catch { webRefs = []; }
+    }
+    const useWeb = !useEvidence && webRefs.length > 0;
+
+    const sourceList = (useEvidence ? papers : useWeb ? webRefs : []).map(({ title, url, journal, authors, year, citations, relevance, type }) => ({ title, url, journal, authors, year, citations, relevance: relevance ?? null, type: type || "Reference" }));
 
     // Full-text enrichment: for the top papers that have a PMC id, pull BioC
     // full text so the answer/fact-check see the whole paper, not just the abstract.
@@ -1082,10 +1182,14 @@ export async function onRequest(context) {
 
     const evidence = useEvidence
       ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\n${p.fullText ? "Full text: " + p.fullText : "Abstract: " + (p.abstract || "(no abstract available for this record)")}`).join("\n\n")
+      : useWeb
+      ? webRefs.map((r, i) => `[${i + 1}] ${r.title} (${r.journal})\n${r.abstract}`).join("\n\n")
       : "";
 
     const systemPrompt = (useEvidence
       ? "You are Cerebrum, a knowledgeable science assistant. You are given real papers as evidence. Answer using them, citing inline like [1] or [2] by paper number. You may add general-knowledge context but prefer the papers for specific claims. Interpret typos. "
+      : useWeb
+      ? "You are Cerebrum, a knowledgeable science assistant. No peer-reviewed papers matched, but here are reference sources (encyclopedic/web). Answer using them, citing inline like [1] or [2] by source number. Begin your answer with this exact sentence on its own line: \"Note: no peer-reviewed papers matched this query — this answer draws on reference sources, verify against primary literature.\" Then answer fully. Do NOT fabricate journal citations or DOIs. Interpret typos. "
       : "You are Cerebrum, a knowledgeable science assistant. No directly relevant papers were retrieved for this question, so answer accurately and thoroughly from your own scientific knowledge. Give the real, substantive answer — do NOT say that papers are missing or that you cannot answer. Do NOT fabricate specific citations, DOIs, or author names. You may mention that the field exists and name well-known findings generally. Begin your answer with this exact sentence on its own line: \"Note: this answer is from general scientific knowledge, not from retrieved papers — verify against primary sources.\" Then answer the question fully. Interpret typos. ") +
       lengthHint +
       " Format in clean prose. Do NOT use markdown heading symbols like # or ###. You may use **bold** sparingly and blank lines between paragraphs, nothing else.";
@@ -1098,7 +1202,7 @@ export async function onRequest(context) {
         messages.push({ role: turn.role, content: String(turn.content || "").slice(0, 2000) });
       }
     }
-    messages.push({ role: "user", content: useEvidence ? `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}` : query });
+    messages.push({ role: "user", content: (useEvidence || useWeb) ? `Sources:\n\n${evidence}\n\n---\nQuestion: ${query}` : query });
 
     let answer = "";
     let aiOK = false;
@@ -1159,12 +1263,9 @@ export async function onRequest(context) {
       }
     }
 
-    // ---- Fact-check pass (opt-in via settings.factCheck) ----
-    // A SECOND model call verifies each claim against the actual abstracts.
-    // Honest by design: it can only confirm whether the cited sources SUPPORT
-    // a claim, not whether the science is objectively true.
-    let factCheck = null;
-    if (settings.factCheck && aiOK && useEvidence && token) {
+    // ---- Fact-check + related questions run IN PARALLEL (independent) ----
+    async function runFactCheck() {
+      if (!(settings.factCheck && aiOK && useEvidence && token)) return null;
       const fcSystem = "You are a strict scientific fact-checker. You are given an ANSWER and the SOURCE ABSTRACTS it cites. Your only job is to judge whether each factual claim in the answer is actually supported by the provided abstracts. You do NOT judge whether claims are true in the real world, only whether these sources back them up. Return ONLY valid JSON, no prose, no markdown, in this exact shape: {\"overall\":\"supported\"|\"partly\"|\"unsupported\",\"summary\":\"one plain sentence\",\"claims\":[{\"claim\":\"short quote or paraphrase\",\"status\":\"supported\"|\"thin\"|\"unsupported\",\"note\":\"why, one short sentence\"}]}. Mark 'thin' when a source loosely relates but doesn't directly state the claim. Mark 'unsupported' when no provided abstract backs it. Be skeptical; flag confident claims that the abstracts don't actually establish.";
       const fcUser = `ANSWER:\n${answer}\n\nSOURCE ABSTRACTS:\n${evidence}`;
       const fcModels = ["google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free", "openrouter/free"];
@@ -1179,18 +1280,15 @@ export async function onRequest(context) {
             const j = await r.json();
             let c = j?.choices?.[0]?.message?.content?.trim() || "";
             c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
-            try {
-              const parsed = JSON.parse(c);
-              if (parsed && parsed.overall) { factCheck = parsed; break; }
-            } catch { /* try next model */ }
+            try { const parsed = JSON.parse(c); if (parsed && parsed.overall) return parsed; } catch { /* next */ }
           }
-        } catch { /* try next model */ }
+        } catch { /* next */ }
       }
+      return null;
     }
 
-    // ---- Related questions (cheap, single fast call, best-effort) ----
-    let related = [];
-    if (aiOK && token) {
+    async function runRelated() {
+      if (!(aiOK && token)) return [];
       try {
         const rq = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
@@ -1210,18 +1308,21 @@ export async function onRequest(context) {
           let c = j?.choices?.[0]?.message?.content?.trim() || "";
           c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
           const arr = JSON.parse(c);
-          if (Array.isArray(arr)) related = arr.filter((x) => typeof x === "string").slice(0, 3);
+          if (Array.isArray(arr)) return arr.filter((x) => typeof x === "string").slice(0, 3);
         }
-      } catch { related = []; }
+      } catch { /* ignore */ }
+      return [];
     }
 
-    const dbUsed = utk ? "Databases + UTK TRACE" : useEvidence ? "Scientific databases" : "General knowledge";
+    const [factCheck, related] = await Promise.all([runFactCheck(), runRelated()]);
+
+    const dbUsed = utk ? "Databases + UTK TRACE" : useEvidence ? "Scientific databases" : useWeb ? "Reference sources (Wikipedia/web)" : "General knowledge";
     return new Response(JSON.stringify({
       answer,
       sources: sourceList,
       factCheck,
       related,
-      source: aiOK && useEvidence ? `${dbUsed} + OpenRouter` : aiOK ? "General knowledge (AI)" : dbUsed,
+      source: aiOK && useEvidence ? `${dbUsed} + OpenRouter` : aiOK && useWeb ? `${dbUsed} + AI` : aiOK ? "General knowledge (AI)" : dbUsed,
     }), { status: 200, headers: cors });
   } catch (e) {
     return new Response(
