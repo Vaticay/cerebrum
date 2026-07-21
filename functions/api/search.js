@@ -1,6 +1,6 @@
 // Cerebrum backend — Cloudflare Pages Function.
 // Gathers real papers from scholarly databases, then generates a grounded answer
-// using OpenRouter, Cloudflare Workers AI (keyless), or Pollinations AI (keyless).
+// using OpenRouter (keyed), Cloudflare Workers AI (keyless), or Pollinations AI (keyless).
 
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
@@ -684,7 +684,7 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
   return { papers: scored, utk: usedUTK };
 }
 
-// ---------- Request Handler ----------
+// ---------- Request Handler with Keyed + Multiple Keyless AI Fallbacks ----------
 const cors = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
@@ -840,6 +840,7 @@ export async function onRequest(context) {
     let answer = "";
     let aiOK = false;
 
+    // --- TIER 1: KEYED API (OpenRouter) ---
     const token = env.OPENROUTER_API_KEY;
     if (token) {
       const models = [
@@ -875,6 +876,7 @@ export async function onRequest(context) {
       }
     }
 
+    // --- TIER 2: KEYLESS API (Cloudflare Workers AI) ---
     if (!aiOK && env.AI && typeof env.AI.run === "function") {
       const cfModels = ["@cf/meta/llama-3.1-8b-instruct", "@cf/meta/llama-3-8b-instruct", "@cf/mistral/mistral-7b-instruct-v0.1"];
       for (const m of cfModels) {
@@ -886,6 +888,7 @@ export async function onRequest(context) {
       }
     }
 
+    // --- TIER 3: KEYLESS API (Pollinations AI Public Endpoint) ---
     if (!aiOK) {
       try {
         const pRes = await fetch("https://text.pollinations.ai/", {
