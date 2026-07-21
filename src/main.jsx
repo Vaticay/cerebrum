@@ -124,7 +124,7 @@ async function saveToZotero(sources, apiKey, userId) {
 }
 function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
-// ---------- Highly Relevant, High-Yield Video Discovery Engine ----------
+// ---------- Robust Video Engine with Guaranteed Thumbnail Porting ----------
 const STOPWORDS = new Set([
   "what","whats","how","does","do","did","is","are","was","were","the","a","an",
   "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
@@ -177,17 +177,19 @@ async function fetchVideosMultiSource(query) {
 
           if (vId && !seenIds.has(vId)) {
             const titleLower = vTitle.toLowerCase();
-            // Strict relevance gate: must match at least one core topic keyword or major academic descriptor
             const matchesTopic = cleanTokens.some(token => titleLower.includes(token));
             const isAcademic = titleLower.includes("lecture") || titleLower.includes("mechanism") || titleLower.includes("science") || titleLower.includes("biol") || titleLower.includes("chem") || titleLower.includes("phys") || titleLower.includes("research") || titleLower.includes("professor");
 
             if (matchesTopic || isAcademic) {
               seenIds.add(vId);
+              // Guaranteed absolute YouTube thumbnail CDN URL
+              const thumbnail = `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+
               results.push({
                 title: vTitle,
                 url: `https://www.youtube.com/watch?v=${vId}`,
                 author: vAuthor,
-                thumbnail: item.thumbnail || item.videoThumbnails?.find(x => x.quality === "medium")?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                thumbnail,
                 id: vId
               });
             }
@@ -211,11 +213,12 @@ async function fetchVideosMultiSource(query) {
         for (const item of (data?.data || [])) {
           if (item.uuid && !seenIds.has(item.uuid)) {
             seenIds.add(item.uuid);
+            const thumb = item.thumbnailPath ? (item.thumbnailPath.startsWith("http") ? item.thumbnailPath : `https://${item.host || "sepiasearch.org"}${item.thumbnailPath}`) : "https://joinpeertube.org/img/logo.svg";
             results.push({
               title: item.name || "Academic Lecture Broadcast",
               url: item.url || `https://${item.host}/w/${item.uuid}`,
               author: item.channel?.displayName || item.account?.displayName || "Open University",
-              thumbnail: item.thumbnailPath ? (item.thumbnailPath.startsWith("http") ? item.thumbnailPath : `https://${item.host || "sepiasearch.org"}${item.thumbnailPath}`) : "https://joinpeertube.org/img/logo.svg",
+              thumbnail: thumb,
               id: item.uuid
             });
           }
@@ -718,7 +721,7 @@ export default function App() {
       rawAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
       rawAnswer = rawAnswer.replace(/^.*?(Here is the answer|Protons are|Note:).*?[\r\n]+/i, (match) => match.includes("Note:") ? match : "").trim();
 
-      // Fetch Highly Relevant Related Videos
+      // Fetch Highly Relevant Related Videos with Thumbnails
       const videos = await fetchVideosMultiSource(question);
 
       const nt = { 
@@ -1152,7 +1155,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
-    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
+    workspace: { display: "grid", gridTemplateColumns: "1fr 320px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
     workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
     turn: { marginBottom: 40 },
