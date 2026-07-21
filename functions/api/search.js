@@ -124,7 +124,7 @@ function cleanQuery(raw) {
   return cleaned || raw.trim();
 }
 
-// ---------- Source: Europe PMC ----------
+// ---------- Source: Europe PMC (bio/chem, keyless) ----------
 async function europePMC(query, limit = 6) {
   const q = buildStructuredQuery(query);
   const runSearch = async (queryStr) => {
@@ -162,7 +162,7 @@ async function europePMC(query, limit = 6) {
   }
 }
 
-// ---------- Source: PubMed ----------
+// ---------- Source: PubMed (NCBI E-utilities, keyless) ----------
 function firstMatch(block, re) {
   const m = block.match(re);
   return m ? m[1] : "";
@@ -171,23 +171,36 @@ function parsePubmedXML(xmlText) {
   const arts = xmlText.match(/<PubmedArticle\b[\s\S]*?<\/PubmedArticle>/g) || [];
   return arts.map((a) => {
     const pmid = firstMatch(a, /<PMID[^>]*>(\d+)<\/PMID>/);
-    const title = stripTags(firstMatch(a, /<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/));
+    const title = stripTags(
+      firstMatch(a, /<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/)
+    );
     const absParts = a.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g) || [];
     const abstract = stripTags(absParts.join(" "));
-    const journal = stripTags(firstMatch(a, /<Title>([\s\S]*?)<\/Title>/) || firstMatch(a, /<ISOAbbreviation>([\s\S]*?)<\/ISOAbbreviation>/));
+    const journal = stripTags(
+      firstMatch(a, /<Title>([\s\S]*?)<\/Title>/) ||
+        firstMatch(a, /<ISOAbbreviation>([\s\S]*?)<\/ISOAbbreviation>/)
+    );
     const year = firstMatch(a, /<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/);
     const authorBlocks = a.match(/<Author\b[\s\S]*?<\/Author>/g) || [];
-    const names = authorBlocks.map((b) => {
-      const last = firstMatch(b, /<LastName>([\s\S]*?)<\/LastName>/);
-      const ini = firstMatch(b, /<Initials>([\s\S]*?)<\/Initials>/);
-      return [last, ini].filter(Boolean).join(" ");
-    }).filter(Boolean);
+    const names = authorBlocks
+      .map((b) => {
+        const last = firstMatch(b, /<LastName>([\s\S]*?)<\/LastName>/);
+        const ini = firstMatch(b, /<Initials>([\s\S]*?)<\/Initials>/);
+        return [last, ini].filter(Boolean).join(" ");
+      })
+      .filter(Boolean);
     const authors = names.length > 1 ? `${names[0]} et al.` : names[0] || "";
     const doi = firstMatch(a, /<ArticleId IdType="doi">([\s\S]*?)<\/ArticleId>/);
     return {
       title: title || "Untitled",
-      url: doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
-      year, citations: null, authors, journal: journal || "PubMed", abstract,
+      url: doi
+        ? `https://doi.org/${doi}`
+        : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+      year,
+      citations: null,
+      authors,
+      journal: journal || "PubMed",
+      abstract,
     };
   });
 }
@@ -197,17 +210,27 @@ async function pubmed(query, limit = 6, apiKey = "") {
   try {
     const structured = buildStructuredQuery(query);
     let term = structured;
-    const es = await getJSON("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" + new URLSearchParams({ db: "pubmed", term, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool);
+
+    const es = await getJSON(
+      "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
+        new URLSearchParams({ db: "pubmed", term, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
+    );
     let ids = es?.esearchresult?.idlist || [];
     if (!ids.length && term !== query) {
       const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
       if (hasOrganism) {
         const orgOnly = orgPhrases.map((e) => (e.includes(" ") ? `"${e}"` : e)).join(" OR ");
-        const es2 = await getJSON("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" + new URLSearchParams({ db: "pubmed", term: orgOnly, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool);
+        const es2 = await getJSON(
+          "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
+            new URLSearchParams({ db: "pubmed", term: orgOnly, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
+        );
         ids = es2?.esearchresult?.idlist || [];
       }
       if (!ids.length) {
-        const es3 = await getJSON("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" + new URLSearchParams({ db: "pubmed", term: query, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool);
+        const es3 = await getJSON(
+          "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
+            new URLSearchParams({ db: "pubmed", term: query, retmax: String(limit), retmode: "json", sort: "relevance" }) + tool
+        );
         ids = es3?.esearchresult?.idlist || [];
       }
     }
@@ -222,6 +245,7 @@ async function pubmed(query, limit = 6, apiKey = "") {
 
     const fetched = xml ? parsePubmedXML(xml) : [];
     const byTitle = new Map(fetched.map((p) => [(p.title || "").toLowerCase().trim(), p]));
+
     const sumResult = summaryJson?.result || {};
     const merged = [];
     for (const pmid of ids) {
@@ -231,7 +255,16 @@ async function pubmed(query, limit = 6, apiKey = "") {
         const title = s.title || "";
         rec = byTitle.get(title.toLowerCase().trim()) || null;
         if (!rec) {
-          rec = { title: title || "Untitled", url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`, year: (s.pubdate || "").slice(0, 4), citations: null, authors: (s.authors || []).slice(0, 1).map((a) => a.name).join("") + ((s.authors || []).length > 1 ? " et al." : ""), journal: s.fulljournalname || s.source || "PubMed", abstract: "", pmid };
+          rec = {
+            title: title || "Untitled",
+            url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+            year: (s.pubdate || "").slice(0, 4),
+            citations: null,
+            authors: (s.authors || []).slice(0, 1).map((a) => a.name).join("") + ((s.authors || []).length > 1 ? " et al." : ""),
+            journal: s.fulljournalname || s.source || "PubMed",
+            abstract: "",
+            pmid,
+          };
         } else {
           rec.pmid = pmid;
           if (!rec.year && s.pubdate) rec.year = (s.pubdate || "").slice(0, 4);
@@ -243,6 +276,7 @@ async function pubmed(query, limit = 6, apiKey = "") {
     for (const p of fetched) {
       if (!merged.some((m) => (m.title || "").toLowerCase() === (p.title || "").toLowerCase())) merged.push(p);
     }
+
     try {
       const linksets = citeJson?.linksets || [];
       const countByPmid = {};
@@ -256,35 +290,63 @@ async function pubmed(query, limit = 6, apiKey = "") {
         if (rec.pmid && typeof countByPmid[rec.pmid] === "number") rec.citations = countByPmid[rec.pmid];
       }
     } catch {}
+
     return merged;
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 // ---------- Source: OpenAlex ----------
 async function openAlex(query, limit = 6, key = "") {
   try {
-    const params = new URLSearchParams({ search: query, sort: "relevance_score:desc", per_page: String(limit), select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids", mailto: "noreply@example.com" });
+    const params = new URLSearchParams({
+      search: query,
+      sort: "relevance_score:desc",
+      per_page: String(limit),
+      select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids",
+      mailto: "noreply@example.com",
+    });
     if (key) params.set("api_key", key);
     const data = await getJSON(`https://api.openalex.org/works?${params}`);
-    return (data.results || []).map((w) => {
-      const first = w.authorships?.[0]?.author?.display_name || "";
-      const pmcid = (w.ids?.pmcid || "").replace(/^https?:\/\/.*?\/(PMC\d+)$/i, "$1").replace(/[^0-9]/g, "");
-      return { title: w.title || "Untitled", url: w.doi || w.primary_location?.landing_page_url || w.primary_location?.pdf_url || "", year: w.publication_year || "", citations: w.cited_by_count ?? null, authors: w.authorships?.length > 1 ? `${first} et al.` : first, journal: w.primary_location?.source?.display_name || "OpenAlex", abstract: decodeInverted(w.abstract_inverted_index), pmcid: pmcid || "" };
-    }).filter((p) => p.title);
-  } catch { return []; }
+    return (data.results || [])
+      .map((w) => {
+        const first = w.authorships?.[0]?.author?.display_name || "";
+        const pmcid = (w.ids?.pmcid || "").replace(/^https?:\/\/.*?\/(PMC\d+)$/i, "$1").replace(/[^0-9]/g, "");
+        return {
+          title: w.title || "Untitled",
+          url: w.doi || w.primary_location?.landing_page_url || w.primary_location?.pdf_url || "",
+          year: w.publication_year || "",
+          citations: w.cited_by_count ?? null,
+          authors: w.authorships?.length > 1 ? `${first} et al.` : first,
+          journal: w.primary_location?.source?.display_name || "OpenAlex",
+          abstract: decodeInverted(w.abstract_inverted_index),
+          pmcid: pmcid || "",
+        };
+      })
+      .filter((p) => p.title);
+  } catch {
+    return [];
+  }
 }
 
-// ---------- Source: UTK TRACE ----------
+// ---------- Source: UTK TRACE (OAI-PMH, harvest + filter) ----------
 function extractTraceRecords(xmlText) {
   const records = [];
   const recRe = /<record\b[\s\S]*?<\/record>/g;
   const tag = (block, name) => {
-    const re = new RegExp(`<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`, "i");
+    const re = new RegExp(
+      `<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`,
+      "i"
+    );
     const m = block.match(re);
     return m ? m[1].trim() : "";
   };
   const tagAll = (block, name) => {
-    const re = new RegExp(`<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`, "gi");
+    const re = new RegExp(
+      `<(?:[\\w-]+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:[\\w-]+:)?${name}>`,
+      "gi"
+    );
     const out = [];
     let m;
     while ((m = re.exec(block))) out.push(m[1].trim());
@@ -303,6 +365,7 @@ function extractTraceRecords(xmlText) {
   }
   return records;
 }
+
 async function traceUTK(query) {
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 3);
   if (!terms.length) return [];
@@ -310,30 +373,61 @@ async function traceUTK(query) {
   const all = [];
   for (const set of sets) {
     try {
-      const text = await getText("https://trace.tennessee.edu/do/oai/?" + new URLSearchParams({ verb: "ListRecords", metadataPrefix: "dcq", set }));
+      const text = await getText(
+        "https://trace.tennessee.edu/do/oai/?" +
+          new URLSearchParams({
+            verb: "ListRecords",
+            metadataPrefix: "dcq",
+            set,
+          })
+      );
       all.push(...extractTraceRecords(text));
     } catch {}
   }
-  const scored = all.map((r) => {
-    const hay = `${r.title} ${r.abstract}`.toLowerCase();
-    const score = terms.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
-    return { ...r, score };
-  }).filter((r) => r.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
-  return scored.map((r) => ({ title: r.title, url: r.url, year: r.year, citations: null, authors: r.authors, journal: "UTK TRACE", abstract: stripTags(r.abstract) }));
+  const scored = all
+    .map((r) => {
+      const hay = `${r.title} ${r.abstract}`.toLowerCase();
+      const score = terms.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
+      return { ...r, score };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  return scored.map((r) => ({
+    title: r.title,
+    url: r.url,
+    year: r.year,
+    citations: null,
+    authors: r.authors,
+    journal: "UTK TRACE",
+    abstract: stripTags(r.abstract),
+  }));
 }
 
 // ---------- Additional Scholarly Databases ----------
 async function crossref(query, limit = 8) {
   try {
-    const url = "https://api.crossref.org/works?" + new URLSearchParams({ query, rows: String(limit), select: "title,author,container-title,published,DOI,abstract,is-referenced-by-count" }) + "&mailto=cerebrum@example.com";
+    const url = "https://api.crossref.org/works?" +
+      new URLSearchParams({ query, rows: String(limit), select: "title,author,container-title,published,DOI,abstract,is-referenced-by-count" }) +
+      "&mailto=cerebrum@example.com";
     const data = await getJSON(url);
-    return (data?.message?.items || []).map((it) => ({ title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled", url: it.DOI ? `https://doi.org/${it.DOI}` : "", year: it.published?.["date-parts"]?.[0]?.[0] || "", citations: it["is-referenced-by-count"] ?? null, authors: (it.author || []).slice(0, 1).map((a) => `${a.given || ""} ${a.family || ""}`.trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""), journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref", abstract: stripTags(it.abstract || "") })).filter((p) => p.title);
+    const items = data?.message?.items || [];
+    return items.map((it) => ({
+      title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled",
+      url: it.DOI ? `https://doi.org/${it.DOI}` : "",
+      year: it.published?.["date-parts"]?.[0]?.[0] || "",
+      citations: it["is-referenced-by-count"] ?? null,
+      authors: (it.author || []).slice(0, 1).map((a) => `${a.given || ""} ${a.family || ""}`.trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""),
+      journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref",
+      abstract: stripTags(it.abstract || ""),
+    })).filter((p) => p.title);
   } catch { return []; }
 }
 
 async function arxiv(query, limit = 6) {
   try {
-    const url = "https://export.arxiv.org/api/query?" + new URLSearchParams({ search_query: `all:${query}`, max_results: String(limit), sortBy: "relevance" });
+    const url = "https://export.arxiv.org/api/query?" +
+      new URLSearchParams({ search_query: `all:${query}`, max_results: String(limit), sortBy: "relevance" });
     const xml = await getText(url);
     const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) || [];
     return entries.map((e) => {
@@ -343,19 +437,36 @@ async function arxiv(query, limit = 6) {
       const id = g(/<id>([\s\S]*?)<\/id>/);
       const published = g(/<published>(\d{4})/);
       const authorNames = (e.match(/<name>([\s\S]*?)<\/name>/g) || []).map((a) => a.replace(/<\/?name>/g, "").trim());
-      return { title: title || "arXiv paper", url: id, year: published || "", citations: null, authors: authorNames.length > 1 ? `${authorNames[0]} et al.` : authorNames[0] || "", journal: "arXiv", abstract: summary };
+      return {
+        title: title || "arXiv paper",
+        url: id,
+        year: published || "",
+        citations: null,
+        authors: authorNames.length > 1 ? `${authorNames[0]} et al.` : authorNames[0] || "",
+        journal: "arXiv",
+        abstract: summary,
+      };
     }).filter((p) => p.title);
   } catch { return []; }
 }
 
 async function semanticScholar(query, limit = 6) {
   try {
-    const url = "https://api.semanticscholar.org/graph/v1/paper/search?" + new URLSearchParams({ query, limit: String(limit), fields: "title,abstract,year,citationCount,authors,venue,externalIds,openAccessPdf,url" });
+    const url = "https://api.semanticscholar.org/graph/v1/paper/search?" +
+      new URLSearchParams({ query, limit: String(limit), fields: "title,abstract,year,citationCount,authors,venue,externalIds,openAccessPdf,url" });
     const data = await getJSON(url);
     return (data?.data || []).filter((r) => r.title).map((r) => {
       const doi = r.externalIds?.DOI;
       const names = (r.authors || []).map((a) => a.name);
-      return { title: r.title || "Untitled", url: doi ? `https://doi.org/${doi}` : r.openAccessPdf?.url || r.url || "", year: r.year || "", citations: r.citationCount ?? null, authors: names.length > 1 ? `${names[0]} et al.` : names[0] || "", journal: r.venue || "Semantic Scholar", abstract: r.abstract };
+      return {
+        title: r.title || "Untitled",
+        url: doi ? `https://doi.org/${doi}` : r.openAccessPdf?.url || r.url || "",
+        year: r.year || "",
+        citations: r.citationCount ?? null,
+        authors: names.length > 1 ? `${names[0]} et al.` : names[0] || "",
+        journal: r.venue || "Semantic Scholar",
+        abstract: r.abstract,
+      };
     });
   } catch { return []; }
 }
@@ -368,7 +479,15 @@ async function doaj(query, limit = 6) {
       const b = r.bibjson || {};
       const doiId = (b.identifier || []).find((x) => x.type === "doi");
       const link = (b.link || [])[0];
-      return { title: b.title || "Untitled", url: doiId ? `https://doi.org/${doiId.id}` : link?.url || "", year: b.year || "", citations: null, authors: (b.author || []).slice(0, 1).map((a) => a.name).join("") + ((b.author || []).length > 1 ? " et al." : ""), journal: b.journal?.title || "DOAJ", abstract: stripTags(b.abstract || "") };
+      return {
+        title: b.title || "Untitled",
+        url: doiId ? `https://doi.org/${doiId.id}` : link?.url || "",
+        year: b.year || "",
+        citations: null,
+        authors: (b.author || []).slice(0, 1).map((a) => a.name).join("") + ((b.author || []).length > 1 ? " et al." : ""),
+        journal: b.journal?.title || "DOAJ",
+        abstract: stripTags(b.abstract || ""),
+      };
     }).filter((p) => p.title);
   } catch { return []; }
 }
@@ -376,20 +495,44 @@ async function doaj(query, limit = 6) {
 async function biorxiv(query, limit = 4) {
   const out = [];
   try {
-    const params = new URLSearchParams({ search: query, filter: "type:preprint", sort: "relevance_score:desc", per_page: String(limit), select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships", mailto: "noreply@example.com" });
+    const params = new URLSearchParams({
+      search: query,
+      filter: "type:preprint",
+      sort: "relevance_score:desc",
+      per_page: String(limit),
+      select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
+      mailto: "noreply@example.com",
+    });
     const data = await getJSON(`https://api.openalex.org/works?${params}`);
     for (const w of (data.results || [])) {
       const first = w.authorships?.[0]?.author?.display_name || "";
       if (!w.title) continue;
-      out.push({ title: w.title, url: w.doi || w.primary_location?.landing_page_url || "", year: w.publication_year || "", citations: w.cited_by_count ?? null, authors: w.authorships?.length > 1 ? `${first} et al.` : first, journal: w.primary_location?.source?.display_name || "Preprint", abstract: decodeInverted(w.abstract_inverted_index) });
+      out.push({
+        title: w.title,
+        url: w.doi || w.primary_location?.landing_page_url || "",
+        year: w.publication_year || "",
+        citations: w.cited_by_count ?? null,
+        authors: w.authorships?.length > 1 ? `${first} et al.` : first,
+        journal: w.primary_location?.source?.display_name || "Preprint",
+        abstract: decodeInverted(w.abstract_inverted_index),
+      });
     }
   } catch {}
   try {
-    const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" + new URLSearchParams({ query: `${query} AND (SRC:PPR)`, resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
+    const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
+      new URLSearchParams({ query: `${query} AND (SRC:PPR)`, resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
     const data = await getJSON(url);
     for (const r of (data?.resultList?.result || [])) {
       if (!r.title) continue;
-      out.push({ title: r.title, url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`, year: r.pubYear || "", citations: r.citedByCount ?? null, authors: r.authorString || "", journal: r.journalTitle || "Preprint", abstract: stripTags(r.abstractText) });
+      out.push({
+        title: r.title,
+        url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
+        year: r.pubYear || "",
+        citations: r.citedByCount ?? null,
+        authors: r.authorString || "",
+        journal: r.journalTitle || "Preprint",
+        abstract: stripTags(r.abstractText),
+      });
     }
   } catch {}
   return out;
@@ -397,29 +540,50 @@ async function biorxiv(query, limit = 4) {
 
 async function zenodo(query, limit = 4) {
   try {
-    const url = "https://zenodo.org/api/records?" + new URLSearchParams({ q: query, size: String(limit), sort: "mostrecent" });
+    const url = "https://zenodo.org/api/records?" +
+      new URLSearchParams({ q: query, size: String(limit), sort: "mostrecent" });
     const data = await getJSON(url);
     return (data?.hits?.hits || []).map((r) => {
       const md = r.metadata || {};
-      return { title: md.title || "Untitled", url: r.doi_url || md.doi ? `https://doi.org/${md.doi}` : r.links?.self_html || "", year: (md.publication_date || "").slice(0, 4), citations: null, authors: (md.creators || []).slice(0, 1).map((a) => a.name).join("") + ((md.creators || []).length > 1 ? " et al." : ""), journal: "Zenodo", abstract: stripTags(md.description || "") };
+      return {
+        title: md.title || "Untitled",
+        url: r.doi_url || md.doi ? `https://doi.org/${md.doi}` : r.links?.self_html || "",
+        year: (md.publication_date || "").slice(0, 4),
+        citations: null,
+        authors: (md.creators || []).slice(0, 1).map((a) => a.name).join("") + ((md.creators || []).length > 1 ? " et al." : ""),
+        journal: "Zenodo",
+        abstract: stripTags(md.description || ""),
+      };
     }).filter((p) => p.title);
   } catch { return []; }
 }
 
 async function datacite(query, limit = 4) {
   try {
-    const url = "https://api.datacite.org/dois?" + new URLSearchParams({ query, "page[size]": String(limit) });
+    const url = "https://api.datacite.org/dois?" +
+      new URLSearchParams({ query, "page[size]": String(limit) });
     const data = await getJSON(url);
     return (data?.data || []).map((r) => {
       const a = r.attributes || {};
-      return { title: (a.titles || [])[0]?.title || "Untitled", url: a.doi ? `https://doi.org/${a.doi}` : a.url || "", year: a.publicationYear || "", citations: a.citationCount ?? null, authors: (a.creators || []).slice(0, 1).map((c) => c.name).join("") + ((a.creators || []).length > 1 ? " et al." : ""), journal: a.publisher || "DataCite", abstract: stripTags((a.descriptions || [])[0]?.description || "") };
+      const title = (a.titles || [])[0]?.title || "Untitled";
+      const desc = (a.descriptions || [])[0]?.description || "";
+      return {
+        title,
+        url: a.doi ? `https://doi.org/${a.doi}` : a.url || "",
+        year: a.publicationYear || "",
+        citations: a.citationCount ?? null,
+        authors: (a.creators || []).slice(0, 1).map((c) => c.name).join("") + ((a.creators || []).length > 1 ? " et al." : ""),
+        journal: a.publisher || "DataCite",
+        abstract: stripTags(desc),
+      };
     }).filter((p) => p.title);
   } catch { return []; }
 }
 
 async function openaire(query, limit = 4) {
   try {
-    const url = "https://api.openaire.eu/search/publications?" + new URLSearchParams({ keywords: query, size: String(limit), format: "json" });
+    const url = "https://api.openaire.eu/search/publications?" +
+      new URLSearchParams({ keywords: query, size: String(limit), format: "json" });
     const data = await getJSON(url);
     const results = data?.response?.results?.result || [];
     const arr = Array.isArray(results) ? results : [results];
@@ -428,113 +592,207 @@ async function openaire(query, limit = 4) {
       const titleField = meta.title;
       const title = Array.isArray(titleField) ? (titleField[0]?.content || titleField[0]?.$ || "") : (titleField?.content || titleField?.$ || "");
       const desc = Array.isArray(meta.description) ? (meta.description[0]?.$ || "") : (meta.description?.$ || "");
-      return { title: title || "Untitled", url: "", year: (meta.dateofacceptance?.$ || "").slice(0, 4), citations: null, authors: "", journal: "OpenAIRE", abstract: stripTags(desc) };
+      return {
+        title: title || "Untitled",
+        url: "",
+        year: (meta.dateofacceptance?.$ || "").slice(0, 4),
+        citations: null,
+        authors: "",
+        journal: "OpenAIRE",
+        abstract: stripTags(desc),
+      };
     }).filter((p) => p.title);
   } catch { return []; }
 }
 
 async function hal(query, limit = 4) {
   try {
-    const url = "https://api.archives-ouvertes.fr/search/?" + new URLSearchParams({ q: query, rows: String(limit), fl: "title_s,abstract_s,producedDateY_i,authFullName_s,uri_s,journalTitle_s", wt: "json" });
+    const url = "https://api.archives-ouvertes.fr/search/?" +
+      new URLSearchParams({ q: query, rows: String(limit), fl: "title_s,abstract_s,producedDateY_i,authFullName_s,uri_s,journalTitle_s", wt: "json" });
     const data = await getJSON(url);
-    return (data?.response?.docs || []).map((d) => ({ title: Array.isArray(d.title_s) ? d.title_s[0] : d.title_s || "Untitled", url: d.uri_s || "", year: d.producedDateY_i || "", citations: null, authors: (d.authFullName_s || []).slice(0, 1).join("") + ((d.authFullName_s || []).length > 1 ? " et al." : ""), journal: d.journalTitle_s || "HAL", abstract: stripTags(Array.isArray(d.abstract_s) ? d.abstract_s[0] : d.abstract_s || "") })).filter((p) => p.title);
+    return (data?.response?.docs || []).map((d) => ({
+      title: Array.isArray(d.title_s) ? d.title_s[0] : d.title_s || "Untitled",
+      url: d.uri_s || "",
+      year: d.producedDateY_i || "",
+      citations: null,
+      authors: (d.authFullName_s || []).slice(0, 1).join("") + ((d.authFullName_s || []).length > 1 ? " et al." : ""),
+      journal: d.journalTitle_s || "HAL",
+      abstract: stripTags(Array.isArray(d.abstract_s) ? d.abstract_s[0] : d.abstract_s || ""),
+    })).filter((p) => p.title);
   } catch { return []; }
 }
 
 async function plos(query, limit = 6) {
   try {
-    const url = "https://api.plos.org/search?" + new URLSearchParams({ q: query, fl: "id,title_display,author_display,journal,publication_date,abstract", wt: "json", rows: String(limit) });
+    const url = "https://api.plos.org/search?" + new URLSearchParams({
+      q: query,
+      fl: "id,title_display,author_display,journal,publication_date,abstract",
+      wt: "json",
+      rows: String(limit),
+    });
     const data = await getJSON(url);
-    return (data?.response?.docs || []).map((d) => ({ title: Array.isArray(d.title_display) ? d.title_display[0] : (d.title_display || "Untitled"), url: d.id ? `https://doi.org/${d.id}` : "", year: (d.publication_date || "").slice(0, 4), citations: null, authors: (d.author_display || []).slice(0, 1).join("") + ((d.author_display || []).length > 1 ? " et al." : ""), journal: d.journal || "PLOS", abstract: stripTags(Array.isArray(d.abstract) ? d.abstract.join(" ") : (d.abstract || "")) })).filter((p) => p.title);
+    const docs = data?.response?.docs || [];
+    return docs.map((d) => ({
+      title: Array.isArray(d.title_display) ? d.title_display[0] : (d.title_display || "Untitled"),
+      url: d.id ? `https://doi.org/${d.id}` : "",
+      year: (d.publication_date || "").slice(0, 4),
+      citations: null,
+      authors: (d.author_display || []).slice(0, 1).join("") + ((d.author_display || []).length > 1 ? " et al." : ""),
+      journal: d.journal || "PLOS",
+      abstract: stripTags(Array.isArray(d.abstract) ? d.abstract.join(" ") : (d.abstract || "")),
+    })).filter((p) => p.title);
   } catch { return []; }
 }
 
 async function base(query, limit = 6) {
   try {
-    const url = "https://www.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?" + new URLSearchParams({ func: "PerformSearch", query, format: "json", hits: String(limit) });
+    const url = "https://www.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?" + new URLSearchParams({
+      func: "PerformSearch",
+      query,
+      format: "json",
+      hits: String(limit),
+    });
     const data = await getJSON(url);
-    return (data?.response?.docs || []).map((d) => ({ title: d.dctitle || "Untitled", url: d.dclink || (d.dcidentifier ? d.dcidentifier : ""), year: (d.dcyear || "").toString().slice(0, 4), citations: null, authors: Array.isArray(d.dccreator) ? (d.dccreator[0] + (d.dccreator.length > 1 ? " et al." : "")) : (d.dccreator || ""), journal: d.dcpublisher || "BASE", abstract: stripTags(Array.isArray(d.dcdescription) ? d.dcdescription.join(" ") : (d.dcdescription || "")) })).filter((p) => p.title);
+    const docs = data?.response?.docs || [];
+    return docs.map((d) => ({
+      title: d.dctitle || "Untitled",
+      url: d.dclink || (d.dcidentifier ? d.dcidentifier : ""),
+      year: (d.dcyear || "").toString().slice(0, 4),
+      citations: null,
+      authors: Array.isArray(d.dccreator) ? (d.dccreator[0] + (d.dccreator.length > 1 ? " et al." : "")) : (d.dccreator || ""),
+      journal: d.dcpublisher || "BASE",
+      abstract: stripTags(Array.isArray(d.dcdescription) ? d.dcdescription.join(" ") : (d.dcdescription || "")),
+    })).filter((p) => p.title);
   } catch { return []; }
 }
 
-// ---------- Source: Educational Video Search (Invidious + Piped) ----------
-async function searchInvidiousVideos(query, limit = 4) {
-  const academicQuery = `${cleanQuery(query)} science lecture`;
+// ---------- Source: Educational Video Search Engine ----------
+async function searchInvidiousVideos(query, limit = 4, ytApiKey = "") {
+  const academicQuery = `${cleanQuery(query)} university lecture science`;
+  const seenIds = new Set();
+  const results = [];
 
+  // 1. YouTube Data API v3 (if env key present)
+  if (ytApiKey) {
+    try {
+      const url = "https://www.googleapis.com/youtube/v3/search?" + new URLSearchParams({
+        part: "snippet", maxResults: String(limit), q: academicQuery, type: "video", key: ytApiKey
+      });
+      const data = await getJSON(url, {}, 3500);
+      if (data?.items && Array.isArray(data.items)) {
+        for (const item of data.items) {
+          const id = item.id?.videoId;
+          if (id && !seenIds.has(id)) {
+            seenIds.add(id);
+            results.push({
+              title: item.snippet?.title || "Untitled Video",
+              videoId: id,
+              url: `https://www.youtube.com/watch?v=${id}`,
+              author: item.snippet?.channelTitle || "Educational Source",
+              thumbnail: item.snippet?.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+            });
+          }
+        }
+        if (results.length >= limit) return results.slice(0, limit);
+      }
+    } catch {}
+  }
+
+  // 2. Invidious Public Instances
   const invidiousInstances = [
     "https://inv.nadeko.net",
     "https://invidious.nerdvpn.de",
     "https://iv.ggtyler.dev",
     "https://invidious.protokolla.fi",
-    "https://invidious.perennialte.ch",
-    "https://vid.puffyan.us"
+    "https://invidious.perennialte.ch"
   ];
-
   for (const instance of invidiousInstances) {
     try {
       const url = `${instance}/api/v1/search?` + new URLSearchParams({ q: academicQuery, type: "video", sort: "relevance" });
-      const data = await getJSON(url, {}, 3000);
+      const data = await getJSON(url, {}, 2500);
       if (Array.isArray(data) && data.length > 0) {
-        const valid = data.filter(v => v.videoId && v.title);
-        if (valid.length > 0) {
-          return valid.slice(0, limit).map((v) => ({
-            title: v.title || "Untitled Video",
-            videoId: v.videoId,
-            url: `https://www.youtube.com/watch?v=${v.videoId}`,
-            author: v.author || "Educational Source",
-            viewCount: v.viewCount || 0,
-            thumbnail: v.videoThumbnails?.find(t => t.quality === "medium")?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`
-          }));
+        for (const v of data) {
+          if (v.videoId && !seenIds.has(v.videoId)) {
+            seenIds.add(v.videoId);
+            results.push({
+              title: v.title || "Untitled Video",
+              videoId: v.videoId,
+              url: `https://www.youtube.com/watch?v=${v.videoId}`,
+              author: v.author || "Educational Source",
+              viewCount: v.viewCount || 0,
+              thumbnail: v.videoThumbnails?.find(t => t.quality === "medium")?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`
+            });
+          }
         }
+        if (results.length >= limit) return results.slice(0, limit);
       }
     } catch { continue; }
   }
 
+  // 3. Piped Public Instances
   const pipedInstances = [
-    "https://pipedapi.kavin.rocks",
     "https://api.piped.privacydev.net",
+    "https://pipedapi.kavin.rocks",
     "https://pipedapi.tokhmi.xyz"
   ];
-
   for (const instance of pipedInstances) {
     try {
       const url = `${instance}/search?` + new URLSearchParams({ q: academicQuery, filter: "videos" });
-      const data = await getJSON(url, {}, 3000);
+      const data = await getJSON(url, {}, 2500);
       const items = data?.items || [];
       if (Array.isArray(items) && items.length > 0) {
-        return items.slice(0, limit).map((v) => {
+        for (const v of items) {
           const id = v.url?.replace("/watch?v=", "") || "";
-          return {
-            title: v.title || "Untitled Video",
-            videoId: id,
-            url: `https://www.youtube.com/watch?v=${id}`,
-            author: v.uploaderName || "Educational Source",
-            viewCount: v.views || 0,
-            thumbnail: v.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
-          };
-        });
+          if (id && !seenIds.has(id)) {
+            seenIds.add(id);
+            results.push({
+              title: v.title || "Untitled Video",
+              videoId: id,
+              url: `https://www.youtube.com/watch?v=${id}`,
+              author: v.uploaderName || "Educational Source",
+              viewCount: v.views || 0,
+              thumbnail: v.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+            });
+          }
+        }
+        if (results.length >= limit) return results.slice(0, limit);
       }
     } catch { continue; }
   }
 
-  return [];
+  return results.slice(0, limit);
 }
 
 async function wikipedia(query, limit = 2) {
   try {
-    const searchUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({ action: "query", list: "search", srsearch: query, srlimit: String(limit), format: "json", origin: "*" });
+    const searchUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
+      action: "query", list: "search", srsearch: query, srlimit: String(limit),
+      format: "json", origin: "*",
+    });
     const sdata = await getJSON(searchUrl, {}, 5000);
     const hits = sdata?.query?.search || [];
     const out = [];
     for (const h of hits) {
       const title = h.title;
       try {
-        const exUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({ action: "query", prop: "extracts", exintro: "1", explaintext: "1", titles: title, format: "json", origin: "*" });
+        const exUrl = "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({
+          action: "query", prop: "extracts", exintro: "1", explaintext: "1",
+          titles: title, format: "json", origin: "*",
+        });
         const ex = await getJSON(exUrl, {}, 5000);
         const pages = ex?.query?.pages || {};
         const page = Object.values(pages)[0] || {};
         const extract = (page.extract || "").replace(/\s+/g, " ").trim();
-        out.push({ title: `${title} (Wikipedia)`, url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`, year: "", citations: null, authors: "Wikipedia contributors", journal: "Wikipedia", abstract: extract.slice(0, 1200), isEncyclopedia: true });
+        out.push({
+          title: `${title} (Wikipedia)`,
+          url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`,
+          year: "",
+          citations: null,
+          authors: "Wikipedia contributors",
+          journal: "Wikipedia",
+          abstract: extract.slice(0, 1200),
+          isEncyclopedia: true,
+        });
       } catch {}
     }
     return out;
@@ -543,12 +801,23 @@ async function wikipedia(query, limit = 2) {
 
 async function duckduckgo(query) {
   try {
-    const url = "https://api.duckduckgo.com/?" + new URLSearchParams({ q: query, format: "json", no_html: "1", skip_disambig: "1" });
+    const url = "https://api.duckduckgo.com/?" + new URLSearchParams({
+      q: query, format: "json", no_html: "1", skip_disambig: "1",
+    });
     const data = await getJSON(url, {}, 5000);
     const out = [];
     const abstract = (data?.AbstractText || "").trim();
     if (abstract) {
-      out.push({ title: `${data.Heading || query} (${data.AbstractSource || "Web"})`, url: data.AbstractURL || "", year: "", citations: null, authors: data.AbstractSource || "Web", journal: data.AbstractSource || "Web", abstract: abstract.slice(0, 1000), isEncyclopedia: true });
+      out.push({
+        title: `${data.Heading || query} (${data.AbstractSource || "Web"})`,
+        url: data.AbstractURL || "",
+        year: "",
+        citations: null,
+        authors: data.AbstractSource || "Web",
+        journal: data.AbstractSource || "Web",
+        abstract: abstract.slice(0, 1000),
+        isEncyclopedia: true,
+      });
     }
     return out;
   } catch { return []; }
@@ -578,19 +847,33 @@ async function biocFullText(pmcid) {
 async function core(query, limit = 6, key = "") {
   if (!key) return [];
   try {
-    const res = await fetch("https://api.core.ac.uk/v3/search/works", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ q: query, limit }) });
+    const res = await fetch("https://api.core.ac.uk/v3/search/works", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ q: query, limit }),
+    });
     if (!res.ok) return [];
     const data = await res.json();
-    return (data?.results || []).map((r) => ({ title: r.title || "Untitled", url: r.doi ? `https://doi.org/${r.doi}` : (r.links || [])[0]?.url || "", year: r.yearPublished || "", citations: null, authors: (r.authors || []).slice(0, 1).map((a) => a.name).join("") + ((r.authors || []).length > 1 ? " et al." : ""), journal: r.publisher || "CORE", abstract: stripTags(r.abstract || "") })).filter((p) => p.title);
+    return (data?.results || []).map((r) => ({
+      title: r.title || "Untitled",
+      url: r.doi ? `https://doi.org/${r.doi}` : (r.links || [])[0]?.url || "",
+      year: r.yearPublished || "",
+      citations: null,
+      authors: (r.authors || []).slice(0, 1).map((a) => a.name).join("") + ((r.authors || []).length > 1 ? " et al." : ""),
+      journal: r.publisher || "CORE",
+      abstract: stripTags(r.abstract || ""),
+    })).filter((p) => p.title);
   } catch { return []; }
 }
 
-// ---------- Author Search ----------
+// ---------- Author Search Functions ----------
 function detectAuthor(raw) {
   const q = raw.trim();
   const lower = q.toLowerCase();
   const prefixes = ["papers by ", "publications by ", "articles by ", "research by ", "work by ", "author:"];
-  for (const p of prefixes) { if (lower.startsWith(p)) return q.slice(p.length).trim(); }
+  for (const p of prefixes) {
+    if (lower.startsWith(p)) return q.slice(p.length).trim();
+  }
   const words = q.split(/\s+/);
   if (words.length >= 2 && words.length <= 4) {
     const questiony = /^(what|how|why|when|where|which|who|is|are|does|do|can|explain|tell)/i.test(q);
@@ -603,26 +886,50 @@ function detectAuthor(raw) {
 async function authorOpenAlex(name, limit = 12, key = "") {
   if (!key) return [];
   try {
-    const params = new URLSearchParams({ filter: `authorships.author.display_name.search:${name}`, sort: "cited_by_count:desc", per_page: String(limit), select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships", api_key: key });
+    const params = new URLSearchParams({
+      filter: `authorships.author.display_name.search:${name}`,
+      sort: "cited_by_count:desc",
+      per_page: String(limit),
+      select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
+      api_key: key,
+    });
     const data = await getJSON(`https://api.openalex.org/works?${params}`);
     return (data.results || []).map((w) => {
       const first = w.authorships?.[0]?.author?.display_name || "";
-      return { title: w.title || "Untitled", url: w.doi || w.primary_location?.landing_page_url || "", year: w.publication_year || "", citations: w.cited_by_count ?? null, authors: w.authorships?.length > 1 ? `${first} et al.` : first, journal: w.primary_location?.source?.display_name || "OpenAlex", abstract: decodeInverted(w.abstract_inverted_index) };
+      return {
+        title: w.title || "Untitled",
+        url: w.doi || w.primary_location?.landing_page_url || "",
+        year: w.publication_year || "", citations: w.cited_by_count ?? null,
+        authors: w.authorships?.length > 1 ? `${first} et al.` : first,
+        journal: w.primary_location?.source?.display_name || "OpenAlex",
+        abstract: decodeInverted(w.abstract_inverted_index),
+      };
     });
   } catch { return []; }
 }
 
 async function authorCrossref(name, limit = 12) {
   try {
-    const url = "https://api.crossref.org/works?" + new URLSearchParams({ "query.author": name, rows: String(limit), sort: "is-referenced-by-count", order: "desc", select: "title,author,container-title,published,DOI,is-referenced-by-count,abstract" }) + "&mailto=cerebrum@example.com";
+    const url = "https://api.crossref.org/works?" +
+      new URLSearchParams({ "query.author": name, rows: String(limit), sort: "is-referenced-by-count", order: "desc", select: "title,author,container-title,published,DOI,is-referenced-by-count,abstract" }) +
+      "&mailto=cerebrum@example.com";
     const data = await getJSON(url);
-    return (data?.message?.items || []).map((it) => ({ title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled", url: it.DOI ? `https://doi.org/${it.DOI}` : "", year: it.published?.["date-parts"]?.[0]?.[0] || "", citations: it["is-referenced-by-count"] ?? null, authors: (it.author || []).slice(0, 1).map((a) => `${a.given || ""} ${a.family || ""}`.trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""), journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref", abstract: stripTags(it.abstract || "") })).filter((p) => p.title);
+    return (data?.message?.items || []).map((it) => ({
+      title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled",
+      url: it.DOI ? `https://doi.org/${it.DOI}` : "",
+      year: it.published?.["date-parts"]?.[0]?.[0] || "",
+      citations: it["is-referenced-by-count"] ?? null,
+      authors: (it.author || []).slice(0, 1).map((a) => `${a.given || ""} ${a.family || ""}`.trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""),
+      journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref",
+      abstract: stripTags(it.abstract || ""),
+    })).filter((p) => p.title);
   } catch { return []; }
 }
 
 async function authorSemanticScholar(name, limit = 20) {
   try {
-    const searchUrl = "https://api.semanticscholar.org/graph/v1/author/search?" + new URLSearchParams({ query: name, fields: "name,paperCount,citationCount", limit: "5" });
+    const searchUrl = "https://api.semanticscholar.org/graph/v1/author/search?" +
+      new URLSearchParams({ query: name, fields: "name,paperCount,citationCount", limit: "5" });
     const sdata = await getJSON(searchUrl);
     const cands = sdata?.data || [];
     if (!cands.length) return { papers: [], matched: null };
@@ -632,18 +939,28 @@ async function authorSemanticScholar(name, limit = 20) {
       const cn = (candName || "").toLowerCase();
       return wanted.filter((w) => cn.includes(w)).length / wanted.length;
     };
-    const ranked = cands.map((c) => ({ c, match: scoreName(c.name) })).sort((a, b) => (b.match - a.match) || ((b.c.paperCount || 0) - (a.c.paperCount || 0)));
+    const ranked = cands
+      .map((c) => ({ c, match: scoreName(c.name) }))
+      .sort((a, b) => (b.match - a.match) || ((b.c.paperCount || 0) - (a.c.paperCount || 0)));
+
     const best = ranked[0];
     if (!best || best.match < 0.99) return { papers: [], matched: null };
 
     const authorId = best.c.authorId;
     if (!authorId) return { papers: [], matched: null };
-    const papersUrl = `https://api.semanticscholar.org/graph/v1/author/${authorId}/papers?` + new URLSearchParams({ fields: "title,abstract,year,citationCount,authors,venue,externalIds", limit: String(limit) });
+    const papersUrl = `https://api.semanticscholar.org/graph/v1/author/${authorId}/papers?` +
+      new URLSearchParams({ fields: "title,abstract,year,citationCount,authors,venue,externalIds", limit: String(limit) });
     const pdata = await getJSON(papersUrl);
     const papers = (pdata?.data || []).map((r) => {
       const doi = r.externalIds?.DOI;
       const names = (r.authors || []).map((a) => a.name);
-      return { title: r.title || "Untitled", url: doi ? `https://doi.org/${doi}` : (r.externalIds?.ArXiv ? `https://arxiv.org/abs/${r.externalIds.ArXiv}` : ""), year: r.year || "", citations: r.citationCount ?? null, authors: names.length > 1 ? `${names[0]} et al.` : names[0] || "", journal: r.venue || "Semantic Scholar", abstract: r.abstract || "" };
+      return {
+        title: r.title || "Untitled",
+        url: doi ? `https://doi.org/${doi}` : (r.externalIds?.ArXiv ? `https://arxiv.org/abs/${r.externalIds.ArXiv}` : ""),
+        year: r.year || "", citations: r.citationCount ?? null,
+        authors: names.length > 1 ? `${names[0]} et al.` : names[0] || "",
+        journal: r.venue || "Semantic Scholar", abstract: r.abstract || "",
+      };
     }).filter((p) => p.title && p.title !== "Untitled");
     return { papers, matched: best.c.name };
   } catch { return { papers: [], matched: null }; }
@@ -672,9 +989,21 @@ async function gatherByAuthor(name, { openAlexKey }) {
 async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limit = 6, browse = false }) {
   const query = cleanQuery(rawQuery);
   const jobs = [
-    europePMC(query, 12), pubmed(query, 12, ncbiKey), traceUTK(query), openAlex(query, 12, openAlexKey),
-    crossref(query, 10), arxiv(query, 8), semanticScholar(query, 10), doaj(query, 8), biorxiv(query, 10),
-    zenodo(query, 6), datacite(query, 6), openaire(query, 6), hal(query, 6), plos(query, 6), base(query, 6),
+    europePMC(query, 12),
+    pubmed(query, 12, ncbiKey),
+    traceUTK(query),
+    openAlex(query, 12, openAlexKey),
+    crossref(query, 10),
+    arxiv(query, 8),
+    semanticScholar(query, 10),
+    doaj(query, 8),
+    biorxiv(query, 10),
+    zenodo(query, 6),
+    datacite(query, 6),
+    openaire(query, 6),
+    hal(query, 6),
+    plos(query, 6),
+    base(query, 6),
     core(query, 8, coreKey),
   ];
   const results = await Promise.all(jobs);
@@ -684,7 +1013,10 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
   for (const list of results) {
     for (const p of list) {
       const key = (p.title || "").toLowerCase().trim();
-      if (key && !seen.has(key)) { seen.add(key); merged.push(p); }
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        merged.push(p);
+      }
     }
   }
 
@@ -699,40 +1031,45 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
   });
   const neutralTerms = neutralWords;
   const contentTerms = terms.filter((t) => !neutralTerms.has(t));
-  const scored = merged.map((p) => {
-    const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
-    const titleHay = (p.title || "").toLowerCase();
-    const stem = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
-    const has = (t) => hay.includes(t) || hay.includes(stem(t));
-    const contentHits = contentTerms.filter(has).length;
-    const neutralHit = [...neutralTerms].some(has);
-    const titleContentHits = contentTerms.filter((t) => titleHay.includes(t) || titleHay.includes(stem(t))).length;
-    let expHit = false;
-    for (const phrase of expansions) { if (hay.includes(phrase)) expHit = true; }
-    const organismPresent = neutralHit || expHit;
-    const contentCoverage = contentTerms.length ? contentHits / contentTerms.length : 1;
+  const scored = merged
+    .map((p) => {
+      const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
+      const titleHay = (p.title || "").toLowerCase();
+      const stem = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
+      const has = (t) => hay.includes(t) || hay.includes(stem(t));
+      const contentHits = contentTerms.filter(has).length;
+      const neutralHit = [...neutralTerms].some(has);
+      const titleContentHits = contentTerms.filter((t) => titleHay.includes(t) || titleHay.includes(stem(t))).length;
+      let expHit = false;
+      for (const phrase of expansions) { if (hay.includes(phrase)) expHit = true; }
+      const organismPresent = neutralHit || expHit;
 
-    let score = 0;
-    score += contentHits * 5;
-    score += contentCoverage * 6;
-    score += titleContentHits * 3;
-    if (organismPresent && contentHits > 0) score += 3;
-    if (p.abstract) score += 0.5;
-    if (typeof p.citations === "number") score += Math.min(p.citations / 800, 1.0);
-    const yr = parseInt(p.year, 10);
-    if (yr && yr >= 2015) score += 0.3;
+      const contentCoverage = contentTerms.length ? contentHits / contentTerms.length : 1;
 
-    return { ...p, score, contentHits, contentCoverage, organismPresent };
-  }).filter((p) => {
-    if (terms.length === 0) return true;
-    const queryNamesOrganism = neutralTerms.size > 0;
-    if (queryNamesOrganism) {
-      return p.organismPresent && (contentTerms.length === 0 || p.contentHits > 0);
-    }
-    if (contentTerms.length === 0) return true;
-    if (contentTerms.length <= 2) return p.contentHits > 0;
-    return p.contentHits / contentTerms.length >= 0.4;
-  }).sort((a, b) => b.score - a.score).slice(0, limit);
+      let score = 0;
+      score += contentHits * 5;
+      score += contentCoverage * 6;
+      score += titleContentHits * 3;
+      if (organismPresent && contentHits > 0) score += 3;
+      if (p.abstract) score += 0.5;
+      if (typeof p.citations === "number") score += Math.min(p.citations / 800, 1.0);
+      const yr = parseInt(p.year, 10);
+      if (yr && yr >= 2015) score += 0.3;
+
+      return { ...p, score, contentHits, contentCoverage, organismPresent };
+    })
+    .filter((p) => {
+      if (terms.length === 0) return true;
+      const queryNamesOrganism = neutralTerms.size > 0;
+      if (queryNamesOrganism) {
+        return p.organismPresent && (contentTerms.length === 0 || p.contentHits > 0);
+      }
+      if (contentTerms.length === 0) return true;
+      if (contentTerms.length <= 2) return p.contentHits > 0;
+      return p.contentHits / contentTerms.length >= 0.4;
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 
   const maxScore = scored.length ? Math.max(...scored.map((p) => p.score)) : 1;
   for (const p of scored) {
@@ -748,7 +1085,7 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
   return { papers: scored, utk: usedUTK };
 }
 
-// ---------- Request Handler ----------
+// ---------- The Endpoint Handler ----------
 const cors = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
@@ -772,7 +1109,10 @@ export async function onRequest(context) {
     const body = await request.json().catch(() => ({}));
     const query = (body.query || "").trim();
     if (!query) {
-      return new Response(JSON.stringify({ error: "No query provided." }), { status: 400, headers: cors });
+      return new Response(JSON.stringify({ error: "No query provided." }), {
+        status: 400,
+        headers: cors,
+      });
     }
 
     const small = query.toLowerCase().replace(/[^a-z\s]/g, "").trim();
@@ -780,27 +1120,34 @@ export async function onRequest(context) {
     if (greetings.includes(small)) {
       return new Response(JSON.stringify({
         answer: "Hi! I'm Cerebrum. Ask me anything — science questions get answers backed by real papers with citations, and I'll do my best with general questions too.",
-        sources: [], videos: [], source: "Cerebrum",
+        sources: [],
+        videos: [],
+        source: "Cerebrum",
       }), { status: 200, headers: cors });
     }
 
     const authorName = detectAuthor(query);
     if (authorName && body.mode !== "browse") {
       let ar = { papers: [], confirmed: false, matchedName: null };
-      try { ar = await gatherByAuthor(authorName, { openAlexKey: env.OPENALEX_KEY || "" }); } catch {}
+      try {
+        ar = await gatherByAuthor(authorName, { openAlexKey: env.OPENALEX_KEY || "" });
+      } catch { ar = { papers: [], confirmed: false, matchedName: null }; }
 
       if (ar.confirmed && ar.papers.length) {
         return new Response(JSON.stringify({
           answer: `Publications associated with **${ar.matchedName || authorName}**, ranked by citations. These are pulled directly from this author's record. If it's not who you meant, add a field like "${authorName} microbiology".`,
           sources: ar.papers.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations })),
-          videos: [], source: `${ar.papers.length} publications by ${ar.matchedName || authorName}`,
+          videos: [],
+          source: `${ar.papers.length} publications by ${ar.matchedName || authorName}`,
         }), { status: 200, headers: cors });
       }
 
       if (!ar.confirmed) {
         return new Response(JSON.stringify({
           answer: `I couldn't confirm a researcher named **${authorName}** in the author databases (Semantic Scholar, Crossref, OpenAlex). This can happen when someone has few indexed publications, publishes under a different name form, or the name is spelled differently in the record. Try the full name as it appears on their papers, add a middle initial, or search a topic instead and open the papers to find them.`,
-          sources: [], videos: [], source: "author not confirmed",
+          sources: [],
+          videos: [],
+          source: "author not confirmed",
         }), { status: 200, headers: cors });
       }
     }
@@ -810,11 +1157,14 @@ export async function onRequest(context) {
       try {
         const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25, browse: true });
         bp = g.papers;
-      } catch { bp = []; }
+      } catch {
+        bp = [];
+      }
       return new Response(JSON.stringify({
         answer: "",
         sources: bp.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations })),
-        videos: [], source: `${bp.length} publications ranked by relevance`,
+        videos: [],
+        source: `${bp.length} publications ranked by relevance`,
       }), { status: 200, headers: cors });
     }
 
@@ -826,10 +1176,12 @@ export async function onRequest(context) {
     let papers = [];
     let videos = [];
     let utk = false;
+    const ytKey = env.YOUTUBE_API_KEY || env.YOUTUBE_KEY || "";
+
     try {
       const [g, vList] = await Promise.all([
         gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25 }),
-        searchInvidiousVideos(query, 4).catch(() => [])
+        searchInvidiousVideos(query, 4, ytKey).catch(() => [])
       ]);
       papers = g.papers;
       utk = g.utk;
@@ -856,7 +1208,9 @@ export async function onRequest(context) {
       const orgHere = [...qNeutral].some((w) => hay.includes(w)) || qExp.some((ph) => hay.includes(ph));
       return orgHere && hitsTopic;
     };
-    const papersHitTopic = hasPapers && (qContent.length > 0 || queryNamesOrganism) ? papers.some(paperOnTopic) : hasPapers;
+    const papersHitTopic = hasPapers && (qContent.length > 0 || queryNamesOrganism)
+      ? papers.some(paperOnTopic)
+      : hasPapers;
     let useEvidence = hasPapers && papersHitTopic;
 
     let webRefs = [];
@@ -874,6 +1228,7 @@ export async function onRequest(context) {
       } catch { webRefs = []; }
     }
     const useWeb = !useEvidence && webRefs.length > 0;
+
     const sourceList = (useEvidence ? papers : useWeb ? webRefs : []).map(({ title, url, journal, authors, year, citations, relevance, type }) => ({ title, url, journal, authors, year, citations, relevance: relevance ?? null, type: type || "Reference" }));
 
     if (useEvidence) {
