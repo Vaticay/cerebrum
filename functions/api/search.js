@@ -59,7 +59,7 @@ async function europePMC(query, limit = 6) {
     const data = await getJSON(url);
     const rows = data?.resultList?.result || [];
     return rows
-      .filter((r) => r.abstractText)
+      .filter((r) => r.title)
       .map((r) => ({
         title: r.title || "Untitled",
         url: r.doi
@@ -181,7 +181,7 @@ async function openAlex(query, limit = 6, key = "") {
           abstract: decodeInverted(w.abstract_inverted_index),
         };
       })
-      .filter((p) => p.abstract);
+      .filter((p) => p.title);
   } catch {
     return [];
   }
@@ -362,7 +362,7 @@ async function arxiv(query, limit = 6) {
         journal: "arXiv",
         abstract: summary,
       };
-    }).filter((p) => p.abstract);
+    }).filter((p) => p.title);
   } catch { return []; }
 }
 
@@ -372,7 +372,7 @@ async function semanticScholar(query, limit = 6) {
     const url = "https://api.semanticscholar.org/graph/v1/paper/search?" +
       new URLSearchParams({ query, limit: String(limit), fields: "title,abstract,year,citationCount,authors,venue,externalIds,openAccessPdf,url" });
     const data = await getJSON(url);
-    return (data?.data || []).filter((r) => r.abstract).map((r) => {
+    return (data?.data || []).filter((r) => r.title).map((r) => {
       const doi = r.externalIds?.DOI;
       const names = (r.authors || []).map((a) => a.name);
       return {
@@ -406,7 +406,7 @@ async function doaj(query, limit = 6) {
         journal: b.journal?.title || "DOAJ",
         abstract: stripTags(b.abstract || ""),
       };
-    }).filter((p) => p.abstract);
+    }).filter((p) => p.title);
   } catch { return []; }
 }
 
@@ -418,7 +418,7 @@ async function biorxiv(query, limit = 4) {
       new URLSearchParams({ query: `${query} AND (SRC:PPR)`, resultType: "core", pageSize: String(limit), format: "json" });
     const data = await getJSON(url);
     const rows = data?.resultList?.result || [];
-    return rows.filter((r) => r.abstractText).map((r) => ({
+    return rows.filter((r) => r.title).map((r) => ({
       title: r.title || "Untitled",
       url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
       year: r.pubYear || "",
@@ -447,7 +447,7 @@ async function zenodo(query, limit = 4) {
         journal: "Zenodo",
         abstract: stripTags(md.description || ""),
       };
-    }).filter((p) => p.abstract);
+    }).filter((p) => p.title);
   } catch { return []; }
 }
 
@@ -470,7 +470,7 @@ async function datacite(query, limit = 4) {
         journal: a.publisher || "DataCite",
         abstract: stripTags(desc),
       };
-    }).filter((p) => p.abstract);
+    }).filter((p) => p.title);
   } catch { return []; }
 }
 
@@ -496,7 +496,7 @@ async function openaire(query, limit = 4) {
         journal: "OpenAIRE",
         abstract: stripTags(desc),
       };
-    }).filter((p) => p.title && p.abstract);
+    }).filter((p) => p.title);
   } catch { return []; }
 }
 
@@ -514,7 +514,7 @@ async function hal(query, limit = 4) {
       authors: (d.authFullName_s || []).slice(0, 1).join("") + ((d.authFullName_s || []).length > 1 ? " et al." : ""),
       journal: d.journalTitle_s || "HAL",
       abstract: stripTags(Array.isArray(d.abstract_s) ? d.abstract_s[0] : d.abstract_s || ""),
-    })).filter((p) => p.abstract);
+    })).filter((p) => p.title);
   } catch { return []; }
 }
 
@@ -537,7 +537,7 @@ async function core(query, limit = 6, key = "") {
       authors: (r.authors || []).slice(0, 1).map((a) => a.name).join("") + ((r.authors || []).length > 1 ? " et al." : ""),
       journal: r.publisher || "CORE",
       abstract: stripTags(r.abstract || ""),
-    })).filter((p) => p.abstract);
+    })).filter((p) => p.title);
   } catch { return []; }
 }
 
@@ -670,20 +670,20 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, limit = 6, browse 
   // All sources run in parallel. Each is wrapped so one failure/slowness
   // never blocks the rest (they already catch internally and return []).
   const jobs = [
-    europePMC(query, 8),
-    pubmed(query, 8),
+    europePMC(query, 12),
+    pubmed(query, 12),
     traceUTK(query),
-    openAlex(query, 8, openAlexKey),
-    crossref(query, 8),
-    arxiv(query, 6),
-    semanticScholar(query, 6),
-    doaj(query, 6),
-    biorxiv(query, 4),
-    zenodo(query, 4),
-    datacite(query, 4),
-    openaire(query, 4),
-    hal(query, 4),
-    core(query, 6, coreKey),
+    openAlex(query, 12, openAlexKey),
+    crossref(query, 10),
+    arxiv(query, 8),
+    semanticScholar(query, 10),
+    doaj(query, 8),
+    biorxiv(query, 6),
+    zenodo(query, 6),
+    datacite(query, 6),
+    openaire(query, 6),
+    hal(query, 6),
+    core(query, 8, coreKey),
   ];
   const results = await Promise.all(jobs);
 
@@ -703,15 +703,19 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, limit = 6, browse 
   const expansions = expansionsFor(terms); // e.g. bsfl -> "black soldier fly larvae"
   const scored = merged
     .map((p) => {
-      const hay = `${p.title} ${p.abstract}`.toLowerCase();
+      const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
+      const titleHay = (p.title || "").toLowerCase();
       let hits = terms.filter((t) => hay.includes(t)).length;
+      // Title matches count extra — a term in the title is a strong signal.
+      const titleHits = terms.filter((t) => titleHay.includes(t)).length;
       // Any expanded phrase that appears counts as a strong hit for its acronym.
       let expHits = 0;
       for (const phrase of expansions) { if (hay.includes(phrase)) expHits += 1; }
       const effHits = hits + expHits;
       const coverage = terms.length ? Math.min(1, effHits / terms.length) : 0;
-      let score = effHits * 1.5 + coverage * 2;
+      let score = effHits * 1.5 + titleHits * 1.5 + coverage * 2;
       if (expHits > 0) score += 1.5; // reward acronym-expansion matches
+      if (p.abstract) score += 0.5;  // prefer papers we can actually read, but don't exclude others
       if (typeof p.citations === "number") score += Math.min(p.citations / 500, 1.5);
       // Small recency nudge so current work isn't buried.
       const yr = parseInt(p.year, 10);
