@@ -46,10 +46,17 @@ async function getText(url, headers = {}) {
 
 // ---------- Source: Europe PMC (bio/chem, keyless) ----------
 async function europePMC(query, limit = 6) {
-  // Expand organism acronyms so the spelled-out form is searched too.
-  const toks = query.toLowerCase().split(/\s+/);
+  const toks = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
   const exp = expansionsFor(toks);
-  const q = exp.length ? `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})` : query;
+  const neutral = new Set(toks.filter((t) => SYNONYMS[t.toLowerCase()]));
+  const content = toks.filter((t) => !neutral.has(t));
+  let q = query;
+  if (neutral.size && content.length) {
+    const orgForms = [...neutral, ...exp].map((e) => (e.includes(" ") ? `"${e}"` : e));
+    q = `(${orgForms.join(" OR ")}) AND (${content.join(" OR ")})`;
+  } else if (exp.length) {
+    q = `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})`;
+  }
   const url =
     "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
     new URLSearchParams({
@@ -125,10 +132,24 @@ function parsePubmedXML(xmlText) {
 async function pubmed(query, limit = 6) {
   const tool = "&tool=cerebrum&email=noreply@example.com";
   try {
-    // Expand acronyms into an OR so PubMed matches spelled-out forms too.
-    const toks = query.toLowerCase().split(/\s+/);
+    const toks = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
     const exp = expansionsFor(toks);
-    const term = exp.length ? `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})` : query;
+    const neutral = new Set(toks.filter((t) => SYNONYMS[t.toLowerCase()]));
+    const content = toks.filter((t) => !neutral.has(t)); // topical terms
+
+    // Build a query that requires the organism AND the topical terms, so we get
+    // e.g. BSFL+plastics papers, not every BSFL paper. Organism group = acronym
+    // OR its spelled-out forms; topic group = the remaining content words (OR'd).
+    let term = query;
+    if (neutral.size && content.length) {
+      const orgForms = [...neutral, ...exp].map((e) => (e.includes(" ") ? `"${e}"` : e));
+      const orgGroup = `(${orgForms.join(" OR ")})`;
+      const topicGroup = `(${content.join(" OR ")})`;
+      term = `${orgGroup} AND ${topicGroup}`;
+    } else if (exp.length) {
+      term = `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})`;
+    }
+
     const es = await getJSON(
       "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
         new URLSearchParams({
@@ -140,7 +161,17 @@ async function pubmed(query, limit = 6) {
         }) +
         tool
     );
-    const ids = es?.esearchresult?.idlist || [];
+    let ids = es?.esearchresult?.idlist || [];
+    // If the strict organism-AND-topic query finds nothing, fall back to the
+    // plain query so we never come back empty when something does exist.
+    if (!ids.length && term !== query) {
+      const es2 = await getJSON(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
+          new URLSearchParams({ db: "pubmed", term: query, retmax: String(limit), retmode: "json", sort: "relevance" }) +
+          tool
+      );
+      ids = es2?.esearchresult?.idlist || [];
+    }
     if (!ids.length) return [];
     const xml = await getText(
       "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
@@ -859,16 +890,31 @@ export async function onRequest(context) {
       papers = [];
     }
 
-    const sourceList = papers.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations }));
-
     const hasPapers = papers.length > 0;
-    const evidence = hasPapers
+
+    // Judge whether the retrieved papers actually address the QUESTION's topic.
+    // If they don't (e.g. only off-topic organism papers came back), we don't want
+    // the model to say "the papers don't cover this" — we want a real answer from
+    // its own knowledge, clearly labeled as not-from-retrieved-sources.
+    const qToks = cleanQuery(query).toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+    const qNeutral = new Set(qToks.filter((t) => SYNONYMS[t.toLowerCase()]));
+    const qContent = qToks.filter((t) => !qNeutral.has(t));
+    const stemW = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
+    const papersHitTopic = hasPapers && qContent.length > 0
+      ? papers.some((p) => { const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase(); return qContent.some((t) => hay.includes(t) || hay.includes(stemW(t))); })
+      : hasPapers; // if no specific topic terms, any papers count
+    const weakRetrieval = hasPapers && !papersHitTopic;
+    const useEvidence = hasPapers && papersHitTopic;
+
+    const sourceList = (useEvidence ? papers : []).map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations }));
+
+    const evidence = useEvidence
       ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract || "(no abstract available for this record)"}`).join("\n\n")
       : "";
 
-    const systemPrompt = (hasPapers
+    const systemPrompt = (useEvidence
       ? "You are Cerebrum, a knowledgeable science assistant. You are given real papers as evidence. Answer using them, citing inline like [1] or [2] by paper number. You may add general-knowledge context but prefer the papers for specific claims. Interpret typos. "
-      : "You are Cerebrum, a knowledgeable, helpful assistant. Answer clearly and accurately from your own knowledge. Interpret typos. Be honest if unsure. Do not fabricate citations. ") +
+      : "You are Cerebrum, a knowledgeable science assistant. No directly relevant papers were retrieved for this question, so answer accurately and thoroughly from your own scientific knowledge. Give the real, substantive answer — do NOT say that papers are missing or that you cannot answer. Do NOT fabricate specific citations, DOIs, or author names. You may mention that the field exists and name well-known findings generally. Begin your answer with this exact sentence on its own line: \"Note: this answer is from general scientific knowledge, not from retrieved papers — verify against primary sources.\" Then answer the question fully. Interpret typos. ") +
       lengthHint +
       " Format in clean prose. Do NOT use markdown heading symbols like # or ###. You may use **bold** sparingly and blank lines between paragraphs, nothing else.";
 
@@ -880,7 +926,7 @@ export async function onRequest(context) {
         messages.push({ role: turn.role, content: String(turn.content || "").slice(0, 2000) });
       }
     }
-    messages.push({ role: "user", content: hasPapers ? `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}` : query });
+    messages.push({ role: "user", content: useEvidence ? `Papers:\n\n${evidence}\n\n---\nQuestion: ${query}` : query });
 
     let answer = "";
     let aiOK = false;
@@ -910,7 +956,7 @@ export async function onRequest(context) {
     }
 
     if (!aiOK) {
-      if (hasPapers) {
+      if (useEvidence) {
         answer = "Here are the most relevant papers I found (the answer writer is busy right now):\n\n" +
           papers.map((p, i) => `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${(p.abstract || "").slice(0, 280)}${p.abstract ? "..." : ""}`).join("\n\n");
       } else {
@@ -923,7 +969,7 @@ export async function onRequest(context) {
     // Honest by design: it can only confirm whether the cited sources SUPPORT
     // a claim, not whether the science is objectively true.
     let factCheck = null;
-    if (settings.factCheck && aiOK && hasPapers && token) {
+    if (settings.factCheck && aiOK && useEvidence && token) {
       const fcSystem = "You are a strict scientific fact-checker. You are given an ANSWER and the SOURCE ABSTRACTS it cites. Your only job is to judge whether each factual claim in the answer is actually supported by the provided abstracts. You do NOT judge whether claims are true in the real world, only whether these sources back them up. Return ONLY valid JSON, no prose, no markdown, in this exact shape: {\"overall\":\"supported\"|\"partly\"|\"unsupported\",\"summary\":\"one plain sentence\",\"claims\":[{\"claim\":\"short quote or paraphrase\",\"status\":\"supported\"|\"thin\"|\"unsupported\",\"note\":\"why, one short sentence\"}]}. Mark 'thin' when a source loosely relates but doesn't directly state the claim. Mark 'unsupported' when no provided abstract backs it. Be skeptical; flag confident claims that the abstracts don't actually establish.";
       const fcUser = `ANSWER:\n${answer}\n\nSOURCE ABSTRACTS:\n${evidence}`;
       const fcModels = ["google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free", "openrouter/free"];
@@ -974,13 +1020,13 @@ export async function onRequest(context) {
       } catch { related = []; }
     }
 
-    const dbUsed = utk ? "Databases + UTK TRACE" : hasPapers ? "Scientific databases" : "Cerebrum AI";
+    const dbUsed = utk ? "Databases + UTK TRACE" : useEvidence ? "Scientific databases" : "General knowledge";
     return new Response(JSON.stringify({
       answer,
       sources: sourceList,
       factCheck,
       related,
-      source: aiOK && hasPapers ? `${dbUsed} + OpenRouter` : aiOK ? "Cerebrum AI" : dbUsed,
+      source: aiOK && useEvidence ? `${dbUsed} + OpenRouter` : aiOK ? "General knowledge (AI)" : dbUsed,
     }), { status: 200, headers: cors });
   } catch (e) {
     return new Response(
