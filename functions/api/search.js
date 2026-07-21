@@ -121,11 +121,15 @@ function parsePubmedXML(xmlText) {
 async function pubmed(query, limit = 6) {
   const tool = "&tool=cerebrum&email=noreply@example.com";
   try {
+    // Expand acronyms into an OR so PubMed matches spelled-out forms too.
+    const toks = query.toLowerCase().split(/\s+/);
+    const exp = expansionsFor(toks);
+    const term = exp.length ? `(${query}) OR (${exp.map((e) => `"${e}"`).join(" OR ")})` : query;
     const es = await getJSON(
       "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
         new URLSearchParams({
           db: "pubmed",
-          term: query,
+          term,
           retmax: String(limit),
           retmode: "json",
           sort: "relevance",
@@ -139,7 +143,8 @@ async function pubmed(query, limit = 6) {
         new URLSearchParams({ db: "pubmed", id: ids.join(","), retmode: "xml" }) +
         tool
     );
-    return parsePubmedXML(xml).filter((r) => r.abstract);
+    // Keep papers even if the record has no stored abstract — they're still real hits.
+    return parsePubmedXML(xml);
   } catch {
     return [];
   }
@@ -259,6 +264,39 @@ async function traceUTK(query) {
 }
 
 // Strip filler/question words so only real topic terms hit the databases.
+// Common science acronyms/synonyms → expansions, so a query using an acronym
+// still matches papers that spell it out (and vice versa). Bidirectional at match time.
+const SYNONYMS = {
+  bsfl: ["black soldier fly larvae", "hermetia illucens"],
+  bsf: ["black soldier fly", "hermetia illucens"],
+  crispr: ["clustered regularly interspaced short palindromic repeats"],
+  pcr: ["polymerase chain reaction"],
+  dna: ["deoxyribonucleic acid"],
+  rna: ["ribonucleic acid"],
+  mrna: ["messenger rna"],
+  utr: ["untranslated region"],
+  gwas: ["genome wide association"],
+  qtl: ["quantitative trait loci"],
+  ros: ["reactive oxygen species"],
+  er: ["endoplasmic reticulum"],
+  atp: ["adenosine triphosphate"],
+  ecm: ["extracellular matrix"],
+  tcr: ["t cell receptor"],
+  llps: ["liquid liquid phase separation"],
+  pet: ["polyethylene terephthalate"],
+  pe: ["polyethylene"],
+  pp: ["polypropylene"],
+};
+// Build the list of extra phrases implied by a query's tokens.
+function expansionsFor(tokens) {
+  const out = [];
+  for (const t of tokens) {
+    const key = t.toLowerCase();
+    if (SYNONYMS[key]) out.push(...SYNONYMS[key]);
+  }
+  return out;
+}
+
 const STOPWORDS = new Set([
   "what","whats","how","does","do","did","is","are","was","were","the","a","an",
   "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
@@ -266,6 +304,7 @@ const STOPWORDS = new Set([
   "search","look","up","that","this","these","those","it","its","work","works",
   "happen","happens","mean","means","between","into","from","as","at","be","been",
   "get","got","i","my","we","our","use","used","using","there","their","they",
+  "responding","respond","level","levels","basis","role","effect","effects",
 ]);
 
 function cleanQuery(raw) {
@@ -661,20 +700,28 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, limit = 6, browse 
   }
 
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+  const expansions = expansionsFor(terms); // e.g. bsfl -> "black soldier fly larvae"
   const scored = merged
     .map((p) => {
       const hay = `${p.title} ${p.abstract}`.toLowerCase();
-      const hits = terms.filter((t) => hay.includes(t)).length;
-      const coverage = terms.length ? hits / terms.length : 0;
-      let score = hits + coverage * 2;
+      let hits = terms.filter((t) => hay.includes(t)).length;
+      // Any expanded phrase that appears counts as a strong hit for its acronym.
+      let expHits = 0;
+      for (const phrase of expansions) { if (hay.includes(phrase)) expHits += 1; }
+      const effHits = hits + expHits;
+      const coverage = terms.length ? Math.min(1, effHits / terms.length) : 0;
+      let score = effHits * 1.5 + coverage * 2;
+      if (expHits > 0) score += 1.5; // reward acronym-expansion matches
       if (typeof p.citations === "number") score += Math.min(p.citations / 500, 1.5);
-      return { ...p, score, coverage };
+      // Small recency nudge so current work isn't buried.
+      const yr = parseInt(p.year, 10);
+      if (yr && yr >= 2015) score += 0.3;
+      return { ...p, score, coverage, effHits };
     })
-    // Browse mode is more permissive so it can show the full ranked list.
-    .filter((p) => {
-      if (browse) return terms.length ? p.coverage > 0 : true;
-      return terms.length <= 1 ? p.coverage > 0 : p.coverage >= 0.5;
-    })
+    // PERMISSIVE: keep any paper with at least one real hit (term or expansion).
+    // We rank by score and slice, rather than hard-excluding on coverage, so
+    // known-relevant papers with sparse abstracts are never silently dropped.
+    .filter((p) => (terms.length === 0 ? true : p.effHits > 0))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
@@ -788,7 +835,7 @@ export async function onRequest(context) {
 
     const hasPapers = papers.length > 0;
     const evidence = hasPapers
-      ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract}`).join("\n\n")
+      ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\nAbstract: ${p.abstract || "(no abstract available for this record)"}`).join("\n\n")
       : "";
 
     const systemPrompt = (hasPapers
@@ -837,7 +884,7 @@ export async function onRequest(context) {
     if (!aiOK) {
       if (hasPapers) {
         answer = "Here are the most relevant papers I found (the answer writer is busy right now):\n\n" +
-          papers.map((p, i) => `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${p.abstract.slice(0, 280)}...`).join("\n\n");
+          papers.map((p, i) => `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${(p.abstract || "").slice(0, 280)}${p.abstract ? "..." : ""}`).join("\n\n");
       } else {
         answer = "The answer service is temporarily unavailable. Please try again in a moment.";
       }
