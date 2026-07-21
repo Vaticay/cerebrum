@@ -379,6 +379,8 @@ function App() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [zoteroOpen, setZoteroOpen] = useState(false);
+  const [srcSort, setSrcSort] = useState("relevance"); // relevance | date | database
+  const [srcFilter, setSrcFilter] = useState("");
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(() => getCookie("cb_fc") === "1");
@@ -399,7 +401,7 @@ function App() {
   const P = PALETTES[paletteName] || PALETTES.Light;
   const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (ACCENTS[accentName] || ACCENTS.Emerald);
   const at = accentText(accent);
-  const S = makeStyles(P, accent, at);
+  const S = makeStyles(P, accent, at, isMobile);
   const sfx = () => { if (!mutedRef.current) Audio.click(); };
 
   const ask = useCallback(async (q, opts = {}) => {
@@ -473,15 +475,68 @@ function App() {
   const started = turns.length > 0 || busy;
   const exportList = saved.length ? saved : allSources;
 
+  // Sort + filter + group the sources.
+  const filteredSources = allSources.filter((s) => {
+    if (!srcFilter.trim()) return true;
+    const f = srcFilter.toLowerCase();
+    return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f);
+  });
+  const sortedSources = [...filteredSources].sort((a, b) => {
+    if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0);
+    if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || "");
+    return (b.relevance ?? 0) - (a.relevance ?? 0); // relevance
+  });
+  // Group when sorting by database or date.
+  const grouped = (() => {
+    if (srcSort === "database") {
+      const g = {};
+      for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); }
+      return Object.entries(g);
+    }
+    if (srcSort === "date") {
+      const g = {};
+      for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); }
+      return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0));
+    }
+    return null; // relevance = flat list
+  })();
+
+  const relColor = (r) => r >= 75 ? "#10b981" : r >= 45 ? "#d9a520" : P.faint;
+  const typeColor = (t) => t === "Preprint" ? "#d97706" : t === "Reference" ? "#7c3aed" : t === "Dataset" ? "#0284c7" : accent;
+
+  const SourceCard = (s, i) => (
+    <div key={i} style={{ ...S.srcItem, background: hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent" }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, flexWrap: "wrap" }}>
+        {s.type && <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.type}</span>}
+        {typeof s.relevance === "number" && <span style={{ fontSize: 9.5, fontWeight: 700, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.relevance}% match</span>}
+        {s.year && <span style={{ fontSize: 10, color: P.faint }}>{s.year}</span>}
+      </div>
+      <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title || s.url}</a>
+      <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} citations`}</div>
+      <div style={S.srcRow}>
+        <button style={{ ...S.chipMini, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}>{isSaved(s) ? "★ Saved" : "☆ Save"}</button>
+        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
+      </div>
+    </div>
+  );
+
   const SourcesInner = (
     <>
       <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
       {allSources.length > 0 && (
-        <div style={S.srcActions}>
-          <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
-          <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.bib", toBibTeX(exportList)); }}>BibTeX</button>
-          <button style={S.sBtnP} onClick={() => { sfx(); setZoteroOpen(!zoteroOpen); }}>Zotero</button>
-        </div>
+        <>
+          <div style={S.srcActions}>
+            <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
+            <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.bib", toBibTeX(exportList)); }}>BibTeX</button>
+            <button style={S.sBtnP} onClick={() => { sfx(); setZoteroOpen(!zoteroOpen); }}>Zotero</button>
+          </div>
+          <input style={S.srcFilterInput} placeholder="Filter sources…" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
+          <div style={S.sortTabs}>
+            {[["relevance", "Relevance"], ["date", "Date"], ["database", "Type"]].map(([k, label]) => (
+              <button key={k} style={{ ...S.sortTab, ...(srcSort === k ? S.sortTabActive : {}) }} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
+            ))}
+          </div>
+        </>
       )}
       {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
       {zoteroOpen && (
@@ -494,16 +549,13 @@ function App() {
       )}
       <div style={S.srcList}>
         {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
-          allSources.map((s, i) => (
-            <div key={i} style={{ ...S.srcItem, background: hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent" }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
-              <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title || s.url}</a>
-              <div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} citations`}</div>
-              <div style={S.srcRow}>
-                <button style={{ ...S.chipMini, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}>{isSaved(s) ? "★ Saved" : "☆ Save"}</button>
-                {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
-              </div>
+          sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
+          grouped ? grouped.map(([label, items]) => (
+            <div key={label}>
+              <div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>
+              {items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}
             </div>
-          ))}
+          )) : sortedSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
       </div>
     </>
   );
@@ -515,11 +567,11 @@ function App() {
         <div style={S.headInner}>
           <div style={S.brandRow} onClick={() => { sfx(); newSession(); }}><Mark size={22} accent={accent} glow={P.dark} /><span style={S.brand}>Cerebrum</span></div>
           <div style={S.headActions}>
-            <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>
+            {!isMobile && <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>}
             <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
-            <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>Saved{saved.length > 0 ? ` · ${saved.length}` : ""}</button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>{isMobile ? "★" : "Saved"}{saved.length > 0 ? (isMobile ? ` ${saved.length}` : ` · ${saved.length}`) : ""}</button>
             <button style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
-            <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>Settings</button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>{isMobile ? "⚙" : "Settings"}</button>
           </div>
         </div>
       </header>
@@ -719,8 +771,9 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
   );
 }
 
-function makeStyles(P, accent, at) {
+function makeStyles(P, accent, at, isMobile = false) {
   const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  const pad = isMobile ? 16 : 24;
   return {
     gate: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: P.bg, padding: 20, fontFamily: font, position: "relative", overflow: "hidden" },
     gateGlow: { position: "absolute", width: 600, height: 600, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.14 : 0.08)}, transparent 68%)`, top: "20%", filter: "blur(30px)", pointerEvents: "none" },
@@ -733,38 +786,38 @@ function makeStyles(P, accent, at) {
     page: { minHeight: "100vh", height: "100vh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
     header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 20 },
-    headInner: { maxWidth: 1080, margin: "0 auto", padding: "0 24px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" },
+    headInner: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, height: 58, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
     brand: { fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", color: P.ink },
     headActions: { display: "flex", alignItems: "center", gap: 6 },
     cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontFamily: font, boxShadow: P.shadowSm },
     kbd: { fontSize: 11, fontFamily: font, color: P.faint, background: P.bg, border: `1px solid ${P.line2}`, borderRadius: 5, padding: "1px 6px", fontWeight: 550 },
-    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13.5, fontWeight: 550, fontFamily: font, letterSpacing: "-0.01em" },
+    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px 8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: isMobile ? 14 : 13.5, fontWeight: 550, fontFamily: font, letterSpacing: "-0.01em" },
     iconBtn: { background: "transparent", border: "none", color: P.ink2, width: 36, height: 36, borderRadius: 8, cursor: "pointer", fontSize: 15 },
     scroll: { flex: 1, overflowY: "auto" },
-    container: { maxWidth: 1080, margin: "0 auto", padding: "0 24px", minHeight: "100%", display: "flex", flexDirection: "column" },
+    container: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px 0 60px", position: "relative" },
     heroGlow: { position: "absolute", width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.1 : 0.06)}, transparent 65%)`, top: "8%", filter: "blur(40px)", pointerEvents: "none" },
     heroMark: { marginBottom: 26, position: "relative" },
-    heroTitle: { fontSize: 68, fontWeight: 750, letterSpacing: "-0.04em", lineHeight: 1, color: P.ink, marginBottom: 12, position: "relative" },
+    heroTitle: { fontSize: isMobile ? 46 : 68, fontWeight: 750, letterSpacing: "-0.04em", lineHeight: 1, color: P.ink, marginBottom: 12, position: "relative" },
     heroSub: { fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em", position: "relative" },
-    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 580, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, padding: "7px 7px 7px 14px", boxShadow: P.shadow, transition: "all 0.2s", position: "relative" },
+    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 580, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, padding: isMobile ? "6px 6px 6px 12px" : "7px 7px 7px 14px", boxShadow: P.shadow, transition: "all 0.2s", position: "relative" },
     searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 3px ${withAlpha(accent, 0.12)}` },
     searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
-    searchBtn: { fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", padding: "11px 20px", borderRadius: 9, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 8px ${withAlpha(accent, 0.3)}` },
+    searchBtn: { fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", padding: isMobile ? "11px 14px" : "11px 20px", borderRadius: 9, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 8px ${withAlpha(accent, 0.3)}` },
     chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 22, maxWidth: 600, position: "relative" },
     chip: { fontSize: 13.5, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "9px 15px", cursor: "pointer", transition: "all 0.18s", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
     chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
-    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: "36px 0 20px", flex: 1 },
+    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
     workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
     turn: { marginBottom: 40 },
     qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
     qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
-    headline: { fontWeight: 700, fontSize: 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
-    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "22px 26px", boxShadow: P.shadow },
+    headline: { fontWeight: 700, fontSize: isMobile ? 21 : 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
+    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: isMobile ? "18px 18px" : "22px 26px", boxShadow: P.shadow },
     byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
@@ -779,6 +832,11 @@ function makeStyles(P, accent, at) {
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, fontWeight: 650, color: P.ink, marginBottom: 14, letterSpacing: "-0.01em" },
     srcCount: { fontSize: 11.5, fontWeight: 600, color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 20 },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
+    srcFilterInput: { width: "100%", padding: "8px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: font, marginBottom: 8 },
+    sortTabs: { display: "flex", gap: 3, background: P.bg, padding: 3, borderRadius: 9, marginBottom: 14, border: `1px solid ${P.line}` },
+    sortTab: { flex: 1, padding: "6px", fontSize: 11.5, background: "transparent", color: P.ink2, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: font, fontWeight: 550, transition: "all 0.15s" },
+    sortTabActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
+    srcGroupLabel: { fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: accent, margin: "14px 0 8px", paddingBottom: 5, borderBottom: `1px solid ${P.line}` },
     sBtn: { flex: 1, fontSize: 12, padding: "8px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: font, fontWeight: 550 },
     sBtnP: { flex: 1, fontSize: 12, padding: "8px", background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: font },
     savedNote: { fontSize: 11.5, color: accent, marginBottom: 12 },
