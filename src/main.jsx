@@ -4,6 +4,11 @@ import { createRoot } from "react-dom/client";
 function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} }
 function getCookie(k) { try { const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : null; } catch { return null; } }
 
+// Platform-aware modifier label: ⌘ on Mac, Ctrl elsewhere.
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
+const MOD = IS_MAC ? "⌘" : "Ctrl";
+const kbdLabel = (key) => `${MOD}${IS_MAC ? "" : "+"}${key}`;
+
 const SUGGESTION_POOL = [
   "How does CRISPR-Cas9 achieve target specificity?",
   "Mechanism of quorum sensing in bacteria",
@@ -234,6 +239,128 @@ function useIsMobile() {
   return m;
 }
 
+function Intro({ accent, P, onEnter }) {
+  const canvasRef = useRef(null);
+  const [phase, setPhase] = useState("idle"); // idle -> assembling -> done
+  const rafRef = useRef(0);
+  const startRef = useRef(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => { canvas.width = canvas.offsetWidth * dpr; canvas.height = canvas.offsetHeight * dpr; };
+    resize(); window.addEventListener("resize", resize);
+    const ctx = canvas.getContext("2d");
+
+    // Build a molecule: nodes on a lattice + bonds between near ones.
+    const CX = () => canvas.width / 2, CY = () => canvas.height / 2;
+    const R = () => Math.min(canvas.width, canvas.height) * 0.26;
+    const N = 22;
+    const nodes = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2 * 3 + i;
+      const rr = R() * (0.35 + 0.65 * ((i * 7) % N) / N);
+      const tx = Math.cos(a) * rr, ty = Math.sin(a) * rr * 0.72;
+      nodes.push({
+        tx, ty,
+        // start off-screen from random directions
+        sx: (Math.random() - 0.5) * canvas.width * 1.6,
+        sy: (Math.random() - 0.5) * canvas.height * 1.6,
+        r: 2.2 * dpr + Math.random() * 2.4 * dpr,
+        delay: Math.random() * 0.35,
+      });
+    }
+    const bonds = [];
+    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+      const dx = nodes[i].tx - nodes[j].tx, dy = nodes[i].ty - nodes[j].ty;
+      if (Math.hypot(dx, dy) < R() * 0.55) bonds.push([i, j]);
+    }
+
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
+    const [ar, ag, ab] = rgb;
+
+    function draw(now) {
+      if (!startRef.current) startRef.current = now;
+      const elapsed = (now - startRef.current) / 1000;
+      const assembling = phase === "assembling";
+      // In idle: gentle drift near target. In assembling: converge hard, then spin.
+      const prog = assembling ? Math.min(1, elapsed / 1.1) : Math.min(1, elapsed / 2.2);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const spin = (assembling ? elapsed * 1.4 : elapsed * 0.25);
+      const cx = CX(), cy = CY();
+
+      // compute positions
+      const pos = nodes.map((n, i) => {
+        const t = ease(Math.max(0, Math.min(1, (prog - n.delay) / (1 - n.delay))));
+        const baseX = n.sx * (1 - t) + n.tx * t;
+        const baseY = n.sy * (1 - t) + n.ty * t;
+        // rotate around center once assembled-ish
+        const ca = Math.cos(spin), sa = Math.sin(spin);
+        const rx = baseX * ca - baseY * sa;
+        const ry = baseX * sa + baseY * ca;
+        return { x: cx + rx, y: cy + ry, t };
+      });
+
+      // bonds
+      for (const [i, j] of bonds) {
+        const a = pos[i], b = pos[j]; const alpha = Math.min(a.t, b.t);
+        if (alpha <= 0.02) continue;
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.28 * alpha})`;
+        ctx.lineWidth = 1.1 * dpr;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+      // nodes
+      for (let i = 0; i < pos.length; i++) {
+        const p = pos[i]; if (p.t <= 0.02) continue;
+        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, nodes[i].r * 4);
+        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.5 * p.t})`);
+        glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(p.x, p.y, nodes[i].r * 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${p.t})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, nodes[i].r, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // flash + finish on assembling
+      if (assembling && elapsed >= 1.1) {
+        const f = Math.min(1, (elapsed - 1.1) / 0.35);
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.5 * (1 - Math.abs(f - 0.5) * 2)})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (f >= 1) { cancelAnimationFrame(rafRef.current); onEnter(); return; }
+      }
+      rafRef.current = requestAnimationFrame(draw);
+    }
+    rafRef.current = requestAnimationFrame(draw);
+    return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener("resize", resize); };
+  }, [phase, accent, onEnter]);
+
+  const go = () => { if (phase !== "idle") return; startRef.current = 0; setPhase("assembling"); };
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Enter") go(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase]);
+
+  const bg = P.dark ? "radial-gradient(circle at 50% 45%, " + withAlpha(accent, 0.08) + ", " + P.bg + " 70%)" : "radial-gradient(circle at 50% 45%, " + withAlpha(accent, 0.05) + ", " + P.bg + " 70%)";
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, fontFamily: "'Inter', -apple-system, sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.9 }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center", transition: "opacity 0.5s, transform 0.5s", opacity: phase === "assembling" ? 0 : 1, transform: phase === "assembling" ? "scale(0.94)" : "scale(1)" }}>
+        <div style={{ marginBottom: 22 }}><Mark size={54} accent={accent} glow={P.dark} /></div>
+        <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, marginBottom: 14 }}>A Research Instrument</div>
+        <div style={{ fontSize: 52, fontWeight: 750, letterSpacing: "-0.035em", color: P.ink, marginBottom: 12, lineHeight: 1 }}>Cerebrum</div>
+        <div style={{ fontSize: 17, color: P.ink2, marginBottom: 34, letterSpacing: "-0.01em" }}>Peer-reviewed answers, on demand.</div>
+        <button onClick={go} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}`, letterSpacing: "-0.01em" }}>
+          Initialize <span>→</span>
+        </button>
+        <div style={{ fontSize: 12.5, color: P.faint, marginTop: 18 }}>No account · nothing stored on a server</div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
@@ -313,9 +440,10 @@ function App() {
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
-      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); }
-      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen(true); }
+      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); setSavedOpen(false); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -327,8 +455,9 @@ function App() {
   async function doZotero() { setZMsg(""); const list = saved.length ? saved : allSources; if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; } try { await saveToZotero(list, zKey.trim(), zUser.trim()); setZMsg(`Saved ${list.length} items.`); } catch (e) { setZMsg(`Failed: ${e.message}`); } }
 
   const commands = [
-    { label: "New investigation", hint: "⌘J", run: () => newSession() },
-    { label: "Open settings", hint: "⌘/", run: () => { setCmdOpen(false); setSettingsOpen(true); } },
+    { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
+    { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
+    { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Toggle light / dark", run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
     { label: factCheck ? "Turn off fact-check" : "Turn on fact-check", run: () => { setFactCheck(!factCheck); setCmdOpen(false); } },
@@ -338,21 +467,7 @@ function App() {
   const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
 
   if (!entered) {
-    return (
-      <div style={S.gate}>
-        <div style={S.gateGlow} />
-        <div style={S.gateInner} className="cb-gate">
-          <div style={{ marginBottom: 22 }}><Mark size={52} accent={accent} glow={P.dark} /></div>
-          <div style={S.gateKicker}>A Research Instrument</div>
-          <div style={S.gateTitle}>Cerebrum</div>
-          <div style={S.gateSub}>Your research sidekick. Ask the scientific literature anything, fourteen databases, one considered answer, every claim cited.</div>
-          <button style={S.gateBtn} onClick={() => { sfx(); setEntered(true); }} onMouseEnter={() => setHover("gate")} onMouseLeave={() => setHover("")}>
-            <span>Enter</span><span style={{ transform: hover === "gate" ? "translateX(3px)" : "none", transition: "transform .2s", display: "inline-block" }}>→</span>
-          </button>
-          <div style={S.gateNote}>No account · nothing stored on a server · press ⌘K anytime</div>
-        </div>
-      </div>
-    );
+    return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} />;
   }
 
   const started = turns.length > 0 || busy;
@@ -400,7 +515,7 @@ function App() {
         <div style={S.headInner}>
           <div style={S.brandRow} onClick={() => { sfx(); newSession(); }}><Mark size={22} accent={accent} glow={P.dark} /><span style={S.brand}>Cerebrum</span></div>
           <div style={S.headActions}>
-            <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>⌘K</kbd></button>
+            <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>
             <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>Saved{saved.length > 0 ? ` · ${saved.length}` : ""}</button>
             <button style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
@@ -598,7 +713,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         <div style={S.setNote}>Plays while searching. Tap a style to preview it.</div>
         <button style={S.clearAll} onClick={() => { setSessions([]); setSaved([]); }}>Clear sessions & saved</button>
         <button style={S.modalClose} onClick={close}>Done</button>
-        <div style={S.shortcuts}>⌘K search · ⌘J new · ⌘/ settings · esc close</div>
+        <div style={S.shortcuts}>{kbdLabel("K")} search · {kbdLabel("J")} new · {kbdLabel("B")} saved · {kbdLabel("/")} settings · esc close</div>
       </div>
     </div>
   );
