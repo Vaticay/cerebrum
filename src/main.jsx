@@ -342,12 +342,12 @@ const FAQ_DATA = [
   {
     category: "Features & Output",
     q: "Where do the Related Videos come from?",
-    a: "Cerebrum uses a keyless public Invidious API wrapper to query educational platforms for university lectures, laboratory protocols, and scientific demonstrations relevant to your search query, filtering out non-scholarly vlogs."
+    a: "Cerebrum uses a keyless public Invidious and Piped API wrapper to query educational platforms for university lectures, laboratory protocols, and scientific demonstrations relevant to your search query, filtering out non-scholarly vlogs."
   },
   {
     category: "Privacy & Tech",
     q: "Is my search history saved on a server?",
-    a: "No. Your chat history, search tokens, and saved articles are encrypted client-side and stored securely in your browser's local storage (`localStorage`). Nothing is tracked or retained on a central database."
+    a: "No. Your chat history, search tokens, and saved articles are stored securely in your browser's local storage (`localStorage`). Nothing is tracked or retained on a central database."
   }
 ];
 
@@ -615,7 +615,16 @@ export default function App() {
       rawAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
       rawAnswer = rawAnswer.replace(/^.*?(Here is the answer|Protons are|Note:).*?[\r\n]+/i, (match) => match.includes("Note:") ? match : "").trim();
 
-      const nt = { q: question, answer: rawAnswer, sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
+      const nt = { 
+        q: question, 
+        answer: rawAnswer, 
+        sources: data.sources || [], 
+        videos: data.videos || [], 
+        source: data.source || "", 
+        factCheck: data.factCheck || null, 
+        related: data.related || [], 
+        fresh: typewriter 
+      };
       setTurns((t) => [...t, nt]);
       setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
       if (!mutedRef.current) Audio.pop();
