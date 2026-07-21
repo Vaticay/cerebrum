@@ -1005,13 +1005,25 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
 
       return { ...p, score, contentHits, contentCoverage, organismPresent };
     })
-    // Relevance gate: if the query has topical terms, a paper MUST hit at least one.
-    // With organism words now neutral, a dog-food BSFL paper (0 topical hits) is
-    // correctly dropped for a "plastics transcriptional" query.
+    // Relevance gate. Two rules, so an off-topic paper that merely shares one generic
+    // word (e.g. an ANT paper mentioning "transcription" for a BSFL-plastics query)
+    // cannot pass:
+    //   1. If the query names an organism (neutral words present), a paper MUST contain
+    //      that organism AND hit at least one topic word. An ant paper has no BSFL term,
+    //      so it is dropped even if it says "transcription".
+    //   2. If the query names no organism, require hitting the topic (>=1, or >=half when
+    //      there are several topic words) so a single generic-word match isn't enough.
     .filter((p) => {
       if (terms.length === 0) return true;
-      if (contentTerms.length > 0) return p.contentHits > 0;   // must touch the actual topic
-      return p.organismPresent;                                 // organism-only query
+      const queryNamesOrganism = neutralTerms.size > 0;
+      if (queryNamesOrganism) {
+        // must be about the right organism AND touch the topic
+        return p.organismPresent && (contentTerms.length === 0 || p.contentHits > 0);
+      }
+      if (contentTerms.length === 0) return true;
+      if (contentTerms.length <= 2) return p.contentHits > 0;
+      // several topic words: require at least ~40% coverage to avoid single-word flukes
+      return p.contentHits / contentTerms.length >= 0.4;
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
@@ -1147,9 +1159,20 @@ export async function onRequest(context) {
     ["black", "soldier", "larvae", "larva", "fly", "hermetia", "illucens"].forEach((w) => { if (qToks.includes(w)) qNeutral.add(w); });
     const qContent = qToks.filter((t) => !qNeutral.has(t));
     const stemW = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
-    const papersHitTopic = hasPapers && qContent.length > 0
-      ? papers.some((p) => { const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase(); return qContent.some((t) => hay.includes(t) || hay.includes(stemW(t))); })
-      : hasPapers; // if no specific topic terms, any papers count
+    const queryNamesOrganism = qNeutral.size > 0;
+    // A paper "hits the topic" only if it is about the right ORGANISM (when the query
+    // names one) AND touches a topic word. This stops an ant paper that merely says
+    // "transcription" from being treated as a valid BSFL-plastics result.
+    const paperOnTopic = (p) => {
+      const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
+      const hitsTopic = qContent.length === 0 || qContent.some((t) => hay.includes(t) || hay.includes(stemW(t)));
+      if (!queryNamesOrganism) return hitsTopic;
+      const orgHere = [...qNeutral].some((w) => hay.includes(w)) || qExp.some((ph) => hay.includes(ph));
+      return orgHere && hitsTopic;
+    };
+    const papersHitTopic = hasPapers && (qContent.length > 0 || queryNamesOrganism)
+      ? papers.some(paperOnTopic)
+      : hasPapers; // no specific topic or organism → any papers count
     const weakRetrieval = hasPapers && !papersHitTopic;
     let useEvidence = hasPapers && papersHitTopic;
 
