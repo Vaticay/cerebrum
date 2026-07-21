@@ -1,6 +1,6 @@
 // Cerebrum backend — Cloudflare Pages Function.
-// Gathers real papers from scholarly databases, then asks OpenRouter to write
-// a grounded, cited answer. Runs on the edge (no CORS problems).
+// Gathers real papers from scholarly databases, then generates a grounded answer
+// using OpenRouter, Cloudflare Workers AI (keyless), or Pollinations AI (keyless).
 
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
@@ -15,6 +15,8 @@ function decodeInverted(inv) {
   return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
+// Per-call timeout (ms). Main sources get 6s; enrichment calls pass a shorter one
+// so a slow extra never stalls the whole search.
 async function getJSON(url, headers = {}, timeoutMs = 6000) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
@@ -167,6 +169,7 @@ function firstMatch(block, re) {
   const m = block.match(re);
   return m ? m[1] : "";
 }
+
 function parsePubmedXML(xmlText) {
   const arts = xmlText.match(/<PubmedArticle\b[\s\S]*?<\/PubmedArticle>/g) || [];
   return arts.map((a) => {
@@ -204,6 +207,7 @@ function parsePubmedXML(xmlText) {
     };
   });
 }
+
 async function pubmed(query, limit = 6, apiKey = "") {
   const keyParam = apiKey ? `&api_key=${apiKey}` : "";
   const tool = "&tool=cerebrum&email=noreply@example.com" + keyParam;
@@ -1265,16 +1269,16 @@ export async function onRequest(context) {
     let answer = "";
     let aiOK = false;
 
-    const token = env.OPENROUTER_API_KEY;
-    if (token) {
+    // --- 1. OPENROUTER API (Primary using user's OPENROUTER_API_KEY) ---
+    const openRouterToken = env.OPENROUTER_API_KEY;
+    if (openRouterToken) {
       const models = [
-        "openrouter/free",
-        "meta-llama/llama-3.3-70b-instruct:free",
         "google/gemini-2.0-flash-exp:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "openrouter/free",
         "qwen/qwen-2.5-72b-instruct:free",
-        "mistralai/mistral-small-3.1-24b-instruct:free",
         "deepseek/deepseek-chat:free",
-        "meta-llama/llama-3.1-8b-instruct:free",
+        "mistralai/mistral-small-3.1-24b-instruct:free"
       ];
       for (const model of models) {
         try {
@@ -1282,7 +1286,7 @@ export async function onRequest(context) {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
+              Authorization: `Bearer ${openRouterToken}`,
               "HTTP-Referer": "https://cerebrum.pages.dev",
               "X-Title": "Cerebrum",
             },
@@ -1291,10 +1295,9 @@ export async function onRequest(context) {
           if (r.ok) {
             const j = await r.json();
             let c = j?.choices?.[0]?.message?.content?.trim();
-            if (c) { 
+            if (c) {
               c = c.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
               c = c.replace(/^(Okay, let me think|Now we need to|I will now|Here is the answer|First, I'll).*?[\r\n]+/i, '').trim();
-
               if (c) { answer = c; aiOK = true; break; }
             }
           }
@@ -1302,8 +1305,13 @@ export async function onRequest(context) {
       }
     }
 
+    // --- 2. CLOUDFLARE WORKERS AI FALLBACK (100% Keyless, Free, Built-in Edge Model) ---
     if (!aiOK && env.AI && typeof env.AI.run === "function") {
-      const cfModels = ["@cf/meta/llama-3.1-8b-instruct", "@cf/meta/llama-3-8b-instruct", "@cf/mistral/mistral-7b-instruct-v0.1"];
+      const cfModels = [
+        "@cf/meta/llama-3.1-8b-instruct",
+        "@cf/meta/llama-3-8b-instruct",
+        "@cf/mistral/mistral-7b-instruct-v0.1"
+      ];
       for (const m of cfModels) {
         try {
           const out = await env.AI.run(m, { messages, max_tokens: Math.min(maxTokens, 1024) });
@@ -1313,60 +1321,82 @@ export async function onRequest(context) {
       }
     }
 
+    // --- 3. POLLINATIONS KEYLESS REST API FALLBACK (100% Free Public AI Endpoint) ---
+    if (!aiOK) {
+      try {
+        const pRes = await fetch("https://text.pollinations.ai/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages,
+            model: "openai",
+            code: "be-quiet"
+          })
+        });
+        if (pRes.ok) {
+          let c = await pRes.text();
+          if (c) {
+            c = c.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+            c = c.replace(/^(Okay, let me think|Now we need to|I will now|Here is the answer|First, I'll).*?[\r\n]+/i, '').trim();
+            if (c) { answer = c; aiOK = true; }
+          }
+        }
+      } catch {}
+    }
+
     if (!aiOK) {
       if (useEvidence) {
-        answer = "Here are the most relevant papers I found (the answer writer is busy right now):\n\n" +
-          papers.map((p, i) => `[${i + 1}] ${p.title}\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${(p.abstract || "").slice(0, 280)}${p.abstract ? "..." : ""}`).join("\n\n");
+        answer = "Here are the most relevant papers I found:\n\n" +
+          papers.map((p, i) => `[${i + 1}] **${p.title}**\n${p.journal}${p.year ? `, ${p.year}` : ""}. ${(p.abstract || "").slice(0, 280)}${p.abstract ? "..." : ""}`).join("\n\n");
       } else {
-        answer = "The answer service is temporarily unavailable. Please try again in a moment.";
+        answer = "The answer service is temporarily unavailable. Please verify your OpenRouter API key setting.";
       }
     }
 
     async function runFactCheck() {
-      if (!(settings.factCheck && aiOK && useEvidence && token)) return null;
-      const fcSystem = "You are a strict scientific fact-checker. You are given an ANSWER and the SOURCE ABSTRACTS it cites. Your only job is to judge whether each factual claim in the answer is actually supported by the provided abstracts. You do NOT judge whether claims are true in the real world, only whether these sources back them up. Return ONLY valid JSON, no prose, no markdown, in this exact shape: {\"overall\":\"supported\"|\"partly\"|\"unsupported\",\"summary\":\"one plain sentence\",\"claims\":[{\"claim\":\"short quote or paraphrase\",\"status\":\"supported\"|\"thin\"|\"unsupported\",\"note\":\"why, one short sentence\"}]}. Mark 'thin' when a source loosely relates but doesn't directly state the claim. Mark 'unsupported' when no provided abstract backs it. Be skeptical; flag confident claims that the abstracts don't actually establish.";
+      if (!(settings.factCheck && aiOK && useEvidence && openRouterToken)) return null;
+      const fcSystem = "You are a strict scientific fact-checker. You are given an ANSWER and the SOURCE ABSTRACTS it cites. Your only job is to judge whether each factual claim in the answer is actually supported by the provided abstracts. Return ONLY valid JSON in this exact shape: {\"overall\":\"supported\"|\"partly\"|\"unsupported\",\"summary\":\"one plain sentence\",\"claims\":[{\"claim\":\"short quote\",\"status\":\"supported\"|\"thin\"|\"unsupported\",\"note\":\"why\"}]}";
       const fcUser = `ANSWER:\n${answer}\n\nSOURCE ABSTRACTS:\n${evidence}`;
-      const fcModels = ["google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free", "openrouter/free"];
-      for (const model of fcModels) {
-        try {
-          const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "HTTP-Referer": "https://cerebrum.pages.dev", "X-Title": "Cerebrum" },
-            body: JSON.stringify({ model, temperature: 0, max_tokens: 700, messages: [{ role: "system", content: fcSystem }, { role: "user", content: fcUser }] }),
-          });
-          if (r.ok) {
-            const j = await r.json();
-            let c = j?.choices?.[0]?.message?.content?.trim() || "";
-            c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
-            try { const parsed = JSON.parse(c); if (parsed && parsed.overall) return parsed; } catch {}
-          }
-        } catch {}
-      }
+      try {
+        const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openRouterToken}` },
+          body: JSON.stringify({ model: "google/gemini-2.0-flash-exp:free", temperature: 0, max_tokens: 700, messages: [{ role: "system", content: fcSystem }, { role: "user", content: fcUser }] }),
+        });
+        if (r.ok) {
+          const j = await r.json();
+          let c = j?.choices?.[0]?.message?.content?.trim() || "";
+          c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
+          return JSON.parse(c);
+        }
+      } catch {}
       return null;
     }
 
     async function runRelated() {
-      if (!(aiOK && token)) return [];
+      if (!aiOK) return [];
       try {
-        const rq = await fetch("[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "HTTP-Referer": "[https://cerebrum.pages.dev](https://cerebrum.pages.dev)", "X-Title": "Cerebrum" },
-          body: JSON.stringify({
-            model: "google/gemini-2.0-flash-exp:free",
-            temperature: 0.5,
-            max_tokens: 160,
-            messages: [
-              { role: "system", content: "Given a science question and its answer, propose exactly 3 natural follow-up questions a curious researcher would ask next. Return ONLY a JSON array of 3 short strings, no prose, no markdown. Example: [\"...\",\"...\",\"...\"]" },
-              { role: "user", content: `Question: ${query}\n\nAnswer: ${answer.slice(0, 1200)}` },
-            ],
-          }),
-        });
-        if (rq.ok) {
-          const j = await rq.json();
-          let c = j?.choices?.[0]?.message?.content?.trim() || "";
-          c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
-          const arr = JSON.parse(c);
-          if (Array.isArray(arr)) return arr.filter((x) => typeof x === "string").slice(0, 3);
+        if (openRouterToken) {
+          const rq = await fetch("[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${openRouterToken}` },
+            body: JSON.stringify({
+              model: "google/gemini-2.0-flash-exp:free",
+              temperature: 0.5,
+              max_tokens: 160,
+              messages: [
+                { role: "system", content: "Given a science question and its answer, propose exactly 3 natural follow-up questions a curious researcher would ask next. Return ONLY a JSON array of 3 short strings. Example: [\"...\",\"...\",\"...\"]" },
+                { role: "user", content: `Question: ${query}\n\nAnswer: ${answer.slice(0, 1200)}` },
+              ],
+            }),
+          });
+          if (rq.ok) {
+            const j = await rq.json();
+            let c = j?.choices?.[0]?.message?.content?.trim() || "";
+            c = c.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
+            const arr = JSON.parse(c);
+            if (Array.isArray(arr)) return arr.filter((x) => typeof x === "string").slice(0, 3);
+          }
         }
       } catch {}
       return [];
@@ -1381,7 +1411,7 @@ export async function onRequest(context) {
       videos,
       factCheck,
       related,
-      source: aiOK && useEvidence ? `${dbUsed} + OpenRouter` : aiOK && useWeb ? `${dbUsed} + AI` : aiOK ? "General knowledge (AI)" : dbUsed,
+      source: aiOK && useEvidence ? `${dbUsed} + AI` : aiOK && useWeb ? `${dbUsed} + AI` : aiOK ? "General knowledge (AI)" : dbUsed,
     }), { status: 200, headers: cors });
   } catch (e) {
     return new Response(
