@@ -75,7 +75,6 @@ const SUGGESTION_POOL = [
   "How do prions propagate misfolding?",
   "What drives protein phase separation?",
 ];
-
 function pick(n = 3) {
   const a = [...SUGGESTION_POOL];
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
@@ -105,7 +104,6 @@ function toRIS(sources) {
     return lines.join("\n");
   }).join("\n");
 }
-
 function toBibTeX(sources) {
   return sources.map((s, i) => {
     const fields = [];
@@ -117,105 +115,106 @@ function toBibTeX(sources) {
     return `@article{cerebrum${s.year || ""}_${i + 1},\n${fields.join(",\n")}\n}`;
   }).join("\n\n");
 }
-
 function download(fn, text) { const blob = new Blob([text], { type: "text/plain" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fn; a.click(); URL.revokeObjectURL(a.href); }
-
 async function saveToZotero(sources, apiKey, userId) {
   const items = sources.map((s) => ({ itemType: "journalArticle", title: s.title || "", creators: (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean).map((name) => ({ creatorType: "author", name })), publicationTitle: s.journal || "", date: String(s.year || ""), url: s.url || "" }));
   const res = await fetch(`https://api.zotero.org/users/${userId}/items`, { method: "POST", headers: { "Zotero-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify(items) });
   if (!res.ok) throw new Error(`Zotero ${res.status}`);
   return res.json();
 }
-
 function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
-// ---------- Fully Functional Multi-Engine Video Discovery Engine ----------
+// ---------- Precision-Filtered Video Discovery Engine ----------
+const VIDEO_STOPWORDS = new Set([
+  "what","whats","how","does","do","did","is","are","was","were","the","a","an",
+  "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
+  "why","when","where","which","who","can","you","please","give","show","find",
+  "search","look","up","that","this","these","those","it","its","work","works"
+]);
+
 async function fetchVideosMultiSource(query) {
-  const clean = query.toLowerCase().replace(/[^\w\s-]/g, " ").trim();
-  if (!clean) return [];
+  const cleanTokens = query.toLowerCase().replace(/[^\w\s-]/g, " ").split(/\s+/).filter(w => w.length > 2 && !VIDEO_STOPWORDS.has(w));
+  if (cleanTokens.length === 0) return [];
+
+  const coreTopic = cleanTokens.join(" ");
+  const scientificQuery = `${coreTopic} science lecture tutorial`;
 
   const results = [];
   const seenIds = new Set();
-  const searchTerms = [clean, `${clean} lecture`, `${clean} explanation`];
 
-  for (const qTerm of searchTerms) {
-    if (results.length >= 6) break;
+  const proxyEndpoints = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(scientificQuery)}&filter=videos`)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.piped.privacydev.net/search?q=${encodeURIComponent(scientificQuery)}&filter=videos`)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(scientificQuery)}&type=video`)}`
+  ];
 
-    const proxyEndpoints = [
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(qTerm)}&filter=videos`)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://api.piped.privacydev.net/search?q=${encodeURIComponent(qTerm)}&filter=videos`)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(qTerm)}&type=video`)}`
-    ];
+  for (const endpoint of proxyEndpoints) {
+    if (results.length >= 5) break;
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 3500);
+      const res = await fetch(endpoint, { signal: c.signal });
+      clearTimeout(t);
+      if (!res.ok) continue;
+      const data = await res.json();
 
-    for (const endpoint of proxyEndpoints) {
-      if (results.length >= 6) break;
-      try {
-        const c = new AbortController();
-        const t = setTimeout(() => c.abort(), 3000);
-        const res = await fetch(endpoint, { signal: c.signal });
-        clearTimeout(t);
-        if (!res.ok) continue;
-        const data = await res.json();
+      let items = [];
+      if (Array.isArray(data)) items = data;
+      else if (data?.items && Array.isArray(data.items)) items = data.items;
 
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            if (item.videoId && !seenIds.has(item.videoId)) {
-              seenIds.add(item.videoId);
-              results.push({
-                title: item.title || "Educational Video",
-                url: `https://www.youtube.com/watch?v=${item.videoId}`,
-                author: item.author || "Academic Channel",
-                thumbnail: item.videoThumbnails?.find(x => x.quality === "medium")?.url || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
-                id: item.videoId
-              });
-            }
-          }
-        } else if (data?.items && Array.isArray(data.items)) {
-          for (const item of data.items) {
-            const vId = item.url?.replace("/watch?v=", "") || "";
-            if (vId && !seenIds.has(vId)) {
-              seenIds.add(vId);
-              results.push({
-                title: item.title || "Educational Video",
-                url: `https://www.youtube.com/watch?v=${vId}`,
-                author: item.uploaderName || "Academic Channel",
-                thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
-                id: vId
-              });
-            }
+      for (const item of items) {
+        const vId = item.videoId || item.url?.replace("/watch?v=", "") || "";
+        const vTitle = item.title || "";
+        const vAuthor = item.author || item.uploaderName || "Educational Source";
+
+        if (vId && !seenIds.has(vId)) {
+          // Relevance filter: ensure title shares at least one core topic token or academic term
+          const titleLower = vTitle.toLowerCase();
+          const isRelevant = cleanTokens.some(token => titleLower.includes(token)) || titleLower.includes("lecture") || titleLower.includes("science") || titleLower.includes("chemistry") || titleLower.includes("biology") || titleLower.includes("physics");
+
+          if (isRelevant) {
+            seenIds.add(vId);
+            results.push({
+              title: vTitle,
+              url: `https://www.youtube.com/watch?v=${vId}`,
+              author: vAuthor,
+              thumbnail: item.thumbnail || item.videoThumbnails?.find(x => x.quality === "medium")?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+              id: vId
+            });
           }
         }
-      } catch {
-        continue;
       }
-    }
-
-    if (results.length < 4) {
-      try {
-        const c = new AbortController();
-        const t = setTimeout(() => c.abort(), 3000);
-        const res = await fetch(`https://sepiasearch.org/api/v1/search/videos?search=${encodeURIComponent(qTerm)}&count=4`, { signal: c.signal });
-        clearTimeout(t);
-        if (res.ok) {
-          const data = await res.json();
-          for (const item of (data?.data || [])) {
-            if (item.uuid && !seenIds.has(item.uuid)) {
-              seenIds.add(item.uuid);
-              results.push({
-                title: item.name || "PeerTube Academic Lecture",
-                url: item.url || `https://${item.host}/w/${item.uuid}`,
-                author: item.channel?.displayName || item.account?.displayName || "Open Science Broadcast",
-                thumbnail: item.thumbnailPath ? (item.thumbnailPath.startsWith("http") ? item.thumbnailPath : `https://${item.host || "sepiasearch.org"}${item.thumbnailPath}`) : "https://joinpeertube.org/img/logo.svg",
-                id: item.uuid
-              });
-            }
-          }
-        }
-      } catch {}
+    } catch {
+      continue;
     }
   }
 
-  return results.slice(0, 6);
+  // Fallback to PeerTube SepiaSearch if needed
+  if (results.length < 3) {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 3000);
+      const res = await fetch(`https://sepiasearch.org/api/v1/search/videos?search=${encodeURIComponent(coreTopic)}&count=4`, { signal: c.signal });
+      clearTimeout(t);
+      if (res.ok) {
+        const data = await res.json();
+        for (const item of (data?.data || [])) {
+          if (item.uuid && !seenIds.has(item.uuid)) {
+            seenIds.add(item.uuid);
+            results.push({
+              title: item.name || "Academic Lecture",
+              url: item.url || `https://${item.host}/w/${item.uuid}`,
+              author: item.channel?.displayName || item.account?.displayName || "Open Science Broadcast",
+              thumbnail: item.thumbnailPath ? (item.thumbnailPath.startsWith("http") ? item.thumbnailPath : `https://${item.host || "sepiasearch.org"}${item.thumbnailPath}`) : "https://joinpeertube.org/img/logo.svg",
+              id: item.uuid
+            });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return results.slice(0, 5);
 }
 
 const Audio = (() => {
@@ -709,7 +708,7 @@ export default function App() {
       rawAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
       rawAnswer = rawAnswer.replace(/^.*?(Here is the answer|Protons are|Note:).*?[\r\n]+/i, (match) => match.includes("Note:") ? match : "").trim();
 
-      // Fetch Related Videos via Multi-Engine CORS Engine
+      // Fetch Relevant Related Videos
       const videos = await fetchVideosMultiSource(question);
 
       const nt = { 
@@ -1227,9 +1226,13 @@ if (typeof document !== "undefined") {
       @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
       @keyframes cbRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes cbPop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+      @keyframes cbGate { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes cbHero { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       .cb-fade { animation: cbFade 0.4s ease forwards; }
       .cb-rise { animation: cbRise 0.5s cubic-bezier(.2,.8,.2,1) forwards; }
       .cb-pop { animation: cbPop 0.28s cubic-bezier(.2,.9,.3,1) forwards; }
+      .cb-gate { animation: cbGate 0.7s cubic-bezier(.2,.8,.2,1) forwards; }
+      .cb-hero { animation: cbHero 0.6s cubic-bezier(.2,.8,.2,1) forwards; }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
       a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
