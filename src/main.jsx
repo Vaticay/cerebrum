@@ -173,15 +173,40 @@ function FactCheck({ fc, P, accent }) {
   const colors = { supported: "#10b981", partly: "#d9a520", unsupported: "#e5484d", thin: "#d9a520" };
   const label = { supported: "Supported by sources", partly: "Partly supported", unsupported: "Not supported by sources" };
   const oc = colors[fc.overall] || P.ink2;
+  const claims = fc.claims || [];
+  const nSup = claims.filter((c) => c.status === "supported").length;
+  const nThin = claims.filter((c) => c.status === "thin").length;
+  const nUns = claims.filter((c) => c.status === "unsupported").length;
+  const total = claims.length;
+  // Honest score: supported = full weight, thin = half, unsupported = zero.
+  const score = total ? Math.round(((nSup + nThin * 0.5) / total) * 100) : null;
+  const scoreColor = score === null ? P.ink2 : score >= 75 ? "#10b981" : score >= 45 ? "#d9a520" : "#e5484d";
   return (
-    <div style={{ marginTop: 16, border: `1px solid ${P.line}`, borderRadius: 12, background: P.surface, padding: "14px 16px", boxShadow: P.shadowSm }} className="cb-rise">
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: fc.claims && fc.claims.length ? 12 : 0 }}>
+    <div style={{ marginTop: 16, border: `1px solid ${P.line}`, borderRadius: 12, background: P.surface, padding: "16px 18px", boxShadow: P.shadowSm }} className="cb-rise">
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 14 }}>
         <span style={{ width: 18, height: 18, borderRadius: "50%", background: withAlpha(oc, 0.15), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: oc }} /></span>
         <span style={{ fontSize: 12.5, fontWeight: 650, letterSpacing: "-0.01em", color: oc }}>{label[fc.overall] || fc.overall}</span>
         <span style={{ fontSize: 11, color: P.faint, marginLeft: "auto" }}>checked vs. cited abstracts</span>
       </div>
-      {fc.summary && <div style={{ fontSize: 13.5, color: P.ink2, marginBottom: fc.claims && fc.claims.length ? 12 : 0, lineHeight: 1.55 }}>{fc.summary}</div>}
-      {fc.claims && fc.claims.map((c, i) => {
+
+      {score !== null && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 26, fontWeight: 750, color: scoreColor, letterSpacing: "-0.02em" }}>{score}<span style={{ fontSize: 15, fontWeight: 600 }}>%</span></span>
+            <span style={{ fontSize: 12.5, color: P.ink2, fontWeight: 550 }}>source support</span>
+            <span style={{ fontSize: 11, color: P.faint, marginLeft: "auto" }}>{nSup} solid · {nThin} thin · {nUns} unsupported</span>
+          </div>
+          <div style={{ display: "flex", height: 7, borderRadius: 4, overflow: "hidden", background: P.line, gap: 1.5 }}>
+            {nSup > 0 && <div style={{ flex: nSup, background: "#10b981" }} title={`${nSup} supported`} />}
+            {nThin > 0 && <div style={{ flex: nThin, background: "#d9a520" }} title={`${nThin} thin`} />}
+            {nUns > 0 && <div style={{ flex: nUns, background: "#e5484d" }} title={`${nUns} unsupported`} />}
+          </div>
+          <div style={{ fontSize: 10.5, color: P.faint, marginTop: 6, lineHeight: 1.4 }}>How well the cited abstracts back the answer's claims, not a measure of scientific truth.</div>
+        </div>
+      )}
+
+      {fc.summary && <div style={{ fontSize: 13.5, color: P.ink2, marginBottom: claims.length ? 12 : 0, lineHeight: 1.55, paddingTop: score !== null ? 12 : 0, borderTop: score !== null ? `1px solid ${P.line}` : "none" }}>{fc.summary}</div>}
+      {claims.map((c, i) => {
         const cc = colors[c.status] || P.ink2; const sym = c.status === "supported" ? "✓" : c.status === "thin" ? "~" : "✕";
         return (
           <div key={i} style={{ display: "flex", gap: 10, padding: "9px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
@@ -217,7 +242,8 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [allSources, setAllSources] = useState([]);
-  const [saved, setSaved] = useState([]);
+  const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
+  const [savedOpen, setSavedOpen] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [panelOpen, setPanelOpen] = useState(true);
   const [mobilePanel, setMobilePanel] = useState(false);
@@ -281,6 +307,7 @@ function App() {
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
+  useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -375,6 +402,7 @@ function App() {
           <div style={S.headActions}>
             <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>⌘K</kbd></button>
             <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
+            <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>Saved{saved.length > 0 ? ` · ${saved.length}` : ""}</button>
             <button style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>Settings</button>
           </div>
@@ -387,8 +415,8 @@ function App() {
             <div style={S.hero} className="cb-hero">
               <div style={S.heroGlow} />
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
-              <h1 style={S.heroTitle}>The scientific literature,<br />answered plainly.</h1>
-              <p style={S.heroSub}>Your research sidekick. Fourteen databases searched at once, a cited answer in seconds, every claim traceable to a real paper.</p>
+              <h1 style={S.heroTitle}>Cerebrum</h1>
+              <p style={S.heroSub}>Your research sidekick.</p>
               <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
                 <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
@@ -426,7 +454,10 @@ function App() {
               {!isMobile && panelOpen && <aside style={S.panel}>{SourcesInner}</aside>}
             </div>
           )}
-          <div style={S.foot}><span style={S.footDbs}>Europe PMC · PubMed · OpenAlex · Crossref · arXiv · Semantic Scholar · DOAJ · Zenodo · DataCite · OpenAIRE · HAL · UTK TRACE</span></div>
+          <div style={S.foot}>
+            <div style={S.disclaimer}>Cerebrum is an AI research tool. Answers are generated by a language model from real published sources and may contain errors. Always verify against the cited papers before relying on them.</div>
+            <span style={S.footDbs}>Europe PMC · PubMed · OpenAlex · Crossref · arXiv · Semantic Scholar · DOAJ · Zenodo · DataCite · OpenAIRE · HAL · UTK TRACE</span>
+          </div>
         </div>
       </div>
 
@@ -451,6 +482,43 @@ function App() {
         </div>
       )}
 
+      {savedOpen && (
+        <div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-fade">
+          <div style={{ ...S.modal, width: 560 }} onClick={(e) => e.stopPropagation()} className="cb-pop">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div style={S.modalTitle}>Saved articles</div>
+              <span style={S.srcCount}>{saved.length}</span>
+            </div>
+            {saved.length === 0 ? (
+              <div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>
+                No saved articles yet.<br /><span style={{ fontSize: 13, color: P.faint }}>Tap ☆ Save on any source to keep it here. Saved articles stay on this device across sessions.</span>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                  <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button>
+                  <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button>
+                  <button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>
+                  {saved.map((s, i) => (
+                    <div key={i} style={{ padding: "14px 12px", margin: "0 -12px", borderBottom: `1px solid ${P.line}` }}>
+                      <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14.5 }}>{s.title || s.url}</a>
+                      <div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} citations`}</div>
+                      <div style={S.srcRow}>
+                        <button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>
+                        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
     </div>
   );
@@ -467,7 +535,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
         {done && t.source && (
           <div style={S.byline}>
-            <span>{t.source}</span>
+            <span style={S.aiTag}>AI-generated · verify with sources</span>
             <span style={{ marginLeft: "auto", color: P.faint }}>{readingTime(t.answer)}</span>
           </div>
         )}
@@ -563,7 +631,7 @@ function makeStyles(P, accent, at) {
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px 0 60px", position: "relative" },
     heroGlow: { position: "absolute", width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.1 : 0.06)}, transparent 65%)`, top: "8%", filter: "blur(40px)", pointerEvents: "none" },
     heroMark: { marginBottom: 26, position: "relative" },
-    heroTitle: { fontSize: 44, fontWeight: 750, letterSpacing: "-0.035em", lineHeight: 1.08, color: P.ink, marginBottom: 18, position: "relative" },
+    heroTitle: { fontSize: 68, fontWeight: 750, letterSpacing: "-0.04em", lineHeight: 1, color: P.ink, marginBottom: 12, position: "relative" },
     heroSub: { fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em", position: "relative" },
     searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 580, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, padding: "7px 7px 7px 14px", boxShadow: P.shadow, transition: "all 0.2s", position: "relative" },
     searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 3px ${withAlpha(accent, 0.12)}` },
@@ -610,7 +678,9 @@ function makeStyles(P, accent, at) {
     srcRow: { display: "flex", gap: 7, marginTop: 9 },
     chipMini: { fontSize: 11.5, padding: "5px 10px", border: "1px solid", borderRadius: 7, cursor: "pointer", fontFamily: font, fontWeight: 550, background: "transparent", transition: "all 0.15s" },
     foot: { marginTop: "auto", padding: "20px 0 26px", textAlign: "center" },
+    disclaimer: { fontSize: 11.5, color: P.ink2, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 16px", padding: "10px 16px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 10 },
     footDbs: { fontSize: 11, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7 },
+    aiTag: { fontSize: 11, color: P.faint, fontWeight: 550, letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 5 },
     mobSrcBtn: { position: "fixed", bottom: 20, right: 20, background: accent, color: at, border: "none", borderRadius: 26, padding: "13px 22px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: `0 8px 24px ${withAlpha(accent, 0.4)}`, zIndex: 20, fontFamily: font },
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25, backdropFilter: "blur(3px)" },
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, backdropFilter: "blur(6px)" },
