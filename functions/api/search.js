@@ -965,46 +965,49 @@ async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limi
 
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
   const expansions = expansionsFor(terms); // e.g. bsfl -> "black soldier fly larvae"
-  // Terms that are just an organism/acronym with a spelled-out expansion (e.g. "bsfl")
-  // are "topic-neutral" — matching them alone doesn't make a paper on-topic.
-  const neutralTerms = new Set(terms.filter((t) => SYNONYMS[t.toLowerCase()]));
-  const contentTerms = terms.filter((t) => !neutralTerms.has(t)); // e.g. plastics, transcriptional
+  // Build the "topic-neutral" word set: the acronym AND every word of its spelled-out
+  // forms, plus common organism words. This way "black soldier fly larvae" is treated as
+  // the organism, not topical content — otherwise off-topic papers (dog-food, biodiesel)
+  // that share those words score as full matches.
+  const neutralWords = new Set(terms.filter((t) => SYNONYMS[t.toLowerCase()]));
+  for (const phrase of expansions) {
+    for (const w of phrase.toLowerCase().split(/\s+/)) { if (w.length > 2) neutralWords.add(w); }
+  }
+  ["black", "soldier", "larvae", "larva", "fly", "hermetia", "illucens"].forEach((w) => {
+    if (terms.includes(w)) neutralWords.add(w);
+  });
+  const neutralTerms = neutralWords;
+  const contentTerms = terms.filter((t) => !neutralTerms.has(t)); // the REAL topic, e.g. plastics, transcriptional
   const scored = merged
     .map((p) => {
       const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
       const titleHay = (p.title || "").toLowerCase();
-      // Light stem match: strip a trailing s/es/al/ion so plastic~plastics,
-      // transcription~transcriptional count as hits.
       const stem = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
       const has = (t) => hay.includes(t) || hay.includes(stem(t));
-      const hitTerms = terms.filter(has);
       const contentHits = contentTerms.filter(has).length;      // the terms that define the topic
       const neutralHit = [...neutralTerms].some(has);            // organism present at all?
-      const titleHits = terms.filter((t) => titleHay.includes(t)).length;
-      // Expansions: does a spelled-out organism name appear? (covers acronym-only papers)
+      const titleContentHits = contentTerms.filter((t) => titleHay.includes(t) || titleHay.includes(stem(t))).length;
       let expHit = false;
       for (const phrase of expansions) { if (hay.includes(phrase)) expHit = true; }
       const organismPresent = neutralHit || expHit;
 
-      // Content coverage is what matters most for relevance.
       const contentCoverage = contentTerms.length ? contentHits / contentTerms.length : 1;
 
       let score = 0;
-      score += contentHits * 4;                 // each specific/topical term is worth a lot
-      score += contentCoverage * 5;             // hitting ALL topical terms is strongly rewarded
-      score += titleHits * 2;                   // title matches are a strong signal
+      score += contentHits * 5;                 // each specific/topical term is worth a lot
+      score += contentCoverage * 6;             // hitting ALL topical terms is strongly rewarded
+      score += titleContentHits * 3;            // topical term in the title = very strong
       if (organismPresent && contentHits > 0) score += 3; // right organism AND right topic
-      if (expHit) score += 1;
       if (p.abstract) score += 0.5;
-      if (typeof p.citations === "number") score += Math.min(p.citations / 800, 1.2);
+      if (typeof p.citations === "number") score += Math.min(p.citations / 800, 1.0);
       const yr = parseInt(p.year, 10);
       if (yr && yr >= 2015) score += 0.3;
 
       return { ...p, score, contentHits, contentCoverage, organismPresent };
     })
-    // Relevance gate: if the query has topical terms, a paper must hit at least one of them.
-    // A paper that only matches the organism (e.g. a BSFL dog-feed study for a plastics query)
-    // is dropped WHEN topical terms exist. If the query is only an organism/name, keep by presence.
+    // Relevance gate: if the query has topical terms, a paper MUST hit at least one.
+    // With organism words now neutral, a dog-food BSFL paper (0 topical hits) is
+    // correctly dropped for a "plastics transcriptional" query.
     .filter((p) => {
       if (terms.length === 0) return true;
       if (contentTerms.length > 0) return p.contentHits > 0;   // must touch the actual topic
@@ -1138,7 +1141,10 @@ export async function onRequest(context) {
     // the model to say "the papers don't cover this" — we want a real answer from
     // its own knowledge, clearly labeled as not-from-retrieved-sources.
     const qToks = cleanQuery(query).toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+    const qExp = expansionsFor(qToks);
     const qNeutral = new Set(qToks.filter((t) => SYNONYMS[t.toLowerCase()]));
+    for (const phrase of qExp) { for (const w of phrase.toLowerCase().split(/\s+/)) { if (w.length > 2) qNeutral.add(w); } }
+    ["black", "soldier", "larvae", "larva", "fly", "hermetia", "illucens"].forEach((w) => { if (qToks.includes(w)) qNeutral.add(w); });
     const qContent = qToks.filter((t) => !qNeutral.has(t));
     const stemW = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
     const papersHitTopic = hasPapers && qContent.length > 0
