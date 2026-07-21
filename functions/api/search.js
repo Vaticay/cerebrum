@@ -643,8 +643,13 @@ async function searchInvidiousVideos(query, limit = 4) {
   const instances = [
     "https://vid.puffyan.us",
     "https://invidious.nerdvpn.de",
-    "https://inv.nadeko.net"
+    "https://inv.nadeko.net",
+    "https://iv.ggtyler.dev",
+    "https://invidious.perennialte.ch",
+    "https://invidious.protokolla.fi",
+    "https://invidious.slipfox.xyz"
   ];
+
   const academicQuery = `${query} university lecture laboratory demonstration science`;
 
   for (const instance of instances) {
@@ -654,7 +659,8 @@ async function searchInvidiousVideos(query, limit = 4) {
         type: "video",
         sort: "relevance"
       });
-      const data = await getJSON(url, {}, 4000);
+      
+      const data = await getJSON(url, {}, 3000); // 3-second timeout per instance for speed
       if (!Array.isArray(data) || data.length === 0) continue;
 
       return data.slice(0, limit).map((v) => ({
@@ -666,7 +672,7 @@ async function searchInvidiousVideos(query, limit = 4) {
         thumbnail: v.videoThumbnails?.find(t => t.quality === "medium")?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`
       }));
     } catch {
-      continue;
+      continue; // Try the next instance immediately if one times out or fails
     }
   }
   return [];
