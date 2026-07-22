@@ -921,689 +921,15 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
   );
 }
 
-// ============ BRAIN EASTER EGG ============
-// Click the logo: cycles through funny quotes, occasional emoji bursts,
-// and rare "secret unlock" messages. Persistent click counter stored in memory.
-const BRAIN_QUOTES = [
-  // Brain trivia
-  "Zombies love brains. So do we.",
-  "Your brain uses 20% of your energy. Thinking is exhausting for a reason.",
-  "Fun fact: the brain named itself.",
-  "Neurons that fire together, wire together.",
-  "A single human brain has more connections than there are stars in the Milky Way.",
-  "You're currently reading with about 86 billion neurons.",
-  "Cerebrum is Latin for 'brain'. We were not being subtle.",
-  "The brain is the only organ that named itself.",
-  "If your brain were a computer, it'd run on about 20 watts.",
-  "There are no pain receptors in the brain. Only in the meninges around it.",
-  "Curiosity literally rewires your brain.",
-  "The average brain generates roughly 70,000 thoughts per day.",
-  "Your brain is 60% fat. It's the fattiest organ in your body.",
-  "Every time you learn something new, a new neural pathway forms.",
-  "The brain weighs about 3 pounds. It contains all of you.",
-  "REM sleep: your brain is more active than when you're awake.",
-  "Left brain / right brain is mostly a myth. Both work together constantly.",
-  "The corpus callosum has 200 million nerve fibers connecting your hemispheres.",
-  "You lose about 85,000 neurons a day. You have plenty to spare.",
-  "The blood-brain barrier keeps out 98% of small-molecule drugs.",
-  "Your brain finalizes wiring around age 25.",
-  "Memory isn't storage. It's reconstruction. Every recall changes it a little.",
-  "Deja vu is your brain briefly filing a moment as both new and remembered.",
-  "The occipital lobe is why you can 'see' with your eyes closed.",
-  "The hippocampus is why London taxi drivers have bigger memory centers.",
-  "Mirror neurons: why yawns are contagious.",
-  "Phantom limb pain proves the brain is the real body map.",
-  "The cerebellum has more neurons than the rest of the brain combined.",
-  "Glial cells outnumber neurons and we still don't fully know what they all do.",
-  "Your brain generates about 12-25 watts. A dim LED bulb.",
-  // Science quotes and wit
-  "Science is a way of thinking much more than a body of knowledge. - Sagan",
-  "The good thing about science is that it's true whether or not you believe in it. - Tyson",
-  "Somewhere, something incredible is waiting to be known. - Sagan",
-  "Extraordinary claims require extraordinary evidence. - Sagan",
-  "The universe is under no obligation to make sense to you. - Tyson",
-  "You are made of star stuff. - Sagan",
-  "Facts don't cease to exist because they are ignored. - Huxley",
-  "In science, there are no shortcuts to truth.",
-  "Nothing in life is to be feared, only understood. - Curie",
-  "Science is not only compatible with spirituality; it is a profound source of it. - Sagan",
-  "Imagination is more important than knowledge. - Einstein",
-  "The most beautiful thing we can experience is the mysterious. - Einstein",
-  "I have no special talent. I am only passionately curious. - Einstein",
-  "The scientist is not a person who gives the right answers, but who asks the right questions. - Levi-Strauss",
-  "In questions of science, the authority of a thousand is not worth the humble reasoning of a single individual. - Galileo",
-  "Two things fill the mind with wonder: the starry heavens above and the moral law within. - Kant",
-  "The important thing is not to stop questioning. - Einstein",
-  "Somewhere, someone is wrong about mitochondria being the powerhouse of the cell.",
-  "Actually, mitochondria have their own DNA. So they're kind of freeloaders with a lease.",
-  // Cerebrum meta
-  "Peer review: because science needs receipts.",
-  "Yes, we counted the citations. Yes, we're proud.",
-  "'Just trust me' is not a citation.",
-  "Cerebrum: because Google Scholar is a chore.",
-  "16 databases, one question, no vibes-only answers.",
-  "We fact-check ourselves. Meta.",
-  "Every claim, traceable. Every DOI, real.",
-  "Correlation is not causation. Neither is a good vibe.",
-  "The plural of anecdote is not data.",
-  "P < 0.05 is a beginning, not a conclusion.",
-  "Replication is the sincerest form of validation.",
-  "Reading the abstract is not reading the paper.",
-  "The methods section is where the real story lives.",
-  "n=1 is a start. n=1000 is science.",
-  // Weird biology
-  "Octopuses have nine brains. Overachievers.",
-  "Sea sponges digested their own brain during evolution. Rude.",
-  "Some jellyfish are technically immortal. Life is unfair.",
-  "Tardigrades survived being launched into space. Unbothered.",
-  "Your gut has about 500 million neurons. It's basically a second brain.",
-  "Naked mole rats don't really age. They just... continue.",
-  "Axolotls regrow their own brains. Show-offs.",
-  "Bumblebees can play soccer. Look it up. Seriously.",
-  "There's a fungus that turns ants into zombies. Not made up.",
-  "Slime molds solve mazes. And they don't even have a brain.",
-  // Physics wit
-  "Schrodinger's cat is both cited and uncited until you check.",
-  "Time isn't real. Also, please cite your sources on time.",
-  "The universe is expanding. So is our source list.",
-  "Quantum: the polite word for 'no, that doesn't make sense either.'",
-  "If you understand quantum mechanics, you don't understand quantum mechanics. - Feynman",
-  // Chemistry
-  "Diamonds are metastable. They're technically decaying into graphite. Very slowly.",
-  "Water is weird. It shouldn't be liquid at room temperature. Hydrogen bonds save us.",
-  "The only metal liquid at room temp besides mercury is gallium. It melts in your hand.",
-  "Every breath you take contains atoms once breathed by every historical figure. Statistics.",
-  "Coffee has more compounds than red wine. Enjoy that with breakfast.",
-  // Encouragement
-  "Curiosity killed the cat, but satisfaction brought it back.",
-  "Not knowing is fine. Not wanting to know is the problem.",
-  "The best question in science is 'why?' The second best is 'why not?'",
-  "Every expert was once a beginner. Every discovery started as confusion.",
-  "Being wrong is the price of learning. Pay it gladly.",
-  "Science advances one funeral at a time. - Planck (dark, but true)",
-  "The opposite of a scientist is not an artist. It's someone who is certain.",
-  "Doubt is not a pleasant state, but certainty is a ridiculous one. - Voltaire",
-  "If you're the smartest person in the room, find a bigger room.",
-  "Read the paper. All of it. Yes, even the supplementary materials.",
-  // Absurd
-  "Hot water freezes faster than cold water sometimes. Nobody fully knows why.",
-  "Wombats poop cubes. Nobody paid them to.",
-  "Bananas are radioactive. Not enough to worry. Just a fun fact.",
-  "There are more possible chess games than atoms in the observable universe.",
-  "Cows have best friends and get stressed when separated. Cite that.",
-  "The Eiffel Tower gets 6 inches taller in summer. Thermal expansion.",
-  "Honey never spoils. Archaeologists found 3,000-year-old edible honey in Egypt.",
-];
-const SECRET_UNLOCKS = [
-  "🧠 Secret unlocked: You're technically now a scientist.",
-  "🧠 Secret unlocked: The brain approves.",
-  "🧠 Secret unlocked: You have achieved peak curiosity.",
-  "🧠 Secret unlocked: Somewhere, a librarian is smiling.",
-  "🧠 Secret unlocked: The peer reviewers respect you.",
-  "🧠 Secret unlocked: Marie Curie would like your work.",
-  "🧠 Secret unlocked: You just released dopamine on purpose.",
-  "🧠 Secret unlocked: Your hippocampus is thriving.",
-  "🧠 Secret unlocked: You may now cite yourself.",
-  "🧠 Secret unlocked: The scientific method has noticed you.",
-];
-
-function BrainEasterEgg({ accent, P, S, onLogoClick }) {
-  const [visible, setVisible] = useState(false);
-  const [message, setMessage] = useState("");
-  const [isEmojiBurst, setIsEmojiBurst] = useState(false);
-  const [emojis, setEmojis] = useState([]);
+// ============ LOGO WIGGLE (minimal) ============
+// Just wiggles the logo on click. No popup, no quotes, no burst — quiet and professional.
+function BrainEasterEgg() {
   const [wiggleKey, setWiggleKey] = useState(0);
-  const clickCountRef = useRef(0);
-  const timerRef = useRef(null);
-
-  const trigger = () => {
-    clickCountRef.current += 1;
-    const n = clickCountRef.current;
-    setWiggleKey((k) => k + 1); // logo wiggle
-    if (timerRef.current) clearTimeout(timerRef.current);
-
-    // Every 7th click: rare secret. Every 3rd: emoji burst. Otherwise: quote.
-    if (n % 7 === 0) {
-      setMessage(SECRET_UNLOCKS[Math.floor(Math.random() * SECRET_UNLOCKS.length)]);
-      setIsEmojiBurst(false);
-      spawnEmojis(15);
-    } else if (n % 3 === 0) {
-      setMessage("");
-      setIsEmojiBurst(true);
-      spawnEmojis(8);
-    } else {
-      setMessage(BRAIN_QUOTES[Math.floor(Math.random() * BRAIN_QUOTES.length)]);
-      setIsEmojiBurst(false);
-    }
-    setVisible(true);
-    timerRef.current = setTimeout(() => setVisible(false), 3400);
-    onLogoClick && onLogoClick();
-  };
-
-  const spawnEmojis = (count) => {
-    const brainEmojis = ["🧠", "⚡", "💡", "🔬", "🧬", "🧪", "✨", "🌟"];
-    const items = Array.from({ length: count }, (_, i) => {
-      const angle = (Math.random() * Math.PI) - (Math.PI / 2); // -90° to +90° (downward hemisphere)
-      const dist = 60 + Math.random() * 80;
-      return {
-        id: Date.now() + i,
-        emoji: brainEmojis[Math.floor(Math.random() * brainEmojis.length)],
-        x: 8 + (Math.random() - 0.5) * 24,
-        y: 8,
-        dx: Math.cos(angle) * dist,
-        dy: Math.abs(Math.sin(angle) * dist) + 40, // always positive → floats down
-        rot: (Math.random() - 0.5) * 90,
-        dur: 1.4 + Math.random() * 0.8,
-      };
-    });
-    setEmojis(items);
-    setTimeout(() => setEmojis([]), 2400);
-  };
-
-  useEffect(() => () => timerRef.current && clearTimeout(timerRef.current), []);
-
-  return { trigger, wiggleKey, render: (
-    <>
-      {emojis.length > 0 && (
-        <div style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", zIndex: 200, width: 40, height: 40, overflow: "visible" }}>
-          {emojis.map((e) => (
-            <span key={e.id} style={{
-              position: "absolute",
-              left: e.x,
-              top: e.y,
-              fontSize: 22,
-              animation: `cb-burst ${e.dur}s cubic-bezier(0.22, 0.61, 0.36, 1) forwards`,
-              opacity: 0,
-              display: "inline-block",
-              filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))",
-              "--cb-dx": `${e.dx}px`,
-              "--cb-dy": `${e.dy}px`,
-              "--cb-rot": `${e.rot}deg`,
-            }}>{e.emoji}</span>
-          ))}
-        </div>
-      )}
-      {visible && message && (
-        <div style={{
-          position: "absolute",
-          top: "calc(100% + 16px)",
-          left: 0,
-          background: P.surface,
-          border: `1px solid ${withAlpha(accent, 0.35)}`,
-          borderRadius: 12,
-          padding: "12px 16px",
-          fontSize: 13,
-          fontWeight: 500,
-          color: P.ink,
-          boxShadow: P.shadow,
-          minWidth: 240,
-          maxWidth: 340,
-          width: "max-content",
-          lineHeight: 1.5,
-          zIndex: 60,
-          animation: "cb-egg-in 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
-          letterSpacing: "-0.005em",
-          wordBreak: "normal",
-          overflowWrap: "break-word",
-          whiteSpace: "normal",
-        }}>{message}</div>
-      )}
-    </>
-  ) };
+  const trigger = () => setWiggleKey((k) => k + 1);
+  return { trigger, wiggleKey, render: null };
 }
 
 
-// ============ MINI-GAMES ============
-// Fullscreen modal dispatcher. Handles Snake (Neuron Chase), Trivia (Cite or Fake),
-// and Reaction (Brain Reaction). Each game is self-contained, keyboard-friendly,
-// and gets closed with Esc or the X button.
-function GameModal({ game, onClose, accent, P, at }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const titles = { snake: "Neuron Chase", trivia: "Cite or Fake", reaction: "Brain Reaction" };
-  const subtitles = {
-    snake: "Grow the neuron. Catch synapses. Don't hit yourself.",
-    trivia: "Real published finding, or plausible-sounding nonsense?",
-    reaction: "Click the instant the neuron fires. Measure your reflex.",
-  };
-
-  return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 500,
-      background: withAlpha(P.bg, 0.85),
-      backdropFilter: "blur(14px)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 20,
-      animation: "cbFade 0.3s ease forwards",
-    }} onClick={onClose}>
-      <div style={{
-        background: P.surface,
-        border: `1px solid ${P.line}`,
-        borderRadius: 16,
-        maxWidth: 620, width: "100%",
-        padding: 24,
-        boxShadow: P.shadow,
-        position: "relative",
-      }} onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} style={{
-          position: "absolute", top: 14, right: 14,
-          background: "transparent", border: "none",
-          fontSize: 20, color: P.faint, cursor: "pointer",
-          width: 32, height: 32, borderRadius: 8,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }} aria-label="Close">×</button>
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: accent, marginBottom: 6 }}>Easter egg</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em" }}>{titles[game]}</div>
-          <div style={{ fontSize: 13, color: P.ink2, marginTop: 4 }}>{subtitles[game]}</div>
-        </div>
-        {game === "snake" && <NeuronChase accent={accent} P={P} at={at} />}
-        {game === "trivia" && <CiteOrFake accent={accent} P={P} at={at} />}
-        {game === "reaction" && <BrainReaction accent={accent} P={P} at={at} />}
-      </div>
-    </div>
-  );
-}
-
-// -------- Neuron Chase (Snake) --------
-function NeuronChase({ accent, P, at }) {
-  const canvasRef = useRef(null);
-  const [score, setScore] = useState(0);
-  const [best, setBest] = useState(() => parseInt(getCookie("cb_snake_best") || "0", 10));
-  const [gameState, setGameState] = useState("ready"); // ready | playing | over
-  const stateRef = useRef({
-    snake: [{ x: 8, y: 8 }],
-    dir: { x: 1, y: 0 },
-    nextDir: { x: 1, y: 0 },
-    food: { x: 12, y: 8 },
-    tick: 0,
-  });
-
-  const GRID = 20;
-  const CELL = 20;
-
-  const reset = () => {
-    stateRef.current = {
-      snake: [{ x: 8, y: 8 }, { x: 7, y: 8 }, { x: 6, y: 8 }],
-      dir: { x: 1, y: 0 },
-      nextDir: { x: 1, y: 0 },
-      food: placeFood([{ x: 8, y: 8 }]),
-      tick: 0,
-    };
-    setScore(0);
-    setGameState("playing");
-  };
-
-  function placeFood(snake) {
-    let f;
-    do {
-      f = { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
-    } while (snake.some((s) => s.x === f.x && s.y === f.y));
-    return f;
-  }
-
-  useEffect(() => {
-    if (gameState !== "playing") return;
-    const onKey = (e) => {
-      const key = e.key;
-      const s = stateRef.current;
-      const d = s.dir;
-      if ((key === "ArrowUp" || key === "w") && d.y === 0) s.nextDir = { x: 0, y: -1 };
-      else if ((key === "ArrowDown" || key === "s") && d.y === 0) s.nextDir = { x: 0, y: 1 };
-      else if ((key === "ArrowLeft" || key === "a") && d.x === 0) s.nextDir = { x: -1, y: 0 };
-      else if ((key === "ArrowRight" || key === "d") && d.x === 0) s.nextDir = { x: 1, y: 0 };
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [gameState]);
-
-  useEffect(() => {
-    if (gameState !== "playing") return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(0,2),16), parseInt(h.slice(4,6),16)]; })();
-
-    let raf;
-    let last = 0;
-    const step = (now) => {
-      if (now - last > 110) {
-        last = now;
-        const s = stateRef.current;
-        s.dir = s.nextDir;
-        const head = { x: s.snake[0].x + s.dir.x, y: s.snake[0].y + s.dir.y };
-        // Wall collision
-        if (head.x < 0 || head.x >= GRID || head.y < 0 || head.y >= GRID) {
-          setGameState("over");
-          setBest((b) => { const nb = Math.max(b, score); setCookie("cb_snake_best", String(nb)); return nb; });
-          return;
-        }
-        // Self collision
-        if (s.snake.some((seg) => seg.x === head.x && seg.y === head.y)) {
-          setGameState("over");
-          setBest((b) => { const nb = Math.max(b, score); setCookie("cb_snake_best", String(nb)); return nb; });
-          return;
-        }
-        s.snake.unshift(head);
-        if (head.x === s.food.x && head.y === s.food.y) {
-          setScore((sc) => sc + 1);
-          s.food = placeFood(s.snake);
-        } else {
-          s.snake.pop();
-        }
-      }
-      // Draw
-      ctx.fillStyle = P.dark ? "#0a0e14" : "#f7f5f0";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      // Grid dots
-      ctx.fillStyle = withAlpha(accent, 0.06);
-      for (let i = 0; i < GRID; i++) for (let j = 0; j < GRID; j++) {
-        ctx.beginPath(); ctx.arc(i * CELL + CELL / 2, j * CELL + CELL / 2, 1, 0, Math.PI * 2); ctx.fill();
-      }
-      const s = stateRef.current;
-      // Food (synapse) — pulsing
-      const pulse = 0.6 + 0.4 * Math.sin(now * 0.006);
-      ctx.fillStyle = accent;
-      ctx.beginPath();
-      ctx.arc(s.food.x * CELL + CELL / 2, s.food.y * CELL + CELL / 2, 6 + pulse * 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = withAlpha(accent, 0.25);
-      ctx.beginPath();
-      ctx.arc(s.food.x * CELL + CELL / 2, s.food.y * CELL + CELL / 2, 12, 0, Math.PI * 2);
-      ctx.fill();
-      // Snake (neuron)
-      s.snake.forEach((seg, i) => {
-        const alpha = 1 - (i / s.snake.length) * 0.4;
-        ctx.fillStyle = withAlpha(accent, alpha);
-        const size = i === 0 ? CELL - 3 : CELL - 5;
-        const x = seg.x * CELL + (CELL - size) / 2;
-        const y = seg.y * CELL + (CELL - size) / 2;
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(x, y, size, size, 4);
-        else ctx.rect(x, y, size, size);
-        ctx.fill();
-      });
-      // Connecting lines between segments (dendrites)
-      ctx.strokeStyle = withAlpha(accent, 0.6);
-      ctx.lineWidth = 3;
-      for (let i = 0; i < s.snake.length - 1; i++) {
-        const a = s.snake[i], b = s.snake[i + 1];
-        ctx.beginPath();
-        ctx.moveTo(a.x * CELL + CELL / 2, a.y * CELL + CELL / 2);
-        ctx.lineTo(b.x * CELL + CELL / 2, b.y * CELL + CELL / 2);
-        ctx.stroke();
-      }
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [gameState, accent, P.dark, score]);
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 13 }}>
-        <span style={{ color: P.ink2 }}>Score: <strong style={{ color: accent }}>{score}</strong></span>
-        <span style={{ color: P.ink2 }}>Best: <strong style={{ color: P.ink }}>{best}</strong></span>
-      </div>
-      <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line}` }}>
-        <canvas ref={canvasRef} width={GRID * CELL} height={GRID * CELL} style={{ display: "block", width: "100%", height: "auto", maxWidth: 400, margin: "0 auto" }} />
-        {gameState !== "playing" && (
-          <div style={{ position: "absolute", inset: 0, background: withAlpha(P.bg, 0.9), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: P.ink }}>
-              {gameState === "ready" ? "Ready?" : `Game over. You scored ${score}.`}
-            </div>
-            <button onClick={reset} style={{
-              padding: "10px 20px", background: accent, color: at,
-              border: "none", borderRadius: 10, fontWeight: 600, cursor: "pointer",
-              fontSize: 14, fontFamily: "inherit",
-            }}>{gameState === "ready" ? "Start" : "Play again"}</button>
-          </div>
-        )}
-      </div>
-      <div style={{ fontSize: 11, color: P.faint, marginTop: 10, textAlign: "center" }}>Arrow keys or WASD to move</div>
-    </div>
-  );
-}
-
-// -------- Cite or Fake (Trivia) --------
-const TRIVIA_ITEMS = [
-  // real
-  { real: true, claim: "Octopuses have three hearts and blue blood.", note: "Two hearts pump blood to the gills, one pumps to the body. The blue color comes from copper-based hemocyanin." },
-  { real: true, claim: "Tardigrades have survived direct exposure to the vacuum of space.", note: "A 2007 experiment (Jönsson et al.) launched them on the FOTON-M3 mission. Many survived." },
-  { real: true, claim: "Honey found in Egyptian tombs is still edible thousands of years later.", note: "Its low water activity and high acidity prevent microbial growth almost indefinitely." },
-  { real: true, claim: "Bumblebees can be trained to roll a ball into a hole for a sugar reward.", note: "Loukola et al. 2017, Science. They can even learn from watching another bee." },
-  { real: true, claim: "Cows have best friends and get stressed when separated.", note: "Krista McLennan's PhD research at Northampton found their heart rate rises when isolated from their preferred partner." },
-  { real: true, claim: "The mitochondria in your cells have their own DNA, inherited only from your mother.", note: "Mitochondrial DNA is separate from nuclear DNA and passes down the maternal line only." },
-  { real: true, claim: "Some jellyfish (Turritopsis dohrnii) can revert to their juvenile form indefinitely.", note: "This 'immortal' jellyfish undergoes transdifferentiation, effectively restarting its life cycle." },
-  { real: true, claim: "There's a fungus that infects ants, hijacks their behavior, and grows out of their heads.", note: "Ophiocordyceps unilateralis. It manipulates the ant into a high spot before killing it." },
-  { real: true, claim: "Slime molds can solve mazes and model efficient transit networks despite having no brain.", note: "Nakagaki et al. showed Physarum polycephalum replicates the Tokyo rail network's efficiency." },
-  { real: true, claim: "Bananas are radioactive due to their potassium-40 content.", note: "Not enough to be harmful, but they set off some sensitive detectors. The 'banana equivalent dose' is a real informal unit." },
-  { real: true, claim: "Naked mole rats are nearly immune to cancer and don't show typical signs of aging.", note: "Their unique hyaluronan structure and stable proteins may explain their exceptional longevity." },
-  { real: true, claim: "The Eiffel Tower is about 6 inches taller in summer due to thermal expansion.", note: "The iron structure grows measurably as it heats up in the sun." },
-  // fake
-  { real: false, claim: "Humans use only 10% of their brain at any given time.", note: "Persistent myth. fMRI and PET studies show virtually all regions are active over the course of a day." },
-  { real: false, claim: "Goldfish have a 3-second memory span.", note: "Goldfish can remember things for months. This myth has no scientific basis." },
-  { real: false, claim: "The Great Wall of China is visible from space with the naked eye.", note: "Astronauts including Chinese ones have confirmed it's not visible from low earth orbit without aid." },
-  { real: false, claim: "You lose 90% of your body heat through your head.", note: "Your head loses heat proportional to its exposed surface area, about 10%, not 90%." },
-  { real: false, claim: "Sugar makes children hyperactive.", note: "Multiple double-blind trials, including Wolraich et al. 1994, found no effect. Parents perceive it because they expect it." },
-  { real: false, claim: "Different taste buds detect different tastes in different tongue zones.", note: "The 'tongue map' from 1901 is misinterpreted. All taste buds detect all basic tastes." },
-  { real: false, claim: "Reading in dim light permanently damages your eyes.", note: "It can cause temporary eye strain, but no permanent damage." },
-  { real: false, claim: "Shaved hair grows back thicker and darker.", note: "Shaving cuts the tapered tip, so regrowth feels stubbly. Actual hair thickness and color don't change." },
-  { real: false, claim: "Cracking your knuckles causes arthritis.", note: "Donald Unger cracked his left knuckles daily for 60 years, never his right. No difference. He won an Ig Nobel." },
-  { real: false, claim: "Bats are blind and navigate purely by echolocation.", note: "Most bats have decent vision, and some fruit bats have excellent color vision." },
-];
-
-function CiteOrFake({ accent, P, at }) {
-  const [item, setItem] = useState(() => TRIVIA_ITEMS[Math.floor(Math.random() * TRIVIA_ITEMS.length)]);
-  const [choice, setChoice] = useState(null); // "real" | "fake" | null
-  const [score, setScore] = useState({ right: 0, total: 0 });
-  const [streak, setStreak] = useState(0);
-  const [best, setBest] = useState(() => parseInt(getCookie("cb_trivia_best") || "0", 10));
-
-  const pick = () => {
-    let next;
-    do { next = TRIVIA_ITEMS[Math.floor(Math.random() * TRIVIA_ITEMS.length)]; }
-    while (next.claim === item.claim);
-    setItem(next);
-    setChoice(null);
-  };
-
-  const answer = (c) => {
-    setChoice(c);
-    const correct = (c === "real") === item.real;
-    setScore((s) => ({ right: s.right + (correct ? 1 : 0), total: s.total + 1 }));
-    if (correct) {
-      setStreak((st) => {
-        const ns = st + 1;
-        if (ns > best) { setBest(ns); setCookie("cb_trivia_best", String(ns)); }
-        return ns;
-      });
-    } else {
-      setStreak(0);
-    }
-  };
-
-  const correct = choice ? (choice === "real") === item.real : null;
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 13 }}>
-        <span style={{ color: P.ink2 }}>Streak: <strong style={{ color: accent }}>{streak}</strong></span>
-        <span style={{ color: P.ink2 }}>Score: <strong style={{ color: P.ink }}>{score.right}/{score.total}</strong></span>
-        <span style={{ color: P.ink2 }}>Best streak: <strong style={{ color: P.ink }}>{best}</strong></span>
-      </div>
-      <div style={{
-        padding: "24px 20px",
-        background: P.bg,
-        border: `1px solid ${P.line}`,
-        borderRadius: 12,
-        marginBottom: 16,
-        minHeight: 100,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center",
-      }}>
-        <div style={{ fontSize: 16, lineHeight: 1.5, fontWeight: 500, color: P.ink }}>"{item.claim}"</div>
-      </div>
-      {!choice ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <button onClick={() => answer("real")} style={gameBtnStyle(accent, at, P, "primary")}>Real</button>
-          <button onClick={() => answer("fake")} style={gameBtnStyle(accent, at, P, "secondary")}>Fake</button>
-        </div>
-      ) : (
-        <div>
-          <div style={{
-            padding: "14px 16px",
-            background: withAlpha(correct ? "#10b981" : "#e5484d", 0.12),
-            border: `1px solid ${withAlpha(correct ? "#10b981" : "#e5484d", 0.3)}`,
-            borderRadius: 10,
-            marginBottom: 12,
-          }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: correct ? "#10b981" : "#e5484d", marginBottom: 6 }}>
-              {correct ? "✓ Correct" : "✗ Wrong"} — this one is {item.real ? "REAL" : "FAKE"}.
-            </div>
-            <div style={{ fontSize: 13, color: P.ink2, lineHeight: 1.55 }}>{item.note}</div>
-          </div>
-          <button onClick={pick} style={{ ...gameBtnStyle(accent, at, P, "primary"), width: "100%" }}>Next claim →</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// -------- Brain Reaction (Reaction Time) --------
-function BrainReaction({ accent, P, at }) {
-  const [state, setState] = useState("ready"); // ready | waiting | fire | done | early
-  const [ms, setMs] = useState(0);
-  const [best, setBest] = useState(() => parseInt(getCookie("cb_react_best") || "0", 10));
-  const [history, setHistory] = useState([]);
-  const fireAtRef = useRef(0);
-  const timerRef = useRef(null);
-
-  const startWait = () => {
-    setState("waiting");
-    setMs(0);
-    const delay = 1200 + Math.random() * 3200;
-    timerRef.current = setTimeout(() => {
-      fireAtRef.current = performance.now();
-      setState("fire");
-    }, delay);
-  };
-
-  const click = () => {
-    if (state === "ready") { startWait(); return; }
-    if (state === "waiting") {
-      clearTimeout(timerRef.current);
-      setState("early"); return;
-    }
-    if (state === "fire") {
-      const dt = Math.round(performance.now() - fireAtRef.current);
-      setMs(dt);
-      setState("done");
-      setHistory((h) => [dt, ...h].slice(0, 5));
-      if (best === 0 || dt < best) { setBest(dt); setCookie("cb_react_best", String(dt)); }
-      return;
-    }
-    if (state === "done" || state === "early") startWait();
-  };
-
-  useEffect(() => () => timerRef.current && clearTimeout(timerRef.current), []);
-
-  const bgColor = {
-    ready: P.surface,
-    waiting: P.dark ? "#5b1a1a" : "#f5d5d5",
-    fire: "#10b981",
-    done: P.surface,
-    early: P.dark ? "#5b1a1a" : "#f5d5d5",
-  }[state];
-
-  const message = {
-    ready: { title: "Click to begin", sub: "Wait for green. Click as fast as you can." },
-    waiting: { title: "Wait for it...", sub: "Any moment now" },
-    fire: { title: "FIRE! Click!", sub: "" },
-    done: { title: `${ms} ms`, sub: reactLabel(ms) + " · Click to try again" },
-    early: { title: "Too soon!", sub: "Wait for the green. Click to try again." },
-  }[state];
-
-  const avg = history.length ? Math.round(history.reduce((a, b) => a + b, 0) / history.length) : 0;
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 13 }}>
-        <span style={{ color: P.ink2 }}>Best: <strong style={{ color: accent }}>{best || "—"} ms</strong></span>
-        <span style={{ color: P.ink2 }}>Last 5 avg: <strong style={{ color: P.ink }}>{avg || "—"} ms</strong></span>
-      </div>
-      <div onClick={click} style={{
-        padding: "60px 20px",
-        background: bgColor,
-        border: `1px solid ${P.line}`,
-        borderRadius: 12,
-        cursor: "pointer",
-        textAlign: "center",
-        userSelect: "none",
-        transition: "background 0.05s",
-        minHeight: 200,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-      }}>
-        <div style={{ fontSize: 28, fontWeight: 700, color: state === "fire" ? "#fff" : P.ink, letterSpacing: "-0.02em", marginBottom: 8 }}>{message.title}</div>
-        {message.sub && <div style={{ fontSize: 13, color: state === "fire" ? "#fff" : P.ink2 }}>{message.sub}</div>}
-      </div>
-      {history.length > 0 && (
-        <div style={{ marginTop: 12, fontSize: 12, color: P.faint, textAlign: "center" }}>
-          Last 5: {history.map((h, i) => (<span key={i} style={{ marginRight: 8, color: P.ink2 }}>{h}ms</span>))}
-        </div>
-      )}
-    </div>
-  );
-}
-function reactLabel(ms) {
-  if (ms < 180) return "Superhuman";
-  if (ms < 220) return "Excellent";
-  if (ms < 270) return "Good";
-  if (ms < 320) return "Average";
-  return "Room to grow";
-}
-function gameBtnStyle(accent, at, P, kind) {
-  return kind === "primary" ? {
-    padding: "12px 16px", background: accent, color: at,
-    border: "none", borderRadius: 10, fontWeight: 600, cursor: "pointer",
-    fontSize: 14, fontFamily: "inherit", transition: "transform 0.1s",
-  } : {
-    padding: "12px 16px", background: "transparent", color: P.ink,
-    border: `1px solid ${P.line}`, borderRadius: 10, fontWeight: 600, cursor: "pointer",
-    fontSize: 14, fontFamily: "inherit", transition: "border-color 0.15s",
-  };
-}
-
-function RotatingSub({ P }) {
-  const lines = [
-    "Your research sidekick.",
-    "Every claim, a real citation.",
-    "16 databases. One question.",
-    "Peer-reviewed answers, on demand.",
-    "The literature, distilled.",
-    "Search like a scientist.",
-    "Citations included. Guesswork not.",
-  ];
-  const [idx, setIdx] = useState(() => Math.floor(Math.random() * lines.length));
-  useEffect(() => {
-    const timer = setInterval(() => setIdx((i) => (i + 1) % lines.length), 5500);
-    return () => clearInterval(timer);
-  }, []);
-  return (
-    <p style={{ fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em", position: "relative", minHeight: 27 }}>
-      <span key={idx} className="cb-fade">{lines[idx]}</span>
-    </p>
-  );
-}
 
 function App() {
   const isMobile = useIsMobile();
@@ -1625,23 +951,7 @@ function App() {
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const [srcSort, setSrcSort] = useState("relevance"); // relevance | date | database
   const [srcFilter, setSrcFilter] = useState("");
-  const [partyMode, setPartyMode] = useState(false);
-  const [floatMessage, setFloatMessage] = useState(""); // rare event message
-  const [activeGame, setActiveGame] = useState(null); // "snake" | "trivia" | "reaction" | null
-  const konamiRef = useRef([]);
-  const KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
   // Empty state cycling messages so it doesn't feel dead
-  const EMPTY_MESSAGES = [
-    "Sources will collect here as you research.",
-    "This panel is where the receipts live.",
-    "Ask something. The citations will follow.",
-    "16 databases are standing by.",
-    "Every claim needs a source. That's the whole idea.",
-    "Try 'how does photosynthesis work' if you're new here.",
-    "The peer-reviewed literature is waiting.",
-  ];
-  const [emptyIdx, setEmptyIdx] = useState(() => Math.floor(Math.random() * 7));
-  const srcClickRef = useRef(0);
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(() => getCookie("cb_fc") === "1");
@@ -1676,22 +986,6 @@ function App() {
     const question = (q ?? input).trim();
     if (!question || busy) return;
     if (!mutedRef.current) Audio.click();
-
-    // Game triggers: intercept before firing search
-    const lc = question.toLowerCase().trim();
-    if (/^\/(snake|neuron|neuronchase|neuron chase)$|^neuron chase$/.test(lc)) {
-      setInput(""); setActiveGame("snake"); return;
-    }
-    if (/^\/(trivia|citeorfake|cite or fake)$|^cite or fake$/.test(lc)) {
-      setInput(""); setActiveGame("trivia"); return;
-    }
-    if (/^\/(reaction|reactiontime|reaction time|brain reaction)$|^reaction time$|^brain reaction$/.test(lc)) {
-      setInput(""); setActiveGame("reaction"); return;
-    }
-    if (/^\/(games|game)$/.test(lc)) {
-      setInput(""); setFloatMessage("Try: /snake · /trivia · /reaction");
-      setTimeout(() => setFloatMessage(""), 4000); return;
-    }
 
     setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
@@ -1743,7 +1037,7 @@ function App() {
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
   useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
 
-  // Keyboard shortcuts + Konami code + secret combos
+    // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
@@ -1751,54 +1045,11 @@ function App() {
       else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
-
-      // Konami code: ↑↑↓↓←→←→BA
-      // Ignore modifier keys and typing in inputs
-      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
-      const key = e.key;
-      const seq = konamiRef.current;
-      const expected = KONAMI[seq.length];
-      if (key === expected || key.toLowerCase() === expected) {
-        seq.push(key);
-        if (seq.length === KONAMI.length) {
-          konamiRef.current = [];
-          setPartyMode(true);
-          setFloatMessage("🎉 CHEAT CODE ACTIVATED 🎉");
-          setTimeout(() => setFloatMessage(""), 3000);
-          setTimeout(() => setPartyMode(false), 8000);
-        }
-      } else {
-        konamiRef.current = [];
-      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Rare random events: every ~2-4 minutes while active, show a floating message.
-  useEffect(() => {
-    const messages = [
-      "A curious mind wanders...",
-      "Somewhere, a paper is being written.",
-      "The peer reviewers are watching.",
-      "Your curiosity is registered.",
-      "A citation just found a new home.",
-      "Somewhere, a scientist is having coffee.",
-      "The universe is 13.8 billion years old. You are here.",
-    ];
-    const schedule = () => {
-      const delay = 120000 + Math.random() * 180000; // 2-5 min
-      return setTimeout(() => {
-        if (document.visibilityState === "visible") {
-          setFloatMessage(messages[Math.floor(Math.random() * messages.length)]);
-          setTimeout(() => setFloatMessage(""), 4000);
-        }
-        timer = schedule();
-      }, delay);
-    };
-    let timer = schedule();
-    return () => clearTimeout(timer);
-  }, []);
 
   function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
@@ -1871,26 +1122,8 @@ function App() {
 
   const SourcesInner = (
     <>
-      <div style={{ ...S.srcHead, cursor: allSources.length === 0 ? "pointer" : "default", userSelect: "none" }}
-        onClick={() => {
-          if (allSources.length > 0) return;
-          srcClickRef.current += 1;
-          setEmptyIdx((i) => (i + 1) % EMPTY_MESSAGES.length);
-          if (srcClickRef.current === 7) {
-            setFloatMessage("🔬 You found a hidden button. Now what?");
-            setTimeout(() => setFloatMessage(""), 3200);
-          } else if (srcClickRef.current === 15) {
-            setPartyMode(true);
-            setFloatMessage("🎊 Persistence, unlocked.");
-            setTimeout(() => setFloatMessage(""), 3200);
-            setTimeout(() => setPartyMode(false), 6000);
-            srcClickRef.current = 0;
-          }
-        }}>
-        <span>Sources</span>
-        <span style={S.srcCount}>{allSources.length}</span>
-      </div>
-      {allSources.length > 0 && (
+      <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
+{allSources.length > 0 && (
         <>
           <div style={S.srcActions}>
             <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
@@ -1915,7 +1148,7 @@ function App() {
         </div>
       )}
       <div style={S.srcList}>
-        {allSources.length === 0 ? <div style={S.empty}>{EMPTY_MESSAGES[emptyIdx]}</div> :
+        {allSources.length === 0 ? <div style={S.empty}>Sources appear here as you research.</div> :
           sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
           grouped ? grouped.map(([label, items]) => (
             <div key={label}>
@@ -1965,7 +1198,7 @@ function App() {
               <div style={S.heroGlow} />
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
               <h1 style={S.heroTitle}>Cerebrum</h1>
-              <RotatingSub P={P} />
+              <p style={{ fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em" }}>AI-synthesized summaries of peer-reviewed literature.</p>
               <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
                 <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
@@ -2006,7 +1239,11 @@ function App() {
           <div style={S.foot}>
             <div style={S.disclaimer}>Cerebrum is an AI research tool. Answers are generated by a language model from real published sources and may contain errors. Always verify against the cited papers before relying on them.</div>
             <span style={S.footDbs}>Europe PMC · PubMed · OpenAlex · Crossref · arXiv · Semantic Scholar · DOAJ · Zenodo · DataCite · OpenAIRE · HAL · UTK TRACE</span>
-            <div style={{ fontSize: 10.5, color: P.faint, marginTop: 10, letterSpacing: "0.02em" }}>© {new Date().getFullYear()} Cerebrum™. All rights reserved.</div>
+            <div style={{ fontSize: 10.5, color: P.faint, marginTop: 10, letterSpacing: "0.02em" }}>
+              <a href="/how-it-works" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>How it works</a>
+              <span style={{ margin: "0 8px" }}>·</span>
+              © {new Date().getFullYear()} Cerebrum™. All rights reserved.
+            </div>
           </div>
         </div>
       </div>
@@ -2069,86 +1306,10 @@ function App() {
         </div>
       )}
 
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
-      {partyMode && <PartyOverlay accent={accent} />}
-      {activeGame && <GameModal game={activeGame} onClose={() => setActiveGame(null)} accent={accent} P={P} at={at} />}
-      {floatMessage && (
-        <div style={{
-          position: "fixed",
-          bottom: 32,
-          left: "50%",
-          transform: "translateX(-50%)",
-          background: P.surface,
-          border: `1px solid ${withAlpha(accent, 0.4)}`,
-          borderRadius: 12,
-          padding: "12px 20px",
-          fontSize: 13,
-          fontWeight: 500,
-          color: P.ink,
-          boxShadow: P.shadow,
-          zIndex: 300,
-          animation: "cb-floatmsg 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
-          letterSpacing: "-0.005em",
-        }}>{floatMessage}</div>
-      )}
-    </div>
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}    </div>
   );
 }
 
-// Confetti overlay for cheat code activation. 100 pieces raining down with
-// physics-y motion, in the accent color and complementary hues. Auto-cleans.
-function PartyOverlay({ accent }) {
-  const canvasRef = useRef(null);
-  const rafRef = useRef(0);
-  useEffect(() => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
-    const ctx = canvas.getContext("2d");
-    const colors = [accent, "#f59e0b", "#ec4899", "#10b981", "#6366f1", "#f43f5e"];
-    const pieces = Array.from({ length: 140 }, () => ({
-      x: Math.random() * canvas.width,
-      y: -20 + Math.random() * -canvas.height * 0.5,
-      vx: (Math.random() - 0.5) * 3 * dpr,
-      vy: (Math.random() * 2 + 3) * dpr,
-      w: (6 + Math.random() * 8) * dpr,
-      h: (10 + Math.random() * 8) * dpr,
-      rot: Math.random() * Math.PI * 2,
-      vRot: (Math.random() - 0.5) * 0.15,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      wobble: Math.random() * Math.PI * 2,
-    }));
-    const start = performance.now();
-    function draw(now) {
-      const t = (now - start) / 1000;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      let alive = 0;
-      for (const p of pieces) {
-        p.x += p.vx + Math.sin(t + p.wobble) * 0.5 * dpr;
-        p.y += p.vy;
-        p.vy += 0.05 * dpr; // gravity
-        p.rot += p.vRot;
-        if (p.y < canvas.height + 20) alive++;
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
-      }
-      if (alive > 0) rafRef.current = requestAnimationFrame(draw);
-    }
-    rafRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [accent]);
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", pointerEvents: "none", zIndex: 400 }}
-    />
-  );
-}
 
 function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   const [copied, setCopied] = useState(false);
@@ -2224,6 +1385,20 @@ function BibEntry({ source, index, P, accent, style }) {
         paddingTop: 1,
       }}>{index}.</div>
       <div style={{ flex: 1, minWidth: 0 }}>
+        {(source.retracted || source.concern) && (
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "3px 8px", marginBottom: 6,
+            background: source.retracted ? "rgba(229, 72, 77, 0.12)" : "rgba(217, 165, 32, 0.14)",
+            border: `1px solid ${source.retracted ? "#e5484d" : "#d9a520"}`,
+            borderRadius: 6, fontSize: 11, fontWeight: 700,
+            color: source.retracted ? "#e5484d" : "#d9a520",
+            letterSpacing: "0.02em",
+          }}>
+            <span>⚠</span>
+            <span>{source.retracted ? "RETRACTED" : "EXPRESSION OF CONCERN"}</span>
+          </div>
+        )}
         {style === "bibtex" ? (
           <pre style={{ fontSize: 11.5, fontFamily: "'JetBrains Mono', monospace", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
         ) : (
@@ -2232,6 +1407,17 @@ function BibEntry({ source, index, P, accent, style }) {
               .replace(/\*([^*]+)\*/g, '<em style="font-style: italic;">$1</em>')
               .replace(/\n/g, "<br>")
           }} />
+        )}
+        {source.tldr && (
+          <div style={{
+            fontSize: 12.5, color: P.ink2, marginTop: 8,
+            padding: "8px 12px", background: withAlpha(accent, 0.05),
+            borderLeft: `2px solid ${accent}`, borderRadius: 4,
+            lineHeight: 1.5, fontStyle: "italic",
+          }}>
+            <span style={{ fontWeight: 600, fontStyle: "normal", color: accent, fontSize: 10.5, letterSpacing: "0.05em", textTransform: "uppercase", marginRight: 6 }}>TL;DR</span>
+            {source.tldr}
+          </div>
         )}
         {source.url && (
           <a href={source.url} target="_blank" rel="noreferrer" style={{
@@ -2272,7 +1458,6 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         {done && t.source && (
           <div style={S.byline}>
             <span style={S.aiTag}>AI-generated · verify with sources</span>
-            <span style={{ marginLeft: "auto", color: P.faint }}>{readingTime(t.answer)}</span>
           </div>
         )}
       </div>
@@ -2591,9 +1776,6 @@ if (typeof document !== "undefined") {
         from { opacity: 0; transform: translateY(-6px) scale(0.96); }
         to { opacity: 1; transform: translateY(0) scale(1); }
       }
-      @keyframes cb-floatmsg {
-        from { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.94); }
-        to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
       }
       @keyframes cb-wiggle {
         0%, 100% { transform: rotate(0deg) scale(1); }
