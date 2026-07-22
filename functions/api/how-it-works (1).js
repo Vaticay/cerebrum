@@ -1,8 +1,4 @@
-// Public /how-it-works page. Radical transparency about what Cerebrum does,
-// how it retrieves, which AI models it uses, and what its known limits are.
-
-export async function onRequest() {
-  const html = `<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -25,10 +21,6 @@ export async function onRequest() {
   @media (prefers-color-scheme: dark) { code { background: rgba(255,255,255,0.06); } }
   a { color: #10b981; text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin: 8px 0 24px; }
-  .grid > div { font-size: 13.5px; }
-  .grid > div:nth-child(odd) { color: #666; }
-  @media (prefers-color-scheme: dark) { .grid > div:nth-child(odd) { color: #888; } }
   .back { display: inline-block; margin-bottom: 40px; color: #888; font-size: 13px; }
 </style>
 </head>
@@ -100,9 +92,4 @@ export async function onRequest() {
 <p style="margin-top: 40px; color: #888; font-size: 12.5px;">Cerebrum™ · Built by Vaticay · Open to feedback</p>
 </main>
 </body>
-</html>`;
-  return new Response(html, {
-    status: 200,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
-}
+</html>
