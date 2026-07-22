@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} }
 function getCookie(k) { try { const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : null; } catch { return null; } }
 
+// Platform-aware modifier label: ⌘ on Mac, Ctrl elsewhere.
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
 const MOD = IS_MAC ? "⌘" : "Ctrl";
 const kbdLabel = (key) => `${MOD}${IS_MAC ? "" : "+"}${key}`;
@@ -91,6 +92,7 @@ const ACCENTS = { Emerald: "#059669", Indigo: "#4f46e5", Sky: "#0284c7", Amber: 
 function accentText(hex) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#111" : "#fff"; }
 function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
 
+function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
 function toRIS(sources) {
   return sources.map((s) => {
     const authors = (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean);
@@ -124,33 +126,46 @@ async function saveToZotero(sources, apiKey, userId) {
 }
 function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
-// ---------- Sound Generator API ----------
 const Audio = (() => {
   let ctx = null, ambient = null, lfoTimer = null;
   function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } } return ctx; }
   function tone(freq, dur, vol) { const c = ac(); if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.02); }
   function click() { tone(660, 0.08, 0.045); }
   function pop() { tone(880, 0.06, 0.04); }
+  // mode: 'pulse' | 'shimmer' | 'warm' | 'minimal'
   function startAmbient(mode = "pulse") {
     const c = ac(); if (!c || ambient) return;
-    if (mode === "minimal") { tone(523.25, 0.5, 0.05); return; }
-    const now = c.currentTime; const g = c.createGain(); g.gain.setValueAtTime(0.0001, now); g.connect(c.destination);
+    if (mode === "minimal") { tone(523.25, 0.5, 0.05); return; } // one soft "thinking" tone, no loop
+    const now = c.currentTime;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.connect(c.destination);
     const oscs = [];
     if (mode === "shimmer") {
-      const o = c.createOscillator(), o2 = c.createOscillator(); o.type = "sine"; o.frequency.value = 587.33; o2.type = "sine"; o2.frequency.value = 880;
-      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2);
+      const o = c.createOscillator(), o2 = c.createOscillator();
+      o.type = "sine"; o.frequency.value = 587.33; o2.type = "sine"; o2.frequency.value = 880;
+      const lfo = c.createOscillator(), lfoG = c.createGain();
+      lfo.frequency.value = 0.25; lfoG.gain.value = 6; lfo.connect(lfoG); lfoG.connect(o.detune); lfo.start();
+      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2, lfo);
       g.gain.exponentialRampToValueAtTime(0.02, now + 0.6);
     } else if (mode === "warm") {
-      [98, 146.83, 196].forEach((freq) => { const o = c.createOscillator(); o.type = "sine"; o.frequency.value = freq; o.connect(g); o.start(); oscs.push(o); });
+      const f = [98, 146.83, 196];
+      f.forEach((freq) => { const o = c.createOscillator(); o.type = "sine"; o.frequency.value = freq; o.connect(g); o.start(); oscs.push(o); });
       g.gain.exponentialRampToValueAtTime(0.024, now + 0.5);
-    } else {
-      const o = c.createOscillator(), o2 = c.createOscillator(); o.type = "sine"; o.frequency.value = 110; o2.type = "sine"; o2.frequency.value = 164.81;
+    } else { // pulse (default): low tone that breathes
+      const o = c.createOscillator(), o2 = c.createOscillator();
+      o.type = "sine"; o.frequency.value = 110; o2.type = "sine"; o2.frequency.value = 164.81;
       o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2);
-      let up = true; g.gain.exponentialRampToValueAtTime(0.03, now + 0.8);
+      // breathing via periodic gain ramps
+      let up = true;
+      g.gain.exponentialRampToValueAtTime(0.03, now + 0.8);
       lfoTimer = setInterval(() => {
-        if (!ctx) return; const t = ctx.currentTime;
-        g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t);
-        g.gain.exponentialRampToValueAtTime(up ? 0.012 : 0.032, t + 1.4); up = !up;
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.exponentialRampToValueAtTime(up ? 0.012 : 0.032, t + 1.4);
+        up = !up;
       }, 1400);
     }
     ambient = { g, oscs };
@@ -158,76 +173,14 @@ const Audio = (() => {
   function stopAmbient() {
     if (lfoTimer) { clearInterval(lfoTimer); lfoTimer = null; }
     if (!ambient || !ctx) return;
-    try { ambient.g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); ambient.oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch {} }); } catch {}
+    const { g, oscs } = ambient;
+    try { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(g.gain.value, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch {} }); } catch {}
     ambient = null;
   }
+  // Preview a mode briefly (for settings)
   function preview(mode) { startAmbient(mode); setTimeout(stopAmbient, 1400); }
   return { click, pop, startAmbient, stopAmbient, preview };
 })();
-
-// ---------- Multi-Engine Video Discovery with Guaranteed Thumbnails ----------
-const STOPWORDS = new Set([
-  "what","whats","how","does","do","did","is","are","was","were","the","a","an",
-  "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
-  "why","when","where","which","who","can","you","please","give","show","find",
-  "search","look","up","that","this","these","those","it","its","work","works"
-]);
-
-async function fetchVideosMultiSource(query) {
-  const cleanTokens = query.toLowerCase().replace(/[^\w\s-]/g, " ").split(/\s+/).filter(w => w.length > 2 && !STOPWORDS.has(w));
-  const coreTopic = cleanTokens.length > 0 ? cleanTokens.join(" ") : query;
-  const searchTerms = [coreTopic, `${coreTopic} university lecture`, `${coreTopic} science tutorial`];
-
-  let results = [];
-  let seenIds = new Set();
-
-  for (const term of searchTerms) {
-    if (results.length >= 6) break;
-
-    const endpoints = [
-      `https://corsproxy.io/?${encodeURIComponent(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(term)}&filter=videos`)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(term)}&filter=videos`)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(term)}&type=video`)}`
-    ];
-
-    for (const endpoint of endpoints) {
-      if (results.length >= 6) break;
-      try {
-        const c = new AbortController();
-        const t = setTimeout(() => c.abort(), 2500);
-        const res = await fetch(endpoint, { signal: c.signal });
-        clearTimeout(t);
-        if (!res.ok) continue;
-        const data = await res.json();
-
-        let items = [];
-        if (Array.isArray(data)) items = data;
-        else if (data?.items && Array.isArray(data.items)) items = data.items;
-
-        for (const item of items) {
-          const vId = item.videoId || item.url?.replace("/watch?v=", "") || "";
-          const vTitle = item.title || "";
-          const vAuthor = item.author || item.uploaderName || "Academic Lecture";
-
-          if (vId && !seenIds.has(vId)) {
-            seenIds.add(vId);
-            // Universal YouTube thumbnail (hqdefault or 0.jpg)
-            const thumbnail = `https://img.youtube.com/vi/${vId}/0.jpg`;
-            results.push({
-              title: vTitle,
-              url: `https://www.youtube.com/watch?v=${vId}`,
-              author: vAuthor,
-              thumbnail,
-              id: vId
-            });
-          }
-        }
-      } catch {}
-    }
-  }
-
-  return results.slice(0, 6);
-}
 
 function Mark({ size = 26, accent, glow }) {
   return (
@@ -238,6 +191,7 @@ function Mark({ size = 26, accent, glow }) {
   );
 }
 
+// Typewriter reveal for answer text
 function useTypewriter(full, on) {
   const [out, setOut] = useState(on ? "" : full);
   useEffect(() => {
@@ -252,16 +206,16 @@ function useTypewriter(full, on) {
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   const clean = (text || "").replace(/^#{1,6}\s*/gm, "");
   return clean.split(/\n{2,}/).map((para, pi) => (
-    <p key={pi} style={{ fontSize: 16.5, lineHeight: 1.85, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.004em" }}>
+    <p key={pi} style={{ fontSize: 16, lineHeight: 1.7, margin: "0 0 16px", color: P.ink, letterSpacing: "-0.006em" }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {line.split(/(\*\*[^*]+\*\*|\[\d+\])/g).map((seg, si) => {
             const b = seg.match(/^\*\*([^*]+)\*\*$/);
-            if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 700 }}>{b[1]}</strong>;
+            if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 650 }}>{b[1]}</strong>;
             const c = seg.match(/^\[(\d+)\]$/);
             if (c) {
               const n = parseInt(c[1], 10); const src = sources[n - 1];
-              return <a key={si} href={src?.url || "#"} target="_blank" rel="noreferrer" title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)} style={{ fontSize: 11, verticalAlign: "super", color: accent, textDecoration: "none", fontWeight: 700, padding: "1px 5px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s", cursor: "pointer" }}>{n}</a>;
+              return <a key={si} href={src?.url || "#"} target="_blank" rel="noreferrer" title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)} style={{ fontSize: 10.5, verticalAlign: "super", color: at2(accent), textDecoration: "none", fontWeight: 700, padding: "1px 4px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s", cursor: "pointer", ...( { color: accent } ) }}>{n}</a>;
             }
             return <span key={si}>{seg}</span>;
           })}
@@ -271,6 +225,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     </p>
   ));
 }
+function at2(a) { return a; }
 
 function FactCheck({ fc, P, accent }) {
   const colors = { supported: "#10b981", partly: "#d9a520", unsupported: "#e5484d", thin: "#d9a520" };
@@ -281,31 +236,34 @@ function FactCheck({ fc, P, accent }) {
   const nThin = claims.filter((c) => c.status === "thin").length;
   const nUns = claims.filter((c) => c.status === "unsupported").length;
   const total = claims.length;
+  // Honest score: supported = full weight, thin = half, unsupported = zero.
   const score = total ? Math.round(((nSup + nThin * 0.5) / total) * 100) : null;
   const scoreColor = score === null ? P.ink2 : score >= 75 ? "#10b981" : score >= 45 ? "#d9a520" : "#e5484d";
   return (
-    <div style={{ marginTop: 20, border: `1px solid ${P.line}`, borderRadius: 14, background: P.surface, padding: "20px 22px", boxShadow: P.shadowSm }} className="cb-rise">
+    <div style={{ marginTop: 16, border: `1px solid ${P.line}`, borderRadius: 12, background: P.surface, padding: "16px 18px", boxShadow: P.shadowSm }} className="cb-rise">
       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 14 }}>
         <span style={{ width: 18, height: 18, borderRadius: "50%", background: withAlpha(oc, 0.15), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: oc }} /></span>
-        <span style={{ fontSize: 13, fontWeight: 650, color: oc }}>{label[fc.overall] || fc.overall}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 650, letterSpacing: "-0.01em", color: oc }}>{label[fc.overall] || fc.overall}</span>
         <span style={{ fontSize: 11, color: P.faint, marginLeft: "auto" }}>checked vs. cited abstracts</span>
       </div>
 
       {score !== null && (
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 26, fontWeight: 750, color: scoreColor }}>{score}<span style={{ fontSize: 15, fontWeight: 600 }}>%</span></span>
-            <span style={{ fontSize: 13, color: P.ink2, fontWeight: 550 }}>source support</span>
+            <span style={{ fontSize: 26, fontWeight: 750, color: scoreColor, letterSpacing: "-0.02em" }}>{score}<span style={{ fontSize: 15, fontWeight: 600 }}>%</span></span>
+            <span style={{ fontSize: 12.5, color: P.ink2, fontWeight: 550 }}>source support</span>
+            <span style={{ fontSize: 11, color: P.faint, marginLeft: "auto" }}>{nSup} solid · {nThin} thin · {nUns} unsupported</span>
           </div>
           <div style={{ display: "flex", height: 7, borderRadius: 4, overflow: "hidden", background: P.line, gap: 1.5 }}>
-            {nSup > 0 && <div style={{ flex: nSup, background: "#10b981" }} />}
-            {nThin > 0 && <div style={{ flex: nThin, background: "#d9a520" }} />}
-            {nUns > 0 && <div style={{ flex: nUns, background: "#e5484d" }} />}
+            {nSup > 0 && <div style={{ flex: nSup, background: "#10b981" }} title={`${nSup} supported`} />}
+            {nThin > 0 && <div style={{ flex: nThin, background: "#d9a520" }} title={`${nThin} thin`} />}
+            {nUns > 0 && <div style={{ flex: nUns, background: "#e5484d" }} title={`${nUns} unsupported`} />}
           </div>
+          <div style={{ fontSize: 10.5, color: P.faint, marginTop: 6, lineHeight: 1.4 }}>How well the cited abstracts back the answer's claims, not a measure of scientific truth.</div>
         </div>
       )}
 
-      {fc.summary && <div style={{ fontSize: 14, color: P.ink2, marginBottom: claims.length ? 12 : 0, lineHeight: 1.6 }}>{fc.summary}</div>}
+      {fc.summary && <div style={{ fontSize: 13.5, color: P.ink2, marginBottom: claims.length ? 12 : 0, lineHeight: 1.55, paddingTop: score !== null ? 12 : 0, borderTop: score !== null ? `1px solid ${P.line}` : "none" }}>{fc.summary}</div>}
       {claims.map((c, i) => {
         const cc = colors[c.status] || P.ink2; const sym = c.status === "supported" ? "✓" : c.status === "thin" ? "~" : "✕";
         return (
@@ -320,9 +278,9 @@ function FactCheck({ fc, P, accent }) {
 }
 
 function Skeleton({ P }) {
-  const bar = (w) => <div style={{ height: 14, width: w, borderRadius: 6, background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.3s infinite" }} />;
+  const bar = (w) => <div style={{ height: 13, width: w, borderRadius: 6, background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.3s infinite" }} />;
   return (
-    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "32px 38px", boxShadow: P.shadow, display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "22px 26px", boxShadow: P.shadow, display: "flex", flexDirection: "column", gap: 11 }}>
       {bar("92%")}{bar("98%")}{bar("85%")}<div style={{ height: 6 }} />{bar("95%")}{bar("70%")}
     </div>
   );
@@ -334,168 +292,31 @@ function useIsMobile() {
   return m;
 }
 
-function LoadingLine({ P }) {
+function LoadingLine({ P, accent, S }) {
   const [msg, setMsg] = useState(() => LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
   useEffect(() => {
     const id = setInterval(() => { setMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]); }, 1800);
     return () => clearInterval(id);
   }, []);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "16px 0 0" }}>
-      <span style={{ width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: P.ink, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" }} />
+    <div style={S.loading}>
+      <span style={S.spinner} />
       <span key={msg} className="cb-fade">{msg}…</span>
     </div>
   );
 }
 
-const FAQ_DATA = [
-  {
-    category: "Getting Started",
-    q: "What is Cerebrum?",
-    a: "Cerebrum is an independent, high-performance search instrument built exclusively for scientific research. It queries global scholarly archives in parallel, synthesizes factual answers grounded strictly in peer-reviewed literature, and provides verifiable inline citations."
-  },
-  {
-    category: "Getting Started",
-    q: "Do I need to create an account or pay to use Cerebrum?",
-    a: "No account or login is required to search or read literature. Cerebrum runs completely free on client-side routing and edge serverless pathways, ensuring total privacy."
-  },
-  {
-    category: "Data Sources",
-    q: "Which scholarly databases does Cerebrum query?",
-    a: "Cerebrum queries multiple global and open-access scientific indexes simultaneously: Europe PMC (life sciences/chemistry), PubMed (biomedical), OpenAlex (250M+ multidisciplinary works and preprints), Crossref, arXiv (physics/math/CS), Semantic Scholar, DOAJ, Zenodo, DataCite, OpenAIRE, HAL, PLOS, BASE, and the University of Tennessee Knoxville (UTK) TRACE repository."
-  },
-  {
-    category: "Data Sources",
-    q: "How does Cerebrum prevent off-topic or irrelevant papers from showing up?",
-    a: "Cerebrum uses an advanced query-structuring engine that splits your question into specific organism phrases and topical keywords. It applies strict relevance gates so that unrelated papers sharing a single common word (such as an entomology paper appearing for a general biochemical query) are automatically dropped."
-  },
-  {
-    category: "Zotero Integration",
-    q: "How do I connect Cerebrum to my Zotero account?",
-    a: "To sync your saved articles directly to Zotero, click the 'Zotero' button in the Sources panel. You will need to input your Zotero User ID and a Private API Key."
-  },
-  {
-    category: "Zotero Integration",
-    q: "Where do I find my Zotero User ID and API Key?",
-    a: "1. Log into your account at zotero.org.\n2. Go to your Account Settings -> Feeds/API (or visit zotero.org/settings/keys).\n3. Copy the 7-digit number listed as your userID.\n4. Click 'Create new private key', ensure boxes for 'Allow library access' and 'Allow write access' are checked, and save it. Copy the generated key immediately."
-  },
-  {
-    category: "Features & Output",
-    q: "What are the small superscript numbers (e.g., ¹) inside the answers?",
-    a: "Those are active inline citation links. Each number corresponds directly to a source in your sidebar. Clicking or hovering over them reveals the exact source material that backs up that specific scientific claim."
-  },
-  {
-    category: "Features & Output",
-    q: "How does the Fact-Checker feature work?",
-    a: "When enabled in Settings, a secondary validation model evaluates each factual claim in the generated answer against the source abstracts provided. It scores the response to ensure the conclusions are genuinely supported by the retrieved literature."
-  },
-  {
-    category: "Features & Output",
-    q: "Where do the Related Videos come from?",
-    a: "Cerebrum uses a multi-engine keyless discovery system querying Piped, Invidious, and PeerTube (Sepia Search) directly from your browser to pull educational university lectures and laboratory demonstrations."
-  },
-  {
-    category: "Privacy & Tech",
-    q: "Is my search history saved on a server?",
-    a: "No. Your chat history, search tokens, and saved articles are stored securely in your browser's local storage (`localStorage`). Nothing is tracked or retained on a central database."
-  }
-];
-
-function FAQView({ P, accent, at, onBack }) {
-  const [search, setSearch] = useState("");
-  const [openCategory, setOpenCategory] = useState("All");
-  const categories = ["All", "Getting Started", "Data Sources", "Zotero Integration", "Features & Output", "Privacy & Tech"];
-
-  const filtered = FAQ_DATA.filter((item) => {
-    const matchesCat = openCategory === "All" || item.category === openCategory;
-    const matchesQuery = item.q.toLowerCase().includes(search.toLowerCase()) || item.a.toLowerCase().includes(search.toLowerCase());
-    return matchesCat && matchesQuery;
-  });
-
-  return (
-    <div style={{ minHeight: "100vh", background: P.bg, color: P.ink, fontFamily: "'Inter', -apple-system, sans-serif", padding: "40px 20px" }}>
-      <div style={{ maxWidth: 760, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 40 }}>
-          <button onClick={onBack} style={{ background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontWeight: 600, fontSize: 13.5 }}>
-            ← Back to Cerebrum
-          </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Mark size={20} accent={accent} />
-            <span style={{ fontWeight: 700, fontSize: 16, color: P.ink }}>Cerebrum Docs</span>
-          </div>
-        </div>
-
-        <h1 style={{ fontSize: 38, fontWeight: 750, letterSpacing: "-0.03em", marginBottom: 10, color: P.ink }}>Frequently Asked Questions</h1>
-        <p style={{ fontSize: 16, color: P.ink2, marginBottom: 30, lineHeight: 1.5 }}>Everything you need to know about how Cerebrum indexes research, grounds its citations, and connects with tools like Zotero.</p>
-
-        <div style={{ marginBottom: 24 }}>
-          <input
-            type="text"
-            placeholder="Search questions (e.g. Zotero, databases, citations)…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ width: "100%", padding: "14px 18px", fontSize: 15, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 12, color: P.ink, outline: "none", boxShadow: P.shadowSm }}
-          />
-        </div>
-
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 32 }}>
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setOpenCategory(cat)}
-              style={{
-                padding: "7px 14px",
-                fontSize: 13,
-                fontWeight: 600,
-                borderRadius: 20,
-                border: "1px solid",
-                borderColor: openCategory === cat ? accent : P.line2,
-                background: openCategory === cat ? accent : P.surface,
-                color: openCategory === cat ? at : P.ink2,
-                cursor: "pointer",
-                transition: "all 0.15s"
-              }}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {filtered.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "50px 0", color: P.faint, fontSize: 15 }}>
-              No matching questions found for "{search}".
-            </div>
-          ) : (
-            filtered.map((item, idx) => (
-              <div key={idx} style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 14, padding: "22px 24px", boxShadow: P.shadowSm }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: accent, marginBottom: 8 }}>
-                  {item.category}
-                </div>
-                <h3 style={{ fontSize: 17, fontWeight: 700, color: P.ink, margin: "0 0 10px 0", letterSpacing: "-0.01em" }}>
-                  {item.q}
-                </h3>
-                <p style={{ fontSize: 14.5, color: P.ink2, margin: 0, lineHeight: 1.6, whiteSpace: "pre-line" }}>
-                  {item.a}
-                </p>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div style={{ textAlign: "center", marginTop: 60, fontSize: 12.5, color: P.faint, borderTop: `1px solid ${P.line}`, paddingTop: 24 }}>
-          Cerebrum Research Instrument · Built for absolute scientific transparency.
-        </div>
-      </div>
-    </div>
-  );
-}
-
+// ============ CINEMATIC BRAIN INTRO ============
+// Multi-phase sequence: neurons scatter in → electrical pulses fire along
+// forming pathways → connections build the brain silhouette → text emerges → dissolves.
 function Intro({ accent, P, onEnter }) {
   const canvasRef = useRef(null);
-  const [phase, setPhase] = useState("idle");
+  const [phase, setPhase] = useState("idle"); // idle -> forming -> done
+  const [textReveal, setTextReveal] = useState(false);
   const rafRef = useRef(0);
   const startRef = useRef(0);
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -504,26 +325,47 @@ function Intro({ accent, P, onEnter }) {
     resize(); window.addEventListener("resize", resize);
     const ctx = canvas.getContext("2d");
 
-    const CX = () => canvas.width / 2, CY = () => canvas.height / 2;
-    const R = () => Math.min(canvas.width, canvas.height) * 0.26;
-    const N = 22;
-    const nodes = [];
+    // Brain silhouette approximated with two hemispheres of dense points
+    // Nodes are neurons; edges are synapses that "fire" during forming phase.
+    const N = 90;
+    const neurons = [];
     for (let i = 0; i < N; i++) {
-      const a = (i / N) * Math.PI * 2 * 3 + i;
-      const rr = R() * (0.35 + 0.65 * ((i * 7) % N) / N);
-      const tx = Math.cos(a) * rr, ty = Math.sin(a) * rr * 0.72;
-      nodes.push({
-        tx, ty,
-        sx: (Math.random() - 0.5) * canvas.width * 1.6,
-        sy: (Math.random() - 0.5) * canvas.height * 1.6,
-        r: 2.2 * dpr + Math.random() * 2.4 * dpr,
-        delay: Math.random() * 0.35,
+      // Distribute around a rough brain shape (two lobes)
+      const side = i < N / 2 ? -1 : 1;
+      const idx = i < N / 2 ? i : i - N / 2;
+      const t = idx / (N / 2);
+      const angle = t * Math.PI * 2;
+      const R = 0.32 + 0.08 * Math.sin(t * Math.PI * 4);
+      // brain-ish blob per hemisphere
+      const bx = side * (0.14 + R * 0.55 * Math.abs(Math.cos(angle * 0.5)));
+      const by = R * 0.9 * Math.sin(angle) - 0.02 * side * Math.sin(angle * 2);
+      neurons.push({
+        tx: bx,
+        ty: by,
+        // start random distant
+        sx: (Math.random() - 0.5) * 3.4,
+        sy: (Math.random() - 0.5) * 3.4,
+        r: 1.3 + Math.random() * 1.8,
+        delay: Math.random() * 0.6,
+        pulse: Math.random() * Math.PI * 2,
+        pulseSpeed: 1.5 + Math.random() * 1.5,
       });
     }
-    const bonds = [];
-    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
-      const dx = nodes[i].tx - nodes[j].tx, dy = nodes[i].ty - nodes[j].ty;
-      if (Math.hypot(dx, dy) < R() * 0.55) bonds.push([i, j]);
+    // Synaptic connections: nearest neighbors
+    const synapses = [];
+    for (let i = 0; i < N; i++) {
+      const near = [];
+      for (let j = 0; j < N; j++) {
+        if (i === j) continue;
+        const d = Math.hypot(neurons[i].tx - neurons[j].tx, neurons[i].ty - neurons[j].ty);
+        near.push([j, d]);
+      }
+      near.sort((a, b) => a[1] - b[1]);
+      // 2-3 nearest per neuron
+      for (let k = 0; k < 3; k++) {
+        const [j] = near[k];
+        if (i < j) synapses.push({ a: i, b: j, fire: Math.random() * Math.PI * 2, fireRate: 0.5 + Math.random() * 1.5 });
+      }
     }
 
     const ease = (t) => 1 - Math.pow(1 - t, 3);
@@ -533,53 +375,89 @@ function Intro({ accent, P, onEnter }) {
     function draw(now) {
       if (!startRef.current) startRef.current = now;
       const elapsed = (now - startRef.current) / 1000;
-      const assembling = phase === "assembling";
-      const prog = assembling ? Math.min(1, elapsed / 1.1) : Math.min(1, elapsed / 2.2);
+      const forming = phaseRef.current === "forming";
+      // Idle: gentle drift. Forming: rapid assembly + firing pulses.
+      const prog = forming ? Math.min(1, elapsed / 1.6) : Math.min(1, elapsed / 2.5);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const spin = (assembling ? elapsed * 1.4 : elapsed * 0.25);
-      const cx = CX(), cy = CY();
+      const cx = canvas.width / 2, cy = canvas.height / 2;
+      const scale = Math.min(canvas.width, canvas.height) * 0.42;
+      // gentle idle spin, faster during forming
+      const spin = forming ? elapsed * 0.6 : elapsed * 0.08;
 
-      const pos = nodes.map((n, i) => {
+      // compute positions
+      const pos = neurons.map((n, i) => {
         const t = ease(Math.max(0, Math.min(1, (prog - n.delay) / (1 - n.delay))));
         const baseX = n.sx * (1 - t) + n.tx * t;
         const baseY = n.sy * (1 - t) + n.ty * t;
-        const ca = Math.cos(spin), sa = Math.sin(spin);
-        const rx = baseX * ca - baseY * sa;
-        const ry = baseX * sa + baseY * ca;
-        return { x: cx + rx, y: cy + ry, t };
+        // slight drift in idle
+        const idleDx = !forming ? 0.008 * Math.sin(elapsed * 0.6 + i) : 0;
+        const idleDy = !forming ? 0.008 * Math.cos(elapsed * 0.5 + i * 1.3) : 0;
+        // subtle rotation
+        const ca = Math.cos(spin * 0.2), sa = Math.sin(spin * 0.2);
+        const rx = (baseX + idleDx) * ca - (baseY + idleDy) * sa;
+        const ry = (baseX + idleDx) * sa + (baseY + idleDy) * ca;
+        return { x: cx + rx * scale, y: cy + ry * scale, t };
       });
 
-      for (const [i, j] of bonds) {
-        const a = pos[i], b = pos[j]; const alpha = Math.min(a.t, b.t);
+      // Synapses (edges) with electrical pulses traveling along them
+      for (const s of synapses) {
+        const a = pos[s.a], b = pos[s.b];
+        const alpha = Math.min(a.t, b.t);
         if (alpha <= 0.02) continue;
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.28 * alpha})`;
-        ctx.lineWidth = 1.1 * dpr;
+        // base line
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.18 * alpha})`;
+        ctx.lineWidth = 0.9 * dpr;
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      }
-      for (let i = 0; i < pos.length; i++) {
-        const p = pos[i]; if (p.t <= 0.02) continue;
-        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, nodes[i].r * 4);
-        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.5 * p.t})`);
-        glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
-        ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(p.x, p.y, nodes[i].r * 4, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = `rgba(${ar},${ag},${ab},${p.t})`;
-        ctx.beginPath(); ctx.arc(p.x, p.y, nodes[i].r, 0, Math.PI * 2); ctx.fill();
+        // electrical pulse (only when both endpoints exist)
+        if (alpha > 0.7) {
+          const fire = ((elapsed * s.fireRate + s.fire) % 2) / 2;
+          if (fire < 0.6) {
+            const pulseT = fire / 0.6;
+            const px = a.x + (b.x - a.x) * pulseT;
+            const py = a.y + (b.y - a.y) * pulseT;
+            const glow = ctx.createRadialGradient(px, py, 0, px, py, 8 * dpr);
+            glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.9 * alpha})`);
+            glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+            ctx.fillStyle = glow;
+            ctx.beginPath(); ctx.arc(px, py, 8 * dpr, 0, Math.PI * 2); ctx.fill();
+          }
+        }
       }
 
-      if (assembling && elapsed >= 1.1) {
-        const f = Math.min(1, (elapsed - 1.1) / 0.35);
-        ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.5 * (1 - Math.abs(f - 0.5) * 2)})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        if (f >= 1) { cancelAnimationFrame(rafRef.current); onEnter(); return; }
+      // Neurons with pulsing glow
+      for (let i = 0; i < pos.length; i++) {
+        const p = pos[i]; if (p.t <= 0.02) continue;
+        const n = neurons[i];
+        const pulse = 0.7 + 0.3 * Math.sin(elapsed * n.pulseSpeed + n.pulse);
+        const rBase = n.r * dpr;
+        // outer glow
+        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rBase * 5);
+        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.5 * p.t * pulse})`);
+        glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(p.x, p.y, rBase * 5, 0, Math.PI * 2); ctx.fill();
+        // core
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${p.t * pulse})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, rBase, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Text reveal trigger + final flash + finish
+      if (forming) {
+        if (elapsed >= 1.2 && !textReveal) setTextReveal(true);
+        if (elapsed >= 1.9) {
+          const f = Math.min(1, (elapsed - 1.9) / 0.6);
+          ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.6 * (1 - Math.abs(f - 0.5) * 2)})`;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          if (f >= 1) { cancelAnimationFrame(rafRef.current); onEnter(); return; }
+        }
       }
       rafRef.current = requestAnimationFrame(draw);
     }
     rafRef.current = requestAnimationFrame(draw);
     return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener("resize", resize); };
-  }, [phase, accent, onEnter]);
+  }, [accent, onEnter, textReveal]);
 
-  const go = () => { if (phase !== "idle") return; startRef.current = 0; setPhase("assembling"); };
+  const go = () => { if (phase !== "idle") return; startRef.current = 0; setPhase("forming"); };
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Enter") go(); };
@@ -587,16 +465,22 @@ function Intro({ accent, P, onEnter }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [phase]);
 
-  const bg = P.dark ? "radial-gradient(circle at 50% 45%, " + withAlpha(accent, 0.08) + ", " + P.bg + " 70%)" : "radial-gradient(circle at 50% 45%, " + withAlpha(accent, 0.05) + ", " + P.bg + " 70%)";
+  const bg = P.dark
+    ? `radial-gradient(circle at 50% 45%, ${withAlpha(accent, 0.10)}, ${P.bg} 65%)`
+    : `radial-gradient(circle at 50% 45%, ${withAlpha(accent, 0.06)}, ${P.bg} 65%)`;
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, fontFamily: "'Inter', -apple-system, sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
-      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.9 }} />
-      <div style={{ position: "relative", zIndex: 1, textAlign: "center", transition: "opacity 0.5s, transform 0.5s", opacity: phase === "assembling" ? 0 : 1, transform: phase === "assembling" ? "scale(0.94)" : "scale(1)" }}>
-        <div style={{ marginBottom: 22 }}><Mark size={54} accent={accent} glow={P.dark} /></div>
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.95 }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center", transition: "opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)", opacity: phase === "forming" ? 0 : 1, transform: phase === "forming" ? "scale(0.92) translateY(10px)" : "scale(1)" }}>
+        <div style={{ marginBottom: 22, animation: "cb-float 4s ease-in-out infinite" }}><Mark size={54} accent={accent} glow={P.dark} /></div>
         <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, marginBottom: 14 }}>A Research Instrument</div>
         <div style={{ fontSize: 52, fontWeight: 750, letterSpacing: "-0.035em", color: P.ink, marginBottom: 12, lineHeight: 1 }}>Cerebrum</div>
         <div style={{ fontSize: 17, color: P.ink2, marginBottom: 34, letterSpacing: "-0.01em" }}>Peer-reviewed answers, on demand.</div>
-        <button onClick={go} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}`, letterSpacing: "-0.01em" }}>
+        <button onClick={go} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}`, letterSpacing: "-0.01em", transition: "transform 0.15s, box-shadow 0.15s" }}
+          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.97)"; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}>
           Initialize <span>→</span>
         </button>
         <div style={{ fontSize: 12.5, color: P.faint, marginTop: 18 }}>No account · nothing stored on a server</div>
@@ -605,10 +489,281 @@ function Intro({ accent, P, onEnter }) {
   );
 }
 
-export default function App() {
+// ============ LIVING MOLECULAR BACKGROUND ============
+// Ambient always-on canvas: drifting particles with elastic connections,
+// gentle currents, subtle firing pulses. Sits behind ALL app content at low opacity.
+function LivingBackground({ accent, P }) {
+  const canvasRef = useRef(null);
+  const rafRef = useRef(0);
+  const particlesRef = useRef([]);
+  const mouseRef = useRef({ x: -9999, y: -9999 });
+
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => {
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+      // Recompute particle count based on size
+      const target = Math.floor((canvas.width * canvas.height) / (28000 * dpr));
+      const cur = particlesRef.current;
+      while (cur.length < target) {
+        cur.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          vx: (Math.random() - 0.5) * 0.25 * dpr,
+          vy: (Math.random() - 0.5) * 0.25 * dpr,
+          r: (1 + Math.random() * 1.6) * dpr,
+          pulse: Math.random() * Math.PI * 2,
+          pulseSpeed: 0.4 + Math.random() * 0.8,
+        });
+      }
+      while (cur.length > target) cur.pop();
+    };
+    resize(); window.addEventListener("resize", resize);
+    const ctx = canvas.getContext("2d");
+
+    const onMove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseRef.current.x = (e.clientX - rect.left) * dpr;
+      mouseRef.current.y = (e.clientY - rect.top) * dpr;
+    };
+    const onLeave = () => { mouseRef.current.x = -9999; mouseRef.current.y = -9999; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseleave", onLeave);
+
+    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
+    const [ar, ag, ab] = rgb;
+    const linkDist = 130 * dpr;
+
+    const startTime = performance.now();
+    function draw(now) {
+      const elapsed = (now - startTime) / 1000;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const particles = particlesRef.current;
+      const mx = mouseRef.current.x, my = mouseRef.current.y;
+      const mouseR = 140 * dpr;
+
+      // Update positions
+      for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        // subtle sinusoidal drift
+        p.vx += Math.sin(elapsed * 0.3 + p.pulse) * 0.002 * dpr;
+        p.vy += Math.cos(elapsed * 0.2 + p.pulse) * 0.002 * dpr;
+        // gentle mouse repulsion for a "living" feel
+        if (mx > 0) {
+          const dx = p.x - mx, dy = p.y - my;
+          const d = Math.hypot(dx, dy);
+          if (d < mouseR && d > 0.1) {
+            const force = (1 - d / mouseR) * 0.6 * dpr;
+            p.vx += (dx / d) * force * 0.05;
+            p.vy += (dy / d) * force * 0.05;
+          }
+        }
+        // dampening
+        p.vx *= 0.985; p.vy *= 0.985;
+        // wrap around edges
+        if (p.x < -20) p.x = canvas.width + 20;
+        else if (p.x > canvas.width + 20) p.x = -20;
+        if (p.y < -20) p.y = canvas.height + 20;
+        else if (p.y > canvas.height + 20) p.y = -20;
+      }
+
+      // Draw elastic links between nearby particles
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const a = particles[i], b = particles[j];
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < linkDist * linkDist) {
+            const d = Math.sqrt(d2);
+            const alpha = (1 - d / linkDist) * 0.14;
+            ctx.strokeStyle = `rgba(${ar},${ag},${ab},${alpha})`;
+            ctx.lineWidth = 0.7 * dpr;
+            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+          }
+        }
+      }
+
+      // Draw particles with pulsing glow
+      for (const p of particles) {
+        const pulse = 0.6 + 0.4 * Math.sin(elapsed * p.pulseSpeed + p.pulse);
+        const glowR = p.r * 4;
+        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
+        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.22 * pulse})`);
+        glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.55 * pulse})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
+      rafRef.current = requestAnimationFrame(draw);
+    }
+    rafRef.current = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseleave", onLeave);
+    };
+  }, [accent]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "fixed",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        pointerEvents: "none",
+        opacity: P.dark ? 0.35 : 0.28,
+        zIndex: 0,
+      }}
+      aria-hidden="true"
+    />
+  );
+}
+
+// ============ BRAIN EASTER EGG ============
+// Click the logo: cycles through funny quotes, occasional emoji bursts,
+// and rare "secret unlock" messages. Persistent click counter stored in memory.
+const BRAIN_QUOTES = [
+  "Zombies love brains. So do we.",
+  "Your brain uses 20% of your energy. That's why thinking is exhausting.",
+  "Fun fact: the brain named itself.",
+  "Neurons that fire together, wire together.",
+  "A single human brain has more connections than there are stars in the Milky Way.",
+  "The word 'science' comes from the Latin 'scientia' — knowledge.",
+  "You're currently reading with about 86 billion neurons.",
+  "Cerebrum is Latin for 'brain'. We were not being subtle.",
+  "The brain is the only organ that named itself.",
+  "If your brain were a computer, it'd run on about 20 watts.",
+  "There is no pain receptor in the brain. Only in the meninges around it.",
+  "Curiosity literally rewires your brain.",
+  "The average brain generates ~70,000 thoughts per day.",
+  "Your brain is 60% fat. It's the fattiest organ in your body.",
+  "Every time you learn something new, a new neural pathway forms.",
+  "Yes, we counted the citations. Yes, we're proud.",
+  "Peer review: because science needs receipts.",
+  "Correlation is not causation. Neither is a good vibe.",
+  "'Just trust me' is not a citation.",
+  "Extraordinary claims require extraordinary evidence — Sagan.",
+  "The universe is under no obligation to make sense to you — Tyson.",
+  "Somewhere, something incredible is waiting to be known — Sagan.",
+  "Science is a way of thinking much more than it is a body of knowledge — Sagan.",
+  "Facts don't cease to exist because they are ignored — Huxley.",
+  "In science, there are no shortcuts to truth.",
+  "The good thing about science is that it's true whether or not you believe in it — Tyson.",
+  "You are made of star stuff — Carl Sagan.",
+  "The brain weighs about 3 pounds. It contains all of you.",
+  "REM sleep: your brain is more active than when you're awake.",
+  "Left brain / right brain is mostly a myth. Both work together constantly.",
+];
+const SECRET_UNLOCKS = [
+  "🧠 Secret unlocked: You're technically now a scientist.",
+  "🧠 Secret unlocked: The brain approves.",
+  "🧠 Secret unlocked: You have achieved peak curiosity.",
+  "🧠 Secret unlocked: Somewhere, a librarian is smiling.",
+  "🧠 Secret unlocked: The peer reviewers respect you.",
+];
+
+function BrainEasterEgg({ accent, P, S, onLogoClick }) {
+  const [visible, setVisible] = useState(false);
+  const [message, setMessage] = useState("");
+  const [isEmojiBurst, setIsEmojiBurst] = useState(false);
+  const [emojis, setEmojis] = useState([]);
+  const [wiggleKey, setWiggleKey] = useState(0);
+  const clickCountRef = useRef(0);
+  const timerRef = useRef(null);
+
+  const trigger = () => {
+    clickCountRef.current += 1;
+    const n = clickCountRef.current;
+    setWiggleKey((k) => k + 1); // logo wiggle
+    if (timerRef.current) clearTimeout(timerRef.current);
+
+    // Every 7th click: rare secret. Every 3rd: emoji burst. Otherwise: quote.
+    if (n % 7 === 0) {
+      setMessage(SECRET_UNLOCKS[Math.floor(Math.random() * SECRET_UNLOCKS.length)]);
+      setIsEmojiBurst(false);
+      spawnEmojis(15);
+    } else if (n % 3 === 0) {
+      setMessage("");
+      setIsEmojiBurst(true);
+      spawnEmojis(8);
+    } else {
+      setMessage(BRAIN_QUOTES[Math.floor(Math.random() * BRAIN_QUOTES.length)]);
+      setIsEmojiBurst(false);
+    }
+    setVisible(true);
+    timerRef.current = setTimeout(() => setVisible(false), 3400);
+    onLogoClick && onLogoClick();
+  };
+
+  const spawnEmojis = (count) => {
+    const brainEmojis = ["🧠", "⚡", "💡", "🔬", "🧬", "🧪"];
+    const items = Array.from({ length: count }, (_, i) => ({
+      id: Date.now() + i,
+      emoji: brainEmojis[Math.floor(Math.random() * brainEmojis.length)],
+      x: (Math.random() - 0.5) * 200,
+      y: -20 - Math.random() * 40,
+      rot: (Math.random() - 0.5) * 60,
+      dur: 1.6 + Math.random() * 0.8,
+    }));
+    setEmojis(items);
+    setTimeout(() => setEmojis([]), 2400);
+  };
+
+  useEffect(() => () => timerRef.current && clearTimeout(timerRef.current), []);
+
+  return { trigger, wiggleKey, render: (
+    <>
+      {emojis.length > 0 && (
+        <div style={{ position: "absolute", left: "50%", top: "100%", pointerEvents: "none", zIndex: 100 }}>
+          {emojis.map((e) => (
+            <span key={e.id} style={{
+              position: "absolute",
+              left: e.x,
+              top: e.y,
+              fontSize: 22,
+              animation: `cb-burst ${e.dur}s cubic-bezier(0.16, 1, 0.3, 1) forwards`,
+              transform: `rotate(${e.rot}deg)`,
+              opacity: 0,
+            }}>{e.emoji}</span>
+          ))}
+        </div>
+      )}
+      {visible && message && (
+        <div style={{
+          position: "absolute",
+          top: "calc(100% + 14px)",
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: P.surface,
+          border: `1px solid ${withAlpha(accent, 0.35)}`,
+          borderRadius: 10,
+          padding: "10px 16px",
+          fontSize: 12.5,
+          fontWeight: 500,
+          color: P.ink,
+          boxShadow: P.shadow,
+          whiteSpace: "nowrap",
+          maxWidth: "min(360px, calc(100vw - 40px))",
+          zIndex: 60,
+          animation: "cb-egg-in 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+          letterSpacing: "-0.005em",
+        }}>{message}</div>
+      )}
+    </>
+  ) };
+}
+
+
+function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
-  const [currentView, setCurrentView] = useState("app"); // "app" | "faq"
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -616,6 +771,7 @@ export default function App() {
   const [allSources, setAllSources] = useState([]);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
   const [savedOpen, setSavedOpen] = useState(false);
+  const [sessions, setSessions] = useState([]);
   const [panelOpen, setPanelOpen] = useState(true);
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
@@ -623,8 +779,7 @@ export default function App() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [zoteroOpen, setZoteroOpen] = useState(false);
-  const [panelTab, setPanelTab] = useState("sources"); // "sources" | "videos"
-  const [srcSort, setSrcSort] = useState("relevance");
+  const [srcSort, setSrcSort] = useState("relevance"); // relevance | date | database
   const [srcFilter, setSrcFilter] = useState("");
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
@@ -648,6 +803,7 @@ export default function App() {
   const at = accentText(accent);
   const S = makeStyles(P, accent, at, isMobile);
   const sfx = () => { if (!mutedRef.current) Audio.click(); };
+  const easterEgg = BrainEasterEgg({ accent, P, S });
 
   const ask = useCallback(async (q, opts = {}) => {
     const question = (q ?? input).trim();
@@ -656,32 +812,14 @@ export default function App() {
     setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer }); });
-    
     try {
-      // Execute backend AI search and video discovery concurrently for maximum speed
-      const [res, videos] = await Promise.all([
-        fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) }),
-        fetchVideosMultiSource(question)
-      ]);
-      
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Search failed."); setBusy(false); return; }
-
-      let rawAnswer = data.answer || "";
-      rawAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-
-      const nt = { 
-        q: question, 
-        answer: rawAnswer, 
-        sources: data.sources || [], 
-        videos, 
-        source: data.source || "", 
-        factCheck: data.factCheck || null, 
-        related: data.related || [], 
-        fresh: typewriter 
-      };
+      const nt = { q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
       setTurns((t) => [...t, nt]);
       setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
+      if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Audio.pop();
     } catch (e) { setError(`Could not reach the backend. (${e.message})`); }
     finally { setBusy(false); }
@@ -701,6 +839,7 @@ export default function App() {
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
   useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
 
+  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
@@ -721,7 +860,6 @@ export default function App() {
   const commands = [
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
     { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
-    { label: "Open FAQ & Docs", run: () => { setCmdOpen(false); setCurrentView("faq"); } },
     { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Toggle light / dark", run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
@@ -735,14 +873,10 @@ export default function App() {
     return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} />;
   }
 
-  if (currentView === "faq") {
-    return <FAQView P={P} accent={accent} at={at} onBack={() => setCurrentView("app")} />;
-  }
-
   const started = turns.length > 0 || busy;
   const exportList = saved.length ? saved : allSources;
-  const currentVideos = turns.length > 0 ? (turns[turns.length - 1].videos || []) : [];
 
+  // Sort + filter + group the sources.
   const filteredSources = allSources.filter((s) => {
     if (!srcFilter.trim()) return true;
     const f = srcFilter.toLowerCase();
@@ -751,8 +885,9 @@ export default function App() {
   const sortedSources = [...filteredSources].sort((a, b) => {
     if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0);
     if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || "");
-    return (b.relevance ?? 0) - (a.relevance ?? 0);
+    return (b.relevance ?? 0) - (a.relevance ?? 0); // relevance
   });
+  // Group when sorting by database or date.
   const grouped = (() => {
     if (srcSort === "database") {
       const g = {};
@@ -764,7 +899,7 @@ export default function App() {
       for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); }
       return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0));
     }
-    return null;
+    return null; // relevance = flat list
   })();
 
   const relColor = (r) => r >= 75 ? "#10b981" : r >= 45 ? "#d9a520" : P.faint;
@@ -788,16 +923,8 @@ export default function App() {
 
   const SourcesInner = (
     <>
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        <button style={{ ...S.sortTab, ...(panelTab === "sources" ? S.sortTabActive : {}) }} onClick={() => setPanelTab("sources")}>
-          Sources ({allSources.length})
-        </button>
-        <button style={{ ...S.sortTab, ...(panelTab === "videos" ? S.sortTabActive : {}) }} onClick={() => setPanelTab("videos")}>
-          Videos ({currentVideos.length})
-        </button>
-      </div>
-
-      {panelTab === "sources" ? (
+      <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
+      {allSources.length > 0 && (
         <>
           <div style={S.srcActions}>
             <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
@@ -810,70 +937,54 @@ export default function App() {
               <button key={k} style={{ ...S.sortTab, ...(srcSort === k ? S.sortTabActive : {}) }} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
             ))}
           </div>
-          {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
-          {zoteroOpen && (
-            <div style={S.zBox}>
-              <input style={S.zIn} placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} />
-              <input style={S.zIn} placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)} />
-              <button style={S.sBtnP} onClick={doZotero}>Save {exportList.length}</button>
-              {zMsg && <div style={S.zMsg}>{zMsg}</div>}
-            </div>
-          )}
-          <div style={S.srcList}>
-            {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
-              sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
-              grouped ? grouped.map(([label, items]) => (
-                <div key={label}>
-                  <div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>
-                  {items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}
-                </div>
-              )) : sortedSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
-          </div>
         </>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {currentVideos.length === 0 ? (
-            <div style={S.empty}>No related educational videos found for this query.</div>
-          ) : (
-            currentVideos.map((vid, i) => (
-              <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", background: P.raised, borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line2}`, boxShadow: P.shadowSm, transition: "transform 0.15s, border-color 0.15s" }}>
-                <div style={{ position: "relative", width: "100%", height: 130, background: P.dark ? "#181b1f" : "#e5e7eb" }}>
-                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.9 }} onError={(e) => {
-                    e.target.style.display = 'none';
-                    e.target.nextSibling.style.display = 'flex';
-                  }} />
-                  <div style={{ display: "none", position: "absolute", inset: 0, background: `linear-gradient(135deg, ${withAlpha(accent, 0.4)}, #111)`, alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>
-                    ▶ WATCH LECTURE
-                  </div>
-                  <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.75)", color: "#fff", fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
-                    LECTURE
-                  </div>
-                </div>
-                <div style={{ padding: "12px 14px" }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 650, color: P.ink, lineHeight: 1.35, marginBottom: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{vid.title}</div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 11, color: accent, fontWeight: 600 }}>{vid.author}</span>
-                    <span style={{ fontSize: 10, color: P.faint }}>Watch →</span>
-                  </div>
-                </div>
-              </a>
-            ))
-          )}
+      )}
+      {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
+      {zoteroOpen && (
+        <div style={S.zBox}>
+          <input style={S.zIn} placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} />
+          <input style={S.zIn} placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)} />
+          <button style={S.sBtnP} onClick={doZotero}>Save {exportList.length}</button>
+          {zMsg && <div style={S.zMsg}>{zMsg}</div>}
         </div>
       )}
+      <div style={S.srcList}>
+        {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
+          sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
+          grouped ? grouped.map(([label, items]) => (
+            <div key={label}>
+              <div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>
+              {items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}
+            </div>
+          )) : sortedSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
+      </div>
     </>
   );
 
   return (
     <div style={S.page}>
+      <LivingBackground accent={accent} P={P} />
       <div style={S.grain} />
       <header style={S.header}>
         <div style={S.headInner}>
-          <div style={S.brandRow} onClick={() => { sfx(); newSession(); }}><Mark size={22} accent={accent} glow={P.dark} /><span style={S.brand}>Cerebrum</span></div>
+          <div style={{ ...S.brandRow, position: "relative" }}>
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                easterEgg.trigger();
+              }}
+              style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
+            >
+              <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}>
+                <Mark size={22} accent={accent} glow={P.dark} />
+              </span>
+              <span style={S.brand}>Cerebrum</span>
+            </div>
+            {easterEgg.render}
+          </div>
           <div style={S.headActions}>
             {!isMobile && <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>}
             <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
-            <button style={S.ghostBtn} onClick={() => { sfx(); setCurrentView("faq"); }}>FAQ</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>{isMobile ? "★" : "Saved"}{saved.length > 0 ? (isMobile ? ` ${saved.length}` : ` · ${saved.length}`) : ""}</button>
             <button style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
             <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>{isMobile ? "⚙" : "Settings"}</button>
@@ -912,7 +1023,7 @@ export default function App() {
                   <div style={S.turn}>
                     <div style={S.qLabel}><span style={S.qDot} />Searching</div>
                     <Skeleton P={P} />
-                    <LoadingLine P={P} />
+                    <LoadingLine P={P} accent={accent} S={S} />
                   </div>
                 )}
                 {error && <div style={S.error}>{error}</div>}
@@ -991,7 +1102,7 @@ export default function App() {
         </div>
       )}
 
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSaved, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
     </div>
   );
 }
@@ -1007,12 +1118,35 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
         {done && t.source && (
           <div style={S.byline}>
-            <span style={S.aiTag}>AI-generated · verified with literature</span>
+            <span style={S.aiTag}>AI-generated · verify with sources</span>
             <span style={{ marginLeft: "auto", color: P.faint }}>{readingTime(t.answer)}</span>
           </div>
         )}
       </div>
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
+      {done && t.videos && t.videos.length > 0 && (
+        <div style={{ marginTop: 20 }} className="cb-fade">
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, marginBottom: 10 }}>Related videos</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+            {t.videos.slice(0, 6).map((v, i) => (
+              <a key={v.id || i} href={v.url} target="_blank" rel="noreferrer" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 10, overflow: "hidden", textDecoration: "none", color: P.ink, transition: "transform 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = P.shadow; }}
+                onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
+                <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
+                  <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.15)", opacity: 0, transition: "opacity 0.15s" }} className="cb-video-hover">
+                    <span style={{ fontSize: 32, color: "#fff", filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.5))" }}>▶</span>
+                  </div>
+                </div>
+                <div style={{ padding: "10px 12px" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", marginBottom: 4 }}>{v.title}</div>
+                  <div style={{ fontSize: 11, color: P.faint }}>{v.author}</div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
       {done && t.related && t.related.length > 0 && (
         <div style={S.relatedWrap} className="cb-fade">
           <div style={S.relatedLabel}>Continue the investigation</div>
@@ -1029,7 +1163,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
   );
 }
 
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSaved, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close }) {
   const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
   return (
     <div style={S.modalWrap} onClick={close} className="cb-fade">
@@ -1068,7 +1202,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
           ))}
         </div>
         <div style={S.setNote}>Plays while searching. Tap a style to preview it.</div>
-        <button style={S.clearAll} onClick={() => { setSaved([]); }}>Clear saved</button>
+        <button style={S.clearAll} onClick={() => { setSessions([]); setSaved([]); }}>Clear sessions & saved</button>
         <button style={S.modalClose} onClick={close}>Done</button>
         <div style={S.shortcuts}>{kbdLabel("K")} search · {kbdLabel("J")} new · {kbdLabel("B")} saved · {kbdLabel("/")} settings · esc close</div>
       </div>
@@ -1078,12 +1212,20 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
 
 function makeStyles(P, accent, at, isMobile = false) {
   const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-  const pad = isMobile ? 16 : 28;
+  const pad = isMobile ? 16 : 24;
   return {
+    gate: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: P.bg, padding: 20, fontFamily: font, position: "relative", overflow: "hidden" },
+    gateGlow: { position: "absolute", width: 600, height: 600, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.14 : 0.08)}, transparent 68%)`, top: "20%", filter: "blur(30px)", pointerEvents: "none" },
+    gateInner: { textAlign: "center", maxWidth: 440, position: "relative", zIndex: 1 },
+    gateKicker: { fontSize: 12, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: accent, marginBottom: 14 },
+    gateTitle: { fontSize: 46, fontWeight: 750, letterSpacing: "-0.03em", color: P.ink, marginBottom: 14, lineHeight: 1 },
+    gateSub: { fontSize: 16, color: P.ink2, marginBottom: 32, lineHeight: 1.6, letterSpacing: "-0.01em" },
+    gateBtn: { display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 28px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: font, boxShadow: `0 4px 16px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em" },
+    gateNote: { fontSize: 12.5, color: P.faint, marginTop: 18 },
     page: { minHeight: "100vh", height: "100vh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
     header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 20 },
-    headInner: { maxWidth: 1140, margin: "0 auto", padding: `0 ${pad}px`, height: 62, display: "flex", alignItems: "center", justifyContent: "space-between" },
+    headInner: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, height: 58, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
     brand: { fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", color: P.ink },
     headActions: { display: "flex", alignItems: "center", gap: 6 },
@@ -1092,7 +1234,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px 8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: isMobile ? 14 : 13.5, fontWeight: 550, fontFamily: font, letterSpacing: "-0.01em" },
     iconBtn: { background: "transparent", border: "none", color: P.ink2, width: 36, height: 36, borderRadius: 8, cursor: "pointer", fontSize: 15 },
     scroll: { flex: 1, overflowY: "auto" },
-    container: { maxWidth: 1140, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
+    container: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px 0 60px", position: "relative" },
     heroGlow: { position: "absolute", width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.1 : 0.06)}, transparent 65%)`, top: "8%", filter: "blur(40px)", pointerEvents: "none" },
     heroMark: { marginBottom: 26, position: "relative" },
@@ -1107,30 +1249,32 @@ function makeStyles(P, accent, at, isMobile = false) {
     chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
-    workspace: { display: "grid", gridTemplateColumns: "1fr 340px", gap: 48, alignItems: "start", padding: "48px 0 30px", flex: 1 },
+    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
     workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
-    turn: { marginBottom: 48 },
-    qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 },
+    turn: { marginBottom: 40 },
+    qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
     qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
-    headline: { fontWeight: 750, fontSize: 30, lineHeight: 1.25, marginBottom: 22, color: P.ink, letterSpacing: "-0.02em" },
-    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "32px 38px", boxShadow: P.shadow },
-    byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 16, marginTop: 22, display: "flex" },
+    headline: { fontWeight: 700, fontSize: isMobile ? 21 : 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
+    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: isMobile ? "18px 18px" : "22px 26px", boxShadow: P.shadow },
+    byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
+    loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
+    spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     error: { padding: "14px 16px", background: withAlpha("#e5484d", 0.1), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.25)}` },
     followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 13, padding: "6px 6px 6px 16px", boxShadow: P.shadow, transition: "all 0.2s", marginTop: 8 },
-    relatedWrap: { marginTop: 22 },
-    relatedLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 12 },
-    relatedList: { display: "flex", flexDirection: "column", gap: 10 },
-    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, textAlign: "left", padding: "14px 18px", fontSize: 14.5, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 12, cursor: "pointer", fontFamily: font, transition: "all 0.15s", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
-    panel: { position: "sticky", top: 28, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "20px", boxShadow: P.shadow, maxHeight: "calc(100vh - 120px)", overflowY: "auto" },
+    relatedWrap: { marginTop: 18 },
+    relatedLabel: { fontSize: 11.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 10 },
+    relatedList: { display: "flex", flexDirection: "column", gap: 8 },
+    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", padding: "12px 16px", fontSize: 14, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 11, cursor: "pointer", fontFamily: font, transition: "all 0.15s", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    panel: { position: "sticky", top: 24, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "18px 18px", boxShadow: P.shadow, maxHeight: "calc(100vh - 130px)", overflowY: "auto" },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100vh", width: "88vw", maxWidth: 350, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, fontWeight: 650, color: P.ink, marginBottom: 14, letterSpacing: "-0.01em" },
     srcCount: { fontSize: 11.5, fontWeight: 600, color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 20 },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
-    srcFilterInput: { width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 10, outline: "none", fontFamily: font, marginBottom: 14 },
+    srcFilterInput: { width: "100%", padding: "8px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: font, marginBottom: 8 },
     sortTabs: { display: "flex", gap: 3, background: P.bg, padding: 3, borderRadius: 9, marginBottom: 14, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "8px", fontSize: 12, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, fontWeight: 600, transition: "all 0.15s" },
-    sortTabActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm },
+    sortTab: { flex: 1, padding: "6px", fontSize: 11.5, background: "transparent", color: P.ink2, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: font, fontWeight: 550, transition: "all 0.15s" },
+    sortTabActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
     srcGroupLabel: { fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: accent, margin: "14px 0 8px", paddingBottom: 5, borderBottom: `1px solid ${P.line}` },
     sBtn: { flex: 1, fontSize: 12, padding: "8px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: font, fontWeight: 550 },
     sBtnP: { flex: 1, fontSize: 12, padding: "8px", background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: font },
@@ -1138,17 +1282,17 @@ function makeStyles(P, accent, at, isMobile = false) {
     zBox: { background: P.bg, border: `1px solid ${P.line}`, borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 7 },
     zIn: { padding: "9px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.surface, color: P.ink, borderRadius: 7, outline: "none", fontFamily: font },
     zMsg: { fontSize: 11.5, color: accent },
-    srcList: { display: "flex", flexDirection: "column", gap: 6 },
-    empty: { fontSize: 13.5, color: P.faint, lineHeight: 1.5, padding: "20px 0", textAlign: "center" },
-    srcItem: { padding: "14px 14px", borderRadius: 12, transition: "background 0.15s", borderBottom: `1px solid ${P.line}` },
-    srcTitle: { fontSize: 14, textDecoration: "none", lineHeight: 1.4, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.15s" },
+    srcList: { display: "flex", flexDirection: "column", gap: 4 },
+    empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "8px 0" },
+    srcItem: { padding: "13px 12px", margin: "0 -12px", borderRadius: 12, transition: "background 0.15s", borderBottom: `1px solid ${P.line}` },
+    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 5, transition: "color 0.15s", letterSpacing: "-0.01em" },
     srcMeta: { fontSize: 12, color: P.ink2, lineHeight: 1.45 },
     srcRow: { display: "flex", gap: 7, marginTop: 9 },
     chipMini: { fontSize: 11.5, padding: "5px 10px", border: "1px solid", borderRadius: 7, cursor: "pointer", fontFamily: font, fontWeight: 550, background: "transparent", transition: "all 0.15s" },
-    foot: { marginTop: "auto", padding: "30px 0 36px", textAlign: "center" },
-    disclaimer: { fontSize: 12, color: P.ink2, lineHeight: 1.6, maxWidth: 600, margin: "0 auto 16px", padding: "12px 18px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 12 },
+    foot: { marginTop: "auto", padding: "20px 0 26px", textAlign: "center" },
+    disclaimer: { fontSize: 11.5, color: P.ink2, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 16px", padding: "10px 16px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 10 },
     footDbs: { fontSize: 11, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7 },
-    aiTag: { fontSize: 11.5, color: P.faint, fontWeight: 550, letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 5 },
+    aiTag: { fontSize: 11, color: P.faint, fontWeight: 550, letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 5 },
     mobSrcBtn: { position: "fixed", bottom: 20, right: 20, background: accent, color: at, border: "none", borderRadius: 26, padding: "13px 22px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: `0 8px 24px ${withAlpha(accent, 0.4)}`, zIndex: 20, fontFamily: font },
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25, backdropFilter: "blur(3px)" },
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, backdropFilter: "blur(6px)" },
@@ -1159,11 +1303,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     cmdSection: { fontSize: 11, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, padding: "10px 12px 6px" },
     cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", fontSize: 14, color: P.ink, background: "transparent", border: "none", borderRadius: 9, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.12s" },
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16, backdropFilter: "blur(6px)" },
-    modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 32, width: 460, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 70px rgba(0,0,0,0.4)" },
-    modalTitle: { fontSize: 22, fontWeight: 700, color: P.ink, marginBottom: 24, letterSpacing: "-0.02em" },
-    setLabel: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: P.faint, marginBottom: 12, marginTop: 4, fontWeight: 650 },
-    palRow: { display: "flex", gap: 10, marginBottom: 24 },
-    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 10, padding: "14px", borderRadius: 12, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
+    modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 28, width: 440, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 70px rgba(0,0,0,0.4)" },
+    modalTitle: { fontSize: 21, fontWeight: 700, color: P.ink, marginBottom: 22, letterSpacing: "-0.02em" },
+    setLabel: { fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.08em", color: P.faint, marginBottom: 10, marginTop: 4, fontWeight: 650 },
+    palRow: { display: "flex", gap: 10, marginBottom: 22 },
+    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 10, padding: "12px", borderRadius: 12, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
     accentRow: { display: "flex", flexWrap: "wrap", gap: 13, marginBottom: 22, alignItems: "center" },
     accentDot: { width: 26, height: 26, borderRadius: "50%", border: "none", cursor: "pointer", transition: "transform 0.15s" },
     customDot: { width: 26, height: 26, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
@@ -1175,7 +1319,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     toggleKnob: { width: 34, height: 20, borderRadius: 12, position: "relative", transition: "all 0.2s", display: "inline-block", flexShrink: 0 },
     setNote: { fontSize: 12, color: P.faint, lineHeight: 1.5, marginBottom: 18, marginTop: 2 },
     clearAll: { width: "100%", padding: "11px", fontSize: 13, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 10, cursor: "pointer", marginBottom: 12, marginTop: 8, fontFamily: font, fontWeight: 550 },
-    modalClose: { width: "100%", padding: "14px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 12, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
+    modalClose: { width: "100%", padding: "13px", fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 11, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
     shortcuts: { fontSize: 11, color: P.faint, textAlign: "center", marginTop: 16, letterSpacing: "0.02em" },
     soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4, transition: "opacity 0.15s" },
     soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 13px", fontSize: 13, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 9, cursor: "pointer", fontFamily: font, fontWeight: 550 },
@@ -1201,6 +1345,24 @@ if (typeof document !== "undefined") {
       @keyframes cbPop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
       @keyframes cbGate { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes cbHero { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes cb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+      @keyframes cb-burst {
+        0% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.4); }
+        20% { opacity: 1; transform: translate(0, -30px) rotate(0deg) scale(1.1); }
+        100% { opacity: 0; transform: translate(0, -140px) rotate(30deg) scale(0.6); }
+      }
+      @keyframes cb-egg-in {
+        from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.94); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+      }
+      @keyframes cb-wiggle {
+        0%, 100% { transform: rotate(0deg); }
+        20% { transform: rotate(-8deg) scale(1.05); }
+        40% { transform: rotate(8deg) scale(1.05); }
+        60% { transform: rotate(-5deg); }
+        80% { transform: rotate(5deg); }
+      }
+      .cb-wiggle { animation: cb-wiggle 0.5s ease-in-out; }
       .cb-fade { animation: cbFade 0.4s ease forwards; }
       .cb-rise { animation: cbRise 0.5s cubic-bezier(.2,.8,.2,1) forwards; }
       .cb-pop { animation: cbPop 0.28s cubic-bezier(.2,.9,.3,1) forwards; }
