@@ -497,39 +497,104 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
 // ============ LIVING MOLECULAR BACKGROUND ============
 // Ambient always-on canvas: drifting particles with elastic connections,
 // gentle currents, subtle firing pulses. Sits behind ALL app content at low opacity.
-function LivingBackground({ accent, P, intensity = "cinematic" }) {
+function LivingBackground({ accent, P, intensity = "cinematic", preset = "particles", density = 1, speed = 1, opacity = 1 }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
-  const particlesRef = useRef([]);
+  const stateRef = useRef({ items: [], t: 0 });
   const mouseRef = useRef({ x: -9999, y: -9999 });
 
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    // Density and link distance scale with intensity
-    const density = intensity === "subtle" ? 55000 : 28000;
-    const linkDistBase = intensity === "subtle" ? 100 : 130;
-    const opacityScale = intensity === "subtle" ? 0.55 : 1;
+    const intensityScale = intensity === "subtle" ? 0.55 : 1;
+    const finalDensity = density * intensityScale;
+
+    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
+    const [ar, ag, ab] = rgb;
+
+    const initItems = () => {
+      const cw = canvas.width, ch = canvas.height;
+      const items = [];
+      if (preset === "particles" || preset === "neurons") {
+        const target = Math.floor((cw * ch) / (28000 * dpr) * finalDensity);
+        for (let i = 0; i < target; i++) {
+          items.push({
+            x: Math.random() * cw, y: Math.random() * ch,
+            vx: (Math.random() - 0.5) * 0.25 * dpr, vy: (Math.random() - 0.5) * 0.25 * dpr,
+            r: (1 + Math.random() * 1.6) * dpr,
+            pulse: Math.random() * Math.PI * 2,
+            pulseSpeed: 0.4 + Math.random() * 0.8,
+          });
+        }
+      } else if (preset === "waves") {
+        // Waves: horizontal sine curves at various y
+        const count = Math.floor(8 * finalDensity);
+        for (let i = 0; i < count; i++) {
+          items.push({
+            yBase: (ch / (count + 1)) * (i + 1),
+            amplitude: (20 + Math.random() * 40) * dpr,
+            wavelength: (200 + Math.random() * 400) * dpr,
+            phase: Math.random() * Math.PI * 2,
+            phaseSpeed: 0.3 + Math.random() * 0.4,
+            thickness: (1 + Math.random() * 1.5) * dpr,
+            offset: Math.random(),
+          });
+        }
+      } else if (preset === "dna") {
+        // DNA: two intertwined helical strands
+        const count = Math.floor(60 * finalDensity);
+        for (let i = 0; i < count; i++) {
+          items.push({
+            t: i / count, // position along strand 0..1
+            offset: Math.random() * 0.05,
+          });
+        }
+      } else if (preset === "circuits") {
+        // Circuits: grid intersections with data pulses along edges
+        const spacing = 90 * dpr / finalDensity;
+        const cols = Math.ceil(cw / spacing) + 1;
+        const rows = Math.ceil(ch / spacing) + 1;
+        for (let ix = 0; ix < cols; ix++) {
+          for (let iy = 0; iy < rows; iy++) {
+            items.push({
+              x: ix * spacing + (Math.random() - 0.5) * spacing * 0.15,
+              y: iy * spacing + (Math.random() - 0.5) * spacing * 0.15,
+              pulse: Math.random() * Math.PI * 2,
+              hasEdgeR: Math.random() > 0.4, // edge to the right
+              hasEdgeD: Math.random() > 0.4, // edge down
+              pulseR: Math.random(),
+              pulseD: Math.random(),
+              rateR: 0.3 + Math.random() * 0.5,
+              rateD: 0.3 + Math.random() * 0.5,
+            });
+          }
+        }
+      } else if (preset === "starfield") {
+        // Starfield: stars streaking from center
+        const target = Math.floor((cw * ch) / (10000 * dpr) * finalDensity);
+        for (let i = 0; i < target; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = Math.random() * Math.max(cw, ch) * 0.6;
+          items.push({
+            x: cw / 2 + Math.cos(angle) * dist,
+            y: ch / 2 + Math.sin(angle) * dist,
+            angle, dist,
+            distMax: Math.hypot(cw, ch) * 0.7,
+            speed: (0.5 + Math.random() * 2) * dpr,
+            r: (0.6 + Math.random() * 1.2) * dpr,
+          });
+        }
+      }
+      stateRef.current.items = items;
+    };
 
     const resize = () => {
       canvas.width = canvas.offsetWidth * dpr;
       canvas.height = canvas.offsetHeight * dpr;
-      const target = Math.floor((canvas.width * canvas.height) / (density * dpr));
-      const cur = particlesRef.current;
-      while (cur.length < target) {
-        cur.push({
-          x: Math.random() * canvas.width,
-          y: Math.random() * canvas.height,
-          vx: (Math.random() - 0.5) * 0.25 * dpr,
-          vy: (Math.random() - 0.5) * 0.25 * dpr,
-          r: (1 + Math.random() * 1.6) * dpr,
-          pulse: Math.random() * Math.PI * 2,
-          pulseSpeed: 0.4 + Math.random() * 0.8,
-        });
-      }
-      while (cur.length > target) cur.pop();
+      initItems();
     };
-    resize(); window.addEventListener("resize", resize);
+    resize();
+    window.addEventListener("resize", resize);
     const ctx = canvas.getContext("2d");
 
     const onMove = (e) => {
@@ -541,26 +606,18 @@ function LivingBackground({ accent, P, intensity = "cinematic" }) {
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseleave", onLeave);
 
-    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
-    const [ar, ag, ab] = rgb;
-    const linkDist = linkDistBase * dpr;
-
     const startTime = performance.now();
-    function draw(now) {
-      const elapsed = (now - startTime) / 1000;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const particles = particlesRef.current;
+    const linkDist = 130 * dpr;
+
+    function drawParticles(elapsed) {
+      const items = stateRef.current.items;
       const mx = mouseRef.current.x, my = mouseRef.current.y;
       const mouseR = 140 * dpr;
-
-      // Update positions
-      for (const p of particles) {
-        p.x += p.vx;
-        p.y += p.vy;
-        // subtle sinusoidal drift
+      for (const p of items) {
+        p.x += p.vx * speed;
+        p.y += p.vy * speed;
         p.vx += Math.sin(elapsed * 0.3 + p.pulse) * 0.002 * dpr;
         p.vy += Math.cos(elapsed * 0.2 + p.pulse) * 0.002 * dpr;
-        // gentle mouse repulsion for a "living" feel
         if (mx > 0) {
           const dx = p.x - mx, dy = p.y - my;
           const d = Math.hypot(dx, dy);
@@ -570,19 +627,16 @@ function LivingBackground({ accent, P, intensity = "cinematic" }) {
             p.vy += (dy / d) * force * 0.05;
           }
         }
-        // dampening
         p.vx *= 0.985; p.vy *= 0.985;
-        // wrap around edges
         if (p.x < -20) p.x = canvas.width + 20;
         else if (p.x > canvas.width + 20) p.x = -20;
         if (p.y < -20) p.y = canvas.height + 20;
         else if (p.y > canvas.height + 20) p.y = -20;
       }
-
-      // Draw elastic links between nearby particles
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const a = particles[i], b = particles[j];
+      // Links
+      for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+          const a = items[i], b = items[j];
           const dx = a.x - b.x, dy = a.y - b.y;
           const d2 = dx * dx + dy * dy;
           if (d2 < linkDist * linkDist) {
@@ -594,9 +648,7 @@ function LivingBackground({ accent, P, intensity = "cinematic" }) {
           }
         }
       }
-
-      // Draw particles with pulsing glow
-      for (const p of particles) {
+      for (const p of items) {
         const pulse = 0.6 + 0.4 * Math.sin(elapsed * p.pulseSpeed + p.pulse);
         const glowR = p.r * 4;
         const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
@@ -607,6 +659,140 @@ function LivingBackground({ accent, P, intensity = "cinematic" }) {
         ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.55 * pulse})`;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
       }
+    }
+
+    function drawWaves(elapsed) {
+      const waves = stateRef.current.items;
+      const cw = canvas.width;
+      for (const w of waves) {
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.25 + 0.15 * Math.sin(elapsed + w.phase)})`;
+        ctx.lineWidth = w.thickness;
+        ctx.beginPath();
+        const steps = Math.ceil(cw / 8);
+        for (let s = 0; s <= steps; s++) {
+          const x = (s / steps) * cw;
+          const y = w.yBase + w.amplitude * Math.sin(x / w.wavelength * Math.PI * 2 + elapsed * w.phaseSpeed * speed + w.phase);
+          if (s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    function drawDNA(elapsed) {
+      const items = stateRef.current.items;
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const heightExtent = canvas.height * 0.85;
+      const radius = 90 * dpr;
+      const twistSpeed = 0.6 * speed;
+      // Draw connecting rungs
+      for (const n of items) {
+        const y = cy - heightExtent / 2 + n.t * heightExtent;
+        const twist = elapsed * twistSpeed + n.t * Math.PI * 4;
+        const x1 = cx + Math.cos(twist) * radius;
+        const x2 = cx + Math.cos(twist + Math.PI) * radius;
+        // Rung
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.18)`;
+        ctx.lineWidth = 0.8 * dpr;
+        ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+        // Nodes
+        const r = 2 * dpr;
+        for (const x of [x1, x2]) {
+          const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
+          glow.addColorStop(0, `rgba(${ar},${ag},${ab},0.45)`);
+          glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+          ctx.fillStyle = glow;
+          ctx.beginPath(); ctx.arc(x, y, r * 4, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = `rgba(${ar},${ag},${ab},0.75)`;
+          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+
+    function drawCircuits(elapsed) {
+      const items = stateRef.current.items;
+      // Edges + pulses
+      for (const n of items) {
+        // Find right/down neighbors
+        for (const m of items) {
+          if (n.hasEdgeR && Math.abs(m.y - n.y) < 5 * dpr && m.x > n.x && m.x - n.x < 130 * dpr) {
+            ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.12)`;
+            ctx.lineWidth = 0.8 * dpr;
+            ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y); ctx.stroke();
+            // pulse along edge
+            const pt = ((elapsed * n.rateR * speed + n.pulseR) % 2) / 2;
+            if (pt < 0.7) {
+              const t = pt / 0.7;
+              const px = n.x + (m.x - n.x) * t;
+              const py = n.y + (m.y - n.y) * t;
+              const glow = ctx.createRadialGradient(px, py, 0, px, py, 5 * dpr);
+              glow.addColorStop(0, `rgba(${ar},${ag},${ab},0.9)`);
+              glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+              ctx.fillStyle = glow;
+              ctx.beginPath(); ctx.arc(px, py, 5 * dpr, 0, Math.PI * 2); ctx.fill();
+            }
+            break;
+          }
+        }
+        for (const m of items) {
+          if (n.hasEdgeD && Math.abs(m.x - n.x) < 5 * dpr && m.y > n.y && m.y - n.y < 130 * dpr) {
+            ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.12)`;
+            ctx.lineWidth = 0.8 * dpr;
+            ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y); ctx.stroke();
+            const pt = ((elapsed * n.rateD * speed + n.pulseD) % 2) / 2;
+            if (pt < 0.7) {
+              const t = pt / 0.7;
+              const px = n.x + (m.x - n.x) * t;
+              const py = n.y + (m.y - n.y) * t;
+              const glow = ctx.createRadialGradient(px, py, 0, px, py, 5 * dpr);
+              glow.addColorStop(0, `rgba(${ar},${ag},${ab},0.9)`);
+              glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+              ctx.fillStyle = glow;
+              ctx.beginPath(); ctx.arc(px, py, 5 * dpr, 0, Math.PI * 2); ctx.fill();
+            }
+            break;
+          }
+        }
+        // Node
+        const r = 1.6 * dpr;
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},0.5)`;
+        ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    function drawStarfield(elapsed) {
+      const items = stateRef.current.items;
+      const cx = canvas.width / 2, cy = canvas.height / 2;
+      for (const s of items) {
+        s.dist += s.speed * speed;
+        if (s.dist > s.distMax) {
+          s.dist = 5;
+          s.angle = Math.random() * Math.PI * 2;
+        }
+        s.x = cx + Math.cos(s.angle) * s.dist;
+        s.y = cy + Math.sin(s.angle) * s.dist;
+        const alpha = Math.min(1, s.dist / (s.distMax * 0.3));
+        // streak
+        const tailLen = s.speed * 5 * dpr;
+        const tx = cx + Math.cos(s.angle) * (s.dist - tailLen);
+        const ty = cy + Math.sin(s.angle) * (s.dist - tailLen);
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${alpha * 0.4})`;
+        ctx.lineWidth = s.r;
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(s.x, s.y); ctx.stroke();
+        // head
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha * 0.8})`;
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    function draw(now) {
+      const elapsed = (now - startTime) / 1000;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (preset === "waves") drawWaves(elapsed);
+      else if (preset === "dna") drawDNA(elapsed);
+      else if (preset === "circuits") drawCircuits(elapsed);
+      else if (preset === "starfield") drawStarfield(elapsed);
+      else drawParticles(elapsed); // particles + neurons default
       rafRef.current = requestAnimationFrame(draw);
     }
     rafRef.current = requestAnimationFrame(draw);
@@ -616,7 +802,7 @@ function LivingBackground({ accent, P, intensity = "cinematic" }) {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseleave", onLeave);
     };
-  }, [accent, intensity]);
+  }, [accent, intensity, preset, density, speed]);
 
   return (
     <canvas
@@ -627,7 +813,7 @@ function LivingBackground({ accent, P, intensity = "cinematic" }) {
         width: "100%",
         height: "100%",
         pointerEvents: "none",
-        opacity: (P.dark ? 0.35 : 0.28) * (intensity === "subtle" ? 0.55 : 1),
+        opacity: (P.dark ? 0.35 : 0.28) * (intensity === "subtle" ? 0.55 : 1) * opacity,
         zIndex: 0,
       }}
       aria-hidden="true"
@@ -885,6 +1071,10 @@ function App() {
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
   const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim") || "cinematic"); // cinematic | subtle | off
+  const [animPreset, setAnimPreset] = useState(() => getCookie("cb_animP") || "particles"); // particles | waves | dna | circuits | neurons | starfield
+  const [animDensity, setAnimDensity] = useState(() => parseFloat(getCookie("cb_animD") || "1"));
+  const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
+  const [animOpacity, setAnimOpacity] = useState(() => parseFloat(getCookie("cb_animO") || "1"));
   const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Light");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
@@ -911,14 +1101,28 @@ function App() {
     const prior = [];
     turns.forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer }); });
     try {
+      // Fire search and videos in parallel. The answer arrives from /api/search;
+      // videos arrive independently and get merged into the turn when they show up.
+      const videosPromise = fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question }) })
+        .then((r) => r.ok ? r.json() : { videos: [] })
+        .catch(() => ({ videos: [] }));
+
       const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Search failed."); setBusy(false); return; }
-      const nt = { q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
+      const turnId = Date.now() + Math.random();
+      const nt = { id: turnId, q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
       setTurns((t) => [...t, nt]);
       setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Audio.pop();
+
+      // When videos arrive, merge into this turn's state
+      videosPromise.then(({ videos }) => {
+        if (videos && videos.length) {
+          setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t));
+        }
+      });
     } catch (e) { setError(`Could not reach the backend. (${e.message})`); }
     finally { setBusy(false); }
   }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile]);
@@ -933,6 +1137,10 @@ function App() {
   useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
   useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
   useEffect(() => { setCookie("cb_anim", animationMode); }, [animationMode]);
+  useEffect(() => { setCookie("cb_animP", animPreset); }, [animPreset]);
+  useEffect(() => { setCookie("cb_animD", String(animDensity)); }, [animDensity]);
+  useEffect(() => { setCookie("cb_animS", String(animSpeed)); }, [animSpeed]);
+  useEffect(() => { setCookie("cb_animO", String(animOpacity)); }, [animOpacity]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
@@ -1062,7 +1270,7 @@ function App() {
 
   return (
     <div style={S.page}>
-      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} />}
+      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} />}
       <div style={S.grain} />
       <header style={S.header}>
         <div style={S.headInner}>
@@ -1077,7 +1285,7 @@ function App() {
               <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}>
                 <Mark size={22} accent={accent} glow={P.dark} />
               </span>
-              <span style={S.brand}>Cerebrum</span>
+              <span style={S.brand}>Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 500, marginLeft: 2, opacity: 0.6, letterSpacing: "0.02em" }}>™</sup></span>
             </div>
             {easterEgg.render}
           </div>
@@ -1139,6 +1347,7 @@ function App() {
           <div style={S.foot}>
             <div style={S.disclaimer}>Cerebrum is an AI research tool. Answers are generated by a language model from real published sources and may contain errors. Always verify against the cited papers before relying on them.</div>
             <span style={S.footDbs}>Europe PMC · PubMed · OpenAlex · Crossref · arXiv · Semantic Scholar · DOAJ · Zenodo · DataCite · OpenAIRE · HAL · UTK TRACE</span>
+            <div style={{ fontSize: 10.5, color: P.faint, marginTop: 10, letterSpacing: "0.02em" }}>© {new Date().getFullYear()} Cerebrum™. All rights reserved.</div>
           </div>
         </div>
       </div>
@@ -1201,7 +1410,7 @@ function App() {
         </div>
       )}
 
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
     </div>
   );
 }
@@ -1292,7 +1501,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
   );
 }
 
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, sfx, setSessions, setSaved, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close }) {
   const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
   return (
     <div style={S.modalWrap} onClick={close} className="cb-fade">
@@ -1321,7 +1530,54 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         <button style={{ ...S.toggle, ...(typewriter ? S.toggleOn : {}) }} onClick={() => { sfx(); setTypewriter(!typewriter); }}><span>{typewriter ? "Animated reveal on" : "Instant answers"}</span><span style={{ ...S.toggleKnob, transform: typewriter ? "translateX(20px)" : "none", background: typewriter ? at : P.faint }} /></button>
         <div style={S.setLabel}>Animations</div>
         <div style={S.segment}>{[["cinematic", "Full"], ["subtle", "Subtle"], ["off", "Off"]].map(([v, label]) => (<button key={v} style={{ ...S.segBtn, ...(animationMode === v ? S.segActive : {}) }} onClick={() => { sfx(); setAnimationMode(v); }}>{label}</button>))}</div>
-        <div style={S.setNote}>Full: living molecular background, cinematic intro, all effects. Subtle: fewer particles, quieter. Off: static, no background animation.</div>
+        <div style={S.setNote}>Full: all effects active. Subtle: fewer particles, quieter. Off: static.</div>
+        {animationMode !== "off" && (
+          <>
+            <div style={S.setLabel}>Background style</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 10 }}>
+              {[
+                ["particles", "Particles"],
+                ["neurons", "Neurons"],
+                ["waves", "Waves"],
+                ["dna", "DNA"],
+                ["circuits", "Circuits"],
+                ["starfield", "Starfield"],
+              ].map(([v, label]) => (
+                <button key={v}
+                  style={{ padding: "9px 6px", fontSize: 12, fontWeight: 550, background: animPreset === v ? accent : "transparent", color: animPreset === v ? at : P.ink2, border: `1px solid ${animPreset === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}
+                  onClick={() => { sfx(); setAnimPreset(v); }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: P.ink2 }}>Density</span>
+                  <span style={{ fontSize: 11, color: P.faint }}>{animDensity.toFixed(1)}x</span>
+                </div>
+                <input type="range" min="0.3" max="2.5" step="0.1" value={animDensity} onChange={(e) => setAnimDensity(parseFloat(e.target.value))}
+                  style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
+              </div>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: P.ink2 }}>Speed</span>
+                  <span style={{ fontSize: 11, color: P.faint }}>{animSpeed.toFixed(1)}x</span>
+                </div>
+                <input type="range" min="0.2" max="3" step="0.1" value={animSpeed} onChange={(e) => setAnimSpeed(parseFloat(e.target.value))}
+                  style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
+              </div>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: P.ink2 }}>Opacity</span>
+                  <span style={{ fontSize: 11, color: P.faint }}>{Math.round(animOpacity * 100)}%</span>
+                </div>
+                <input type="range" min="0.2" max="1.5" step="0.1" value={animOpacity} onChange={(e) => setAnimOpacity(parseFloat(e.target.value))}
+                  style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
+              </div>
+              <button onClick={() => { sfx(); setAnimPreset("particles"); setAnimDensity(1); setAnimSpeed(1); setAnimOpacity(1); }}
+                style={{ fontSize: 11, padding: "6px 10px", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 6, color: P.faint, cursor: "pointer", fontFamily: "inherit", alignSelf: "flex-start" }}>Reset</button>
+            </div>
+          </>
+        )}
         <div style={S.setLabel}>Sound</div>
         <button style={{ ...S.toggle, ...(!muted ? S.toggleOn : {}) }} onClick={() => setMuted(!muted)}><span>{muted ? "Sound off" : "Sound on"}</span><span style={{ ...S.toggleKnob, transform: !muted ? "translateX(20px)" : "none", background: !muted ? at : P.faint }} /></button>
         <div style={{ ...S.setLabel, opacity: muted ? 0.4 : 1 }}>Search sound</div>
