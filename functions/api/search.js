@@ -1393,20 +1393,93 @@ export async function onRequest(context) {
       });
     }
 
-    // Greeting shortcut
-    const small = query.toLowerCase().replace(/[^a-z\s]/g, "").trim();
-    const greetings = ["hi", "hello", "hey", "yo", "sup", "howdy", "hiya"];
-    if (greetings.includes(small)) {
-      return new Response(
-        JSON.stringify({
-          answer:
-            "Hi. I'm Cerebrum. Ask me anything, science questions get answers backed by real papers with inline citations, and I'll do my best with general questions too.",
-          sources: [],
-          videos: [],
-          source: "Cerebrum",
-        }),
-        { status: 200, headers: cors }
+    // Special query shortcuts — small moments of personality
+    const small = query.toLowerCase().replace(/[^a-z0-9\s?]/g, "").replace(/\s+/g, " ").trim();
+    const specialAnswer = (text) => new Response(
+      JSON.stringify({ answer: text, sources: [], videos: [], source: "Cerebrum" }),
+      { status: 200, headers: cors }
+    );
+
+    // Greetings
+    if (["hi", "hello", "hey", "yo", "sup", "howdy", "hiya", "hola"].includes(small)) {
+      const hellos = [
+        "Hey. Cerebrum here. Ask me a science question and I'll pull real papers with real citations. Ask me anything else and I'll do my best.",
+        "Hi. Fair warning: I take citations seriously. Ask away.",
+        "Hey there. What are we researching today?",
+        "Hello. Hit me with something interesting.",
+      ];
+      return specialAnswer(hellos[Math.floor(Math.random() * hellos.length)]);
+    }
+
+    // Identity questions
+    if (/^(who (are|r) (you|u)|what (are|r) (you|u)|whats (this|cerebrum)|whats your (name|deal)|who made (you|this|cerebrum))\??$/.test(small)) {
+      return specialAnswer(
+        "I'm Cerebrum — a research tool built by Dusty Wills. I search 16 free scholarly databases in parallel and use free AI models to synthesize answers with real, traceable citations. Everything is free-tier: no paywalls, no subscription, no ads. If you catch me making stuff up, I owe you an apology and a bug report."
       );
+    }
+
+    // Meta questions
+    if (/^(are you real|is this real|is this legit|is this a scam|are these real papers)\??$/.test(small)) {
+      return specialAnswer(
+        "As real as an AI can be. The papers are real (Europe PMC, PubMed, OpenAlex, and 13 more). The citations are real DOIs. The answers are AI-generated so verify the specific claims against the papers, but the sources are genuinely peer-reviewed literature, not made up."
+      );
+    }
+
+    if (/^(are you (chatgpt|gemini|claude|copilot))\??$/.test(small)) {
+      return specialAnswer(
+        "No, I'm Cerebrum. I use free AI models under the hood (OpenRouter, Cloudflare Workers AI, Pollinations) but my job is different: search real science literature, cite real papers, keep it honest. Different tool, different purpose."
+      );
+    }
+
+    // Existential
+    if (/^(what is the meaning of life|meaning of life|whats the meaning of life)\??$/.test(small)) {
+      return specialAnswer(
+        "42. But also: probably curiosity, connection, and doing something that matters to you. I'm a science tool though, not a philosopher. Ask me about neurons and I'll do better."
+      );
+    }
+
+    // Compliments and rudeness
+    if (/^(thanks|thank you|thx|ty|much appreciated|cheers)\.?$/.test(small)) {
+      return specialAnswer("Anytime. Ask another one when you're ready.");
+    }
+    if (/^(you suck|this sucks|youre bad|this is bad|you re bad)\.?$/.test(small)) {
+      return specialAnswer(
+        "Fair enough. I'm made of free AI models and public science APIs held together with careful prompts. Tell me what specifically went wrong and I can be more useful — was it the answer quality, the sources, or something else?"
+      );
+    }
+    if (/^(youre great|youre awesome|this is great|this rocks|nice|cool|great|awesome|amazing)\.?$/.test(small)) {
+      return specialAnswer("Appreciated. Now ask me something hard.");
+    }
+
+    // Cerebrum specific / meta science jokes
+    if (small === "cerebrum" || small === "cerebrum ") {
+      return specialAnswer(
+        "That's me. Latin for 'brain.' I know, subtle.\n\nAsk me a question and I'll show you what I do."
+      );
+    }
+    if (/^(who is the smartest|whats the smartest thing)\??$/.test(small)) {
+      return specialAnswer("Curiosity is the smartest thing. Everything else is downstream.");
+    }
+    if (/^(tell me a joke|joke|make me laugh)\.?$/.test(small)) {
+      const jokes = [
+        "A neutron walks into a bar and orders a drink. Asks for the check. Bartender says: for you, no charge.",
+        "Why don't scientists trust atoms? They make up everything.",
+        "I told a chemistry joke. There was no reaction.",
+        "Statistically, 6 out of 7 dwarves aren't Happy.",
+        "Schrödinger's cat walks into a bar. And doesn't.",
+        "How many software engineers does it take to change a lightbulb? None. That's a hardware problem.",
+      ];
+      return specialAnswer(jokes[Math.floor(Math.random() * jokes.length)]);
+    }
+    if (/^(help|what can you do|how do i use this)\??$/.test(small)) {
+      return specialAnswer(
+        "Ask me a science question — biology, chemistry, physics, medicine, anything. I'll search PubMed, Europe PMC, arXiv, bioRxiv, OpenAlex, and 11 other databases in parallel, then write you a cited answer.\n\nGood questions look like: \"how do BSFL respond to plastics on a transcriptional level\" or \"what causes long COVID\" or \"is there evidence for autophagy in aging.\"\n\nTry Cmd+K to open the command palette. Cmd+J for a new investigation. Cmd+B for saved articles. There are also easter eggs. Have fun."
+      );
+    }
+
+    // The classics
+    if (/^(42|whats 42)\??$/.test(small)) {
+      return specialAnswer("The Answer to the Ultimate Question of Life, the Universe, and Everything. Now we just need to figure out the question.");
     }
 
     const settings = body.settings || {};
