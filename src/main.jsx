@@ -627,7 +627,7 @@ function LivingBackground({ accent, P, intensity = "cinematic" }) {
         width: "100%",
         height: "100%",
         pointerEvents: "none",
-        opacity: (P.dark ? 0.35 : 0.28) * opacityScale,
+        opacity: (P.dark ? 0.35 : 0.28) * (intensity === "subtle" ? 0.55 : 1),
         zIndex: 0,
       }}
       aria-hidden="true"
