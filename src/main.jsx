@@ -126,6 +126,57 @@ async function saveToZotero(sources, apiKey, userId) {
 }
 function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
+// Citation formatters for the Bibliography section. Each takes a source object
+// { title, authors, journal, year, url, citations } and returns a formatted string.
+function formatCitation(source, style, index) {
+  const s = source || {};
+  const authors = s.authors || "";
+  const title = s.title || "Untitled";
+  const journal = s.journal || "";
+  const year = s.year || "n.d.";
+  const url = s.url || "";
+  switch (style) {
+    case "vancouver": {
+      // Vancouver: 1. Author AA, Author BB. Title. Journal. Year;Vol(Issue):pages.
+      const parts = [`${index}. ${authors ? authors + ". " : ""}${title}.`];
+      if (journal) parts.push(` ${journal}.`);
+      parts.push(` ${year}.`);
+      return parts.join("");
+    }
+    case "apa": {
+      // APA: Author, A. A. (Year). Title. Journal.
+      return `${authors ? authors + ". " : ""}(${year}). ${title}. ${journal ? "*" + journal + "*." : ""}`.trim();
+    }
+    case "mla": {
+      // MLA: Author. "Title." Journal, Year, URL.
+      return `${authors ? authors + ". " : ""}"${title}." *${journal || "n.p."}*, ${year}${url ? ", " + url : ""}.`;
+    }
+    case "chicago": {
+      // Chicago author-date: Author. Year. "Title." Journal.
+      return `${authors ? authors + ". " : ""}${year}. "${title}." *${journal || "n.p."}*.`;
+    }
+    case "bibtex": {
+      const key = "cerebrum" + year + "_" + index;
+      const fields = [];
+      if (authors) fields.push(`  author = {${authors}}`);
+      if (title) fields.push(`  title = {${title}}`);
+      if (journal) fields.push(`  journal = {${journal}}`);
+      if (year && year !== "n.d.") fields.push(`  year = {${year}}`);
+      if (url) fields.push(`  url = {${url}}`);
+      return `@article{${key},\n${fields.join(",\n")}\n}`;
+    }
+    default:
+      return `${index}. ${authors} ${title}. ${journal} ${year}.`;
+  }
+}
+
+// Format a full bibliography as plain text (for copy-to-clipboard)
+function formatBibliography(sources, style) {
+  return sources
+    .map((s, i) => formatCitation(s, style, i + 1))
+    .join(style === "bibtex" ? "\n\n" : "\n\n");
+}
+
 const Audio = (() => {
   let ctx = null, ambient = null, lfoTimer = null;
   function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } } return ctx; }
@@ -217,7 +268,18 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
             const c = seg.match(/^\[(\d+)\]$/);
             if (c) {
               const n = parseInt(c[1], 10); const src = sources[n - 1];
-              return <a key={si} href={src?.url || "#"} target="_blank" rel="noreferrer" title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)} style={{ fontSize: 10.5, verticalAlign: "super", color: at2(accent), textDecoration: "none", fontWeight: 700, padding: "1px 4px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s", cursor: "pointer", ...( { color: accent } ) }}>{n}</a>;
+              return <a key={si} href={`#ref-${n}`} title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  const el = document.getElementById(`ref-${n}`);
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                    el.style.transition = "background 0.3s";
+                    el.style.background = withAlpha(accent, 0.15);
+                    setTimeout(() => { el.style.background = "transparent"; }, 1400);
+                  }
+                }}
+                style={{ fontSize: 10.5, verticalAlign: "super", color: accent, textDecoration: "none", fontWeight: 700, padding: "1px 4px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s", cursor: "pointer" }}>{n}</a>;
             }
             return <span key={si}>{seg}</span>;
           })}
@@ -1586,6 +1648,7 @@ function App() {
   const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
+  const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver"); // vancouver | apa | mla | chicago | bibtex
   const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim") || "cinematic"); // cinematic | subtle | off
   const [animPreset, setAnimPreset] = useState(() => getCookie("cb_animP") || "particles"); // particles | waves | dna | circuits | neurons | starfield
   const [animDensity, setAnimDensity] = useState(() => parseFloat(getCookie("cb_animD") || "1"));
@@ -1669,6 +1732,7 @@ function App() {
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
   useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
   useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
+  useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
   useEffect(() => { setCookie("cb_anim", animationMode); }, [animationMode]);
   useEffect(() => { setCookie("cb_animP", animPreset); }, [animPreset]);
   useEffect(() => { setCookie("cb_animD", String(animDensity)); }, [animDensity]);
@@ -1919,7 +1983,7 @@ function App() {
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : {}) }}>
               <div style={S.thread}>
                 {turns.map((t, ti) => (
-                  <Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} />
+                  <Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />
                 ))}
                 {busy && (
                   <div style={S.turn}>
@@ -2086,7 +2150,117 @@ function PartyOverlay({ accent }) {
   );
 }
 
-function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated }) {
+function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
+  const [copied, setCopied] = useState(false);
+  const styleOptions = [
+    { key: "vancouver", label: "Vancouver" },
+    { key: "apa", label: "APA" },
+    { key: "mla", label: "MLA" },
+    { key: "chicago", label: "Chicago" },
+    { key: "bibtex", label: "BibTeX" },
+  ];
+  const copyAll = () => {
+    const text = formatBibliography(sources, citationStyle);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  const downloadFile = () => {
+    const text = formatBibliography(sources, citationStyle);
+    const ext = citationStyle === "bibtex" ? "bib" : "txt";
+    download(`cerebrum-bibliography.${ext}`, text);
+  };
+
+  return (
+    <div style={{ marginTop: 24, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 12, padding: "18px 20px" }} className="cb-fade">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 4, height: 18, background: accent, borderRadius: 2 }} />
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "-0.005em", color: P.ink }}>Bibliography</div>
+          <div style={{ fontSize: 11.5, color: P.faint }}>{sources.length} source{sources.length === 1 ? "" : "s"}</div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} style={{
+            padding: "6px 10px", fontSize: 12, fontWeight: 500,
+            background: P.bg, color: P.ink, border: `1px solid ${P.line}`,
+            borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+            outline: "none",
+          }}>
+            {styleOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+          <button onClick={copyAll} style={bibBtn(P, accent)} title="Copy all citations">
+            {copied ? "✓ Copied" : "Copy"}
+          </button>
+          <button onClick={downloadFile} style={bibBtn(P, accent)} title="Download as file">Download</button>
+        </div>
+      </div>
+      <ol style={{ margin: 0, padding: 0, listStyle: "none", counterReset: "biblio" }}>
+        {sources.map((src, i) => (
+          <BibEntry key={i} source={src} index={i + 1} P={P} accent={accent} style={citationStyle} />
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function BibEntry({ source, index, P, accent, style }) {
+  const [hover, setHover] = useState(false);
+  const formatted = formatCitation(source, style, index);
+  // Break long URLs to prevent overflow
+  return (
+    <li id={`ref-${index}`} style={{
+      padding: "12px 4px 12px 4px",
+      borderTop: index === 1 ? "none" : `1px solid ${P.line}`,
+      display: "flex", gap: 12, alignItems: "flex-start",
+      transition: "background 0.15s",
+      background: hover ? withAlpha(accent, 0.03) : "transparent",
+      borderRadius: 6,
+    }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <div style={{
+        flexShrink: 0, minWidth: 26,
+        color: accent, fontWeight: 700, fontSize: 12,
+        fontVariantNumeric: "tabular-nums",
+        paddingTop: 1,
+      }}>{index}.</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {style === "bibtex" ? (
+          <pre style={{ fontSize: 11.5, fontFamily: "'JetBrains Mono', monospace", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
+        ) : (
+          <div style={{ fontSize: 13, lineHeight: 1.55, color: P.ink }} dangerouslySetInnerHTML={{
+            __html: formatted
+              .replace(/\*([^*]+)\*/g, '<em style="font-style: italic;">$1</em>')
+              .replace(/\n/g, "<br>")
+          }} />
+        )}
+        {source.url && (
+          <a href={source.url} target="_blank" rel="noreferrer" style={{
+            fontSize: 11.5, color: accent, textDecoration: "none",
+            marginTop: 6, display: "inline-block",
+            wordBreak: "break-all",
+          }}>{source.url.replace(/^https?:\/\//, "").slice(0, 60)}{source.url.length > 60 ? "..." : ""} ↗</a>
+        )}
+        {(source.citations != null || source.type) && (
+          <div style={{ fontSize: 10.5, color: P.faint, marginTop: 4, display: "flex", gap: 10 }}>
+            {source.type && <span>{source.type}</span>}
+            {source.citations != null && <span>{source.citations.toLocaleString()} citation{source.citations === 1 ? "" : "s"}</span>}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+function bibBtn(P, accent) {
+  return {
+    padding: "6px 10px", fontSize: 12, fontWeight: 500,
+    background: "transparent", color: P.ink2,
+    border: `1px solid ${P.line}`, borderRadius: 8,
+    cursor: "pointer", fontFamily: "inherit",
+    transition: "border-color 0.15s, color 0.15s",
+  };
+}
+
+function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   return (
@@ -2103,6 +2277,9 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         )}
       </div>
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
+      {done && t.sources && t.sources.length > 0 && (
+        <Bibliography sources={t.sources} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />
+      )}
       {done && (
         <div style={{ marginTop: 20 }} className="cb-fade">
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, marginBottom: 10 }}>Related videos</div>
