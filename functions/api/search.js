@@ -99,6 +99,34 @@ function extractDoi(url) {
 
 // ============ AI RESPONSE CLEANER ============
 // Strips chain-of-thought leakage, meta-monologues, and robotic openings.
+// Force any close-but-wrong variant of a name (e.g. "Sahoy" for "Saho") back
+// to the exact form the user searched. Free AI models routinely hallucinate
+// name variants; this is a hard post-processing correction so the user never
+// sees "Sahoy" when they typed "Saho".
+function correctNameVariants(text, canonicalName) {
+  if (!text || !canonicalName) return text;
+  const tokens = canonicalName.trim().split(/\s+/);
+  let out = text;
+  for (const token of tokens) {
+    if (token.length < 3) continue;
+    // Match a word that starts with the token's first 3 chars and has similar
+    // length (within +/- 2 chars). Catches "Sahoy", "Sahon", "Sahoes" etc.
+    const stem = token.slice(0, 3);
+    const min = Math.max(3, token.length - 1);
+    const max = token.length + 3;
+    // Build a regex that finds words starting with stem, length min..max,
+    // that are NOT the canonical token itself.
+    const re = new RegExp(`\\b(${stem}[a-zA-Z]{${min - 3},${max - 3}})\\b`, "g");
+    out = out.replace(re, (match) => {
+      if (match.toLowerCase() === token.toLowerCase()) return match;
+      // Preserve original capitalization
+      return token.charAt(0).toUpperCase() + token.slice(1);
+    });
+  }
+  return out;
+}
+
+
 function cleanAIResponse(raw) {
   if (!raw) return "";
   let c = raw;
@@ -584,13 +612,17 @@ function nameAppearsInAuthorString(authorsStr, fullName) {
 
 async function searchPapersByExactAuthorName(fullName, limit = 15) {
   const quoted = '"' + fullName + '"';
+  // Europe PMC is the only source that returns a FULL author string (not just
+  // "first-author et al."). It's also the only one we can reliably filter on
+  // downstream author membership. So we search there directly, then augment
+  // with direct bioRxiv/medRxiv preprint APIs which give complete author lists.
   try {
-    const [epmc, oa, cr] = await Promise.allSettled([
+    const [epmc, brx, mrx] = await Promise.allSettled([
       europePMC(quoted, limit),
-      openAlex(quoted, limit),
-      crossref(quoted, limit),
+      biorxivDirectAuthor(fullName),
+      medrxivDirectAuthor(fullName),
     ]);
-    const pools = [epmc, oa, cr]
+    const pools = [epmc, brx, mrx]
       .filter((r) => r.status === "fulfilled")
       .flatMap((r) => r.value || []);
     const seen = new Set();
@@ -604,6 +636,47 @@ async function searchPapersByExactAuthorName(fullName, limit = 15) {
       }
     }
     return matched;
+  } catch {
+    return [];
+  }
+}
+
+// Direct bioRxiv API: pulls up to 100 recent preprints and filters by author
+// name. Only finds someone if their preprint is public on bioRxiv itself. Not
+// mirrored through OpenAlex or PubMed, so this catches things those miss.
+async function biorxivDirectAuthor(fullName) {
+  return preprintServerAuthor("biorxiv", fullName);
+}
+async function medrxivDirectAuthor(fullName) {
+  return preprintServerAuthor("medrxiv", fullName);
+}
+async function preprintServerAuthor(server, fullName) {
+  try {
+    // bioRxiv/medRxiv have a "details" API but no search-by-author endpoint.
+    // We use the interval endpoint to pull the last 6 months of preprints (up
+    // to ~1000 items) and filter locally by author. Rough but works for
+    // finding early-career researchers whose one preprint isn't indexed yet.
+    const now = new Date();
+    const six = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const url = "https://api.biorxiv.org/details/" + server + "/" + iso(six) + "/" + iso(now) + "/0";
+    const data = await getJSON(url, {}, 5000);
+    const items = (data && data.collection) || [];
+    const nameLC = fullName.toLowerCase();
+    const tokens = nameLC.split(/\s+/).filter(Boolean);
+    const hits = items.filter((it) => {
+      const auths = (it.authors || "").toLowerCase();
+      return tokens.every((t) => auths.includes(t));
+    });
+    return hits.slice(0, 10).map((it) => ({
+      title: it.title || "Untitled",
+      url: it.doi ? "https://doi.org/" + it.doi : "https://www.biorxiv.org/content/" + it.doi,
+      year: (it.date || "").slice(0, 4),
+      citations: null,
+      authors: it.authors || "",
+      journal: server === "biorxiv" ? "bioRxiv (preprint)" : "medRxiv (preprint)",
+      abstract: it.abstract || "",
+    }));
   } catch {
     return [];
   }
@@ -2106,6 +2179,13 @@ export async function onRequest(context) {
       : useWeb
       ? "Reference sources"
       : "General knowledge";
+
+    // Final safety: if this was a person-name query, force-correct any close
+    // variants the AI hallucinated ("Sahoy" -> "Saho") in the answer body.
+    const canonicalName = resolvedPersonName || (isNameSearch ? query : "");
+    if (canonicalName) {
+      answer = correctNameVariants(answer, canonicalName);
+    }
 
     return new Response(
       JSON.stringify({
