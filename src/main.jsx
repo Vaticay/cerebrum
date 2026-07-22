@@ -17,16 +17,16 @@ const LOADING_MESSAGES = [
   "Aligning the sequences",
   "Calibrating the spectrometer",
   "Sifting through preprints",
-  "Is mayonaise an instrument",
+  "Interrogating the abstracts",
   "Following the paper trail",
   "Centrifuging the results",
   "Decoding the methods sections",
-  "Dusty Waz H3r3",
+  "Chasing down DOIs",
   "Scanning the stacks",
   "Titrating the findings",
   "Querying fourteen databases",
   "Reading between the citations",
-  "all becuase i...ripped  my pants",
+  "Isolating the signal",
   "Culturing conclusions",
   "Amplifying the relevant hits",
   "Filtering out the noise",
@@ -877,7 +877,7 @@ const BRAIN_QUOTES = [
   "Curiosity literally rewires your brain.",
   "The average brain generates roughly 70,000 thoughts per day.",
   "Your brain is 60% fat. It's the fattiest organ in your body.",
-  "Dusty Waz H3r3.",
+  "Every time you learn something new, a new neural pathway forms.",
   "The brain weighs about 3 pounds. It contains all of you.",
   "REM sleep: your brain is more active than when you're awake.",
   "Left brain / right brain is mostly a myth. Both work together constantly.",
@@ -1091,6 +1091,436 @@ function BrainEasterEgg({ accent, P, S, onLogoClick }) {
 }
 
 
+// ============ MINI-GAMES ============
+// Fullscreen modal dispatcher. Handles Snake (Neuron Chase), Trivia (Cite or Fake),
+// and Reaction (Brain Reaction). Each game is self-contained, keyboard-friendly,
+// and gets closed with Esc or the X button.
+function GameModal({ game, onClose, accent, P, at }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const titles = { snake: "Neuron Chase", trivia: "Cite or Fake", reaction: "Brain Reaction" };
+  const subtitles = {
+    snake: "Grow the neuron. Catch synapses. Don't hit yourself.",
+    trivia: "Real published finding, or plausible-sounding nonsense?",
+    reaction: "Click the instant the neuron fires. Measure your reflex.",
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 500,
+      background: withAlpha(P.bg, 0.85),
+      backdropFilter: "blur(14px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20,
+      animation: "cbFade 0.3s ease forwards",
+    }} onClick={onClose}>
+      <div style={{
+        background: P.surface,
+        border: `1px solid ${P.line}`,
+        borderRadius: 16,
+        maxWidth: 620, width: "100%",
+        padding: 24,
+        boxShadow: P.shadow,
+        position: "relative",
+      }} onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} style={{
+          position: "absolute", top: 14, right: 14,
+          background: "transparent", border: "none",
+          fontSize: 20, color: P.faint, cursor: "pointer",
+          width: 32, height: 32, borderRadius: 8,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }} aria-label="Close">×</button>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: accent, marginBottom: 6 }}>Easter egg</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em" }}>{titles[game]}</div>
+          <div style={{ fontSize: 13, color: P.ink2, marginTop: 4 }}>{subtitles[game]}</div>
+        </div>
+        {game === "snake" && <NeuronChase accent={accent} P={P} at={at} />}
+        {game === "trivia" && <CiteOrFake accent={accent} P={P} at={at} />}
+        {game === "reaction" && <BrainReaction accent={accent} P={P} at={at} />}
+      </div>
+    </div>
+  );
+}
+
+// -------- Neuron Chase (Snake) --------
+function NeuronChase({ accent, P, at }) {
+  const canvasRef = useRef(null);
+  const [score, setScore] = useState(0);
+  const [best, setBest] = useState(() => parseInt(getCookie("cb_snake_best") || "0", 10));
+  const [gameState, setGameState] = useState("ready"); // ready | playing | over
+  const stateRef = useRef({
+    snake: [{ x: 8, y: 8 }],
+    dir: { x: 1, y: 0 },
+    nextDir: { x: 1, y: 0 },
+    food: { x: 12, y: 8 },
+    tick: 0,
+  });
+
+  const GRID = 20;
+  const CELL = 20;
+
+  const reset = () => {
+    stateRef.current = {
+      snake: [{ x: 8, y: 8 }, { x: 7, y: 8 }, { x: 6, y: 8 }],
+      dir: { x: 1, y: 0 },
+      nextDir: { x: 1, y: 0 },
+      food: placeFood([{ x: 8, y: 8 }]),
+      tick: 0,
+    };
+    setScore(0);
+    setGameState("playing");
+  };
+
+  function placeFood(snake) {
+    let f;
+    do {
+      f = { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
+    } while (snake.some((s) => s.x === f.x && s.y === f.y));
+    return f;
+  }
+
+  useEffect(() => {
+    if (gameState !== "playing") return;
+    const onKey = (e) => {
+      const key = e.key;
+      const s = stateRef.current;
+      const d = s.dir;
+      if ((key === "ArrowUp" || key === "w") && d.y === 0) s.nextDir = { x: 0, y: -1 };
+      else if ((key === "ArrowDown" || key === "s") && d.y === 0) s.nextDir = { x: 0, y: 1 };
+      else if ((key === "ArrowLeft" || key === "a") && d.x === 0) s.nextDir = { x: -1, y: 0 };
+      else if ((key === "ArrowRight" || key === "d") && d.x === 0) s.nextDir = { x: 1, y: 0 };
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [gameState]);
+
+  useEffect(() => {
+    if (gameState !== "playing") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(0,2),16), parseInt(h.slice(4,6),16)]; })();
+
+    let raf;
+    let last = 0;
+    const step = (now) => {
+      if (now - last > 110) {
+        last = now;
+        const s = stateRef.current;
+        s.dir = s.nextDir;
+        const head = { x: s.snake[0].x + s.dir.x, y: s.snake[0].y + s.dir.y };
+        // Wall collision
+        if (head.x < 0 || head.x >= GRID || head.y < 0 || head.y >= GRID) {
+          setGameState("over");
+          setBest((b) => { const nb = Math.max(b, score); setCookie("cb_snake_best", String(nb)); return nb; });
+          return;
+        }
+        // Self collision
+        if (s.snake.some((seg) => seg.x === head.x && seg.y === head.y)) {
+          setGameState("over");
+          setBest((b) => { const nb = Math.max(b, score); setCookie("cb_snake_best", String(nb)); return nb; });
+          return;
+        }
+        s.snake.unshift(head);
+        if (head.x === s.food.x && head.y === s.food.y) {
+          setScore((sc) => sc + 1);
+          s.food = placeFood(s.snake);
+        } else {
+          s.snake.pop();
+        }
+      }
+      // Draw
+      ctx.fillStyle = P.dark ? "#0a0e14" : "#f7f5f0";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Grid dots
+      ctx.fillStyle = withAlpha(accent, 0.06);
+      for (let i = 0; i < GRID; i++) for (let j = 0; j < GRID; j++) {
+        ctx.beginPath(); ctx.arc(i * CELL + CELL / 2, j * CELL + CELL / 2, 1, 0, Math.PI * 2); ctx.fill();
+      }
+      const s = stateRef.current;
+      // Food (synapse) — pulsing
+      const pulse = 0.6 + 0.4 * Math.sin(now * 0.006);
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(s.food.x * CELL + CELL / 2, s.food.y * CELL + CELL / 2, 6 + pulse * 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = withAlpha(accent, 0.25);
+      ctx.beginPath();
+      ctx.arc(s.food.x * CELL + CELL / 2, s.food.y * CELL + CELL / 2, 12, 0, Math.PI * 2);
+      ctx.fill();
+      // Snake (neuron)
+      s.snake.forEach((seg, i) => {
+        const alpha = 1 - (i / s.snake.length) * 0.4;
+        ctx.fillStyle = withAlpha(accent, alpha);
+        const size = i === 0 ? CELL - 3 : CELL - 5;
+        const x = seg.x * CELL + (CELL - size) / 2;
+        const y = seg.y * CELL + (CELL - size) / 2;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, y, size, size, 4);
+        else ctx.rect(x, y, size, size);
+        ctx.fill();
+      });
+      // Connecting lines between segments (dendrites)
+      ctx.strokeStyle = withAlpha(accent, 0.6);
+      ctx.lineWidth = 3;
+      for (let i = 0; i < s.snake.length - 1; i++) {
+        const a = s.snake[i], b = s.snake[i + 1];
+        ctx.beginPath();
+        ctx.moveTo(a.x * CELL + CELL / 2, a.y * CELL + CELL / 2);
+        ctx.lineTo(b.x * CELL + CELL / 2, b.y * CELL + CELL / 2);
+        ctx.stroke();
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [gameState, accent, P.dark, score]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 13 }}>
+        <span style={{ color: P.ink2 }}>Score: <strong style={{ color: accent }}>{score}</strong></span>
+        <span style={{ color: P.ink2 }}>Best: <strong style={{ color: P.ink }}>{best}</strong></span>
+      </div>
+      <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line}` }}>
+        <canvas ref={canvasRef} width={GRID * CELL} height={GRID * CELL} style={{ display: "block", width: "100%", height: "auto", maxWidth: 400, margin: "0 auto" }} />
+        {gameState !== "playing" && (
+          <div style={{ position: "absolute", inset: 0, background: withAlpha(P.bg, 0.9), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: P.ink }}>
+              {gameState === "ready" ? "Ready?" : `Game over. You scored ${score}.`}
+            </div>
+            <button onClick={reset} style={{
+              padding: "10px 20px", background: accent, color: at,
+              border: "none", borderRadius: 10, fontWeight: 600, cursor: "pointer",
+              fontSize: 14, fontFamily: "inherit",
+            }}>{gameState === "ready" ? "Start" : "Play again"}</button>
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: P.faint, marginTop: 10, textAlign: "center" }}>Arrow keys or WASD to move</div>
+    </div>
+  );
+}
+
+// -------- Cite or Fake (Trivia) --------
+const TRIVIA_ITEMS = [
+  // real
+  { real: true, claim: "Octopuses have three hearts and blue blood.", note: "Two hearts pump blood to the gills, one pumps to the body. The blue color comes from copper-based hemocyanin." },
+  { real: true, claim: "Tardigrades have survived direct exposure to the vacuum of space.", note: "A 2007 experiment (Jönsson et al.) launched them on the FOTON-M3 mission. Many survived." },
+  { real: true, claim: "Honey found in Egyptian tombs is still edible thousands of years later.", note: "Its low water activity and high acidity prevent microbial growth almost indefinitely." },
+  { real: true, claim: "Bumblebees can be trained to roll a ball into a hole for a sugar reward.", note: "Loukola et al. 2017, Science. They can even learn from watching another bee." },
+  { real: true, claim: "Cows have best friends and get stressed when separated.", note: "Krista McLennan's PhD research at Northampton found their heart rate rises when isolated from their preferred partner." },
+  { real: true, claim: "The mitochondria in your cells have their own DNA, inherited only from your mother.", note: "Mitochondrial DNA is separate from nuclear DNA and passes down the maternal line only." },
+  { real: true, claim: "Some jellyfish (Turritopsis dohrnii) can revert to their juvenile form indefinitely.", note: "This 'immortal' jellyfish undergoes transdifferentiation, effectively restarting its life cycle." },
+  { real: true, claim: "There's a fungus that infects ants, hijacks their behavior, and grows out of their heads.", note: "Ophiocordyceps unilateralis. It manipulates the ant into a high spot before killing it." },
+  { real: true, claim: "Slime molds can solve mazes and model efficient transit networks despite having no brain.", note: "Nakagaki et al. showed Physarum polycephalum replicates the Tokyo rail network's efficiency." },
+  { real: true, claim: "Bananas are radioactive due to their potassium-40 content.", note: "Not enough to be harmful, but they set off some sensitive detectors. The 'banana equivalent dose' is a real informal unit." },
+  { real: true, claim: "Naked mole rats are nearly immune to cancer and don't show typical signs of aging.", note: "Their unique hyaluronan structure and stable proteins may explain their exceptional longevity." },
+  { real: true, claim: "The Eiffel Tower is about 6 inches taller in summer due to thermal expansion.", note: "The iron structure grows measurably as it heats up in the sun." },
+  // fake
+  { real: false, claim: "Humans use only 10% of their brain at any given time.", note: "Persistent myth. fMRI and PET studies show virtually all regions are active over the course of a day." },
+  { real: false, claim: "Goldfish have a 3-second memory span.", note: "Goldfish can remember things for months. This myth has no scientific basis." },
+  { real: false, claim: "The Great Wall of China is visible from space with the naked eye.", note: "Astronauts including Chinese ones have confirmed it's not visible from low earth orbit without aid." },
+  { real: false, claim: "You lose 90% of your body heat through your head.", note: "Your head loses heat proportional to its exposed surface area, about 10%, not 90%." },
+  { real: false, claim: "Sugar makes children hyperactive.", note: "Multiple double-blind trials, including Wolraich et al. 1994, found no effect. Parents perceive it because they expect it." },
+  { real: false, claim: "Different taste buds detect different tastes in different tongue zones.", note: "The 'tongue map' from 1901 is misinterpreted. All taste buds detect all basic tastes." },
+  { real: false, claim: "Reading in dim light permanently damages your eyes.", note: "It can cause temporary eye strain, but no permanent damage." },
+  { real: false, claim: "Shaved hair grows back thicker and darker.", note: "Shaving cuts the tapered tip, so regrowth feels stubbly. Actual hair thickness and color don't change." },
+  { real: false, claim: "Cracking your knuckles causes arthritis.", note: "Donald Unger cracked his left knuckles daily for 60 years, never his right. No difference. He won an Ig Nobel." },
+  { real: false, claim: "Bats are blind and navigate purely by echolocation.", note: "Most bats have decent vision, and some fruit bats have excellent color vision." },
+];
+
+function CiteOrFake({ accent, P, at }) {
+  const [item, setItem] = useState(() => TRIVIA_ITEMS[Math.floor(Math.random() * TRIVIA_ITEMS.length)]);
+  const [choice, setChoice] = useState(null); // "real" | "fake" | null
+  const [score, setScore] = useState({ right: 0, total: 0 });
+  const [streak, setStreak] = useState(0);
+  const [best, setBest] = useState(() => parseInt(getCookie("cb_trivia_best") || "0", 10));
+
+  const pick = () => {
+    let next;
+    do { next = TRIVIA_ITEMS[Math.floor(Math.random() * TRIVIA_ITEMS.length)]; }
+    while (next.claim === item.claim);
+    setItem(next);
+    setChoice(null);
+  };
+
+  const answer = (c) => {
+    setChoice(c);
+    const correct = (c === "real") === item.real;
+    setScore((s) => ({ right: s.right + (correct ? 1 : 0), total: s.total + 1 }));
+    if (correct) {
+      setStreak((st) => {
+        const ns = st + 1;
+        if (ns > best) { setBest(ns); setCookie("cb_trivia_best", String(ns)); }
+        return ns;
+      });
+    } else {
+      setStreak(0);
+    }
+  };
+
+  const correct = choice ? (choice === "real") === item.real : null;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 13 }}>
+        <span style={{ color: P.ink2 }}>Streak: <strong style={{ color: accent }}>{streak}</strong></span>
+        <span style={{ color: P.ink2 }}>Score: <strong style={{ color: P.ink }}>{score.right}/{score.total}</strong></span>
+        <span style={{ color: P.ink2 }}>Best streak: <strong style={{ color: P.ink }}>{best}</strong></span>
+      </div>
+      <div style={{
+        padding: "24px 20px",
+        background: P.bg,
+        border: `1px solid ${P.line}`,
+        borderRadius: 12,
+        marginBottom: 16,
+        minHeight: 100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+      }}>
+        <div style={{ fontSize: 16, lineHeight: 1.5, fontWeight: 500, color: P.ink }}>"{item.claim}"</div>
+      </div>
+      {!choice ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <button onClick={() => answer("real")} style={gameBtnStyle(accent, at, P, "primary")}>Real</button>
+          <button onClick={() => answer("fake")} style={gameBtnStyle(accent, at, P, "secondary")}>Fake</button>
+        </div>
+      ) : (
+        <div>
+          <div style={{
+            padding: "14px 16px",
+            background: withAlpha(correct ? "#10b981" : "#e5484d", 0.12),
+            border: `1px solid ${withAlpha(correct ? "#10b981" : "#e5484d", 0.3)}`,
+            borderRadius: 10,
+            marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: correct ? "#10b981" : "#e5484d", marginBottom: 6 }}>
+              {correct ? "✓ Correct" : "✗ Wrong"} — this one is {item.real ? "REAL" : "FAKE"}.
+            </div>
+            <div style={{ fontSize: 13, color: P.ink2, lineHeight: 1.55 }}>{item.note}</div>
+          </div>
+          <button onClick={pick} style={{ ...gameBtnStyle(accent, at, P, "primary"), width: "100%" }}>Next claim →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// -------- Brain Reaction (Reaction Time) --------
+function BrainReaction({ accent, P, at }) {
+  const [state, setState] = useState("ready"); // ready | waiting | fire | done | early
+  const [ms, setMs] = useState(0);
+  const [best, setBest] = useState(() => parseInt(getCookie("cb_react_best") || "0", 10));
+  const [history, setHistory] = useState([]);
+  const fireAtRef = useRef(0);
+  const timerRef = useRef(null);
+
+  const startWait = () => {
+    setState("waiting");
+    setMs(0);
+    const delay = 1200 + Math.random() * 3200;
+    timerRef.current = setTimeout(() => {
+      fireAtRef.current = performance.now();
+      setState("fire");
+    }, delay);
+  };
+
+  const click = () => {
+    if (state === "ready") { startWait(); return; }
+    if (state === "waiting") {
+      clearTimeout(timerRef.current);
+      setState("early"); return;
+    }
+    if (state === "fire") {
+      const dt = Math.round(performance.now() - fireAtRef.current);
+      setMs(dt);
+      setState("done");
+      setHistory((h) => [dt, ...h].slice(0, 5));
+      if (best === 0 || dt < best) { setBest(dt); setCookie("cb_react_best", String(dt)); }
+      return;
+    }
+    if (state === "done" || state === "early") startWait();
+  };
+
+  useEffect(() => () => timerRef.current && clearTimeout(timerRef.current), []);
+
+  const bgColor = {
+    ready: P.surface,
+    waiting: P.dark ? "#5b1a1a" : "#f5d5d5",
+    fire: "#10b981",
+    done: P.surface,
+    early: P.dark ? "#5b1a1a" : "#f5d5d5",
+  }[state];
+
+  const message = {
+    ready: { title: "Click to begin", sub: "Wait for green. Click as fast as you can." },
+    waiting: { title: "Wait for it...", sub: "Any moment now" },
+    fire: { title: "FIRE! Click!", sub: "" },
+    done: { title: `${ms} ms`, sub: reactLabel(ms) + " · Click to try again" },
+    early: { title: "Too soon!", sub: "Wait for the green. Click to try again." },
+  }[state];
+
+  const avg = history.length ? Math.round(history.reduce((a, b) => a + b, 0) / history.length) : 0;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 13 }}>
+        <span style={{ color: P.ink2 }}>Best: <strong style={{ color: accent }}>{best || "—"} ms</strong></span>
+        <span style={{ color: P.ink2 }}>Last 5 avg: <strong style={{ color: P.ink }}>{avg || "—"} ms</strong></span>
+      </div>
+      <div onClick={click} style={{
+        padding: "60px 20px",
+        background: bgColor,
+        border: `1px solid ${P.line}`,
+        borderRadius: 12,
+        cursor: "pointer",
+        textAlign: "center",
+        userSelect: "none",
+        transition: "background 0.05s",
+        minHeight: 200,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+      }}>
+        <div style={{ fontSize: 28, fontWeight: 700, color: state === "fire" ? "#fff" : P.ink, letterSpacing: "-0.02em", marginBottom: 8 }}>{message.title}</div>
+        {message.sub && <div style={{ fontSize: 13, color: state === "fire" ? "#fff" : P.ink2 }}>{message.sub}</div>}
+      </div>
+      {history.length > 0 && (
+        <div style={{ marginTop: 12, fontSize: 12, color: P.faint, textAlign: "center" }}>
+          Last 5: {history.map((h, i) => (<span key={i} style={{ marginRight: 8, color: P.ink2 }}>{h}ms</span>))}
+        </div>
+      )}
+    </div>
+  );
+}
+function reactLabel(ms) {
+  if (ms < 180) return "Superhuman";
+  if (ms < 220) return "Excellent";
+  if (ms < 270) return "Good";
+  if (ms < 320) return "Average";
+  return "Room to grow";
+}
+function gameBtnStyle(accent, at, P, kind) {
+  return kind === "primary" ? {
+    padding: "12px 16px", background: accent, color: at,
+    border: "none", borderRadius: 10, fontWeight: 600, cursor: "pointer",
+    fontSize: 14, fontFamily: "inherit", transition: "transform 0.1s",
+  } : {
+    padding: "12px 16px", background: "transparent", color: P.ink,
+    border: `1px solid ${P.line}`, borderRadius: 10, fontWeight: 600, cursor: "pointer",
+    fontSize: 14, fontFamily: "inherit", transition: "border-color 0.15s",
+  };
+}
+
 function RotatingSub({ P }) {
   const lines = [
     "Your research sidekick.",
@@ -1135,6 +1565,7 @@ function App() {
   const [srcFilter, setSrcFilter] = useState("");
   const [partyMode, setPartyMode] = useState(false);
   const [floatMessage, setFloatMessage] = useState(""); // rare event message
+  const [activeGame, setActiveGame] = useState(null); // "snake" | "trivia" | "reaction" | null
   const konamiRef = useRef([]);
   const KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
   // Empty state cycling messages so it doesn't feel dead
@@ -1182,6 +1613,23 @@ function App() {
     const question = (q ?? input).trim();
     if (!question || busy) return;
     if (!mutedRef.current) Audio.click();
+
+    // Game triggers: intercept before firing search
+    const lc = question.toLowerCase().trim();
+    if (/^\/(snake|neuron|neuronchase|neuron chase)$|^neuron chase$/.test(lc)) {
+      setInput(""); setActiveGame("snake"); return;
+    }
+    if (/^\/(trivia|citeorfake|cite or fake)$|^cite or fake$/.test(lc)) {
+      setInput(""); setActiveGame("trivia"); return;
+    }
+    if (/^\/(reaction|reactiontime|reaction time|brain reaction)$|^reaction time$|^brain reaction$/.test(lc)) {
+      setInput(""); setActiveGame("reaction"); return;
+    }
+    if (/^\/(games|game)$/.test(lc)) {
+      setInput(""); setFloatMessage("Try: /snake · /trivia · /reaction");
+      setTimeout(() => setFloatMessage(""), 4000); return;
+    }
+
     setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer }); });
@@ -1559,6 +2007,7 @@ function App() {
 
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
       {partyMode && <PartyOverlay accent={accent} />}
+      {activeGame && <GameModal game={activeGame} onClose={() => setActiveGame(null)} accent={accent} P={P} at={at} />}
       {floatMessage && (
         <div style={{
           position: "fixed",
