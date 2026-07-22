@@ -309,7 +309,7 @@ function LoadingLine({ P, accent, S }) {
 // ============ CINEMATIC BRAIN INTRO ============
 // Multi-phase sequence: neurons scatter in → electrical pulses fire along
 // forming pathways → connections build the brain silhouette → text emerges → dissolves.
-function Intro({ accent, P, onEnter }) {
+function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
   const canvasRef = useRef(null);
   const [phase, setPhase] = useState("idle"); // idle -> forming -> done
   const [textReveal, setTextReveal] = useState(false);
@@ -457,7 +457,12 @@ function Intro({ accent, P, onEnter }) {
     return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener("resize", resize); };
   }, [accent, onEnter, textReveal]);
 
-  const go = () => { if (phase !== "idle") return; startRef.current = 0; setPhase("forming"); };
+  const go = () => {
+    if (phase !== "idle") return;
+    if (animationMode === "off") { onEnter(); return; }
+    startRef.current = 0;
+    setPhase("forming");
+  };
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Enter") go(); };
@@ -471,7 +476,7 @@ function Intro({ accent, P, onEnter }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, fontFamily: "'Inter', -apple-system, sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
-      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.95 }} />
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: animationMode === "off" ? 0 : animationMode === "subtle" ? 0.45 : 0.95 }} />
       <div style={{ position: "relative", zIndex: 1, textAlign: "center", transition: "opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)", opacity: phase === "forming" ? 0 : 1, transform: phase === "forming" ? "scale(0.92) translateY(10px)" : "scale(1)" }}>
         <div style={{ marginBottom: 22, animation: "cb-float 4s ease-in-out infinite" }}><Mark size={54} accent={accent} glow={P.dark} /></div>
         <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, marginBottom: 14 }}>A Research Instrument</div>
@@ -492,7 +497,7 @@ function Intro({ accent, P, onEnter }) {
 // ============ LIVING MOLECULAR BACKGROUND ============
 // Ambient always-on canvas: drifting particles with elastic connections,
 // gentle currents, subtle firing pulses. Sits behind ALL app content at low opacity.
-function LivingBackground({ accent, P }) {
+function LivingBackground({ accent, P, intensity = "cinematic" }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
   const particlesRef = useRef([]);
@@ -501,11 +506,15 @@ function LivingBackground({ accent, P }) {
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Density and link distance scale with intensity
+    const density = intensity === "subtle" ? 55000 : 28000;
+    const linkDistBase = intensity === "subtle" ? 100 : 130;
+    const opacityScale = intensity === "subtle" ? 0.55 : 1;
+
     const resize = () => {
       canvas.width = canvas.offsetWidth * dpr;
       canvas.height = canvas.offsetHeight * dpr;
-      // Recompute particle count based on size
-      const target = Math.floor((canvas.width * canvas.height) / (28000 * dpr));
+      const target = Math.floor((canvas.width * canvas.height) / (density * dpr));
       const cur = particlesRef.current;
       while (cur.length < target) {
         cur.push({
@@ -534,7 +543,7 @@ function LivingBackground({ accent, P }) {
 
     const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
     const [ar, ag, ab] = rgb;
-    const linkDist = 130 * dpr;
+    const linkDist = linkDistBase * dpr;
 
     const startTime = performance.now();
     function draw(now) {
@@ -607,7 +616,7 @@ function LivingBackground({ accent, P }) {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseleave", onLeave);
     };
-  }, [accent]);
+  }, [accent, intensity]);
 
   return (
     <canvas
@@ -618,7 +627,7 @@ function LivingBackground({ accent, P }) {
         width: "100%",
         height: "100%",
         pointerEvents: "none",
-        opacity: P.dark ? 0.35 : 0.28,
+        opacity: (P.dark ? 0.35 : 0.28) * opacityScale,
         zIndex: 0,
       }}
       aria-hidden="true"
@@ -630,36 +639,114 @@ function LivingBackground({ accent, P }) {
 // Click the logo: cycles through funny quotes, occasional emoji bursts,
 // and rare "secret unlock" messages. Persistent click counter stored in memory.
 const BRAIN_QUOTES = [
+  // Brain trivia
   "Zombies love brains. So do we.",
-  "Your brain uses 20% of your energy. That's why thinking is exhausting.",
+  "Your brain uses 20% of your energy. Thinking is exhausting for a reason.",
   "Fun fact: the brain named itself.",
   "Neurons that fire together, wire together.",
   "A single human brain has more connections than there are stars in the Milky Way.",
-  "The word 'science' comes from the Latin 'scientia' — knowledge.",
   "You're currently reading with about 86 billion neurons.",
   "Cerebrum is Latin for 'brain'. We were not being subtle.",
   "The brain is the only organ that named itself.",
   "If your brain were a computer, it'd run on about 20 watts.",
-  "There is no pain receptor in the brain. Only in the meninges around it.",
+  "There are no pain receptors in the brain. Only in the meninges around it.",
   "Curiosity literally rewires your brain.",
-  "The average brain generates ~70,000 thoughts per day.",
+  "The average brain generates roughly 70,000 thoughts per day.",
   "Your brain is 60% fat. It's the fattiest organ in your body.",
   "Every time you learn something new, a new neural pathway forms.",
-  "Yes, we counted the citations. Yes, we're proud.",
-  "Peer review: because science needs receipts.",
-  "Correlation is not causation. Neither is a good vibe.",
-  "'Just trust me' is not a citation.",
-  "Extraordinary claims require extraordinary evidence — Sagan.",
-  "The universe is under no obligation to make sense to you — Tyson.",
-  "Somewhere, something incredible is waiting to be known — Sagan.",
-  "Science is a way of thinking much more than it is a body of knowledge — Sagan.",
-  "Facts don't cease to exist because they are ignored — Huxley.",
-  "In science, there are no shortcuts to truth.",
-  "The good thing about science is that it's true whether or not you believe in it — Tyson.",
-  "You are made of star stuff — Carl Sagan.",
   "The brain weighs about 3 pounds. It contains all of you.",
   "REM sleep: your brain is more active than when you're awake.",
   "Left brain / right brain is mostly a myth. Both work together constantly.",
+  "The corpus callosum has 200 million nerve fibers connecting your hemispheres.",
+  "You lose about 85,000 neurons a day. You have plenty to spare.",
+  "The blood-brain barrier keeps out 98% of small-molecule drugs.",
+  "Your brain finalizes wiring around age 25.",
+  "Memory isn't storage. It's reconstruction. Every recall changes it a little.",
+  "Deja vu is your brain briefly filing a moment as both new and remembered.",
+  "The occipital lobe is why you can 'see' with your eyes closed.",
+  "The hippocampus is why London taxi drivers have bigger memory centers.",
+  "Mirror neurons: why yawns are contagious.",
+  "Phantom limb pain proves the brain is the real body map.",
+  "The cerebellum has more neurons than the rest of the brain combined.",
+  "Glial cells outnumber neurons and we still don't fully know what they all do.",
+  "Your brain generates about 12-25 watts. A dim LED bulb.",
+  // Science quotes and wit
+  "Science is a way of thinking much more than a body of knowledge. - Sagan",
+  "The good thing about science is that it's true whether or not you believe in it. - Tyson",
+  "Somewhere, something incredible is waiting to be known. - Sagan",
+  "Extraordinary claims require extraordinary evidence. - Sagan",
+  "The universe is under no obligation to make sense to you. - Tyson",
+  "You are made of star stuff. - Sagan",
+  "Facts don't cease to exist because they are ignored. - Huxley",
+  "In science, there are no shortcuts to truth.",
+  "Nothing in life is to be feared, only understood. - Curie",
+  "Science is not only compatible with spirituality; it is a profound source of it. - Sagan",
+  "Imagination is more important than knowledge. - Einstein",
+  "The most beautiful thing we can experience is the mysterious. - Einstein",
+  "I have no special talent. I am only passionately curious. - Einstein",
+  "The scientist is not a person who gives the right answers, but who asks the right questions. - Levi-Strauss",
+  "In questions of science, the authority of a thousand is not worth the humble reasoning of a single individual. - Galileo",
+  "Two things fill the mind with wonder: the starry heavens above and the moral law within. - Kant",
+  "The important thing is not to stop questioning. - Einstein",
+  "Somewhere, someone is wrong about mitochondria being the powerhouse of the cell.",
+  "Actually, mitochondria have their own DNA. So they're kind of freeloaders with a lease.",
+  // Cerebrum meta
+  "Peer review: because science needs receipts.",
+  "Yes, we counted the citations. Yes, we're proud.",
+  "'Just trust me' is not a citation.",
+  "Cerebrum: because Google Scholar is a chore.",
+  "16 databases, one question, no vibes-only answers.",
+  "We fact-check ourselves. Meta.",
+  "Every claim, traceable. Every DOI, real.",
+  "Correlation is not causation. Neither is a good vibe.",
+  "The plural of anecdote is not data.",
+  "P < 0.05 is a beginning, not a conclusion.",
+  "Replication is the sincerest form of validation.",
+  "Reading the abstract is not reading the paper.",
+  "The methods section is where the real story lives.",
+  "n=1 is a start. n=1000 is science.",
+  // Weird biology
+  "Octopuses have nine brains. Overachievers.",
+  "Sea sponges digested their own brain during evolution. Rude.",
+  "Some jellyfish are technically immortal. Life is unfair.",
+  "Tardigrades survived being launched into space. Unbothered.",
+  "Your gut has about 500 million neurons. It's basically a second brain.",
+  "Naked mole rats don't really age. They just... continue.",
+  "Axolotls regrow their own brains. Show-offs.",
+  "Bumblebees can play soccer. Look it up. Seriously.",
+  "There's a fungus that turns ants into zombies. Not made up.",
+  "Slime molds solve mazes. And they don't even have a brain.",
+  // Physics wit
+  "Schrodinger's cat is both cited and uncited until you check.",
+  "Time isn't real. Also, please cite your sources on time.",
+  "The universe is expanding. So is our source list.",
+  "Quantum: the polite word for 'no, that doesn't make sense either.'",
+  "If you understand quantum mechanics, you don't understand quantum mechanics. - Feynman",
+  // Chemistry
+  "Diamonds are metastable. They're technically decaying into graphite. Very slowly.",
+  "Water is weird. It shouldn't be liquid at room temperature. Hydrogen bonds save us.",
+  "The only metal liquid at room temp besides mercury is gallium. It melts in your hand.",
+  "Every breath you take contains atoms once breathed by every historical figure. Statistics.",
+  "Coffee has more compounds than red wine. Enjoy that with breakfast.",
+  // Encouragement
+  "Curiosity killed the cat, but satisfaction brought it back.",
+  "Not knowing is fine. Not wanting to know is the problem.",
+  "The best question in science is 'why?' The second best is 'why not?'",
+  "Every expert was once a beginner. Every discovery started as confusion.",
+  "Being wrong is the price of learning. Pay it gladly.",
+  "Science advances one funeral at a time. - Planck (dark, but true)",
+  "The opposite of a scientist is not an artist. It's someone who is certain.",
+  "Doubt is not a pleasant state, but certainty is a ridiculous one. - Voltaire",
+  "If you're the smartest person in the room, find a bigger room.",
+  "Read the paper. All of it. Yes, even the supplementary materials.",
+  // Absurd
+  "Hot water freezes faster than cold water sometimes. Nobody fully knows why.",
+  "Wombats poop cubes. Nobody paid them to.",
+  "Bananas are radioactive. Not enough to worry. Just a fun fact.",
+  "There are more possible chess games than atoms in the observable universe.",
+  "Cows have best friends and get stressed when separated. Cite that.",
+  "The Eiffel Tower gets 6 inches taller in summer. Thermal expansion.",
+  "Honey never spoils. Archaeologists found 3,000-year-old edible honey in Egypt.",
 ];
 const SECRET_UNLOCKS = [
   "🧠 Secret unlocked: You're technically now a scientist.",
@@ -667,6 +754,11 @@ const SECRET_UNLOCKS = [
   "🧠 Secret unlocked: You have achieved peak curiosity.",
   "🧠 Secret unlocked: Somewhere, a librarian is smiling.",
   "🧠 Secret unlocked: The peer reviewers respect you.",
+  "🧠 Secret unlocked: Marie Curie would like your work.",
+  "🧠 Secret unlocked: You just released dopamine on purpose.",
+  "🧠 Secret unlocked: Your hippocampus is thriving.",
+  "🧠 Secret unlocked: You may now cite yourself.",
+  "🧠 Secret unlocked: The scientific method has noticed you.",
 ];
 
 function BrainEasterEgg({ accent, P, S, onLogoClick }) {
@@ -721,16 +813,17 @@ function BrainEasterEgg({ accent, P, S, onLogoClick }) {
   return { trigger, wiggleKey, render: (
     <>
       {emojis.length > 0 && (
-        <div style={{ position: "absolute", left: "50%", top: "100%", pointerEvents: "none", zIndex: 100 }}>
+        <div style={{ position: "absolute", left: 12, top: 0, pointerEvents: "none", zIndex: 100, width: 40, height: 40 }}>
           {emojis.map((e) => (
             <span key={e.id} style={{
               position: "absolute",
               left: e.x,
               top: e.y,
-              fontSize: 22,
+              fontSize: 20,
               animation: `cb-burst ${e.dur}s cubic-bezier(0.16, 1, 0.3, 1) forwards`,
-              transform: `rotate(${e.rot}deg)`,
               opacity: 0,
+              transformOrigin: "center",
+              display: "inline-block",
             }}>{e.emoji}</span>
           ))}
         </div>
@@ -738,22 +831,26 @@ function BrainEasterEgg({ accent, P, S, onLogoClick }) {
       {visible && message && (
         <div style={{
           position: "absolute",
-          top: "calc(100% + 14px)",
-          left: "50%",
-          transform: "translateX(-50%)",
+          top: "calc(100% + 16px)",
+          left: 0,
           background: P.surface,
           border: `1px solid ${withAlpha(accent, 0.35)}`,
-          borderRadius: 10,
-          padding: "10px 16px",
-          fontSize: 12.5,
+          borderRadius: 12,
+          padding: "12px 16px",
+          fontSize: 13,
           fontWeight: 500,
           color: P.ink,
           boxShadow: P.shadow,
-          whiteSpace: "nowrap",
-          maxWidth: "min(360px, calc(100vw - 40px))",
+          minWidth: 240,
+          maxWidth: 340,
+          width: "max-content",
+          lineHeight: 1.5,
           zIndex: 60,
           animation: "cb-egg-in 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
           letterSpacing: "-0.005em",
+          wordBreak: "normal",
+          overflowWrap: "break-word",
+          whiteSpace: "normal",
         }}>{message}</div>
       )}
     </>
@@ -787,6 +884,7 @@ function App() {
   const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
+  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim") || "cinematic"); // cinematic | subtle | off
   const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Light");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
@@ -834,6 +932,7 @@ function App() {
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
   useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
   useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
+  useEffect(() => { setCookie("cb_anim", animationMode); }, [animationMode]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
@@ -870,7 +969,7 @@ function App() {
   const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
 
   if (!entered) {
-    return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} />;
+    return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} animationMode={animationMode} />;
   }
 
   const started = turns.length > 0 || busy;
@@ -963,7 +1062,7 @@ function App() {
 
   return (
     <div style={S.page}>
-      <LivingBackground accent={accent} P={P} />
+      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} />}
       <div style={S.grain} />
       <header style={S.header}>
         <div style={S.headInner}>
@@ -1102,7 +1201,7 @@ function App() {
         </div>
       )}
 
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
     </div>
   );
 }
@@ -1124,27 +1223,32 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         )}
       </div>
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
-      {done && t.videos && t.videos.length > 0 && (
+      {done && (
         <div style={{ marginTop: 20 }} className="cb-fade">
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, marginBottom: 10 }}>Related videos</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-            {t.videos.slice(0, 6).map((v, i) => (
-              <a key={v.id || i} href={v.url} target="_blank" rel="noreferrer" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 10, overflow: "hidden", textDecoration: "none", color: P.ink, transition: "transform 0.15s, box-shadow 0.15s, border-color 0.15s" }}
-                onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = P.shadow; }}
-                onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
-                <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
-                  <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.15)", opacity: 0, transition: "opacity 0.15s" }} className="cb-video-hover">
-                    <span style={{ fontSize: 32, color: "#fff", filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.5))" }}>▶</span>
+          {t.videos && t.videos.length > 0 ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+              {t.videos.slice(0, 6).map((v, i) => (
+                <a key={v.id || i} href={v.url} target="_blank" rel="noreferrer" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 10, overflow: "hidden", textDecoration: "none", color: P.ink, transition: "transform 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = P.shadow; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
+                  <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
+                    <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                   </div>
-                </div>
-                <div style={{ padding: "10px 12px" }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", marginBottom: 4 }}>{v.title}</div>
-                  <div style={{ fontSize: 11, color: P.faint }}>{v.author}</div>
-                </div>
-              </a>
-            ))}
-          </div>
+                  <div style={{ padding: "10px 12px" }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", marginBottom: 4 }}>{v.title}</div>
+                    <div style={{ fontSize: 11, color: P.faint }}>{v.author}</div>
+                  </div>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(t.q)}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 14px", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 10, textDecoration: "none", color: P.ink2, fontSize: 13, transition: "border-color 0.15s, color 0.15s" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.color = P.ink2; }}>
+              <span>Video proxies unavailable, search YouTube directly</span><span style={{ color: accent }}>→</span>
+            </a>
+          )}
         </div>
       )}
       {done && t.related && t.related.length > 0 && (
@@ -1163,7 +1267,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
   );
 }
 
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, sfx, setSessions, setSaved, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, sfx, setSessions, setSaved, close }) {
   const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
   return (
     <div style={S.modalWrap} onClick={close} className="cb-fade">
@@ -1190,6 +1294,9 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         <div style={S.setNote}>A second model checks each claim against the cited abstracts and flags anything unsupported. It verifies source-support, not real-world truth.</div>
         <div style={S.setLabel}>Typewriter reveal</div>
         <button style={{ ...S.toggle, ...(typewriter ? S.toggleOn : {}) }} onClick={() => { sfx(); setTypewriter(!typewriter); }}><span>{typewriter ? "Animated reveal on" : "Instant answers"}</span><span style={{ ...S.toggleKnob, transform: typewriter ? "translateX(20px)" : "none", background: typewriter ? at : P.faint }} /></button>
+        <div style={S.setLabel}>Animations</div>
+        <div style={S.segment}>{[["cinematic", "Full"], ["subtle", "Subtle"], ["off", "Off"]].map(([v, label]) => (<button key={v} style={{ ...S.segBtn, ...(animationMode === v ? S.segActive : {}) }} onClick={() => { sfx(); setAnimationMode(v); }}>{label}</button>))}</div>
+        <div style={S.setNote}>Full: living molecular background, cinematic intro, all effects. Subtle: fewer particles, quieter. Off: static, no background animation.</div>
         <div style={S.setLabel}>Sound</div>
         <button style={{ ...S.toggle, ...(!muted ? S.toggleOn : {}) }} onClick={() => setMuted(!muted)}><span>{muted ? "Sound off" : "Sound on"}</span><span style={{ ...S.toggleKnob, transform: !muted ? "translateX(20px)" : "none", background: !muted ? at : P.faint }} /></button>
         <div style={{ ...S.setLabel, opacity: muted ? 0.4 : 1 }}>Search sound</div>
@@ -1347,22 +1454,21 @@ if (typeof document !== "undefined") {
       @keyframes cbHero { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes cb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
       @keyframes cb-burst {
-        0% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.4); }
-        20% { opacity: 1; transform: translate(0, -30px) rotate(0deg) scale(1.1); }
-        100% { opacity: 0; transform: translate(0, -140px) rotate(30deg) scale(0.6); }
+        0% { opacity: 0; transform: translate(0, 0) scale(0.3); }
+        15% { opacity: 1; transform: translate(0, -10px) scale(1); }
+        100% { opacity: 0; transform: translate(0, -110px) scale(0.6); }
       }
       @keyframes cb-egg-in {
-        from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.94); }
-        to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
       }
       @keyframes cb-wiggle {
-        0%, 100% { transform: rotate(0deg); }
-        20% { transform: rotate(-8deg) scale(1.05); }
-        40% { transform: rotate(8deg) scale(1.05); }
-        60% { transform: rotate(-5deg); }
-        80% { transform: rotate(5deg); }
+        0%, 100% { transform: rotate(0deg) scale(1); }
+        30% { transform: rotate(-10deg) scale(1.08); }
+        60% { transform: rotate(8deg) scale(1.05); }
+        85% { transform: rotate(-3deg) scale(1.02); }
       }
-      .cb-wiggle { animation: cb-wiggle 0.5s ease-in-out; }
+      .cb-wiggle { animation: cb-wiggle 0.55s cubic-bezier(0.34, 1.56, 0.64, 1); }
       .cb-fade { animation: cbFade 0.4s ease forwards; }
       .cb-rise { animation: cbRise 0.5s cubic-bezier(.2,.8,.2,1) forwards; }
       .cb-pop { animation: cbPop 0.28s cubic-bezier(.2,.9,.3,1) forwards; }
