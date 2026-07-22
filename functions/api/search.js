@@ -1,6 +1,6 @@
 // Cerebrum backend — Cloudflare Pages Function.
-// Gathers real papers from scholarly databases, then generates a grounded answer
-// using OpenRouter, Pollinations AI, or a guaranteed local literature synthesizer.
+// Gathers real papers from multiple scholarly databases, races video APIs server-side, 
+// and generates grounded answers using a multi-tier AI fallback system.
 
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
@@ -15,8 +15,7 @@ function decodeInverted(inv) {
   return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
-// Optimized Timeout: 3000ms strict limit to prevent slow databases from hanging the search
-async function getJSON(url, headers = {}, timeoutMs = 3000) {
+async function getJSON(url, headers = {}, timeoutMs = 6000) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
   try {
@@ -30,7 +29,7 @@ async function getJSON(url, headers = {}, timeoutMs = 3000) {
   }
 }
 
-async function getText(url, headers = {}, timeoutMs = 3000) {
+async function getText(url, headers = {}, timeoutMs = 6000) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
   try {
@@ -125,7 +124,8 @@ function cleanQuery(raw) {
   return cleaned || raw.trim();
 }
 
-// ---------- Scholarly Databases ----------
+// ---------- Full Suite of Scholarly Databases ----------
+
 async function europePMC(query, limit = 6) {
   const q = buildStructuredQuery(query);
   const runSearch = async (queryStr) => {
@@ -148,9 +148,7 @@ async function europePMC(query, limit = 6) {
       .filter((r) => r.title)
       .map((r) => ({
         title: r.title || "Untitled",
-        url: r.doi
-          ? `https://doi.org/${r.doi}`
-          : `https://europepmc.org/article/${r.source}/${r.id}`,
+        url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`,
         year: r.pubYear || "",
         citations: r.citedByCount ?? null,
         authors: r.authorString || "",
@@ -158,7 +156,9 @@ async function europePMC(query, limit = 6) {
         abstract: stripTags(r.abstractText),
         pmcid: r.pmcid || (r.source === "PMC" ? r.id : "") || "",
       }));
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function firstMatch(block, re) {
@@ -243,6 +243,19 @@ async function pubmed(query, limit = 6, apiKey = "") {
     for (const p of fetched) {
       if (!merged.some((m) => (m.title || "").toLowerCase() === (p.title || "").toLowerCase())) merged.push(p);
     }
+    try {
+      const linksets = citeJson?.linksets || [];
+      const countByPmid = {};
+      for (const ls of linksets) {
+        const src = (ls.ids || [])[0] || ls.id;
+        const dbs = ls.linksetdbs || [];
+        const citedin = dbs.find((d) => d.linkname === "pubmed_pubmed_citedin");
+        if (src && citedin) countByPmid[src] = (citedin.links || []).length;
+      }
+      for (const rec of merged) {
+        if (rec.pmid && typeof countByPmid[rec.pmid] === "number") rec.citations = countByPmid[rec.pmid];
+      }
+    } catch {}
     return merged;
   } catch { return []; }
 }
@@ -365,6 +378,14 @@ async function biorxiv(query, limit = 4) {
       out.push({ title: w.title, url: w.doi || w.primary_location?.landing_page_url || "", year: w.publication_year || "", citations: w.cited_by_count ?? null, authors: w.authorships?.length > 1 ? `${first} et al.` : first, journal: w.primary_location?.source?.display_name || "Preprint", abstract: decodeInverted(w.abstract_inverted_index) });
     }
   } catch {}
+  try {
+    const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" + new URLSearchParams({ query: `${query} AND (SRC:PPR)`, resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
+    const data = await getJSON(url);
+    for (const r of (data?.resultList?.result || [])) {
+      if (!r.title) continue;
+      out.push({ title: r.title, url: r.doi ? `https://doi.org/${r.doi}` : `https://europepmc.org/article/${r.source}/${r.id}`, year: r.pubYear || "", citations: r.citedByCount ?? null, authors: r.authorString || "", journal: r.journalTitle || "Preprint", abstract: stripTags(r.abstractText) });
+    }
+  } catch {}
   return out;
 }
 
@@ -485,6 +506,16 @@ async function biocFullText(pmcid) {
   } catch { return ""; }
 }
 
+async function core(query, limit = 6, key = "") {
+  if (!key) return [];
+  try {
+    const res = await fetch("https://api.core.ac.uk/v3/search/works", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ q: query, limit }) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data?.results || []).map((r) => ({ title: r.title || "Untitled", url: r.doi ? `https://doi.org/${r.doi}` : (r.links || [])[0]?.url || "", year: r.yearPublished || "", citations: null, authors: (r.authors || []).slice(0, 1).map((a) => a.name).join("") + ((r.authors || []).length > 1 ? " et al." : ""), journal: r.publisher || "CORE", abstract: stripTags(r.abstract || "") })).filter((p) => p.title);
+  } catch { return []; }
+}
+
 // ---------- Author Search ----------
 function detectAuthor(raw) {
   const q = raw.trim();
@@ -498,6 +529,26 @@ function detectAuthor(raw) {
     if (allCap && !questiony) return q;
   }
   return null;
+}
+
+async function authorOpenAlex(name, limit = 12, key = "") {
+  if (!key) return [];
+  try {
+    const params = new URLSearchParams({ filter: `authorships.author.display_name.search:${name}`, sort: "cited_by_count:desc", per_page: String(limit), select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships", api_key: key });
+    const data = await getJSON(`https://api.openalex.org/works?${params}`);
+    return (data.results || []).map((w) => {
+      const first = w.authorships?.[0]?.author?.display_name || "";
+      return { title: w.title || "Untitled", url: w.doi || w.primary_location?.landing_page_url || "", year: w.publication_year || "", citations: w.cited_by_count ?? null, authors: w.authorships?.length > 1 ? `${first} et al.` : first, journal: w.primary_location?.source?.display_name || "OpenAlex", abstract: decodeInverted(w.abstract_inverted_index) };
+    });
+  } catch { return []; }
+}
+
+async function authorCrossref(name, limit = 12) {
+  try {
+    const url = "https://api.crossref.org/works?" + new URLSearchParams({ "query.author": name, rows: String(limit), sort: "is-referenced-by-count", order: "desc", select: "title,author,container-title,published,DOI,is-referenced-by-count,abstract" }) + "&mailto=cerebrum@example.com";
+    const data = await getJSON(url);
+    return (data?.message?.items || []).map((it) => ({ title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled", url: it.DOI ? `https://doi.org/${it.DOI}` : "", year: it.published?.["date-parts"]?.[0]?.[0] || "", citations: it["is-referenced-by-count"] ?? null, authors: (it.author || []).slice(0, 1).map((a) => `${a.given || ""} ${a.family || ""}`.trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""), journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref", abstract: stripTags(it.abstract || "") })).filter((p) => p.title);
+  } catch { return []; }
 }
 
 async function authorSemanticScholar(name, limit = 20) {
@@ -518,7 +569,7 @@ async function authorSemanticScholar(name, limit = 20) {
 
     const authorId = best.c.authorId;
     if (!authorId) return { papers: [], matched: null };
-    const papersUrl = `https://api.semanticscholar.org/graph/v1/author/${authorId}/papers?` + newSearchParams({ fields: "title,abstract,year,citationCount,authors,venue,externalIds", limit: String(limit) });
+    const papersUrl = `https://api.semanticscholar.org/graph/v1/author/${authorId}/papers?` + new URLSearchParams({ fields: "title,abstract,year,citationCount,authors,venue,externalIds", limit: String(limit) });
     const pdata = await getJSON(papersUrl);
     const papers = (pdata?.data || []).map((r) => {
       const doi = r.externalIds?.DOI;
@@ -532,8 +583,8 @@ async function authorSemanticScholar(name, limit = 20) {
 async function gatherByAuthor(name, { openAlexKey }) {
   const [ssRes, oa, cr] = await Promise.all([
     authorSemanticScholar(name, 20),
-    openAlex(name, 12, openAlexKey),
-    crossref(name, 15),
+    authorOpenAlex(name, 12, openAlexKey),
+    authorCrossref(name, 15),
   ]);
   const ss = ssRes.papers || [];
   const merged = [];
@@ -548,16 +599,15 @@ async function gatherByAuthor(name, { openAlexKey }) {
   return { papers, confirmed: !!ssRes.matched, matchedName: ssRes.matched };
 }
 
-// ---------- Gather & Rank Papers ----------
-async function gatherPapers(rawQuery, { openAlexKey, ncbiKey = "", limit = 6 }) {
+// ---------- Full Comprehensive Gather & Rank Papers ----------
+async function gatherPapers(rawQuery, { openAlexKey, coreKey, ncbiKey = "", limit = 15 }) {
   const query = cleanQuery(rawQuery);
-  // Using Promise.allSettled guarantees we don't hang if one database is extremely slow or down.
   const jobs = [
     europePMC(query, 10), pubmed(query, 10, ncbiKey), traceUTK(query), openAlex(query, 10, openAlexKey),
     crossref(query, 8), arxiv(query, 8), semanticScholar(query, 8), doaj(query, 6), biorxiv(query, 6),
-    zenodo(query, 4), datacite(query, 4), openaire(query, 4), hal(query, 4), plos(query, 6), base(query, 6)
+    zenodo(query, 4), datacite(query, 4), openaire(query, 4), hal(query, 4), plos(query, 6), base(query, 6),
+    core(query, 6, coreKey)
   ];
-  
   const results = await Promise.allSettled(jobs);
 
   const merged = [];
@@ -632,7 +682,58 @@ async function gatherPapers(rawQuery, { openAlexKey, ncbiKey = "", limit = 6 }) 
   return { papers: scored, utk: usedUTK };
 }
 
-// ---------- Request Handler ----------
+// ---------- Clever Server-Side Video Racing (Bypasses CORS entirely) ----------
+async function fetchVideosBackend(query) {
+  const cleanTokens = query.toLowerCase().replace(/[^\w\s-]/g, " ").split(/\s+/).filter(w => w.length > 2 && !STOPWORDS.has(w));
+  const coreTopic = cleanTokens.length > 0 ? cleanTokens.join(" ") : query;
+  const qStr = encodeURIComponent(`${coreTopic} science lecture`);
+
+  const endpoints = [
+    `https://pipedapi.kavin.rocks/search?q=${qStr}&filter=videos`,
+    `https://api.piped.privacydev.net/search?q=${qStr}&filter=videos`,
+    `https://vid.puffyan.us/api/v1/search?q=${qStr}&type=video`,
+    `https://inv.tux.pizza/api/v1/search?q=${qStr}&type=video`
+  ];
+
+  const fetchEp = (url) => new Promise(async (resolve, reject) => {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 2800);
+      const res = await fetch(url, { signal: c.signal, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      clearTimeout(t);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const items = Array.isArray(data) ? data : data.items || [];
+      if (items.length > 0) resolve(items);
+      else throw new Error();
+    } catch (e) { reject(e); }
+  });
+
+  try {
+    const items = await Promise.any(endpoints.map(fetchEp));
+    const results = [];
+    const seen = new Set();
+    for (const item of items) {
+      const vId = item.videoId || item.url?.replace("/watch?v=", "");
+      if (vId && !seen.has(vId)) {
+        seen.add(vId);
+        results.push({
+          title: item.title || "Academic Lecture",
+          url: `https://www.youtube.com/watch?v=${vId}`,
+          author: item.author || item.uploaderName || "Educational Channel",
+          thumbnail: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+          id: vId
+        });
+        if (results.length >= 6) break;
+      }
+    }
+    return results;
+  } catch (e) {
+    return [];
+  }
+}
+
+// ---------- Main Request Handler ----------
 const cors = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
@@ -644,20 +745,14 @@ export async function onRequest(context) {
   if (request.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
+      headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" },
     });
   }
 
   try {
     const body = await request.json().catch(() => ({}));
     const query = (body.query || "").trim();
-    if (!query) {
-      return new Response(JSON.stringify({ error: "No query provided." }), { status: 400, headers: cors });
-    }
+    if (!query) return new Response(JSON.stringify({ error: "No query provided." }), { status: 400, headers: cors });
 
     const small = query.toLowerCase().replace(/[^a-z\s]/g, "").trim();
     const greetings = ["hi", "hello", "hey", "yo", "sup", "howdy", "hiya"];
@@ -680,6 +775,26 @@ export async function onRequest(context) {
           videos: [], source: `${ar.papers.length} publications by ${ar.matchedName || authorName}`,
         }), { status: 200, headers: cors });
       }
+
+      if (!ar.confirmed) {
+        return new Response(JSON.stringify({
+          answer: `I couldn't confirm a researcher named **${authorName}** in the author databases (Semantic Scholar, Crossref, OpenAlex). This can happen when someone has few indexed publications, publishes under a different name form, or the name is spelled differently in the record. Try the full name as it appears on their papers, add a middle initial, or search a topic instead and open the papers to find them.`,
+          sources: [], videos: [], source: "author not confirmed",
+        }), { status: 200, headers: cors });
+      }
+    }
+
+    if (body.mode === "browse") {
+      let bp = [];
+      try {
+        const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25, browse: true });
+        bp = g.papers;
+      } catch { bp = []; }
+      return new Response(JSON.stringify({
+        answer: "",
+        sources: bp.map(({ title, url, journal, authors, year, citations }) => ({ title, url, journal, authors, year, citations })),
+        videos: [], source: `${bp.length} publications ranked by relevance`,
+      }), { status: 200, headers: cors });
     }
 
     const settings = body.settings || {};
@@ -687,20 +802,36 @@ export async function onRequest(context) {
     const maxTokens = answerLength === "short" ? 450 : answerLength === "long" ? 1400 : 900;
     const lengthHint = answerLength === "short" ? "Keep it to one tight paragraph." : answerLength === "long" ? "Give a thorough, well-structured explanation." : "Keep it to a few short paragraphs.";
 
-    let papers = [];
-    let utk = false;
-    try {
-      const g = await gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 25 });
-      papers = g.papers;
-      utk = g.utk;
-    } catch {
-      papers = [];
-    }
+    // Run paper gathering and video fetching simultaneously for blazing fast speeds
+    const [gResult, videos] = await Promise.all([
+      gatherPapers(query, { openAlexKey: env.OPENALEX_KEY || "", coreKey: env.CORE_API_KEY || "", ncbiKey: env.NCBI_API_KEY || "", limit: 18 }).catch(() => ({ papers: [], utk: false })),
+      fetchVideosBackend(query).catch(() => [])
+    ]);
+
+    const papers = gResult.papers || [];
+    const utk = gResult.utk || false;
 
     const hasPapers = papers.length > 0;
-    let useEvidence = hasPapers;
-    let webRefs = [];
+    const qToks = cleanQuery(query).toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+    const qExp = expansionsFor(qToks);
+    const qNeutral = new Set(qToks.filter((t) => SYNONYMS[t.toLowerCase()]));
+    for (const phrase of qExp) { for (const w of phrase.toLowerCase().split(/\s+/)) { if (w.length > 2) qNeutral.add(w); } }
+    ["black", "soldier", "larvae", "larva", "fly", "hermetia", "illucens"].forEach((w) => { if (qToks.includes(w)) qNeutral.add(w); });
+    const qContent = qToks.filter((t) => !qNeutral.has(t));
+    const stemW = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
+    const queryNamesOrganism = qNeutral.size > 0;
     
+    const paperOnTopic = (p) => {
+      const hay = `${p.title || ""} ${p.abstract || ""}`.toLowerCase();
+      const hitsTopic = qContent.length === 0 || qContent.some((t) => hay.includes(t) || hay.includes(stemW(t)));
+      if (!queryNamesOrganism) return hitsTopic;
+      const orgHere = [...qNeutral].some((w) => hay.includes(w)) || qExp.some((ph) => hay.includes(ph));
+      return orgHere && hitsTopic;
+    };
+    const papersHitTopic = hasPapers && (qContent.length > 0 || queryNamesOrganism) ? papers.some(paperOnTopic) : hasPapers;
+    let useEvidence = hasPapers && papersHitTopic;
+
+    let webRefs = [];
     if (!useEvidence) {
       try {
         const [wiki, ddg] = await Promise.all([
@@ -714,12 +845,19 @@ export async function onRequest(context) {
         }
       } catch { webRefs = []; }
     }
-    
     const useWeb = !useEvidence && webRefs.length > 0;
     const sourceList = (useEvidence ? papers : useWeb ? webRefs : []).map(({ title, url, journal, authors, year, citations, relevance, type }) => ({ title, url, journal, authors, year, citations, relevance: relevance ?? null, type: type || "Reference" }));
 
+    if (useEvidence) {
+      const toEnrich = papers.filter((p) => p.pmcid).slice(0, 3);
+      await Promise.all(toEnrich.map(async (p) => {
+        const ft = await biocFullText(p.pmcid);
+        if (ft && ft.length > (p.abstract || "").length) p.fullText = ft.slice(0, 6000);
+      }));
+    }
+
     const evidence = useEvidence
-      ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"})\nAbstract: ${p.abstract || "(no abstract available for this record)"}`).join("\n\n")
+      ? papers.map((p, i) => `[${i + 1}] ${p.title} (${p.authors || "n/a"}, ${p.journal}, ${p.year || "n/a"}${typeof p.citations === "number" ? `, cited ${p.citations}x` : ""})\n${p.fullText ? "Full text: " + p.fullText : "Abstract: " + (p.abstract || "(no abstract available for this record)")}`).join("\n\n")
       : useWeb
       ? webRefs.map((r, i) => `[${i + 1}] ${r.title} (${r.journal})\n${r.abstract}`).join("\n\n")
       : "";
@@ -730,7 +868,7 @@ export async function onRequest(context) {
       ? "You are Cerebrum, a knowledgeable science assistant. No peer-reviewed papers matched, but here are reference sources (encyclopedic/web). Answer using them, citing inline like [1] or [2] by source number. Begin your answer with this exact sentence on its own line: \"Note: no peer-reviewed papers matched this query — this answer draws on reference sources, verify against primary literature.\" Then answer fully. Do NOT fabricate journal citations or DOIs. Interpret typos. "
       : "You are Cerebrum, a knowledgeable science assistant. No directly relevant papers were retrieved for this question, so answer accurately and thoroughly from your own scientific knowledge. Give the real, substantive answer — do NOT say that papers are missing or that you cannot answer. Do NOT fabricate specific citations, DOIs, or author names. You may mention that the field exists and name well-known findings generally. Begin your answer with this exact sentence on its own line: \"Note: this answer is from general scientific knowledge, not from retrieved papers — verify against primary sources.\" Then answer the question fully. Interpret typos. ") +
       lengthHint +
-      " Format in clean prose. CRITICAL RULE: Provide ONLY the final answer. Do NOT narrate your thought process, do NOT use <think> tags, and do NOT use phrases like 'Now I will' or 'I need to'. Do NOT use markdown heading symbols like # or ###. You may use **bold** sparingly and blank lines between paragraphs, nothing else.";
+      " Format in clean prose. CRITICAL RULE: Provide ONLY the final answer. Do NOT narrate your thought process, do NOT use <think> tags, and do NOT output meta-commentary like 'User Safety: safe'. Do NOT use markdown heading symbols like # or ###. You may use **bold** sparingly and blank lines between paragraphs, nothing else.";
 
     const messages = [{ role: "system", content: systemPrompt }];
     const historyTurns = Array.isArray(body.history) ? body.history.slice(-4) : [];
@@ -743,12 +881,12 @@ export async function onRequest(context) {
 
     let answer = "";
     let aiOK = false;
-
-    // --- TIER 1: OPENROUTER API (Fastest Model First) ---
     const token = env.OPENROUTER_API_KEY;
+
+    // --- TIER 1: OPENROUTER API ---
     if (token) {
       const models = [
-        "google/gemini-2.0-flash-exp:free", // Extremely fast and smart
+        "google/gemini-2.0-flash-exp:free",
         "openrouter/free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen-2.5-72b-instruct:free"
@@ -757,21 +895,17 @@ export async function onRequest(context) {
         try {
           const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-              "HTTP-Referer": "https://cerebrum.pages.dev",
-              "X-Title": "Cerebrum",
-            },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "HTTP-Referer": "https://cerebrum.pages.dev", "X-Title": "Cerebrum" },
             body: JSON.stringify({ model, temperature: 0.3, max_tokens: maxTokens, messages }),
           });
           if (r.ok) {
             const j = await r.json();
             let c = j?.choices?.[0]?.message?.content?.trim();
-            if (c) { 
+            if (c) {
               c = c.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+              c = c.replace(/User Safety:\s*safe\.?/gi, '').trim();
               c = c.replace(/^(Okay, let me think|Now we need to|I will now|Here is the answer|First, I'll).*?[\r\n]+/i, '').trim();
-              if (c) { answer = c; aiOK = true; break; }
+              if (c.length > 20) { answer = c; aiOK = true; break; }
             }
           }
         } catch {}
@@ -782,27 +916,27 @@ export async function onRequest(context) {
     if (!aiOK) {
       try {
         const pRes = await fetch("https://text.pollinations.ai/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ messages, model: "openai", code: "be-quiet" })
         });
         if (pRes.ok) {
           let c = await pRes.text();
           if (c) {
             c = c.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+            c = c.replace(/User Safety:\s*safe\.?/gi, '').trim();
             c = c.replace(/^(Okay, let me think|Now we need to|I will now|Here is the answer|First, I'll).*?[\r\n]+/i, '').trim();
-            if (c) { answer = c; aiOK = true; }
+            if (c.length > 20) { answer = c; aiOK = true; }
           }
         }
       } catch {}
     }
 
-    // --- TIER 3: GUARANTEED LOCAL LITERATURE SYNTHESIS FALLBACK (Zero Failure) ---
+    // --- TIER 3: GUARANTEED LITERATURE SYNTHESIZER FALLBACK ---
     if (!aiOK && papers.length > 0) {
       aiOK = true;
       answer = `Based on the literature retrieved for your query, research indicates significant findings regarding **${query}**.\n\n` +
-        papers.slice(0, 4).map((p) => `According to ${p.authors || "recent studies"} (${p.year || "n/a"}) in *${p.journal}*, ${p.abstract ? p.abstract.slice(0, 220) + "..." : "investigations demonstrate key mechanisms relevant to this inquiry"}.`).join("\n\n") +
-        `\n\nThese findings highlight the ongoing experimental and analytical efforts within the field.`;
+        papers.slice(0, 4).map((p) => `According to ${p.authors || "recent studies"} (${p.year || "n/a"}) in *${p.journal}*, ${p.abstract ? p.abstract.slice(0, 250) + "..." : "investigations highlight key mechanisms."}`).join("\n\n") +
+        `\n\nThese findings represent ongoing analytical efforts within the field.`;
     }
 
     if (!aiOK) {
@@ -863,15 +997,12 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({
       answer,
       sources: sourceList,
-      videos: [],
+      videos,
       factCheck,
       related,
       source: aiOK && useEvidence ? `${dbUsed} + AI` : aiOK && useWeb ? `${dbUsed} + AI` : aiOK ? "General knowledge (AI)" : dbUsed,
     }), { status: 200, headers: cors });
   } catch (e) {
-    return new Response(
-      JSON.stringify({ error: `Runtime error: ${e.message}` }),
-      { status: 500, headers: cors }
-    );
+    return new Response(JSON.stringify({ error: `Runtime error: ${e.message}` }), { status: 500, headers: cors });
   }
 }
