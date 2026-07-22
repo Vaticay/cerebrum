@@ -1000,27 +1000,32 @@ async function youtubeDirectSearch(query, limit = 6) {
   }
 }
 
-async function fetchVideos(query) {
+async function fetchVideos(query, maxMs = 3000) {
   const cleaned = cleanQuery(query) || query;
 
-  // TIER 1: Try YouTube directly (works from Cloudflare, keyless, reliable).
-  const direct = await youtubeDirectSearch(cleaned, 6).catch(() => []);
-  if (direct.length) return direct;
+  // Wrap everything in a hard time cap so this never blocks the answer.
+  const timedRace = new Promise((resolve) => setTimeout(() => resolve([]), maxMs));
 
-  // TIER 2: Fall back to public Piped/Invidious instances if YouTube changed layout.
-  const shuffled = shuffle(VIDEO_INSTANCES);
-  const batchSize = 4;
-  for (let i = 0; i < shuffled.length; i += batchSize) {
-    const batch = shuffled.slice(i, i + batchSize);
-    const promises = batch.map((inst) => tryVideoInstance(inst, cleaned, 3000));
-    try {
-      const result = await Promise.any(promises);
-      if (result && result.length) return result;
-    } catch {
-      // all in batch failed, try next batch
+  const doFetch = async () => {
+    // TIER 1: Direct YouTube (works from Cloudflare, keyless).
+    const direct = await youtubeDirectSearch(cleaned, 6).catch(() => []);
+    if (direct.length) return direct;
+
+    // TIER 2: Proxies
+    const shuffled = shuffle(VIDEO_INSTANCES);
+    const batchSize = 4;
+    for (let i = 0; i < shuffled.length; i += batchSize) {
+      const batch = shuffled.slice(i, i + batchSize);
+      const promises = batch.map((inst) => tryVideoInstance(inst, cleaned, 2000));
+      try {
+        const result = await Promise.any(promises);
+        if (result && result.length) return result;
+      } catch {}
     }
-  }
-  return [];
+    return [];
+  };
+
+  return Promise.race([doFetch(), timedRace]);
 }
 
 // ============ AUTHOR SEARCH ============
@@ -1419,15 +1424,14 @@ export async function onRequest(context) {
         ? "Give a thorough, well-structured explanation with clear sections."
         : "Give a few clear paragraphs, enough to actually explain, not a dump.";
 
-    // Run papers + videos in parallel
-    const [gResult, videos] = await Promise.all([
-      gatherPapers(query, {
-        openAlexKey: env.OPENALEX_KEY || "",
-        ncbiKey: env.NCBI_API_KEY || "",
-        limit: 25,
-      }).catch(() => ({ papers: [] })),
-      fetchVideos(query).catch(() => []),
-    ]);
+    // Videos are fetched by frontend via /api/videos in parallel, so we don't
+    // block the answer waiting for YouTube. Return empty array here.
+    const videos = [];
+    const gResult = await gatherPapers(query, {
+      openAlexKey: env.OPENALEX_KEY || "",
+      ncbiKey: env.NCBI_API_KEY || "",
+      limit: 25,
+    }).catch(() => ({ papers: [] }));
 
     const papers = gResult.papers || [];
     const hasPapers = papers.length > 0;
