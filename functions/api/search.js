@@ -45,6 +45,58 @@ async function getText(url, headers = {}, timeoutMs = 4000) {
   }
 }
 
+
+// Check if a DOI has been retracted or has expressions of concern.
+// Uses Crossref's crossmark data, which is authoritative. Keyless.
+// Returns { retracted: bool, concern: bool, updateType: string|null }.
+async function checkRetraction(doi) {
+  if (!doi) return { retracted: false, concern: false, updateType: null };
+  try {
+    const clean = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
+    const res = await getJSON(
+      "https://api.crossref.org/works/" + encodeURIComponent(clean),
+      {},
+      2500
+    );
+    const msg = res && res.message;
+    if (!msg) return { retracted: false, concern: false, updateType: null };
+    // Crossref uses `update-to` to indicate this work has been retracted/corrected
+    const updates = msg["update-to"] || [];
+    let retracted = false, concern = false, updateType = null;
+    for (const u of updates) {
+      const t = (u.type || "").toLowerCase();
+      if (t.includes("retract")) { retracted = true; updateType = "retraction"; }
+      else if (t.includes("concern")) { concern = true; updateType = updateType || "expression-of-concern"; }
+      else if (t.includes("correct")) { updateType = updateType || "correction"; }
+    }
+    return { retracted, concern, updateType };
+  } catch {
+    return { retracted: false, concern: false, updateType: null };
+  }
+}
+
+// Flag the top N papers with retraction/concern status. Runs in parallel with a
+// short timeout so it never blocks the answer. Papers without a DOI are skipped.
+async function flagRetractions(papers, topN = 8) {
+  const targets = papers.slice(0, topN).filter((p) => {
+    const doi = extractDoi(p.url);
+    return !!doi;
+  });
+  await Promise.allSettled(targets.map(async (p) => {
+    const doi = extractDoi(p.url);
+    const flag = await checkRetraction(doi);
+    if (flag.retracted) p.retracted = true;
+    if (flag.concern) p.concern = true;
+    if (flag.updateType) p.updateType = flag.updateType;
+  }));
+}
+
+function extractDoi(url) {
+  if (!url) return "";
+  const m = url.match(/10\.\d{4,9}\/[^\s#?]+/);
+  return m ? m[0] : "";
+}
+
 // ============ AI RESPONSE CLEANER ============
 // Strips chain-of-thought leakage, meta-monologues, and robotic openings.
 function cleanAIResponse(raw) {
@@ -160,6 +212,19 @@ function splitOrganismTopic(query) {
 }
 
 function buildStructuredQuery(query) {
+  // If the query names a scientific binomial, wrap it in quotes so search engines
+  // treat it as a required phrase. This is what prevents "Populus deltoides"
+  // papers from swamping a "Populus angustifolia" search.
+  const bin = extractBinomial(query);
+  if (bin) {
+    // Extract the other topic words (not the binomial itself)
+    const rest = query.toLowerCase().replace(new RegExp(bin.full, "gi"), "").replace(/\s+/g, " ").trim();
+    const restTerms = rest.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS.has(t));
+    if (restTerms.length) {
+      return '"' + bin.full + '" AND (' + restTerms.join(" OR ") + ')';
+    }
+    return '"' + bin.full + '"';
+  }
   const { orgPhrases, topic, hasOrganism } = splitOrganismTopic(query);
   if (hasOrganism && topic.length) {
     const org = orgPhrases
@@ -381,11 +446,48 @@ async function pubmed(query, limit = 10, apiKey = "") {
   }
 }
 
+// Looks like a scientific binomial (Genus species): 2+ words, first capitalized,
+// second lowercase, italic-ish structure. Examples: "Populus angustifolia",
+// "populus angustifolia", "P. angustifolia", "Hermetia illucens".
+// Returns {binomial: "populus angustifolia", genus, species} or null.
+// Detects a Latin binomial nomenclature (genus + species) inside a query.
+// e.g. "Populus angustifolia", "populus angustifolia", "Hermetia illucens"
+// Returns the binomial object, or null. Used to enforce strict species matching:
+// searches for one species must NOT surface papers about a sibling species in the
+// same genus (huge source of false positives in taxonomic queries).
+function extractBinomial(raw) {
+  const s = raw.trim();
+  // Common non-taxonomic word pairs that fit the pattern
+  const commonNonTaxonomic = new Set([
+    "black soldier", "climate change", "gene expression", "cell division",
+    "protein folding", "public health", "food security", "human genome",
+    "narrow leafed", "cotton wood", "peer reviewed", "open source",
+  ]);
+  // Iterate through ALL matches, pick the first that looks taxonomic. This
+  // means "Evolution of narrow leafed cotton wood trees Populus angustifolia"
+  // correctly finds "Populus angustifolia" (title-cased), not "narrow leafed".
+  const re = /\b([A-Z][a-z]{2,}|[a-z]{3,})\s+([a-z]{3,})\b/g;
+  const hasTaxMarker = /\b(species|genus|subsp\.|var\.|cultivar|strain|clade|sp\.)\b/i.test(s);
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const test = m[0].toLowerCase();
+    if (commonNonTaxonomic.has(test)) continue;
+    const looksTaxonomic = /^[A-Z]/.test(m[1]) || hasTaxMarker;
+    if (!looksTaxonomic) continue;
+    const genus = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+    return { genus, species: m[2], full: genus + " " + m[2] };
+  }
+  return null;
+}
+
 // Looks like a person's name: 2-3 capitalized-word tokens, all letters.
 // Used to trigger author-specific search paths.
 function looksLikePersonName(raw) {
   const s = raw.trim();
   if (!s) return false;
+  // If it's a Latin binomial, it's NOT a person name (Populus angustifolia matches
+  // the shape of "Firstname Lastname" but is not a person).
+  if (extractBinomial(raw)) return false;
   const toks = s.split(/\s+/);
   if (toks.length < 2 || toks.length > 4) return false;
   // Each token: only letters (allow hyphens/apostrophes), starts with uppercase in original
@@ -584,7 +686,7 @@ async function semanticScholar(query, limit = 8) {
         query,
         limit: String(limit),
         fields:
-          "title,abstract,year,citationCount,authors,venue,externalIds,openAccessPdf,url",
+          "title,abstract,tldr,year,citationCount,authors,venue,externalIds,openAccessPdf,url",
       });
     const data = await getJSON(url);
     return ((data && data.data) || [])
@@ -603,6 +705,7 @@ async function semanticScholar(query, limit = 8) {
             ((r.authors || []).length > 1 ? " et al." : ""),
           journal: r.venue || "Semantic Scholar",
           abstract: r.abstract || "",
+          tldr: (r.tldr && r.tldr.text) || "",
         };
       });
   } catch {
@@ -1233,6 +1336,7 @@ async function gatherPapers(rawQuery, opts) {
   const limit = (opts && opts.limit) || 25;
   const query = cleanQuery(rawQuery);
   const isNameQuery = looksLikePersonName(rawQuery);
+  const binomial = extractBinomial(rawQuery);
 
   // All 10 keyless / low-friction sources in parallel via allSettled
   const jobs = [
@@ -1330,6 +1434,18 @@ async function gatherPapers(rawQuery, opts) {
     })
     .filter((p) => {
       if (terms.length === 0) return true;
+      // Binomial query: paper MUST contain the species epithet OR full binomial.
+      // Just mentioning the genus is not enough — that's how we get wrong-species
+      // papers ("Populus deltoides" study returned for a "Populus angustifolia" query).
+      if (binomial) {
+        const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+        const hasBinomial = hay.indexOf(binomial.full.toLowerCase()) !== -1;
+        const hasSpeciesWord = hay.indexOf(binomial.species) !== -1;
+        // Also accept abbreviated form like "P. angustifolia"
+        const abbrev = binomial.genus[0].toLowerCase() + ". " + binomial.species;
+        const hasAbbrev = hay.indexOf(abbrev) !== -1;
+        if (!hasBinomial && !hasSpeciesWord && !hasAbbrev) return false;
+      }
       // Name queries: keep everything relevance-sorted, don't apply topic gate.
       if (isNameQuery) return true;
       const queryNamesOrganism = neutralWords.size > 0;
@@ -1532,7 +1648,7 @@ export async function onRequest(context) {
     const useWeb = !useEvidence && webRefs.length > 0;
 
     const sourceList = (useEvidence ? papers : useWeb ? webRefs : []).map(
-      ({ title, url, journal, authors, year, citations, relevance, type }) => ({
+      ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType }) => ({
         title,
         url,
         journal,
@@ -1541,12 +1657,17 @@ export async function onRequest(context) {
         citations,
         relevance: relevance == null ? null : relevance,
         type: type || "Reference",
+        tldr: tldr || null,
+        retracted: !!retracted,
+        concern: !!concern,
+        updateType: updateType || null,
       })
     );
 
     // Build evidence block
     // Detect if this was a person-name query (matches the same logic gatherPapers uses)
     const isNameSearch = looksLikePersonName(query);
+    const speciesSearch = extractBinomial(query);
 
     // Build evidence. For name queries, EXPLICITLY mark which papers are
     // author-matched (real author search hits) vs keyword hits, and show every
@@ -1560,10 +1681,39 @@ export async function onRequest(context) {
                   ? " [AUTHOR-MATCHED to \"" + p.authorMatch + "\"]"
                   : " [NOT author-matched — appeared via keyword match only]")
               : "";
+            // Detect what species this paper actually mentions when it's a species query
+            let speciesTag = "";
+            if (speciesSearch) {
+              const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+              const target = speciesSearch.full.toLowerCase();
+              const targetShort = speciesSearch.genus[0].toLowerCase() + ". " + speciesSearch.species;
+              const hasTarget = hay.indexOf(target) !== -1 || hay.indexOf(targetShort) !== -1;
+              // Look for other species in the same genus (false-positive risk)
+              const otherSpeciesRe = new RegExp("\\b" + speciesSearch.genus.toLowerCase() + "\\s+([a-z]{3,})", "gi");
+              const otherSpecies = new Set();
+              let m;
+              while ((m = otherSpeciesRe.exec(hay)) !== null) {
+                if (m[1].toLowerCase() !== speciesSearch.species) otherSpecies.add(m[1].toLowerCase());
+              }
+              if (hasTarget) {
+                speciesTag = " [DIRECT match for " + speciesSearch.full + "]";
+              } else if (otherSpecies.size) {
+                speciesTag = " [WRONG SPECIES: paper is about " + speciesSearch.genus + " " + [...otherSpecies].join("/") + ", NOT " + speciesSearch.full + "]";
+              } else {
+                speciesTag = " [CONTEXT ONLY: paper is genus " + speciesSearch.genus + " but does not specifically identify " + speciesSearch.full + "]";
+              }
+            }
+            const retractTag = p.retracted
+              ? " [⚠ RETRACTED — do not cite as valid science; flag this to the user]"
+              : p.concern
+              ? " [⚠ EXPRESSION OF CONCERN issued for this paper]"
+              : "";
+            const tldrLine = p.tldr ? "\nTL;DR: " + p.tldr : "";
             return (
               "[" + (i + 1) + "] " + p.title +
               " (Authors: " + (p.authors || "n/a") + ", " +
-              p.journal + ", " + (p.year || "n/a") + ")" + authorTag +
+              p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag +
+              tldrLine +
               "\nAbstract: " + (p.abstract || "(no abstract available)")
             );
           })
@@ -1574,24 +1724,37 @@ export async function onRequest(context) {
           .join("\n\n")
       : "";
 
-    // System prompt tuned for human, natural, non-robotic answers
+    // System prompt tuned for a personable-but-serious tone
     const humanStyle =
-      "Write like a knowledgeable person explaining something to a curious colleague. " +
-      "Be direct and clear. No stiff academic hedging, no 'this study demonstrates' filler, " +
-      "no bullet-point dumps unless the question specifically asks for a list. " +
-      "Use plain language, short sentences where they work, longer ones where nuance matters. " +
-      "Explain WHY things happen, not just WHAT the papers found. " +
-      "You may use **bold** sparingly for emphasis. Use blank lines between paragraphs.";
+      "Write like a knowledgeable friend who happens to be a scientist. Personable but still serious about accuracy. " +
+      "Use plain conversational language where it fits (contractions like \"it's\" and \"doesn't\" are fine). " +
+      "Skip academic filler like \"the study demonstrates\" or \"the authors report that.\" Just say what the paper found. " +
+      "Explain WHY things happen, not just WHAT the papers found. If something is genuinely interesting or counterintuitive, say so plainly (\"what's cool here is...\", \"the surprising part is...\"). " +
+      "Don't be afraid of a short opinion or aside when it helps the reader understand the significance. " +
+      "Avoid bullet dumps. Use blank lines between paragraphs. Use **bold** sparingly for emphasis. Use *italics* for species names, titles, and Latin terms.";
 
     const rules =
       "CRITICAL: Do NOT output any meta-commentary. Do NOT say 'The user is asking' or 'Let me review' or 'Paper 1 discusses'. " +
       "Do NOT use <think> tags. Do NOT list papers in order, weave findings into a real explanation. " +
       "Do NOT output 'User Safety: safe'. Do NOT wrap the answer in code fences. " +
       "Do NOT fabricate DOIs, author names, or journal names not present in the sources. " +
+      "If a source is marked [⚠ RETRACTED] or [⚠ EXPRESSION OF CONCERN], you MUST mention that status when citing it, or preferably not cite it at all. " +
+      "Honest hedging matters: when the literature is thin, say so plainly (e.g. \"the evidence here is limited\" or \"only one paper in the retrieval directly addresses this\"). When consensus is strong, be direct. Do not hedge on established facts, and do not overclaim on shaky ones. " +
       "Jump directly into the answer.";
 
     let systemPrompt;
-    if (useEvidence && isNameSearch) {
+    if (useEvidence && speciesSearch) {
+      // Taxonomic query: the AI must talk about THIS species specifically, not
+      // conflate with sibling species in the same genus.
+      systemPrompt =
+        "You are Cerebrum, a scientific research assistant. The user asked about a specific species: **" + speciesSearch.full + "**.\n\n" +
+        "STRICT RULES for species queries:\n" +
+        "1. Every claim must be about " + speciesSearch.full + " specifically. Do NOT attribute findings from other " + speciesSearch.genus + " species (e.g. " + speciesSearch.genus + " deltoides, " + speciesSearch.genus + " tremuloides) to " + speciesSearch.full + ".\n" +
+        "2. If a source paper studies a DIFFERENT species, either skip it, or explicitly say \"in a related species, [genus] [that species]...\" — never let the user think it was " + speciesSearch.full + ".\n" +
+        "3. If NO retrieved paper directly studies " + speciesSearch.full + ", be honest: say the peer-reviewed literature on this exact species is limited, then briefly describe what's known about the genus.\n" +
+        "4. Use the italicized species name in the answer (write it as *" + speciesSearch.full + "*).\n\n" +
+        humanStyle + " " + lengthHint + " " + rules;
+    } else if (useEvidence && isNameSearch) {
       // Name query: strict anti-fabrication rules. The AI must ONLY discuss the
       // person's own papers (marked AUTHOR-MATCHED), spell their name EXACTLY as
       // given, never invent name variants, and never attribute other authors'
