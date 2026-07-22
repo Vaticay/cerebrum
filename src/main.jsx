@@ -21,7 +21,7 @@ const LOADING_MESSAGES = [
   "Following the paper trail",
   "Centrifuging the results",
   "Decoding the methods sections",
-  "Chasing down DOIs",
+  "Dusty Waz H3r3",
   "Scanning the stacks",
   "Titrating the findings",
   "Querying fourteen databases",
