@@ -502,12 +502,19 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
   const rafRef = useRef(0);
   const stateRef = useRef({ items: [], t: 0 });
   const mouseRef = useRef({ x: -9999, y: -9999 });
+  // These change frequently (slider drags) but shouldn't trigger effect re-runs.
+  // Read them from refs inside the animation loop instead.
+  const speedRef = useRef(speed);
+  const densityRef = useRef(density);
+  useEffect(() => { speedRef.current = speed; }, [speed]);
+  useEffect(() => { densityRef.current = density; }, [density]);
 
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const intensityScale = intensity === "subtle" ? 0.55 : 1;
-    const finalDensity = density * intensityScale;
+    const getDensity = () => densityRef.current * intensityScale;
+    const getSpeed = () => speedRef.current;
 
     const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
     const [ar, ag, ab] = rgb;
@@ -516,7 +523,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       const cw = canvas.width, ch = canvas.height;
       const items = [];
       if (preset === "particles" || preset === "neurons") {
-        const target = Math.floor((cw * ch) / (28000 * dpr) * finalDensity);
+        const target = Math.floor((cw * ch) / (28000 * dpr) * getDensity());
         for (let i = 0; i < target; i++) {
           items.push({
             x: Math.random() * cw, y: Math.random() * ch,
@@ -528,7 +535,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
         }
       } else if (preset === "waves") {
         // Waves: horizontal sine curves at various y
-        const count = Math.floor(8 * finalDensity);
+        const count = Math.floor(8 * getDensity());
         for (let i = 0; i < count; i++) {
           items.push({
             yBase: (ch / (count + 1)) * (i + 1),
@@ -542,7 +549,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
         }
       } else if (preset === "dna") {
         // DNA: two intertwined helical strands
-        const count = Math.floor(60 * finalDensity);
+        const count = Math.floor(60 * getDensity());
         for (let i = 0; i < count; i++) {
           items.push({
             t: i / count, // position along strand 0..1
@@ -551,7 +558,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
         }
       } else if (preset === "circuits") {
         // Circuits: grid intersections with data pulses along edges
-        const spacing = 90 * dpr / finalDensity;
+        const spacing = 90 * dpr / getDensity();
         const cols = Math.ceil(cw / spacing) + 1;
         const rows = Math.ceil(ch / spacing) + 1;
         for (let ix = 0; ix < cols; ix++) {
@@ -571,7 +578,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
         }
       } else if (preset === "starfield") {
         // Starfield: stars streaking from center
-        const target = Math.floor((cw * ch) / (10000 * dpr) * finalDensity);
+        const target = Math.floor((cw * ch) / (10000 * dpr) * getDensity());
         for (let i = 0; i < target; i++) {
           const angle = Math.random() * Math.PI * 2;
           const dist = Math.random() * Math.max(cw, ch) * 0.6;
@@ -614,8 +621,8 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       const mx = mouseRef.current.x, my = mouseRef.current.y;
       const mouseR = 140 * dpr;
       for (const p of items) {
-        p.x += p.vx * speed;
-        p.y += p.vy * speed;
+        p.x += p.vx * getSpeed();
+        p.y += p.vy * getSpeed();
         p.vx += Math.sin(elapsed * 0.3 + p.pulse) * 0.002 * dpr;
         p.vy += Math.cos(elapsed * 0.2 + p.pulse) * 0.002 * dpr;
         if (mx > 0) {
@@ -671,7 +678,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
         const steps = Math.ceil(cw / 8);
         for (let s = 0; s <= steps; s++) {
           const x = (s / steps) * cw;
-          const y = w.yBase + w.amplitude * Math.sin(x / w.wavelength * Math.PI * 2 + elapsed * w.phaseSpeed * speed + w.phase);
+          const y = w.yBase + w.amplitude * Math.sin(x / w.wavelength * Math.PI * 2 + elapsed * w.phaseSpeed * getSpeed() + w.phase);
           if (s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
         ctx.stroke();
@@ -684,7 +691,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       const cy = canvas.height / 2;
       const heightExtent = canvas.height * 0.85;
       const radius = 90 * dpr;
-      const twistSpeed = 0.6 * speed;
+      const twistSpeed = 0.6 * getSpeed();
       // Draw connecting rungs
       for (const n of items) {
         const y = cy - heightExtent / 2 + n.t * heightExtent;
@@ -720,7 +727,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
             ctx.lineWidth = 0.8 * dpr;
             ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y); ctx.stroke();
             // pulse along edge
-            const pt = ((elapsed * n.rateR * speed + n.pulseR) % 2) / 2;
+            const pt = ((elapsed * n.rateR * getSpeed() + n.pulseR) % 2) / 2;
             if (pt < 0.7) {
               const t = pt / 0.7;
               const px = n.x + (m.x - n.x) * t;
@@ -739,7 +746,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
             ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.12)`;
             ctx.lineWidth = 0.8 * dpr;
             ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y); ctx.stroke();
-            const pt = ((elapsed * n.rateD * speed + n.pulseD) % 2) / 2;
+            const pt = ((elapsed * n.rateD * getSpeed() + n.pulseD) % 2) / 2;
             if (pt < 0.7) {
               const t = pt / 0.7;
               const px = n.x + (m.x - n.x) * t;
@@ -764,7 +771,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       const items = stateRef.current.items;
       const cx = canvas.width / 2, cy = canvas.height / 2;
       for (const s of items) {
-        s.dist += s.speed * speed;
+        s.dist += s.speed * getSpeed();
         if (s.dist > s.distMax) {
           s.dist = 5;
           s.angle = Math.random() * Math.PI * 2;
@@ -802,7 +809,36 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseleave", onLeave);
     };
-  }, [accent, intensity, preset, density, speed]);
+  }, [accent, intensity, preset]);
+
+  // When density changes, throttle re-init to avoid lag from slider drags.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const canvas = canvasRef.current; if (!canvas) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const intensityScale = intensity === "subtle" ? 0.55 : 1;
+      const finalDensity = density * intensityScale;
+      const cw = canvas.width, ch = canvas.height;
+      const cur = stateRef.current.items;
+      // Only adjust particle count for the "particle" family — other presets have
+      // structural item lists that would need full re-init, and users rarely
+      // change density mid-preset for those.
+      if (preset === "particles" || preset === "neurons") {
+        const target = Math.floor((cw * ch) / (28000 * dpr) * finalDensity);
+        while (cur.length < target) {
+          cur.push({
+            x: Math.random() * cw, y: Math.random() * ch,
+            vx: (Math.random() - 0.5) * 0.25 * dpr, vy: (Math.random() - 0.5) * 0.25 * dpr,
+            r: (1 + Math.random() * 1.6) * dpr,
+            pulse: Math.random() * Math.PI * 2,
+            pulseSpeed: 0.4 + Math.random() * 0.8,
+          });
+        }
+        while (cur.length > target) cur.pop();
+      }
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [density, intensity, preset]);
 
   return (
     <canvas
@@ -981,15 +1017,21 @@ function BrainEasterEgg({ accent, P, S, onLogoClick }) {
   };
 
   const spawnEmojis = (count) => {
-    const brainEmojis = ["🧠", "⚡", "💡", "🔬", "🧬", "🧪"];
-    const items = Array.from({ length: count }, (_, i) => ({
-      id: Date.now() + i,
-      emoji: brainEmojis[Math.floor(Math.random() * brainEmojis.length)],
-      x: (Math.random() - 0.5) * 200,
-      y: -20 - Math.random() * 40,
-      rot: (Math.random() - 0.5) * 60,
-      dur: 1.6 + Math.random() * 0.8,
-    }));
+    const brainEmojis = ["🧠", "⚡", "💡", "🔬", "🧬", "🧪", "✨", "🌟"];
+    const items = Array.from({ length: count }, (_, i) => {
+      const angle = (Math.random() * Math.PI) - (Math.PI / 2); // -90° to +90° (downward hemisphere)
+      const dist = 60 + Math.random() * 80;
+      return {
+        id: Date.now() + i,
+        emoji: brainEmojis[Math.floor(Math.random() * brainEmojis.length)],
+        x: 8 + (Math.random() - 0.5) * 24,
+        y: 8,
+        dx: Math.cos(angle) * dist,
+        dy: Math.abs(Math.sin(angle) * dist) + 40, // always positive → floats down
+        rot: (Math.random() - 0.5) * 90,
+        dur: 1.4 + Math.random() * 0.8,
+      };
+    });
     setEmojis(items);
     setTimeout(() => setEmojis([]), 2400);
   };
@@ -999,17 +1041,20 @@ function BrainEasterEgg({ accent, P, S, onLogoClick }) {
   return { trigger, wiggleKey, render: (
     <>
       {emojis.length > 0 && (
-        <div style={{ position: "absolute", left: 12, top: 0, pointerEvents: "none", zIndex: 100, width: 40, height: 40 }}>
+        <div style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", zIndex: 200, width: 40, height: 40, overflow: "visible" }}>
           {emojis.map((e) => (
             <span key={e.id} style={{
               position: "absolute",
               left: e.x,
               top: e.y,
-              fontSize: 20,
-              animation: `cb-burst ${e.dur}s cubic-bezier(0.16, 1, 0.3, 1) forwards`,
+              fontSize: 22,
+              animation: `cb-burst ${e.dur}s cubic-bezier(0.22, 0.61, 0.36, 1) forwards`,
               opacity: 0,
-              transformOrigin: "center",
               display: "inline-block",
+              filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))",
+              "--cb-dx": `${e.dx}px`,
+              "--cb-dy": `${e.dy}px`,
+              "--cb-rot": `${e.rot}deg`,
             }}>{e.emoji}</span>
           ))}
         </div>
@@ -1044,6 +1089,28 @@ function BrainEasterEgg({ accent, P, S, onLogoClick }) {
 }
 
 
+function RotatingSub({ P }) {
+  const lines = [
+    "Your research sidekick.",
+    "Every claim, a real citation.",
+    "16 databases. One question.",
+    "Peer-reviewed answers, on demand.",
+    "The literature, distilled.",
+    "Search like a scientist.",
+    "Citations included. Guesswork not.",
+  ];
+  const [idx, setIdx] = useState(() => Math.floor(Math.random() * lines.length));
+  useEffect(() => {
+    const timer = setInterval(() => setIdx((i) => (i + 1) % lines.length), 5500);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <p style={{ fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em", position: "relative", minHeight: 27 }}>
+      <span key={idx} className="cb-fade">{lines[idx]}</span>
+    </p>
+  );
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
@@ -1064,6 +1131,22 @@ function App() {
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const [srcSort, setSrcSort] = useState("relevance"); // relevance | date | database
   const [srcFilter, setSrcFilter] = useState("");
+  const [partyMode, setPartyMode] = useState(false);
+  const [floatMessage, setFloatMessage] = useState(""); // rare event message
+  const konamiRef = useRef([]);
+  const KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
+  // Empty state cycling messages so it doesn't feel dead
+  const EMPTY_MESSAGES = [
+    "Sources will collect here as you research.",
+    "This panel is where the receipts live.",
+    "Ask something. The citations will follow.",
+    "16 databases are standing by.",
+    "Every claim needs a source. That's the whole idea.",
+    "Try 'how does photosynthesis work' if you're new here.",
+    "The peer-reviewed literature is waiting.",
+  ];
+  const [emptyIdx, setEmptyIdx] = useState(() => Math.floor(Math.random() * 7));
+  const srcClickRef = useRef(0);
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(() => getCookie("cb_fc") === "1");
@@ -1109,7 +1192,7 @@ function App() {
 
       const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || "Search failed."); setBusy(false); return; }
+      if (!res.ok) { setError(data.error || "Something went sideways. Try that again?"); setBusy(false); return; }
       const turnId = Date.now() + Math.random();
       const nt = { id: turnId, q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
       setTurns((t) => [...t, nt]);
@@ -1123,7 +1206,7 @@ function App() {
           setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t));
         }
       });
-    } catch (e) { setError(`Could not reach the backend. (${e.message})`); }
+    } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
     finally { setBusy(false); }
   }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile]);
 
@@ -1146,7 +1229,7 @@ function App() {
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
   useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts + Konami code + secret combos
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
@@ -1154,9 +1237,53 @@ function App() {
       else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
+
+      // Konami code: ↑↑↓↓←→←→BA
+      // Ignore modifier keys and typing in inputs
+      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+      const key = e.key;
+      const seq = konamiRef.current;
+      const expected = KONAMI[seq.length];
+      if (key === expected || key.toLowerCase() === expected) {
+        seq.push(key);
+        if (seq.length === KONAMI.length) {
+          konamiRef.current = [];
+          setPartyMode(true);
+          setFloatMessage("🎉 CHEAT CODE ACTIVATED 🎉");
+          setTimeout(() => setFloatMessage(""), 3000);
+          setTimeout(() => setPartyMode(false), 8000);
+        }
+      } else {
+        konamiRef.current = [];
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Rare random events: every ~2-4 minutes while active, show a floating message.
+  useEffect(() => {
+    const messages = [
+      "A curious mind wanders...",
+      "Somewhere, a paper is being written.",
+      "The peer reviewers are watching.",
+      "Your curiosity is registered.",
+      "A citation just found a new home.",
+      "Somewhere, a scientist is having coffee.",
+      "The universe is 13.8 billion years old. You are here.",
+    ];
+    const schedule = () => {
+      const delay = 120000 + Math.random() * 180000; // 2-5 min
+      return setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          setFloatMessage(messages[Math.floor(Math.random() * messages.length)]);
+          setTimeout(() => setFloatMessage(""), 4000);
+        }
+        timer = schedule();
+      }, delay);
+    };
+    let timer = schedule();
+    return () => clearTimeout(timer);
   }, []);
 
   function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
@@ -1230,7 +1357,25 @@ function App() {
 
   const SourcesInner = (
     <>
-      <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
+      <div style={{ ...S.srcHead, cursor: allSources.length === 0 ? "pointer" : "default", userSelect: "none" }}
+        onClick={() => {
+          if (allSources.length > 0) return;
+          srcClickRef.current += 1;
+          setEmptyIdx((i) => (i + 1) % EMPTY_MESSAGES.length);
+          if (srcClickRef.current === 7) {
+            setFloatMessage("🔬 You found a hidden button. Now what?");
+            setTimeout(() => setFloatMessage(""), 3200);
+          } else if (srcClickRef.current === 15) {
+            setPartyMode(true);
+            setFloatMessage("🎊 Persistence, unlocked.");
+            setTimeout(() => setFloatMessage(""), 3200);
+            setTimeout(() => setPartyMode(false), 6000);
+            srcClickRef.current = 0;
+          }
+        }}>
+        <span>Sources</span>
+        <span style={S.srcCount}>{allSources.length}</span>
+      </div>
       {allSources.length > 0 && (
         <>
           <div style={S.srcActions}>
@@ -1256,7 +1401,7 @@ function App() {
         </div>
       )}
       <div style={S.srcList}>
-        {allSources.length === 0 ? <div style={S.empty}>Sources will collect here as you research.</div> :
+        {allSources.length === 0 ? <div style={S.empty}>{EMPTY_MESSAGES[emptyIdx]}</div> :
           sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
           grouped ? grouped.map(([label, items]) => (
             <div key={label}>
@@ -1306,7 +1451,7 @@ function App() {
               <div style={S.heroGlow} />
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
               <h1 style={S.heroTitle}>Cerebrum</h1>
-              <p style={S.heroSub}>Your research sidekick.</p>
+              <RotatingSub P={P} />
               <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
                 <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
@@ -1411,7 +1556,82 @@ function App() {
       )}
 
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
+      {partyMode && <PartyOverlay accent={accent} />}
+      {floatMessage && (
+        <div style={{
+          position: "fixed",
+          bottom: 32,
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: P.surface,
+          border: `1px solid ${withAlpha(accent, 0.4)}`,
+          borderRadius: 12,
+          padding: "12px 20px",
+          fontSize: 13,
+          fontWeight: 500,
+          color: P.ink,
+          boxShadow: P.shadow,
+          zIndex: 300,
+          animation: "cb-floatmsg 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+          letterSpacing: "-0.005em",
+        }}>{floatMessage}</div>
+      )}
     </div>
+  );
+}
+
+// Confetti overlay for cheat code activation. 100 pieces raining down with
+// physics-y motion, in the accent color and complementary hues. Auto-cleans.
+function PartyOverlay({ accent }) {
+  const canvasRef = useRef(null);
+  const rafRef = useRef(0);
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    const ctx = canvas.getContext("2d");
+    const colors = [accent, "#f59e0b", "#ec4899", "#10b981", "#6366f1", "#f43f5e"];
+    const pieces = Array.from({ length: 140 }, () => ({
+      x: Math.random() * canvas.width,
+      y: -20 + Math.random() * -canvas.height * 0.5,
+      vx: (Math.random() - 0.5) * 3 * dpr,
+      vy: (Math.random() * 2 + 3) * dpr,
+      w: (6 + Math.random() * 8) * dpr,
+      h: (10 + Math.random() * 8) * dpr,
+      rot: Math.random() * Math.PI * 2,
+      vRot: (Math.random() - 0.5) * 0.15,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      wobble: Math.random() * Math.PI * 2,
+    }));
+    const start = performance.now();
+    function draw(now) {
+      const t = (now - start) / 1000;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = 0;
+      for (const p of pieces) {
+        p.x += p.vx + Math.sin(t + p.wobble) * 0.5 * dpr;
+        p.y += p.vy;
+        p.vy += 0.05 * dpr; // gravity
+        p.rot += p.vRot;
+        if (p.y < canvas.height + 20) alive++;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      if (alive > 0) rafRef.current = requestAnimationFrame(draw);
+    }
+    rafRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [accent]);
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", pointerEvents: "none", zIndex: 400 }}
+    />
   );
 }
 
@@ -1736,12 +1956,16 @@ if (typeof document !== "undefined") {
       @keyframes cb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
       @keyframes cb-burst {
         0% { opacity: 0; transform: translate(0, 0) scale(0.3); }
-        15% { opacity: 1; transform: translate(0, -10px) scale(1); }
-        100% { opacity: 0; transform: translate(0, -110px) scale(0.6); }
+        15% { opacity: 1; transform: translate(0, 0) scale(1); }
+        100% { opacity: 0; transform: translate(var(--cb-dx, 0), var(--cb-dy, 60px)) scale(0.6) rotate(var(--cb-rot, 30deg)); }
       }
       @keyframes cb-egg-in {
         from { opacity: 0; transform: translateY(-6px) scale(0.96); }
         to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes cb-floatmsg {
+        from { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.94); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
       }
       @keyframes cb-wiggle {
         0%, 100% { transform: rotate(0deg) scale(1); }
