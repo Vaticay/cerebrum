@@ -506,20 +506,37 @@ async function openAlexAuthorSearch(name, limit = 10) {
       "https://api.openalex.org/authors?" +
         new URLSearchParams({
           search: name,
-          per_page: "5",
+          per_page: "10",
           mailto: "noreply@example.com",
         })
     );
     const authors = (authorRes && authorRes.results) || [];
     if (!authors.length) return [];
-    // Pull works for the top 2 matching authors (in case of ambiguity, both surface)
+
+    // Strict name match: require ALL tokens of the query to appear in the
+    // author's display_name (or an alternative form). This kills matches like
+    // "J. P. Reese" surfacing for a "Reese Saho" search.
+    const wanted = name.toLowerCase().split(/\s+/).filter(Boolean);
+    const scored = authors
+      .map((a) => {
+        const dn = (a.display_name || "").toLowerCase();
+        const alt = (a.display_name_alternatives || []).map((x) => (x || "").toLowerCase());
+        const allNames = [dn, ...alt];
+        const allHit = wanted.every((w) => allNames.some((n) => n.includes(w)));
+        return { a, allHit, works: a.works_count || 0 };
+      })
+      .filter((s) => s.allHit);
+
+    if (!scored.length) return [];
+    scored.sort((x, y) => y.works - x.works);
+
     const worksAll = [];
-    for (const a of authors.slice(0, 2)) {
+    for (const s of scored.slice(0, 2)) {
       try {
         const worksRes = await getJSON(
           "https://api.openalex.org/works?" +
             new URLSearchParams({
-              filter: "author.id:" + a.id.replace("https://openalex.org/", ""),
+              filter: "author.id:" + s.a.id.replace("https://openalex.org/", ""),
               per_page: String(limit),
               sort: "publication_year:desc",
               select:
@@ -530,7 +547,7 @@ async function openAlexAuthorSearch(name, limit = 10) {
         for (const w of (worksRes.results || [])) {
           if (!w.title) continue;
           const first =
-            (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || a.display_name;
+            (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || s.a.display_name;
           worksAll.push({
             title: w.title,
             url: w.doi || (w.primary_location && (w.primary_location.landing_page_url || w.primary_location.pdf_url)) || "",
@@ -539,7 +556,7 @@ async function openAlexAuthorSearch(name, limit = 10) {
             authors: w.authorships && w.authorships.length > 1 ? first + " et al." : first,
             journal: (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || "OpenAlex",
             abstract: decodeInverted(w.abstract_inverted_index),
-            authorMatch: a.display_name,
+            authorMatch: s.a.display_name,
           });
         }
       } catch {}
@@ -1338,6 +1355,28 @@ async function gatherPapers(rawQuery, opts) {
   const isNameQuery = looksLikePersonName(rawQuery);
   const binomial = extractBinomial(rawQuery);
 
+  // For pure person-name queries: try the author search FIRST. If it finds a
+  // confirmed match, use ONLY their real works — do not fan out to keyword
+  // search, because that pulls in unrelated papers where the name happens to
+  // appear (e.g. "J. P. Reese" or "Mr. Saho" showing up for "Reese Saho").
+  if (isNameQuery) {
+    const authorWorks = await openAlexAuthorSearch(rawQuery.trim(), 20).catch(() => []);
+    if (authorWorks.length) {
+      const scored = authorWorks.map((p) => ({
+        ...p, score: 10, contentHits: 1, contentCoverage: 1, organismPresent: true, relevance: 100,
+      }));
+      for (const p of scored) {
+        const j = (p.journal || "").toLowerCase();
+        if (/preprint|biorxiv|medrxiv|arxiv/.test(j)) p.type = "Preprint";
+        else if (/zenodo|datacite|figshare|dryad/.test(j)) p.type = "Dataset";
+        else p.type = "Journal";
+      }
+      return { papers: scored };
+    }
+    // No confirmed author found — return empty so the endpoint can respond honestly.
+    return { papers: [], authorNotFound: true };
+  }
+
   // All 10 keyless / low-friction sources in parallel via allSettled
   const jobs = [
     europePMC(query, 10),
@@ -1351,11 +1390,6 @@ async function gatherPapers(rawQuery, opts) {
     zenodo(query, 4),
     plos(query, 6),
   ];
-  // When the query looks like a person's name, add an author-specific search
-  // that fetches their actual works via OpenAlex authors endpoint.
-  if (isNameQuery) {
-    jobs.push(openAlexAuthorSearch(rawQuery.trim(), 15));
-  }
 
   const results = await Promise.allSettled(jobs);
   const merged = [];
@@ -1621,6 +1655,25 @@ export async function onRequest(context) {
       ncbiKey: env.NCBI_API_KEY || "",
       limit: 25,
     }).catch(() => ({ papers: [] }));
+
+    // Author-name query where no confirmed match was found in any author
+    // database — say so honestly instead of returning unrelated papers.
+    if (gResult.authorNotFound) {
+      return new Response(JSON.stringify({
+        answer:
+          "I couldn't confirm a researcher named **" + query + "** in the open author databases (OpenAlex, Semantic Scholar, Crossref).\n\n" +
+          "This can happen when someone:\n\n" +
+          "- Has few indexed publications (common for current students or very recent researchers)\n" +
+          "- Publishes under a different form of their name (with or without a middle initial, hyphenated names, etc.)\n" +
+          "- Has work indexed only in databases outside what I search\n\n" +
+          "Try the full name exactly as it appears on their papers, add a middle initial, or search a topic they work on and open the papers to find them.",
+        sources: [],
+        videos: [],
+        factCheck: null,
+        related: [],
+        source: "Author not confirmed",
+      }), { status: 200, headers: cors });
+    }
 
     const papers = gResult.papers || [];
     const hasPapers = papers.length > 0;
