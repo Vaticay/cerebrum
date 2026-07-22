@@ -877,7 +877,7 @@ const BRAIN_QUOTES = [
   "Curiosity literally rewires your brain.",
   "The average brain generates roughly 70,000 thoughts per day.",
   "Your brain is 60% fat. It's the fattiest organ in your body.",
-  "Every time you learn something new, a new neural pathway forms.",
+  "Dusty Waz H3r3.",
   "The brain weighs about 3 pounds. It contains all of you.",
   "REM sleep: your brain is more active than when you're awake.",
   "Left brain / right brain is mostly a myth. Both work together constantly.",
