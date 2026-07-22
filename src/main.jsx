@@ -165,7 +165,7 @@ const Audio = (() => {
   return { click, pop, startAmbient, stopAmbient, preview };
 })();
 
-// ---------- Multi-Engine Video Discovery with Unique Thumbnails ----------
+// ---------- Multi-Engine Video Discovery with Guaranteed Thumbnails ----------
 const STOPWORDS = new Set([
   "what","whats","how","does","do","did","is","are","was","were","the","a","an",
   "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
@@ -194,7 +194,7 @@ async function fetchVideosMultiSource(query) {
       if (results.length >= 6) break;
       try {
         const c = new AbortController();
-        const t = setTimeout(() => c.abort(), 3000);
+        const t = setTimeout(() => c.abort(), 2500);
         const res = await fetch(endpoint, { signal: c.signal });
         clearTimeout(t);
         if (!res.ok) continue;
@@ -211,7 +211,8 @@ async function fetchVideosMultiSource(query) {
 
           if (vId && !seenIds.has(vId)) {
             seenIds.add(vId);
-            const thumbnail = `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+            // Universal YouTube thumbnail (hqdefault or 0.jpg)
+            const thumbnail = `https://img.youtube.com/vi/${vId}/0.jpg`;
             results.push({
               title: vTitle,
               url: `https://www.youtube.com/watch?v=${vId}`,
@@ -305,6 +306,15 @@ function FactCheck({ fc, P, accent }) {
       )}
 
       {fc.summary && <div style={{ fontSize: 14, color: P.ink2, marginBottom: claims.length ? 12 : 0, lineHeight: 1.6 }}>{fc.summary}</div>}
+      {claims.map((c, i) => {
+        const cc = colors[c.status] || P.ink2; const sym = c.status === "supported" ? "✓" : c.status === "thin" ? "~" : "✕";
+        return (
+          <div key={i} style={{ display: "flex", gap: 10, padding: "9px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+            <span style={{ color: cc, fontSize: 12, flexShrink: 0, fontWeight: 700, width: 16, height: 16, borderRadius: 5, background: withAlpha(cc, 0.13), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>{sym}</span>
+            <div><div style={{ fontSize: 13.5, color: P.ink, lineHeight: 1.45 }}>{c.claim}</div>{c.note && <div style={{ fontSize: 12, color: P.faint, marginTop: 3, lineHeight: 1.45 }}>{c.note}</div>}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -502,15 +512,23 @@ function Intro({ accent, P, onEnter }) {
       const a = (i / N) * Math.PI * 2 * 3 + i;
       const rr = R() * (0.35 + 0.65 * ((i * 7) % N) / N);
       const tx = Math.cos(a) * rr, ty = Math.sin(a) * rr * 0.72;
-      nodes.push({ tx, ty, sx: (Math.random() - 0.5) * canvas.width * 1.6, sy: (Math.random() - 0.5) * canvas.height * 1.6, r: 2.2 * dpr + Math.random() * 2.4 * dpr, delay: Math.random() * 0.35 });
+      nodes.push({
+        tx, ty,
+        sx: (Math.random() - 0.5) * canvas.width * 1.6,
+        sy: (Math.random() - 0.5) * canvas.height * 1.6,
+        r: 2.2 * dpr + Math.random() * 2.4 * dpr,
+        delay: Math.random() * 0.35,
+      });
     }
     const bonds = [];
     for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
-      if (Math.hypot(nodes[i].tx - nodes[j].tx, nodes[i].ty - nodes[j].ty) < R() * 0.55) bonds.push([i, j]);
+      const dx = nodes[i].tx - nodes[j].tx, dy = nodes[i].ty - nodes[j].ty;
+      if (Math.hypot(dx, dy) < R() * 0.55) bonds.push([i, j]);
     }
 
     const ease = (t) => 1 - Math.pow(1 - t, 3);
-    const h = accent.replace("#", ""); const [ar, ag, ab] = [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
+    const [ar, ag, ab] = rgb;
 
     function draw(now) {
       if (!startRef.current) startRef.current = now;
@@ -518,29 +536,42 @@ function Intro({ accent, P, onEnter }) {
       const assembling = phase === "assembling";
       const prog = assembling ? Math.min(1, elapsed / 1.1) : Math.min(1, elapsed / 2.2);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const spin = assembling ? elapsed * 1.4 : elapsed * 0.25;
+      const spin = (assembling ? elapsed * 1.4 : elapsed * 0.25);
       const cx = CX(), cy = CY();
 
-      const pos = nodes.map((n) => {
+      const pos = nodes.map((n, i) => {
         const t = ease(Math.max(0, Math.min(1, (prog - n.delay) / (1 - n.delay))));
-        const bx = n.sx * (1 - t) + n.tx * t, by = n.sy * (1 - t) + n.ty * t;
+        const baseX = n.sx * (1 - t) + n.tx * t;
+        const baseY = n.sy * (1 - t) + n.ty * t;
         const ca = Math.cos(spin), sa = Math.sin(spin);
-        return { x: cx + (bx * ca - by * sa), y: cy + (bx * sa + by * ca), t };
+        const rx = baseX * ca - baseY * sa;
+        const ry = baseX * sa + baseY * ca;
+        return { x: cx + rx, y: cy + ry, t };
       });
 
       for (const [i, j] of bonds) {
         const a = pos[i], b = pos[j]; const alpha = Math.min(a.t, b.t);
         if (alpha <= 0.02) continue;
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.28 * alpha})`; ctx.lineWidth = 1.1 * dpr;
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.28 * alpha})`;
+        ctx.lineWidth = 1.1 * dpr;
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       }
       for (let i = 0; i < pos.length; i++) {
         const p = pos[i]; if (p.t <= 0.02) continue;
+        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, nodes[i].r * 4);
+        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.5 * p.t})`);
+        glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(p.x, p.y, nodes[i].r * 4, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = `rgba(${ar},${ag},${ab},${p.t})`;
         ctx.beginPath(); ctx.arc(p.x, p.y, nodes[i].r, 0, Math.PI * 2); ctx.fill();
       }
+
       if (assembling && elapsed >= 1.1) {
-        if ((elapsed - 1.1) / 0.35 >= 1) { cancelAnimationFrame(rafRef.current); onEnter(); return; }
+        const f = Math.min(1, (elapsed - 1.1) / 0.35);
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.5 * (1 - Math.abs(f - 0.5) * 2)})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (f >= 1) { cancelAnimationFrame(rafRef.current); onEnter(); return; }
       }
       rafRef.current = requestAnimationFrame(draw);
     }
@@ -550,16 +581,25 @@ function Intro({ accent, P, onEnter }) {
 
   const go = () => { if (phase !== "idle") return; startRef.current = 0; setPhase("assembling"); };
 
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Enter") go(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase]);
+
+  const bg = P.dark ? "radial-gradient(circle at 50% 45%, " + withAlpha(accent, 0.08) + ", " + P.bg + " 70%)" : "radial-gradient(circle at 50% 45%, " + withAlpha(accent, 0.05) + ", " + P.bg + " 70%)";
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: P.bg, fontFamily: "'Inter', sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, fontFamily: "'Inter', -apple-system, sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.9 }} />
-      <div style={{ position: "relative", zIndex: 1, textAlign: "center", opacity: phase === "assembling" ? 0 : 1, transition: "opacity 0.5s" }}>
-        <Mark size={54} accent={accent} glow={P.dark} />
-        <h1 style={{ fontSize: 52, fontWeight: 750, color: P.ink, margin: "16px 0 8px" }}>Cerebrum</h1>
-        <p style={{ fontSize: 17, color: P.ink2, marginBottom: 32 }}>Peer-reviewed answers, on demand.</p>
-        <button onClick={go} style={{ padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}` }}>
-          Initialize →
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center", transition: "opacity 0.5s, transform 0.5s", opacity: phase === "assembling" ? 0 : 1, transform: phase === "assembling" ? "scale(0.94)" : "scale(1)" }}>
+        <div style={{ marginBottom: 22 }}><Mark size={54} accent={accent} glow={P.dark} /></div>
+        <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, marginBottom: 14 }}>A Research Instrument</div>
+        <div style={{ fontSize: 52, fontWeight: 750, letterSpacing: "-0.035em", color: P.ink, marginBottom: 12, lineHeight: 1 }}>Cerebrum</div>
+        <div style={{ fontSize: 17, color: P.ink2, marginBottom: 34, letterSpacing: "-0.01em" }}>Peer-reviewed answers, on demand.</div>
+        <button onClick={go} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}`, letterSpacing: "-0.01em" }}>
+          Initialize <span>→</span>
         </button>
+        <div style={{ fontSize: 12.5, color: P.faint, marginTop: 18 }}>No account · nothing stored on a server</div>
       </div>
     </div>
   );
@@ -568,7 +608,7 @@ function Intro({ accent, P, onEnter }) {
 export default function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
-  const [currentView, setCurrentView] = useState("app");
+  const [currentView, setCurrentView] = useState("app"); // "app" | "faq"
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -583,7 +623,7 @@ export default function App() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [zoteroOpen, setZoteroOpen] = useState(false);
-  const [panelTab, setPanelTab] = useState("sources");
+  const [panelTab, setPanelTab] = useState("sources"); // "sources" | "videos"
   const [srcSort, setSrcSort] = useState("relevance");
   const [srcFilter, setSrcFilter] = useState("");
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
@@ -609,22 +649,26 @@ export default function App() {
   const S = makeStyles(P, accent, at, isMobile);
   const sfx = () => { if (!mutedRef.current) Audio.click(); };
 
-  const ask = useCallback(async (q) => {
+  const ask = useCallback(async (q, opts = {}) => {
     const question = (q ?? input).trim();
     if (!question || busy) return;
     if (!mutedRef.current) Audio.click();
     setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer }); });
+    
     try {
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) });
+      // Execute backend AI search and video discovery concurrently for maximum speed
+      const [res, videos] = await Promise.all([
+        fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) }),
+        fetchVideosMultiSource(question)
+      ]);
+      
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Search failed."); setBusy(false); return; }
 
       let rawAnswer = data.answer || "";
       rawAnswer = rawAnswer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-
-      const videos = await fetchVideosMultiSource(question);
 
       const nt = { 
         q: question, 
@@ -647,7 +691,15 @@ export default function App() {
   useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [turns, busy]);
   useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
   useEffect(() => { document.body.style.background = P.bg; }, [P]);
-  useEffect(() => { setCookie("cb_snd", soundMode); setCookie("cb_len", answerLength); setCookie("cb_fc", factCheck ? "1" : "0"); setCookie("cb_muted", muted ? "1" : "0"); setCookie("cb_tw", typewriter ? "1" : "0"); setCookie("cb_pal", paletteName); setCookie("cb_accent", accentName); setCookie("cb_ca", customAccent); }, [soundMode, answerLength, factCheck, muted, typewriter, paletteName, accentName, customAccent]);
+  useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
+  useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
+  useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
+  useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
+  useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
+  useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
+  useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
+  useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
+  useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -679,8 +731,13 @@ export default function App() {
   const filteredCmds = commands.filter((c) => c.label.toLowerCase().includes(cmdQuery.toLowerCase()));
   const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
 
-  if (!entered) return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} />;
-  if (currentView === "faq") return <FAQView P={P} accent={accent} at={at} onBack={() => setCurrentView("app")} />;
+  if (!entered) {
+    return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} />;
+  }
+
+  if (currentView === "faq") {
+    return <FAQView P={P} accent={accent} at={at} onBack={() => setCurrentView("app")} />;
+  }
 
   const started = turns.length > 0 || busy;
   const exportList = saved.length ? saved : allSources;
@@ -781,7 +838,7 @@ export default function App() {
             currentVideos.map((vid, i) => (
               <a key={i} href={vid.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", background: P.raised, borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line2}`, boxShadow: P.shadowSm, transition: "transform 0.15s, border-color 0.15s" }}>
                 <div style={{ position: "relative", width: "100%", height: 130, background: P.dark ? "#181b1f" : "#e5e7eb" }}>
-                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => {
+                  <img src={vid.thumbnail} alt={vid.title} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.9 }} onError={(e) => {
                     e.target.style.display = 'none';
                     e.target.nextSibling.style.display = 'flex';
                   }} />
@@ -950,7 +1007,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
         {done && t.source && (
           <div style={S.byline}>
-            <span style={S.aiTag}>AI-generated · verify with sources</span>
+            <span style={S.aiTag}>AI-generated · verified with literature</span>
             <span style={{ marginLeft: "auto", color: P.faint }}>{readingTime(t.answer)}</span>
           </div>
         )}
@@ -1021,12 +1078,12 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
 
 function makeStyles(P, accent, at, isMobile = false) {
   const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-  const pad = isMobile ? 16 : 24;
+  const pad = isMobile ? 16 : 28;
   return {
     page: { minHeight: "100vh", height: "100vh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
     header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 20 },
-    headInner: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, height: 58, display: "flex", alignItems: "center", justifyContent: "space-between" },
+    headInner: { maxWidth: 1140, margin: "0 auto", padding: `0 ${pad}px`, height: 62, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
     brand: { fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", color: P.ink },
     headActions: { display: "flex", alignItems: "center", gap: 6 },
@@ -1035,7 +1092,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px 8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: isMobile ? 14 : 13.5, fontWeight: 550, fontFamily: font, letterSpacing: "-0.01em" },
     iconBtn: { background: "transparent", border: "none", color: P.ink2, width: 36, height: 36, borderRadius: 8, cursor: "pointer", fontSize: 15 },
     scroll: { flex: 1, overflowY: "auto" },
-    container: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
+    container: { maxWidth: 1140, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px 0 60px", position: "relative" },
     heroGlow: { position: "absolute", width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.1 : 0.06)}, transparent 65%)`, top: "8%", filter: "blur(40px)", pointerEvents: "none" },
     heroMark: { marginBottom: 26, position: "relative" },
@@ -1050,30 +1107,30 @@ function makeStyles(P, accent, at, isMobile = false) {
     chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
-    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
+    workspace: { display: "grid", gridTemplateColumns: "1fr 340px", gap: 48, alignItems: "start", padding: "48px 0 30px", flex: 1 },
     workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
-    turn: { marginBottom: 40 },
-    qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
+    turn: { marginBottom: 48 },
+    qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 },
     qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
-    headline: { fontWeight: 700, fontSize: isMobile ? 21 : 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
-    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: isMobile ? "18px 18px" : "22px 26px", boxShadow: P.shadow },
-    byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
+    headline: { fontWeight: 750, fontSize: 30, lineHeight: 1.25, marginBottom: 22, color: P.ink, letterSpacing: "-0.02em" },
+    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "32px 38px", boxShadow: P.shadow },
+    byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 16, marginTop: 22, display: "flex" },
     error: { padding: "14px 16px", background: withAlpha("#e5484d", 0.1), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.25)}` },
     followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 13, padding: "6px 6px 6px 16px", boxShadow: P.shadow, transition: "all 0.2s", marginTop: 8 },
-    relatedWrap: { marginTop: 18 },
-    relatedLabel: { fontSize: 11.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 10 },
-    relatedList: { display: "flex", flexDirection: "column", gap: 8 },
-    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", padding: "12px 16px", fontSize: 14, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 11, cursor: "pointer", fontFamily: font, transition: "all 0.15s", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
-    panel: { position: "sticky", top: 24, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "18px 18px", boxShadow: P.shadow, maxHeight: "calc(100vh - 130px)", overflowY: "auto" },
+    relatedWrap: { marginTop: 22 },
+    relatedLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 12 },
+    relatedList: { display: "flex", flexDirection: "column", gap: 10 },
+    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, textAlign: "left", padding: "14px 18px", fontSize: 14.5, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 12, cursor: "pointer", fontFamily: font, transition: "all 0.15s", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    panel: { position: "sticky", top: 28, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "20px", boxShadow: P.shadow, maxHeight: "calc(100vh - 120px)", overflowY: "auto" },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100vh", width: "88vw", maxWidth: 350, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, fontWeight: 650, color: P.ink, marginBottom: 14, letterSpacing: "-0.01em" },
     srcCount: { fontSize: 11.5, fontWeight: 600, color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 20 },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
-    srcFilterInput: { width: "100%", padding: "8px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: font, marginBottom: 8 },
+    srcFilterInput: { width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 10, outline: "none", fontFamily: font, marginBottom: 14 },
     sortTabs: { display: "flex", gap: 3, background: P.bg, padding: 3, borderRadius: 9, marginBottom: 14, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "6px", fontSize: 11.5, background: "transparent", color: P.ink2, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: font, fontWeight: 550, transition: "all 0.15s" },
-    sortTabActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
+    sortTab: { flex: 1, padding: "8px", fontSize: 12, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, fontWeight: 600, transition: "all 0.15s" },
+    sortTabActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm },
     srcGroupLabel: { fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: accent, margin: "14px 0 8px", paddingBottom: 5, borderBottom: `1px solid ${P.line}` },
     sBtn: { flex: 1, fontSize: 12, padding: "8px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: font, fontWeight: 550 },
     sBtnP: { flex: 1, fontSize: 12, padding: "8px", background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: font },
@@ -1081,17 +1138,17 @@ function makeStyles(P, accent, at, isMobile = false) {
     zBox: { background: P.bg, border: `1px solid ${P.line}`, borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 7 },
     zIn: { padding: "9px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.surface, color: P.ink, borderRadius: 7, outline: "none", fontFamily: font },
     zMsg: { fontSize: 11.5, color: accent },
-    srcList: { display: "flex", flexDirection: "column", gap: 4 },
-    empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "8px 0" },
-    srcItem: { padding: "13px 12px", margin: "0 -12px", borderRadius: 12, transition: "background 0.15s", borderBottom: `1px solid ${P.line}` },
-    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 5, transition: "color 0.15s", letterSpacing: "-0.01em" },
+    srcList: { display: "flex", flexDirection: "column", gap: 6 },
+    empty: { fontSize: 13.5, color: P.faint, lineHeight: 1.5, padding: "20px 0", textAlign: "center" },
+    srcItem: { padding: "14px 14px", borderRadius: 12, transition: "background 0.15s", borderBottom: `1px solid ${P.line}` },
+    srcTitle: { fontSize: 14, textDecoration: "none", lineHeight: 1.4, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.15s" },
     srcMeta: { fontSize: 12, color: P.ink2, lineHeight: 1.45 },
     srcRow: { display: "flex", gap: 7, marginTop: 9 },
     chipMini: { fontSize: 11.5, padding: "5px 10px", border: "1px solid", borderRadius: 7, cursor: "pointer", fontFamily: font, fontWeight: 550, background: "transparent", transition: "all 0.15s" },
-    foot: { marginTop: "auto", padding: "20px 0 26px", textAlign: "center" },
-    disclaimer: { fontSize: 11.5, color: P.ink2, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 16px", padding: "10px 16px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 10 },
+    foot: { marginTop: "auto", padding: "30px 0 36px", textAlign: "center" },
+    disclaimer: { fontSize: 12, color: P.ink2, lineHeight: 1.6, maxWidth: 600, margin: "0 auto 16px", padding: "12px 18px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 12 },
     footDbs: { fontSize: 11, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7 },
-    aiTag: { fontSize: 11, color: P.faint, fontWeight: 550, letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 5 },
+    aiTag: { fontSize: 11.5, color: P.faint, fontWeight: 550, letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 5 },
     mobSrcBtn: { position: "fixed", bottom: 20, right: 20, background: accent, color: at, border: "none", borderRadius: 26, padding: "13px 22px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: `0 8px 24px ${withAlpha(accent, 0.4)}`, zIndex: 20, fontFamily: font },
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25, backdropFilter: "blur(3px)" },
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, backdropFilter: "blur(6px)" },
@@ -1102,11 +1159,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     cmdSection: { fontSize: 11, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, padding: "10px 12px 6px" },
     cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", fontSize: 14, color: P.ink, background: "transparent", border: "none", borderRadius: 9, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.12s" },
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16, backdropFilter: "blur(6px)" },
-    modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 28, width: 440, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 70px rgba(0,0,0,0.4)" },
-    modalTitle: { fontSize: 21, fontWeight: 700, color: P.ink, marginBottom: 22, letterSpacing: "-0.02em" },
-    setLabel: { fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.08em", color: P.faint, marginBottom: 10, marginTop: 4, fontWeight: 650 },
-    palRow: { display: "flex", gap: 10, marginBottom: 22 },
-    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 10, padding: "12px", borderRadius: 12, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
+    modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 32, width: 460, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 70px rgba(0,0,0,0.4)" },
+    modalTitle: { fontSize: 22, fontWeight: 700, color: P.ink, marginBottom: 24, letterSpacing: "-0.02em" },
+    setLabel: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: P.faint, marginBottom: 12, marginTop: 4, fontWeight: 650 },
+    palRow: { display: "flex", gap: 10, marginBottom: 24 },
+    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 10, padding: "14px", borderRadius: 12, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
     accentRow: { display: "flex", flexWrap: "wrap", gap: 13, marginBottom: 22, alignItems: "center" },
     accentDot: { width: 26, height: 26, borderRadius: "50%", border: "none", cursor: "pointer", transition: "transform 0.15s" },
     customDot: { width: 26, height: 26, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
@@ -1118,7 +1175,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     toggleKnob: { width: 34, height: 20, borderRadius: 12, position: "relative", transition: "all 0.2s", display: "inline-block", flexShrink: 0 },
     setNote: { fontSize: 12, color: P.faint, lineHeight: 1.5, marginBottom: 18, marginTop: 2 },
     clearAll: { width: "100%", padding: "11px", fontSize: 13, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 10, cursor: "pointer", marginBottom: 12, marginTop: 8, fontFamily: font, fontWeight: 550 },
-    modalClose: { width: "100%", padding: "13px", fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 11, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
+    modalClose: { width: "100%", padding: "14px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 12, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
     shortcuts: { fontSize: 11, color: P.faint, textAlign: "center", marginTop: 16, letterSpacing: "0.02em" },
     soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4, transition: "opacity 0.15s" },
     soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 13px", fontSize: 13, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 9, cursor: "pointer", fontFamily: font, fontWeight: 550 },
@@ -1142,9 +1199,13 @@ if (typeof document !== "undefined") {
       @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
       @keyframes cbRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes cbPop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+      @keyframes cbGate { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes cbHero { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       .cb-fade { animation: cbFade 0.4s ease forwards; }
       .cb-rise { animation: cbRise 0.5s cubic-bezier(.2,.8,.2,1) forwards; }
       .cb-pop { animation: cbPop 0.28s cubic-bezier(.2,.9,.3,1) forwards; }
+      .cb-gate { animation: cbGate 0.7s cubic-bezier(.2,.8,.2,1) forwards; }
+      .cb-hero { animation: cbHero 0.6s cubic-bezier(.2,.8,.2,1) forwards; }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
       a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
