@@ -1414,7 +1414,7 @@ export async function onRequest(context) {
     // Identity questions
     if (/^(who (are|r) (you|u)|what (are|r) (you|u)|whats (this|cerebrum)|whats your (name|deal)|who made (you|this|cerebrum))\??$/.test(small)) {
       return specialAnswer(
-        "I'm Cerebrum — a research tool built by Dusty Wills. I search 16 free scholarly databases in parallel and use free AI models to synthesize answers with real, traceable citations. Everything is free-tier: no paywalls, no subscription, no ads. If you catch me making stuff up, I owe you an apology and a bug report."
+        "I'm Cerebrum — a research tool built by Vaticay. I search 16 free scholarly databases in parallel and use free AI models to synthesize answers with real, traceable citations. Everything is free-tier: no paywalls, no subscription, no ads. If you catch me making stuff up, I owe you an apology and a bug report."
       );
     }
 
