@@ -526,6 +526,92 @@ function looksLikePersonName(raw) {
   return isNamey;
 }
 
+// Words that are NEVER person surnames or first names, even though they might
+// appear capitalized in a query. Used to filter out topic words when hunting
+// for a name embedded inside a longer sentence.
+const NAME_STOPWORDS = new Set([
+  "BSFL", "DNA", "RNA", "CRISPR", "PCR", "PhD", "MD", "UTK", "MIT", "NIH",
+  "USA", "UK", "US", "EU", "FDA", "CDC", "WHO", "NASA", "The", "This", "That",
+  "These", "Those", "Black", "Soldier", "Fly", "Larvae",
+]);
+
+// Try to extract a person's name from ANY query, even if wrapped in extra words.
+// E.g. "Reese Sahos studies on BSFL" -> "Reese Saho".
+// Handles possessive forms (drops trailing 's or s when followed by a possessive
+// context word like "studies", "papers", "research").
+// Handles middle initials (Reese J Saho, Reese J. Saho).
+// Returns the canonical name or null if nothing looks like a name.
+function extractPersonNameFromQuery(raw) {
+  if (!raw) return null;
+  const s = raw.trim();
+  if (!s) return null;
+  // If the query IS itself just a clean name, return it
+  if (looksLikePersonName(s)) return s;
+
+  // Otherwise, scan the query for a run of 2-3 name-shaped tokens.
+  const toks = s.split(/\s+/);
+  const isNameToken = (t) => {
+    if (!t) return false;
+    if (/^[A-Z]\.?$/.test(t)) return true;
+    if (!/^[A-Z][a-zA-Z'\-]+$/.test(t)) return false;
+    if (NAME_STOPWORDS.has(t)) return false;
+    if (t.length >= 3 && t === t.toUpperCase()) return false;
+    return true;
+  };
+
+  // Words that indicate the preceding word is a person's name in possessive form.
+  const possessiveContext = new Set([
+    "studies", "study", "papers", "paper", "research", "work", "works",
+    "publications", "publication", "findings", "finding", "results", "result",
+    "experiments", "experiment", "thesis", "dissertation", "articles", "article",
+    "lab", "group", "team", "hypothesis", "theory", "approach", "method",
+    "methods", "data", "dataset",
+  ]);
+
+  let bestName = null;
+  for (let i = 0; i < toks.length; i++) {
+    if (!isNameToken(toks[i])) continue;
+    for (let len = 4; len >= 2; len--) {
+      if (i + len > toks.length) continue;
+      const chunk = toks.slice(i, i + len);
+      // Middle initial can't be the LAST token
+      if (/^[A-Z]\.?$/.test(chunk[chunk.length - 1])) continue;
+      // First and last must be full words (2+ chars)
+      if (chunk[0].length < 2 || chunk[chunk.length - 1].length < 2) continue;
+      if (chunk.every(isNameToken)) {
+        bestName = { toks: chunk, endIdx: i + len };
+        break;
+      }
+    }
+    if (bestName) break;
+  }
+  if (!bestName) return null;
+
+  // Now apply possessive stripping on the last name token, using the word
+  // AFTER the name as context to decide.
+  const nextWord = (toks[bestName.endIdx] || "").toLowerCase().replace(/[.,;:?!]/g, "");
+  const nameToks = bestName.toks.slice();
+  const last = nameToks[nameToks.length - 1];
+
+  if (/'s$/i.test(last)) {
+    // "Saho's" — always safe to strip
+    nameToks[nameToks.length - 1] = last.replace(/'s$/i, "");
+  } else if (/s'$/i.test(last)) {
+    nameToks[nameToks.length - 1] = last.replace(/s'$/i, "");
+  } else if (
+    // "Sahos studies" — trailing bare 's' followed by a possessive context word
+    /[a-z]s$/.test(last) &&
+    last.length > 3 &&
+    !/ss$/i.test(last) &&
+    possessiveContext.has(nextWord)
+  ) {
+    nameToks[nameToks.length - 1] = last.slice(0, -1);
+  }
+  return nameToks.join(" ");
+}
+
+
+
 // OpenAlex authors endpoint: disambiguates people and returns their id, so we
 // can fetch their actual works. Keyless.
 async function openAlexAuthorSearch(name, limit = 10) {
@@ -1473,8 +1559,11 @@ async function gatherPapers(rawQuery, opts) {
   // A resolved person name from conversation history (pronoun follow-up like
   // "he has papers from UTK") takes priority over re-detecting from rawQuery.
   const resolvedPersonName = opts && opts.resolvedPersonName;
-  const isNameQuery = !!resolvedPersonName || looksLikePersonName(rawQuery);
-  const effectiveName = resolvedPersonName || rawQuery.trim();
+  // Detect a person name embedded ANYWHERE in the query, not just when the
+  // query IS a name. This catches "Reese Sahos studies on BSFL" -> "Reese Saho".
+  const embeddedName = extractPersonNameFromQuery(rawQuery);
+  const isNameQuery = !!resolvedPersonName || !!embeddedName;
+  const effectiveName = resolvedPersonName || embeddedName || rawQuery.trim();
   const binomial = extractBinomial(rawQuery);
 
   // For person-name queries: try OpenAlex's disambiguated author endpoint first.
@@ -1786,15 +1875,18 @@ export async function onRequest(context) {
     // the pronoun to that name so we stay locked onto the same person instead
     // of falling through to an unrelated keyword search.
     let resolvedPersonName = null;
-    const isPronounFollowup = /\b(he|she|him|her|his|hers|they|them|their)\b/i.test(query) && !looksLikePersonName(query);
+    const isPronounFollowup = /\b(he|she|him|her|his|hers|they|them|their)\b/i.test(query) && !extractPersonNameFromQuery(query);
     if (isPronounFollowup && Array.isArray(body.history)) {
       // Walk backward through history to find the most recent user turn that
-      // was itself a clean person-name query.
+      // contained a person name.
       for (let i = body.history.length - 1; i >= 0; i--) {
         const turn = body.history[i];
-        if (turn && turn.role === "user" && looksLikePersonName((turn.content || "").trim())) {
-          resolvedPersonName = turn.content.trim();
-          break;
+        if (turn && turn.role === "user") {
+          const priorName = extractPersonNameFromQuery((turn.content || "").trim());
+          if (priorName) {
+            resolvedPersonName = priorName;
+            break;
+          }
         }
       }
     }
@@ -1870,7 +1962,7 @@ export async function onRequest(context) {
 
     // Build evidence block
     // Detect if this was a person-name query (matches the same logic gatherPapers uses)
-    const isNameSearch = looksLikePersonName(query);
+    const isNameSearch = !!extractPersonNameFromQuery(query);
     const speciesSearch = extractBinomial(query);
 
     // Build evidence. For name queries, EXPLICITLY mark which papers are
@@ -2182,7 +2274,7 @@ export async function onRequest(context) {
 
     // Final safety: if this was a person-name query, force-correct any close
     // variants the AI hallucinated ("Sahoy" -> "Saho") in the answer body.
-    const canonicalName = resolvedPersonName || (isNameSearch ? query : "");
+    const canonicalName = resolvedPersonName || extractPersonNameFromQuery(query) || (isNameSearch ? query : "");
     if (canonicalName) {
       answer = correctNameVariants(answer, canonicalName);
     }
