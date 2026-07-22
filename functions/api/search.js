@@ -567,7 +567,52 @@ async function openAlexAuthorSearch(name, limit = 10) {
   }
 }
 
-async function openAlex(query, limit = 10, key = "") {  try {
+// Fallback for people not indexed by OpenAlex's author-disambiguation endpoint
+// (common for grad students / early-career researchers). Instead of trusting a
+// dedicated "who is this person" lookup, we search for the exact quoted name as
+// a phrase across Europe PMC, OpenAlex works, and Crossref, then keep ONLY
+// papers where that name genuinely appears in the paper's OWN author string.
+// This is what actually finds a real paper like Reese Saho's bioRxiv preprint,
+// which exists but isn't a disambiguated "author" record anywhere.
+function nameAppearsInAuthorString(authorsStr, fullName) {
+  const hay = (authorsStr || "").toLowerCase();
+  const tokens = fullName.toLowerCase().split(/\s+/).filter(Boolean);
+  // Require every name token (first + last) to appear somewhere in the
+  // author string. Handles "Reese Saho, Duy Trinh, ... et al." style strings.
+  return tokens.every((t) => hay.includes(t));
+}
+
+async function searchPapersByExactAuthorName(fullName, limit = 15) {
+  const quoted = '"' + fullName + '"';
+  try {
+    const [epmc, oa, cr] = await Promise.allSettled([
+      europePMC(quoted, limit),
+      openAlex(quoted, limit),
+      crossref(quoted, limit),
+    ]);
+    const pools = [epmc, oa, cr]
+      .filter((r) => r.status === "fulfilled")
+      .flatMap((r) => r.value || []);
+    const seen = new Set();
+    const matched = [];
+    for (const p of pools) {
+      const key = (p.title || "").toLowerCase().trim();
+      if (!key || seen.has(key)) continue;
+      if (nameAppearsInAuthorString(p.authors, fullName)) {
+        seen.add(key);
+        matched.push({ ...p, authorMatch: fullName });
+      }
+    }
+    return matched;
+  } catch {
+    return [];
+  }
+}
+
+async function openAlex(query, limit = 10, key = "") {
+  try {
+
+
     const params = new URLSearchParams({
       search: query,
       sort: "relevance_score:desc",
@@ -1352,15 +1397,23 @@ async function gatherPapers(rawQuery, opts) {
   const ncbiKey = (opts && opts.ncbiKey) || "";
   const limit = (opts && opts.limit) || 25;
   const query = cleanQuery(rawQuery);
-  const isNameQuery = looksLikePersonName(rawQuery);
+  // A resolved person name from conversation history (pronoun follow-up like
+  // "he has papers from UTK") takes priority over re-detecting from rawQuery.
+  const resolvedPersonName = opts && opts.resolvedPersonName;
+  const isNameQuery = !!resolvedPersonName || looksLikePersonName(rawQuery);
+  const effectiveName = resolvedPersonName || rawQuery.trim();
   const binomial = extractBinomial(rawQuery);
 
-  // For pure person-name queries: try the author search FIRST. If it finds a
-  // confirmed match, use ONLY their real works — do not fan out to keyword
-  // search, because that pulls in unrelated papers where the name happens to
-  // appear (e.g. "J. P. Reese" or "Mr. Saho" showing up for "Reese Saho").
+  // For person-name queries: try OpenAlex's disambiguated author endpoint first.
+  // If that finds nothing (common for grad students / early-career researchers
+  // who aren't a distinct "author" record yet), fall back to searching for the
+  // exact quoted name and keeping only papers where that name is genuinely in
+  // the paper's own author list. Only if BOTH come back empty do we give up.
   if (isNameQuery) {
-    const authorWorks = await openAlexAuthorSearch(rawQuery.trim(), 20).catch(() => []);
+    let authorWorks = await openAlexAuthorSearch(effectiveName, 20).catch(() => []);
+    if (!authorWorks.length) {
+      authorWorks = await searchPapersByExactAuthorName(effectiveName, 15).catch(() => []);
+    }
     if (authorWorks.length) {
       const scored = authorWorks.map((p) => ({
         ...p, score: 10, contentHits: 1, contentCoverage: 1, organismPresent: true, relevance: 100,
@@ -1373,7 +1426,9 @@ async function gatherPapers(rawQuery, opts) {
       }
       return { papers: scored };
     }
-    // No confirmed author found — return empty so the endpoint can respond honestly.
+    // No confirmed author found via either method — return empty so the
+    // endpoint can respond honestly instead of falling back to loose keyword
+    // search (which is how unrelated papers used to leak in).
     return { papers: [], authorNotFound: true };
   }
 
@@ -1650,18 +1705,41 @@ export async function onRequest(context) {
     // Videos are fetched by frontend via /api/videos in parallel, so we don't
     // block the answer waiting for YouTube. Return empty array here.
     const videos = [];
+
+    // Pronoun / continuation follow-up detection: "he has papers from...",
+    // "she also wrote...", "does he work on...", "what about her research".
+    // If the current query doesn't itself look like a name but clearly refers
+    // back to a person, and the previous user turn WAS a name query, resolve
+    // the pronoun to that name so we stay locked onto the same person instead
+    // of falling through to an unrelated keyword search.
+    let resolvedPersonName = null;
+    const isPronounFollowup = /\b(he|she|him|her|his|hers|they|them|their)\b/i.test(query) && !looksLikePersonName(query);
+    if (isPronounFollowup && Array.isArray(body.history)) {
+      // Walk backward through history to find the most recent user turn that
+      // was itself a clean person-name query.
+      for (let i = body.history.length - 1; i >= 0; i--) {
+        const turn = body.history[i];
+        if (turn && turn.role === "user" && looksLikePersonName((turn.content || "").trim())) {
+          resolvedPersonName = turn.content.trim();
+          break;
+        }
+      }
+    }
+
     const gResult = await gatherPapers(query, {
       openAlexKey: env.OPENALEX_KEY || "",
       ncbiKey: env.NCBI_API_KEY || "",
       limit: 25,
+      resolvedPersonName,
     }).catch(() => ({ papers: [] }));
 
     // Author-name query where no confirmed match was found in any author
     // database — say so honestly instead of returning unrelated papers.
     if (gResult.authorNotFound) {
+      const displayName = resolvedPersonName || query;
       return new Response(JSON.stringify({
         answer:
-          "I couldn't confirm a researcher named **" + query + "** in the open author databases (OpenAlex, Semantic Scholar, Crossref).\n\n" +
+          "I couldn't confirm a researcher named **" + displayName + "** in the open author databases or by matching their name directly against paper author lists (OpenAlex, Semantic Scholar, Crossref, Europe PMC).\n\n" +
           "This can happen when someone:\n\n" +
           "- Has few indexed publications (common for current students or very recent researchers)\n" +
           "- Publishes under a different form of their name (with or without a middle initial, hyphenated names, etc.)\n" +
