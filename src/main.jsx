@@ -1243,10 +1243,35 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
               ))}
             </div>
           ) : (
-            <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(t.q)}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 14px", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 10, textDecoration: "none", color: P.ink2, fontSize: 13, transition: "border-color 0.15s, color 0.15s" }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.color = P.ink2; }}>
-              <span>Video proxies unavailable, search YouTube directly</span><span style={{ color: accent }}>→</span>
+            <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(t.q)}`} target="_blank" rel="noreferrer"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "16px 18px",
+                background: P.surface,
+                border: `1px solid ${P.line}`,
+                borderRadius: 12,
+                textDecoration: "none",
+                color: P.ink,
+                fontSize: 13.5,
+                transition: "border-color 0.15s, transform 0.15s, box-shadow 0.15s",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = P.shadow; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 8, flexShrink: 0,
+                background: `linear-gradient(135deg, ${withAlpha(accent, 0.15)}, ${withAlpha(accent, 0.05)})`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: accent, fontSize: 20,
+              }}>▶</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, marginBottom: 3, color: P.ink }}>Search YouTube for this topic</div>
+                <div style={{ fontSize: 12, color: P.faint }}>Video search proxies are unreliable, this opens YouTube directly</div>
+              </div>
+              <span style={{ color: accent, fontSize: 16, flexShrink: 0 }}>→</span>
             </a>
           )}
         </div>
