@@ -1545,31 +1545,32 @@ export async function onRequest(context) {
     );
 
     // Build evidence block
+    // Detect if this was a person-name query (matches the same logic gatherPapers uses)
+    const isNameSearch = looksLikePersonName(query);
+
+    // Build evidence. For name queries, EXPLICITLY mark which papers are
+    // author-matched (real author search hits) vs keyword hits, and show every
+    // author verbatim so the model can't invent name variants.
     const evidence = useEvidence
       ? papers
           .slice(0, 12)
-          .map(
-            (p, i) =>
-              "[" +
-              (i + 1) +
-              "] " +
-              p.title +
-              " (" +
-              (p.authors || "n/a") +
-              ", " +
-              p.journal +
-              ", " +
-              (p.year || "n/a") +
-              ")\nAbstract: " +
-              (p.abstract || "(no abstract available)")
-          )
+          .map((p, i) => {
+            const authorTag = isNameSearch
+              ? (p.authorMatch
+                  ? " [AUTHOR-MATCHED to \"" + p.authorMatch + "\"]"
+                  : " [NOT author-matched — appeared via keyword match only]")
+              : "";
+            return (
+              "[" + (i + 1) + "] " + p.title +
+              " (Authors: " + (p.authors || "n/a") + ", " +
+              p.journal + ", " + (p.year || "n/a") + ")" + authorTag +
+              "\nAbstract: " + (p.abstract || "(no abstract available)")
+            );
+          })
           .join("\n\n")
       : useWeb
       ? webRefs
-          .map(
-            (r, i) =>
-              "[" + (i + 1) + "] " + r.title + " (" + r.journal + ")\n" + r.abstract
-          )
+          .map((r, i) => "[" + (i + 1) + "] " + r.title + " (" + r.journal + ")\n" + r.abstract)
           .join("\n\n")
       : "";
 
@@ -1590,7 +1591,22 @@ export async function onRequest(context) {
       "Jump directly into the answer.";
 
     let systemPrompt;
-    if (useEvidence) {
+    if (useEvidence && isNameSearch) {
+      // Name query: strict anti-fabrication rules. The AI must ONLY discuss the
+      // person's own papers (marked AUTHOR-MATCHED), spell their name EXACTLY as
+      // given, never invent name variants, and never attribute other authors'
+      // papers to them.
+      systemPrompt =
+        "You are Cerebrum, a scientific research assistant. The user searched for a PERSON'S NAME: \"" + query + "\". " +
+        "Some retrieved papers are marked [AUTHOR-MATCHED to \"...\"] — these ARE by that person. Others are marked [NOT author-matched — appeared via keyword match only] — these are NOT by that person, they just came up in the general search.\n\n" +
+        "STRICT RULES:\n" +
+        "1. Spell the person's name EXACTLY as \"" + query + "\". Do NOT invent variants like adding a 'y' or changing letters. If the query says 'Reese Saho', write 'Reese Saho', not 'Reese Sahoy' or 'Reese Sahon'.\n" +
+        "2. Only attribute papers to the person if they are marked [AUTHOR-MATCHED]. When citing an author-matched paper, cite it inline as [N].\n" +
+        "3. If a paper is marked [NOT author-matched], do NOT say the searched person wrote it. If it's relevant context (e.g. 'other BSFL research includes'), name the ACTUAL first author from the Authors field.\n" +
+        "4. If NO papers are author-matched, say so honestly: mention that the person's own indexed publications didn't surface, and offer to summarize what the retrieved papers are about (with their real authors named).\n" +
+        "5. Do NOT invent research topics for the person. Only describe what their author-matched papers actually cover.\n\n" +
+        humanStyle + " " + lengthHint + " " + rules;
+    } else if (useEvidence) {
       systemPrompt =
         "You are Cerebrum, a scientific research assistant. You have real peer-reviewed papers as sources. " +
         "Answer the question fully and naturally, citing the sources inline as [1], [2], etc. where they support specific claims. " +
