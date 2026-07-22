@@ -14,7 +14,7 @@ const LOADING_MESSAGES = [
   "Consulting the literature",
   "Cross-referencing citations",
   "Peering into petri dishes",
-  "Dusty Waz H3r3",
+  "Aligning the sequences",
   "Calibrating the spectrometer",
   "Sifting through preprints",
   "Interrogating the abstracts",
@@ -22,7 +22,7 @@ const LOADING_MESSAGES = [
   "Centrifuging the results",
   "Decoding the methods sections",
   "Chasing down DOIs",
-  "Meow",
+  "Scanning the stacks",
   "Titrating the findings",
   "Querying fourteen databases",
   "Reading between the citations",
@@ -32,7 +32,7 @@ const LOADING_MESSAGES = [
   "Filtering out the noise",
   "Consulting the peer reviewers",
   "Dusting off the journals",
-  "Is This The Krusty Krab?",
+  "Mining the metadata",
   "Sequencing the sources",
   "Distilling the abstracts",
   "Weighing the evidence",
@@ -60,6 +60,32 @@ const LOADING_MESSAGES = [
   "Untangling the results",
   "Polishing the conclusions",
   "Consulting fourteen databases at once",
+  // Personality (mixed in ~1 in 4)
+  "Is this the Krusty Krab? No, this is Cerebrum",
+  "Dusty waz h3re",
+  "Vaticay was here",
+  "Reticulating splines (obligatory)",
+  "Reading the paper so you don't have to",
+  "Bribing PubMed with a warm cookie",
+  "Convincing OpenAlex you're not a robot",
+  "Asking arXiv to hurry up",
+  "Explaining to bioRxiv what a preprint is",
+  "Beeping. Also booping",
+  "Feeding the graduate students",
+  "Making Google Scholar jealous",
+  "Pretending I know what phenology means",
+  "Locating the ethics board",
+  "One does not simply search PubMed",
+  "It's not a bug, it's peer review",
+  "Consulting Sagan's ghost",
+  "42",
+  "Trust me, I'm a language model",
+  "Waiting for the reviewer's response (kidding, that would take months)",
+  "Downloading more RAM for science",
+  "Enhancing... enhancing... enhancing",
+  "Assembling the Illuminati... I mean, editorial board",
+  "Yes chef",
+  "Doing the little citation dance",
 ];
 
 const SUGGESTION_POOL = [
@@ -417,6 +443,8 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
         pulseSpeed: 1.5 + Math.random() * 1.5,
         // Persistent orbital angle for gentle drift
         orbitPhase: Math.random() * Math.PI * 2,
+        // Fake depth: 0 = far/small/dim, 1 = near/big/bright
+        depth: 0.3 + Math.random() * 0.7,
       });
     }
     // Synaptic connections: nearest neighbors
@@ -518,34 +546,48 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
         }
       }
 
-      // Neurons with pulsing glow
+      // Neurons with pulsing glow (depth-scaled for a fake 3D feel)
       for (let i = 0; i < pos.length; i++) {
         const p = pos[i]; if (p.t <= 0.02) continue;
         const nMask = maskFade(p.x, p.y);
         if (nMask <= 0.02) continue;
         const n = neurons[i];
-        const pulse = 0.7 + 0.3 * Math.sin(elapsed * n.pulseSpeed + n.pulse);
-        const rBase = n.r * dpr;
-        const finalA = p.t * pulse * nMask;
-        // outer glow
-        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rBase * 5);
-        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.5 * finalA})`);
+        // Depth modulates size (near neurons look bigger) and brightness.
+        // A very slow breathing pulse keeps things alive between beats.
+        const breath = 1 + 0.06 * Math.sin(elapsed * 0.9 + n.pulse * 0.4);
+        const pulse = 0.65 + 0.35 * Math.sin(elapsed * n.pulseSpeed + n.pulse);
+        const depthSize = 0.55 + 0.45 * n.depth; // 0.55–1.0
+        const depthBright = 0.4 + 0.6 * n.depth; // 0.4–1.0
+        const rBase = n.r * dpr * depthSize * breath;
+        const finalA = p.t * pulse * nMask * depthBright;
+        // outer glow — larger radius for deeper visual weight
+        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rBase * 6);
+        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.55 * finalA})`);
+        glow.addColorStop(0.4, `rgba(${ar},${ag},${ab},${0.2 * finalA})`);
         glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
         ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(p.x, p.y, rBase * 5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, rBase * 6, 0, Math.PI * 2); ctx.fill();
         // core
         ctx.fillStyle = `rgba(${ar},${ag},${ab},${finalA})`;
         ctx.beginPath(); ctx.arc(p.x, p.y, rBase, 0, Math.PI * 2); ctx.fill();
       }
 
-      // Text reveal trigger + final flash + finish
+      // Text reveal + smooth handoff. No harsh color flash — just a graceful
+      // fade of the neurons and let the container's CSS transition carry the
+      // rest. Feels like the network dissolves, not like a camera bulb.
       if (forming) {
         if (elapsed >= 1.2 && !textReveal) setTextReveal(true);
-        if (elapsed >= 1.9) {
-          const f = Math.min(1, (elapsed - 1.9) / 0.6);
-          ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.6 * (1 - Math.abs(f - 0.5) * 2)})`;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          if (f >= 1) { cancelAnimationFrame(rafRef.current); onEnter(); return; }
+        if (elapsed >= 2.2) {
+          const f = Math.min(1, (elapsed - 2.2) / 0.7);
+          // Fade the whole canvas out smoothly. The container itself keeps its
+          // radial background, so there's never a hard color pop.
+          canvas.style.opacity = String(1 - f);
+          if (f >= 1) {
+            cancelAnimationFrame(rafRef.current);
+            // Small delay so the text fully fades in before the app mounts.
+            setTimeout(() => onEnter(), 220);
+            return;
+          }
         }
       }
       rafRef.current = requestAnimationFrame(draw);
@@ -573,8 +615,8 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, fontFamily: "'Inter', -apple-system, sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
-      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: animationMode === "off" ? 0 : animationMode === "subtle" ? 0.45 : 0.95 }} />
-      <div style={{ position: "relative", zIndex: 1, textAlign: "center", transition: "opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)", opacity: phase === "forming" ? 0 : 1, transform: phase === "forming" ? "scale(0.92) translateY(10px)" : "scale(1)" }}>
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: animationMode === "off" ? 0 : animationMode === "subtle" ? 0.45 : 0.95, transition: "opacity 0.7s cubic-bezier(0.4, 0.0, 0.2, 1)" }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center", transition: "opacity 0.9s cubic-bezier(0.4, 0.0, 0.2, 1), transform 0.9s cubic-bezier(0.4, 0.0, 0.2, 1)", opacity: phase === "forming" ? 0 : 1, transform: phase === "forming" ? "scale(0.96) translateY(6px)" : "scale(1)" }}>
         <div style={{ marginBottom: 22, animation: "cb-float 4s ease-in-out infinite" }}><Mark size={54} accent={accent} glow={P.dark} /></div>
         <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, marginBottom: 14 }}>A Research Instrument</div>
         <div style={{ fontSize: 52, fontWeight: 750, letterSpacing: "-0.035em", color: P.ink, marginBottom: 12, lineHeight: 1 }}>Cerebrum</div>
@@ -594,7 +636,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
 // ============ LIVING MOLECULAR BACKGROUND ============
 // Ambient always-on canvas: drifting particles with elastic connections,
 // gentle currents, subtle firing pulses. Sits behind ALL app content at low opacity.
-function LivingBackground({ accent, P, intensity = "cinematic", preset = "particles", density = 1, speed = 1, opacity = 1 }) {
+function LivingBackground({ accent, P, intensity = "cinematic", preset = "particles", density = 1, speed = 1, opacity = 1, paused = false }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
   const stateRef = useRef({ items: [], t: 0 });
@@ -603,8 +645,10 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
   // Read them from refs inside the animation loop instead.
   const speedRef = useRef(speed);
   const densityRef = useRef(density);
+  const pausedRef = useRef(paused);
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { densityRef.current = density; }, [density]);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
 
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -786,29 +830,57 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       const items = stateRef.current.items;
       const cx = canvas.width / 2;
       const cy = canvas.height / 2;
-      const heightExtent = canvas.height * 0.85;
-      const radius = 90 * dpr;
-      const twistSpeed = 0.6 * getSpeed();
-      // Draw connecting rungs
+      const heightExtent = canvas.height * 1.1; // extend beyond viewport for endless feel
+      const radius = 110 * dpr;
+      const twistSpeed = 0.5 * getSpeed();
+
+      // First pass: draw the two backbone strands as smooth curves
+      ctx.lineWidth = 1.3 * dpr;
+      for (let strand = 0; strand < 2; strand++) {
+        ctx.beginPath();
+        for (let idx = 0; idx <= items.length; idx++) {
+          const n = items[idx % items.length];
+          const y = cy - heightExtent / 2 + n.t * heightExtent;
+          const twist = elapsed * twistSpeed + n.t * Math.PI * 4;
+          const x = cx + Math.cos(twist + strand * Math.PI) * radius;
+          if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.28)`;
+        ctx.stroke();
+      }
+
+      // Second pass: rungs and nodes with depth-based brightness (front strands brighter)
       for (const n of items) {
         const y = cy - heightExtent / 2 + n.t * heightExtent;
         const twist = elapsed * twistSpeed + n.t * Math.PI * 4;
         const x1 = cx + Math.cos(twist) * radius;
         const x2 = cx + Math.cos(twist + Math.PI) * radius;
-        // Rung
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.18)`;
-        ctx.lineWidth = 0.8 * dpr;
-        ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
-        // Nodes
-        const r = 2 * dpr;
-        for (const x of [x1, x2]) {
-          const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
-          glow.addColorStop(0, `rgba(${ar},${ag},${ab},0.45)`);
+        // Depth: strand-1 z-depth ranges from -1 (far) to +1 (near) via sin(twist)
+        const z1 = Math.sin(twist); // -1..1
+        const z2 = Math.sin(twist + Math.PI);
+        const bright1 = 0.5 + 0.5 * (z1 + 1) / 2; // 0.5..1
+        const bright2 = 0.5 + 0.5 * (z2 + 1) / 2;
+        // Rung — fades based on average brightness (only render if rungs face forward)
+        const rungAlpha = 0.14 * Math.max(0, (bright1 + bright2) / 2 - 0.3);
+        if (rungAlpha > 0.02) {
+          ctx.strokeStyle = `rgba(${ar},${ag},${ab},${rungAlpha})`;
+          ctx.lineWidth = 0.9 * dpr;
+          ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+        }
+        // Nodes with depth-scaled size and brightness
+        const nodePairs = [
+          { x: x1, b: bright1 },
+          { x: x2, b: bright2 },
+        ];
+        for (const p of nodePairs) {
+          const r = (1.6 + 1.4 * p.b) * dpr;
+          const glow = ctx.createRadialGradient(p.x, y, 0, p.x, y, r * 5);
+          glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.55 * p.b})`);
           glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
           ctx.fillStyle = glow;
-          ctx.beginPath(); ctx.arc(x, y, r * 4, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = `rgba(${ar},${ag},${ab},0.75)`;
-          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(p.x, y, r * 5, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.85 * p.b})`;
+          ctx.beginPath(); ctx.arc(p.x, y, r, 0, Math.PI * 2); ctx.fill();
         }
       }
     }
@@ -890,6 +962,12 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
     }
 
     function draw(now) {
+      // Skip repaint when paused (e.g. Settings modal open) so slider drags
+      // don't compete with a full-viewport canvas for main-thread time.
+      if (pausedRef.current) {
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
       const elapsed = (now - startTime) / 1000;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (preset === "waves") drawWaves(elapsed);
@@ -1063,9 +1141,20 @@ function App() {
   useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
   useEffect(() => { setCookie("cb_anim", animationMode); }, [animationMode]);
   useEffect(() => { setCookie("cb_animP", animPreset); }, [animPreset]);
-  useEffect(() => { setCookie("cb_animD", String(animDensity)); }, [animDensity]);
-  useEffect(() => { setCookie("cb_animS", String(animSpeed)); }, [animSpeed]);
-  useEffect(() => { setCookie("cb_animO", String(animOpacity)); }, [animOpacity]);
+  // Debounce animation cookie writes: sliders fire many times per second while
+  // dragging; writing to document.cookie on every tick contributes to lag.
+  useEffect(() => {
+    const t = setTimeout(() => setCookie("cb_animD", String(animDensity)), 500);
+    return () => clearTimeout(t);
+  }, [animDensity]);
+  useEffect(() => {
+    const t = setTimeout(() => setCookie("cb_animS", String(animSpeed)), 500);
+    return () => clearTimeout(t);
+  }, [animSpeed]);
+  useEffect(() => {
+    const t = setTimeout(() => setCookie("cb_animO", String(animOpacity)), 500);
+    return () => clearTimeout(t);
+  }, [animOpacity]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
@@ -1196,7 +1285,7 @@ function App() {
 
   return (
     <div style={S.page}>
-      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} />}
+      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
       <div style={S.grain} />
       <header style={S.header}>
         <div style={S.headInner}>
@@ -1905,11 +1994,17 @@ if (typeof document !== "undefined") {
         85% { transform: rotate(-3deg) scale(1.02); }
       }
       .cb-wiggle { animation: cb-wiggle 0.55s cubic-bezier(0.34, 1.56, 0.64, 1); }
-      .cb-fade { animation: cbFade 0.4s ease forwards; }
-      .cb-rise { animation: cbRise 0.5s cubic-bezier(.2,.8,.2,1) forwards; }
-      .cb-pop { animation: cbPop 0.28s cubic-bezier(.2,.9,.3,1) forwards; }
-      .cb-gate { animation: cbGate 0.7s cubic-bezier(.2,.8,.2,1) forwards; }
-      .cb-hero { animation: cbHero 0.6s cubic-bezier(.2,.8,.2,1) forwards; }
+      .cb-fade { animation: cbFade 0.55s cubic-bezier(0.4, 0.0, 0.2, 1) forwards; }
+      .cb-rise { animation: cbRise 0.7s cubic-bezier(0.34, 1.32, 0.64, 1) forwards; }
+      .cb-pop { animation: cbPop 0.42s cubic-bezier(0.34, 1.32, 0.64, 1) forwards; }
+      .cb-gate { animation: cbGate 0.9s cubic-bezier(0.34, 1.28, 0.64, 1) forwards; }
+      .cb-hero { animation: cbHero 0.8s cubic-bezier(0.34, 1.28, 0.64, 1) forwards; }
+      *, *::before, *::after { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      button, a { -webkit-tap-highlight-color: transparent; }
+      input[type="range"] { -webkit-appearance: none; height: 4px; border-radius: 2px; }
+      input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: currentColor; cursor: pointer; transition: transform 0.15s cubic-bezier(0.34, 1.32, 0.64, 1); }
+      input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+      input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.3); }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
       a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
