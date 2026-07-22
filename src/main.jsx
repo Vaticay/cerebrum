@@ -14,7 +14,7 @@ const LOADING_MESSAGES = [
   "Consulting the literature",
   "Cross-referencing citations",
   "Peering into petri dishes",
-  "Dusty Waz H3rE",
+  "Aligning the sequences",
   "Calibrating the spectrometer",
   "Sifting through preprints",
   "Interrogating the abstracts",
@@ -979,6 +979,7 @@ function App() {
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [zoteroOpen, setZoteroOpen] = useState(false);
@@ -1274,7 +1275,7 @@ function App() {
               AI-generated summaries from peer-reviewed literature. Always verify against the cited sources.
             </div>
             <div style={{ fontSize: 10.5, color: P.faint, letterSpacing: "0.02em" }}>
-              <a href="/how-it-works" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>How it works</a>
+              <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}`, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
               <span style={{ margin: "0 8px" }}>·</span>
               © {new Date().getFullYear()} Cerebrum™
             </div>
@@ -1340,7 +1341,9 @@ function App() {
         </div>
       )}
 
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}    </div>
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
+      {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
+    </div>
   );
 }
 
@@ -1564,6 +1567,90 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function HowItWorksModal({ P, accent, close }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+
+  const Section = ({ title, children }) => (
+    <div style={{ marginBottom: 26 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.06em", color: accent, marginBottom: 8, textTransform: "uppercase" }}>{title}</div>
+      <div style={{ fontSize: 14, lineHeight: 1.65, color: P.ink }}>{children}</div>
+    </div>
+  );
+  const List = ({ items }) => (
+    <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+      {items.map((it, i) => <li key={i} style={{ marginBottom: 6, fontSize: 13.5, lineHeight: 1.6, color: P.ink2 }}>{it}</li>)}
+    </ul>
+  );
+
+  return (
+    <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-fade">
+      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}` }} className="cb-pop">
+        <div style={{ position: "sticky", top: 0, background: P.bg, padding: "20px 28px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: "-0.01em", color: P.ink }}>How Cerebrum works</div>
+            <div style={{ fontSize: 12.5, color: P.faint, marginTop: 2 }}>A short, honest technical explanation. No marketing.</div>
+          </div>
+          <button onClick={close} style={{ background: "none", border: "none", fontSize: 22, color: P.faint, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+        <div style={{ padding: "22px 28px 30px" }}>
+          <Section title="The retrieval layer">
+            Every query fans out to 10-plus scholarly databases in parallel, all free and keyless.
+            <List items={[
+              <><strong>Europe PMC</strong> — biomedical, includes preprints</>,
+              <><strong>PubMed</strong> (NCBI E-utilities) — biomedical, automatic term mapping</>,
+              <><strong>OpenAlex</strong> — cross-disciplinary, concept graph</>,
+              <><strong>Crossref</strong> — DOI-registered works, checked for retraction status</>,
+              <><strong>arXiv</strong> — physics, math, CS, quantitative biology</>,
+              <><strong>Semantic Scholar</strong> — includes auto-generated TL;DR summaries</>,
+              <><strong>bioRxiv</strong> preprints (via OpenAlex)</>,
+              <><strong>DOAJ, PLOS, Zenodo, DataCite</strong> — additional coverage</>,
+            ]} />
+          </Section>
+          <Section title="Query intelligence">
+            <List items={[
+              <><strong>Species queries</strong> (Latin binomials like Populus angustifolia) are wrapped in quoted phrases with strict species-level filtering — sibling species in the same genus get dropped or flagged.</>,
+              <><strong>Author queries</strong> hit OpenAlex's author disambiguation endpoint and require every name token to match. If no confirmed author is found, we say so honestly instead of guessing.</>,
+              <><strong>Acronym expansion</strong> for common scientific abbreviations.</>,
+              <><strong>Fallback ladder</strong>: if a strict query returns nothing, we retry looser, then plain — a search rarely comes back empty when papers exist.</>,
+            ]} />
+          </Section>
+          <Section title="Trust and safety">
+            <List items={[
+              <><strong>Retraction flagging</strong> via Crossref's crossmark data on the top papers per query.</>,
+              <><strong>No fabricated citations</strong> — the AI is instructed to never invent DOIs, authors, or journal names.</>,
+              <><strong>Honest hedging</strong> — when literature is thin, the model says so instead of filling the gap with confidence.</>,
+            ]} />
+          </Section>
+          <Section title="The AI layer">
+            Answers are synthesized by free-tier language models, tried in order: OpenRouter free models (Gemini 2.0 Flash, Llama 3.3 70B, Qwen 2.5 72B, Mistral Small, DeepSeek Chat, Llama 3.1 8B), then Cloudflare Workers AI, then Pollinations as a keyless last resort. If everything fails, raw paper abstracts are shown instead of a fabricated answer.
+          </Section>
+          <Section title="Known limitations">
+            <List items={[
+              "New preprints may not be indexed anywhere for hours or days after posting.",
+              "The AI can misinterpret papers — verify claims against the cited source.",
+              "Free AI models rate-limit under load; answers may fall to slower fallback tiers.",
+              "Non-English literature is under-indexed across most of these databases.",
+            ]} />
+          </Section>
+          <Section title="What Cerebrum is not">
+            <List items={[
+              "Not a replacement for reading the actual papers",
+              "Not a systematic review tool (helps scope one, but you still need PRISMA methodology)",
+              "Not medical, legal, or financial advice",
+              "Not paywalled or ad-supported",
+            ]} />
+          </Section>
+          <div style={{ fontSize: 11.5, color: P.faint, marginTop: 24, paddingTop: 16, borderTop: `1px solid ${P.line}` }}>Cerebrum™ · Built by Vaticay</div>
+        </div>
+      </div>
     </div>
   );
 }
