@@ -381,8 +381,74 @@ async function pubmed(query, limit = 10, apiKey = "") {
   }
 }
 
-async function openAlex(query, limit = 10, key = "") {
+// Looks like a person's name: 2-3 capitalized-word tokens, all letters.
+// Used to trigger author-specific search paths.
+function looksLikePersonName(raw) {
+  const s = raw.trim();
+  if (!s) return false;
+  const toks = s.split(/\s+/);
+  if (toks.length < 2 || toks.length > 4) return false;
+  // Each token: only letters (allow hyphens/apostrophes), starts with uppercase in original
+  const isNamey = toks.every((t) => /^[A-Z][a-zA-Z'\-]+\.?$/.test(t) || /^[A-Z]\.?$/.test(t));
+  // Reject obvious topic-word starts like "How" "What"
+  const q = ["how", "what", "why", "when", "where", "who", "which", "does", "is", "are", "can", "the"];
+  if (q.includes(toks[0].toLowerCase())) return false;
+  return isNamey;
+}
+
+// OpenAlex authors endpoint: disambiguates people and returns their id, so we
+// can fetch their actual works. Keyless.
+async function openAlexAuthorSearch(name, limit = 10) {
   try {
+    const authorRes = await getJSON(
+      "https://api.openalex.org/authors?" +
+        new URLSearchParams({
+          search: name,
+          per_page: "5",
+          mailto: "noreply@example.com",
+        })
+    );
+    const authors = (authorRes && authorRes.results) || [];
+    if (!authors.length) return [];
+    // Pull works for the top 2 matching authors (in case of ambiguity, both surface)
+    const worksAll = [];
+    for (const a of authors.slice(0, 2)) {
+      try {
+        const worksRes = await getJSON(
+          "https://api.openalex.org/works?" +
+            new URLSearchParams({
+              filter: "author.id:" + a.id.replace("https://openalex.org/", ""),
+              per_page: String(limit),
+              sort: "publication_year:desc",
+              select:
+                "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
+              mailto: "noreply@example.com",
+            })
+        );
+        for (const w of (worksRes.results || [])) {
+          if (!w.title) continue;
+          const first =
+            (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || a.display_name;
+          worksAll.push({
+            title: w.title,
+            url: w.doi || (w.primary_location && (w.primary_location.landing_page_url || w.primary_location.pdf_url)) || "",
+            year: w.publication_year || "",
+            citations: typeof w.cited_by_count === "number" ? w.cited_by_count : null,
+            authors: w.authorships && w.authorships.length > 1 ? first + " et al." : first,
+            journal: (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || "OpenAlex",
+            abstract: decodeInverted(w.abstract_inverted_index),
+            authorMatch: a.display_name,
+          });
+        }
+      } catch {}
+    }
+    return worksAll;
+  } catch {
+    return [];
+  }
+}
+
+async function openAlex(query, limit = 10, key = "") {  try {
     const params = new URLSearchParams({
       search: query,
       sort: "relevance_score:desc",
@@ -776,11 +842,18 @@ const VIDEO_INSTANCES = [
   { type: "piped", url: "https://pipedapi.reallyaweso.me" },
   { type: "piped", url: "https://pipedapi.leptons.xyz" },
   { type: "piped", url: "https://pipedapi.ducks.party" },
+  { type: "piped", url: "https://pipedapi.r4fo.com" },
+  { type: "piped", url: "https://pipedapi.us.projectsegfau.lt" },
+  { type: "piped", url: "https://pipedapi.drgns.space" },
+  { type: "piped", url: "https://pipedapi.orsi.uk" },
   { type: "invidious", url: "https://invidious.nerdvpn.de" },
   { type: "invidious", url: "https://inv.nadeko.net" },
   { type: "invidious", url: "https://iv.ggtyler.dev" },
   { type: "invidious", url: "https://invidious.privacyredirect.com" },
   { type: "invidious", url: "https://invidious.f5.si" },
+  { type: "invidious", url: "https://inv.tux.pizza" },
+  { type: "invidious", url: "https://invidious.perennialte.ch" },
+  { type: "invidious", url: "https://invidious.jing.rocks" },
 ];
 
 function shuffle(arr) {
@@ -867,13 +940,211 @@ async function fetchVideos(query) {
   return [];
 }
 
-// ============ PAPER GATHERING & RANKING ============
+// ============ AUTHOR SEARCH ============
+// If the query looks like a person's name, we hit author-specific endpoints
+// rather than a generic keyword search. This avoids "Reese Saho" returning
+// stellar-pulsation papers just because "Reese" appears somewhere in them.
+
+function detectAuthor(raw) {
+  const q = raw.trim();
+  const lower = q.toLowerCase();
+  const prefixes = [
+    "papers by ", "publications by ", "articles by ",
+    "research by ", "work by ", "author:",
+  ];
+  for (const p of prefixes) {
+    if (lower.startsWith(p)) return q.slice(p.length).trim();
+  }
+  // Bare name heuristic: 2-4 words, all capitalized, no question words.
+  const words = q.split(/\s+/);
+  if (words.length >= 2 && words.length <= 4) {
+    const questiony = /^(what|how|why|when|where|which|who|is|are|does|do|can|explain|tell)/i.test(q);
+    const allCap = words.every((w) => /^[A-Z][a-zA-Z.'-]*$/.test(w));
+    if (allCap && !questiony) return q;
+  }
+  return null;
+}
+
+async function authorOpenAlex(name, limit = 15) {
+  try {
+    // First find the actual author entity, then their works.
+    const searchUrl = "https://api.openalex.org/authors?" +
+      new URLSearchParams({
+        search: name,
+        per_page: "5",
+        select: "id,display_name,works_count,cited_by_count",
+        mailto: "noreply@example.com",
+      });
+    const sdata = await getJSON(searchUrl);
+    const cands = (sdata && sdata.results) || [];
+    if (!cands.length) return { papers: [], matched: null };
+
+    // Prefer exact name match; fall back to top result
+    const wanted = name.toLowerCase();
+    const exact = cands.find((c) => (c.display_name || "").toLowerCase() === wanted);
+    const author = exact || cands[0];
+    if (!author || !author.id) return { papers: [], matched: null };
+
+    // Now fetch that author's works
+    const authorFilter = "authorships.author.id:" + author.id.replace("https://openalex.org/", "");
+    const worksUrl = "https://api.openalex.org/works?" +
+      new URLSearchParams({
+        filter: authorFilter,
+        sort: "cited_by_count:desc",
+        per_page: String(limit),
+        select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
+        mailto: "noreply@example.com",
+      });
+    const data = await getJSON(worksUrl);
+    const papers = ((data && data.results) || []).map((w) => {
+      const first = (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || "";
+      return {
+        title: w.title || "Untitled",
+        url: w.doi || (w.primary_location && w.primary_location.landing_page_url) || "",
+        year: w.publication_year || "",
+        citations: typeof w.cited_by_count === "number" ? w.cited_by_count : null,
+        authors: w.authorships && w.authorships.length > 1 ? first + " et al." : first,
+        journal: (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || "OpenAlex",
+        abstract: decodeInverted(w.abstract_inverted_index),
+      };
+    }).filter((p) => p.title && p.title !== "Untitled");
+    return { papers, matched: author.display_name };
+  } catch {
+    return { papers: [], matched: null };
+  }
+}
+
+async function authorCrossref(name, limit = 15) {
+  try {
+    const url = "https://api.crossref.org/works?" +
+      new URLSearchParams({
+        "query.author": name,
+        rows: String(limit),
+        sort: "is-referenced-by-count",
+        order: "desc",
+        select: "title,author,container-title,published,DOI,is-referenced-by-count,abstract",
+      }) + "&mailto=cerebrum@example.com";
+    const data = await getJSON(url);
+    return ((data && data.message && data.message.items) || []).map((it) => ({
+      title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled",
+      url: it.DOI ? "https://doi.org/" + it.DOI : "",
+      year: (it.published && it.published["date-parts"] && it.published["date-parts"][0] && it.published["date-parts"][0][0]) || "",
+      citations: typeof it["is-referenced-by-count"] === "number" ? it["is-referenced-by-count"] : null,
+      authors: (it.author || []).slice(0, 1).map((a) => ((a.given || "") + " " + (a.family || "")).trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""),
+      journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref",
+      abstract: stripTags(it.abstract || ""),
+    })).filter((p) => p.title);
+  } catch { return []; }
+}
+
+async function authorSemanticScholar(name, limit = 20) {
+  try {
+    const searchUrl = "https://api.semanticscholar.org/graph/v1/author/search?" +
+      new URLSearchParams({ query: name, fields: "name,paperCount,citationCount", limit: "5" });
+    const sdata = await getJSON(searchUrl);
+    const cands = (sdata && sdata.data) || [];
+    if (!cands.length) return { papers: [], matched: null };
+
+    const wanted = name.toLowerCase().split(/\s+/).filter(Boolean);
+    const scoreName = (candName) => {
+      const cn = (candName || "").toLowerCase();
+      return wanted.filter((w) => cn.includes(w)).length / wanted.length;
+    };
+    const ranked = cands
+      .map((c) => ({ c, match: scoreName(c.name) }))
+      .sort((a, b) => (b.match - a.match) || ((b.c.paperCount || 0) - (a.c.paperCount || 0)));
+
+    const best = ranked[0];
+    if (!best || best.match < 0.99) return { papers: [], matched: null };
+
+    const authorId = best.c.authorId;
+    if (!authorId) return { papers: [], matched: null };
+    const papersUrl = "https://api.semanticscholar.org/graph/v1/author/" + authorId + "/papers?" +
+      new URLSearchParams({
+        fields: "title,abstract,year,citationCount,authors,venue,externalIds",
+        limit: String(limit),
+      });
+    const pdata = await getJSON(papersUrl);
+    const papers = ((pdata && pdata.data) || []).map((r) => {
+      const doi = r.externalIds && r.externalIds.DOI;
+      const names = (r.authors || []).map((a) => a.name);
+      return {
+        title: r.title || "Untitled",
+        url: doi ? "https://doi.org/" + doi : (r.externalIds && r.externalIds.ArXiv ? "https://arxiv.org/abs/" + r.externalIds.ArXiv : ""),
+        year: r.year || "",
+        citations: typeof r.citationCount === "number" ? r.citationCount : null,
+        authors: names.length > 1 ? names[0] + " et al." : names[0] || "",
+        journal: r.venue || "Semantic Scholar",
+        abstract: r.abstract || "",
+      };
+    }).filter((p) => p.title && p.title !== "Untitled");
+    return { papers, matched: best.c.name };
+  } catch { return { papers: [], matched: null }; }
+}
+
+// UTK-specific: check TRACE for local grad students since Reese Saho is at UTK
+async function authorUTK(name) {
+  const parts = name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  if (!parts.length) return [];
+  const sets = ["publication:utk_graddiss", "publication:utk_gradthes"];
+  const all = [];
+  for (const set of sets) {
+    try {
+      const text = await getText(
+        "https://trace.tennessee.edu/do/oai/?" +
+          new URLSearchParams({ verb: "ListRecords", metadataPrefix: "dcq", set })
+      );
+      all.push(...extractTraceRecords(text));
+    } catch {}
+  }
+  // Match only records whose creators actually contain the person's name
+  return all
+    .filter((r) => {
+      const authors = (r.authors || "").toLowerCase();
+      return parts.every((p) => authors.includes(p));
+    })
+    .slice(0, 10)
+    .map((r) => ({
+      title: r.title,
+      url: r.url,
+      year: r.year,
+      citations: null,
+      authors: r.authors,
+      journal: "UTK TRACE",
+      abstract: stripTags(r.abstract),
+    }));
+}
+
+async function gatherByAuthor(name) {
+  const [ssRes, oaRes, cr, utk] = await Promise.all([
+    authorSemanticScholar(name, 20).catch(() => ({ papers: [], matched: null })),
+    authorOpenAlex(name, 15).catch(() => ({ papers: [], matched: null })),
+    authorCrossref(name, 15).catch(() => []),
+    authorUTK(name).catch(() => []),
+  ]);
+  const ss = ssRes.papers || [];
+  const oa = oaRes.papers || [];
+  const merged = [];
+  const seen = new Set();
+  for (const list of [ss, oa, cr, utk]) {
+    for (const p of list) {
+      const key = (p.title || "").toLowerCase().trim();
+      if (key && !seen.has(key)) { seen.add(key); merged.push(p); }
+    }
+  }
+  const papers = merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 25);
+  const matched = ssRes.matched || oaRes.matched || null;
+  return { papers, confirmed: !!matched, matchedName: matched };
+}
+
+
 
 async function gatherPapers(rawQuery, opts) {
   const openAlexKey = (opts && opts.openAlexKey) || "";
   const ncbiKey = (opts && opts.ncbiKey) || "";
   const limit = (opts && opts.limit) || 25;
   const query = cleanQuery(rawQuery);
+  const isNameQuery = looksLikePersonName(rawQuery);
 
   // All 10 keyless / low-friction sources in parallel via allSettled
   const jobs = [
@@ -888,6 +1159,11 @@ async function gatherPapers(rawQuery, opts) {
     zenodo(query, 4),
     plos(query, 6),
   ];
+  // When the query looks like a person's name, add an author-specific search
+  // that fetches their actual works via OpenAlex authors endpoint.
+  if (isNameQuery) {
+    jobs.push(openAlexAuthorSearch(rawQuery.trim(), 15));
+  }
 
   const results = await Promise.allSettled(jobs);
   const merged = [];
@@ -966,6 +1242,8 @@ async function gatherPapers(rawQuery, opts) {
     })
     .filter((p) => {
       if (terms.length === 0) return true;
+      // Name queries: keep everything relevance-sorted, don't apply topic gate.
+      if (isNameQuery) return true;
       const queryNamesOrganism = neutralWords.size > 0;
       if (queryNamesOrganism) {
         return (
