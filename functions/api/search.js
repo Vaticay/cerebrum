@@ -920,12 +920,95 @@ async function tryVideoInstance(inst, query, timeoutMs) {
   }
 }
 
+// Direct YouTube search via HTML scrape. YouTube embeds a JSON payload
+// (ytInitialData) in the HTML of its search results page. This works from
+// Cloudflare Workers because YouTube doesn't block Cloudflare IPs the way
+// the community Piped/Invidious instances do. Keyless, free, and reliable.
+async function youtubeDirectSearch(query, limit = 6) {
+  const url =
+    "https://www.youtube.com/results?" +
+    new URLSearchParams({ search_query: query + " lecture explained" });
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 5000);
+    const res = await fetch(url, {
+      signal: c.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+      },
+    });
+    clearTimeout(t);
+    if (!res.ok) return [];
+    const html = await res.text();
+
+    // Extract ytInitialData JSON blob
+    const m = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
+    if (!m) return [];
+    let data;
+    try {
+      data = JSON.parse(m[1]);
+    } catch {
+      return [];
+    }
+
+    // Navigate the nested structure to find video results
+    const contents =
+      data?.contents?.twoColumnSearchResultsRenderer?.primaryContents
+        ?.sectionListRenderer?.contents || [];
+    const out = [];
+    const seen = new Set();
+
+    for (const section of contents) {
+      const items = section?.itemSectionRenderer?.contents || [];
+      for (const item of items) {
+        const v = item?.videoRenderer;
+        if (!v || !v.videoId) continue;
+        if (seen.has(v.videoId)) continue;
+        seen.add(v.videoId);
+
+        const title =
+          v.title?.runs?.map((r) => r.text).join("") ||
+          v.title?.simpleText ||
+          "Video";
+        const author =
+          v.ownerText?.runs?.[0]?.text ||
+          v.longBylineText?.runs?.[0]?.text ||
+          "Channel";
+        // High-quality thumbnail
+        const thumbs = v.thumbnail?.thumbnails || [];
+        const thumbnail =
+          thumbs[thumbs.length - 1]?.url ||
+          "https://i.ytimg.com/vi/" + v.videoId + "/hqdefault.jpg";
+
+        out.push({
+          title,
+          url: "https://www.youtube.com/watch?v=" + v.videoId,
+          author,
+          thumbnail,
+          id: v.videoId,
+        });
+        if (out.length >= limit) return out;
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 async function fetchVideos(query) {
   const cleaned = cleanQuery(query) || query;
-  const shuffled = shuffle(VIDEO_INSTANCES);
 
-  // Try instances in parallel batches of 4 with a per-call timeout.
-  // First batch to succeed wins.
+  // TIER 1: Try YouTube directly (works from Cloudflare, keyless, reliable).
+  const direct = await youtubeDirectSearch(cleaned, 6).catch(() => []);
+  if (direct.length) return direct;
+
+  // TIER 2: Fall back to public Piped/Invidious instances if YouTube changed layout.
+  const shuffled = shuffle(VIDEO_INSTANCES);
   const batchSize = 4;
   for (let i = 0; i < shuffled.length; i += batchSize) {
     const batch = shuffled.slice(i, i + batchSize);
