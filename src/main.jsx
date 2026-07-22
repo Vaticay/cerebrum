@@ -14,7 +14,7 @@ const LOADING_MESSAGES = [
   "Consulting the literature",
   "Cross-referencing citations",
   "Peering into petri dishes",
-  "Aligning the sequences",
+  "Dusty Waz H3rE",
   "Calibrating the spectrometer",
   "Sifting through preprints",
   "Interrogating the abstracts",
@@ -389,30 +389,34 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
     resize(); window.addEventListener("resize", resize);
     const ctx = canvas.getContext("2d");
 
-    // Brain silhouette approximated with two hemispheres of dense points
-    // Nodes are neurons; edges are synapses that "fire" during forming phase.
-    const N = 90;
+    // Distribute neurons in an ELLIPTICAL RING around the text zone. This means
+    // the animation never draws through the title/subtitle/button area. Denser
+    // toward the outside, sparser near the center (which stays clear for text).
+    const N = 110;
     const neurons = [];
     for (let i = 0; i < N; i++) {
-      // Distribute around a rough brain shape (two lobes)
-      const side = i < N / 2 ? -1 : 1;
-      const idx = i < N / 2 ? i : i - N / 2;
-      const t = idx / (N / 2);
-      const angle = t * Math.PI * 2;
-      const R = 0.32 + 0.08 * Math.sin(t * Math.PI * 4);
-      // brain-ish blob per hemisphere
-      const bx = side * (0.14 + R * 0.55 * Math.abs(Math.cos(angle * 0.5)));
-      const by = R * 0.9 * Math.sin(angle) - 0.02 * side * Math.sin(angle * 2);
+      // Golden-angle distribution around the ring, offset outward
+      const t = i / N;
+      const angle = t * Math.PI * 2 + Math.random() * 0.4;
+      // Radius is between innerR and outerR (measured in canvas fractions)
+      const innerR = 0.42; // Text sits in a rectangle inside this radius
+      const outerR = 0.85;
+      const rr = innerR + Math.random() * (outerR - innerR);
+      // Elliptical squash so wider screens don't leave a giant top/bottom gap
+      const bx = Math.cos(angle) * rr * 1.15;
+      const by = Math.sin(angle) * rr * 0.75;
       neurons.push({
         tx: bx,
         ty: by,
-        // start random distant
+        // start random far off-screen
         sx: (Math.random() - 0.5) * 3.4,
         sy: (Math.random() - 0.5) * 3.4,
-        r: 1.3 + Math.random() * 1.8,
-        delay: Math.random() * 0.6,
+        r: 1.2 + Math.random() * 1.6,
+        delay: Math.random() * 0.55,
         pulse: Math.random() * Math.PI * 2,
         pulseSpeed: 1.5 + Math.random() * 1.5,
+        // Persistent orbital angle for gentle drift
+        orbitPhase: Math.random() * Math.PI * 2,
       });
     }
     // Synaptic connections: nearest neighbors
@@ -444,46 +448,72 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
       const prog = forming ? Math.min(1, elapsed / 1.6) : Math.min(1, elapsed / 2.5);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const cx = canvas.width / 2, cy = canvas.height / 2;
-      const scale = Math.min(canvas.width, canvas.height) * 0.42;
-      // gentle idle spin, faster during forming
-      const spin = forming ? elapsed * 0.6 : elapsed * 0.08;
+      // Scale to canvas: bigger ring so it feels expansive
+      const scale = Math.min(canvas.width, canvas.height) * 0.48;
+      const spin = forming ? elapsed * 0.5 : elapsed * 0.06;
 
-      // compute positions
+      // Compute positions, adding a persistent orbital wobble to each neuron
       const pos = neurons.map((n, i) => {
         const t = ease(Math.max(0, Math.min(1, (prog - n.delay) / (1 - n.delay))));
-        const baseX = n.sx * (1 - t) + n.tx * t;
-        const baseY = n.sy * (1 - t) + n.ty * t;
-        // slight drift in idle
-        const idleDx = !forming ? 0.008 * Math.sin(elapsed * 0.6 + i) : 0;
-        const idleDy = !forming ? 0.008 * Math.cos(elapsed * 0.5 + i * 1.3) : 0;
-        // subtle rotation
-        const ca = Math.cos(spin * 0.2), sa = Math.sin(spin * 0.2);
-        const rx = (baseX + idleDx) * ca - (baseY + idleDy) * sa;
-        const ry = (baseX + idleDx) * sa + (baseY + idleDy) * ca;
+        // Gentle orbital drift once formed (each neuron circles slowly around its target)
+        const orbitR = forming ? 0 : 0.025;
+        const orbitAngle = elapsed * 0.35 + n.orbitPhase;
+        const dx = orbitR * Math.cos(orbitAngle);
+        const dy = orbitR * Math.sin(orbitAngle);
+        const baseX = (n.sx * (1 - t) + (n.tx + dx) * t);
+        const baseY = (n.sy * (1 - t) + (n.ty + dy) * t);
+        const ca = Math.cos(spin * 0.15), sa = Math.sin(spin * 0.15);
+        const rx = baseX * ca - baseY * sa;
+        const ry = baseX * sa + baseY * ca;
         return { x: cx + rx * scale, y: cy + ry * scale, t };
       });
+
+      // ============ RADIAL MASK ============
+      // Compute a fade factor per neuron so anything drawn near the text zone
+      // is transparent. Text sits roughly in a horizontal band ~340px wide, ~280px
+      // tall centered on the canvas. We fade neurons that fall inside that ellipse.
+      const isMobile = canvas.width < 700 * dpr;
+      const maskRx = (isMobile ? 160 : 240) * dpr; // horizontal radius of the text zone
+      const maskRy = (isMobile ? 140 : 180) * dpr; // vertical radius
+      const maskFade = (px, py) => {
+        const dx = (px - cx) / maskRx;
+        const dy = (py - cy) / maskRy;
+        const r = Math.sqrt(dx * dx + dy * dy);
+        // Fully invisible inside r<0.9, fades in from 0.9 to 1.5
+        if (r >= 1.5) return 1;
+        if (r < 0.9) return 0;
+        return (r - 0.9) / 0.6;
+      };
 
       // Synapses (edges) with electrical pulses traveling along them
       for (const s of synapses) {
         const a = pos[s.a], b = pos[s.b];
         const alpha = Math.min(a.t, b.t);
         if (alpha <= 0.02) continue;
+        // Fade based on midpoint distance from center — keeps text zone clear
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        const maskA = maskFade(mx, my);
+        if (maskA <= 0.02) continue;
+        const finalA = alpha * maskA;
         // base line
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.18 * alpha})`;
+        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.18 * finalA})`;
         ctx.lineWidth = 0.9 * dpr;
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        // electrical pulse (only when both endpoints exist)
-        if (alpha > 0.7) {
+        // electrical pulse
+        if (finalA > 0.7) {
           const fire = ((elapsed * s.fireRate + s.fire) % 2) / 2;
           if (fire < 0.6) {
             const pulseT = fire / 0.6;
             const px = a.x + (b.x - a.x) * pulseT;
             const py = a.y + (b.y - a.y) * pulseT;
-            const glow = ctx.createRadialGradient(px, py, 0, px, py, 8 * dpr);
-            glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.9 * alpha})`);
-            glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
-            ctx.fillStyle = glow;
-            ctx.beginPath(); ctx.arc(px, py, 8 * dpr, 0, Math.PI * 2); ctx.fill();
+            const pulseMask = maskFade(px, py);
+            if (pulseMask > 0.05) {
+              const glow = ctx.createRadialGradient(px, py, 0, px, py, 8 * dpr);
+              glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.9 * finalA * pulseMask})`);
+              glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+              ctx.fillStyle = glow;
+              ctx.beginPath(); ctx.arc(px, py, 8 * dpr, 0, Math.PI * 2); ctx.fill();
+            }
           }
         }
       }
@@ -491,17 +521,20 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
       // Neurons with pulsing glow
       for (let i = 0; i < pos.length; i++) {
         const p = pos[i]; if (p.t <= 0.02) continue;
+        const nMask = maskFade(p.x, p.y);
+        if (nMask <= 0.02) continue;
         const n = neurons[i];
         const pulse = 0.7 + 0.3 * Math.sin(elapsed * n.pulseSpeed + n.pulse);
         const rBase = n.r * dpr;
+        const finalA = p.t * pulse * nMask;
         // outer glow
         const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rBase * 5);
-        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.5 * p.t * pulse})`);
+        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.5 * finalA})`);
         glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
         ctx.fillStyle = glow;
         ctx.beginPath(); ctx.arc(p.x, p.y, rBase * 5, 0, Math.PI * 2); ctx.fill();
         // core
-        ctx.fillStyle = `rgba(${ar},${ag},${ab},${p.t * pulse})`;
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${finalA})`;
         ctx.beginPath(); ctx.arc(p.x, p.y, rBase, 0, Math.PI * 2); ctx.fill();
       }
 
@@ -960,7 +993,7 @@ function App() {
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver"); // vancouver | apa | mla | chicago | bibtex
   const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim") || "cinematic"); // cinematic | subtle | off
-  const [animPreset, setAnimPreset] = useState(() => getCookie("cb_animP") || "particles"); // particles | waves | dna | circuits | neurons | starfield
+  const [animPreset, setAnimPreset] = useState(() => getCookie("cb_animP") || "dna"); // particles | waves | dna | circuits | neurons | starfield
   const [animDensity, setAnimDensity] = useState(() => parseFloat(getCookie("cb_animD") || "1"));
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
   const [animOpacity, setAnimOpacity] = useState(() => parseFloat(getCookie("cb_animO") || "1"));
@@ -1237,12 +1270,13 @@ function App() {
             </div>
           )}
           <div style={S.foot}>
-            <div style={S.disclaimer}>Cerebrum is an AI research tool. Answers are generated by a language model from real published sources and may contain errors. Always verify against the cited papers before relying on them.</div>
-            <span style={S.footDbs}>Europe PMC · PubMed · OpenAlex · Crossref · arXiv · Semantic Scholar · DOAJ · Zenodo · DataCite · OpenAIRE · HAL · UTK TRACE</span>
-            <div style={{ fontSize: 10.5, color: P.faint, marginTop: 10, letterSpacing: "0.02em" }}>
+            <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 14px", textAlign: "center" }}>
+              AI-generated summaries from peer-reviewed literature. Always verify against the cited sources.
+            </div>
+            <div style={{ fontSize: 10.5, color: P.faint, letterSpacing: "0.02em" }}>
               <a href="/how-it-works" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>How it works</a>
               <span style={{ margin: "0 8px" }}>·</span>
-              © {new Date().getFullYear()} Cerebrum™. All rights reserved.
+              © {new Date().getFullYear()} Cerebrum™
             </div>
           </div>
         </div>
