@@ -209,9 +209,11 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     <p key={pi} style={{ fontSize: 16, lineHeight: 1.7, margin: "0 0 16px", color: P.ink, letterSpacing: "-0.006em" }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
-          {line.split(/(\*\*[^*]+\*\*|\[\d+\])/g).map((seg, si) => {
+          {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|\[\d+\])/g).map((seg, si) => {
             const b = seg.match(/^\*\*([^*]+)\*\*$/);
             if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 650 }}>{b[1]}</strong>;
+            const it = seg.match(/^\*([^*\n]+)\*$/);
+            if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{it[1]}</em>;
             const c = seg.match(/^\[(\d+)\]$/);
             if (c) {
               const n = parseInt(c[1], 10); const src = sources[n - 1];
