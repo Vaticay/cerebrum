@@ -305,7 +305,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
                     setTimeout(() => { el.style.background = "transparent"; }, 1400);
                   }
                 }}
-                style={{ fontSize: 10.5, verticalAlign: "super", color: accent, textDecoration: "none", fontWeight: 700, padding: "1px 4px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s", cursor: "pointer" }}>{n}</a>;
+                style={{ fontSize: 10.5, verticalAlign: "super", color: accent, textDecoration: "none", fontWeight: 700, padding: "1px 4px", borderRadius: 5, background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.09), transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1)", cursor: "pointer" }}>{n}</a>;
             }
             return <span key={si}>{seg}</span>;
           })}
@@ -621,10 +621,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
         <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, marginBottom: 14 }}>A Research Instrument</div>
         <div style={{ fontSize: 52, fontWeight: 750, letterSpacing: "-0.035em", color: P.ink, marginBottom: 12, lineHeight: 1 }}>Cerebrum</div>
         <div style={{ fontSize: 17, color: P.ink2, marginBottom: 34, letterSpacing: "-0.01em" }}>Peer-reviewed answers, on demand.</div>
-        <button onClick={go} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}`, letterSpacing: "-0.01em", transition: "transform 0.15s, box-shadow 0.15s" }}
-          onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.97)"; }}
-          onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}>
+        <button onClick={go} className="cb-btn" style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}`, letterSpacing: "-0.01em" }}>
           Initialize <span>→</span>
         </button>
         <div style={{ fontSize: 12.5, color: P.faint, marginTop: 18 }}>No account · nothing stored on a server</div>
@@ -1179,7 +1176,7 @@ function MicButton({ onTranscript, accent, P }) {
         background: listening ? accent : "transparent",
         color: listening ? "#fff" : P.faint,
         display: "flex", alignItems: "center", justifyContent: "center",
-        flexShrink: 0, transition: "all 0.15s",
+        flexShrink: 0, transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)",
         position: "relative",
       }}
     >
@@ -1353,7 +1350,7 @@ function AnswerPlayer({ text, accent, P }) {
       </button>
       {(status === "playing" || status === "paused") && (
         <div style={{ width: 100, height: 3, background: P.line, borderRadius: 2, overflow: "hidden" }}>
-          <div style={{ width: `${progress * 100}%`, height: "100%", background: accent, transition: "width 0.15s" }} />
+          <div style={{ width: "100%", height: "100%", background: accent, transformOrigin: "left center", transform: `scaleX(${progress})`, transition: "transform 0.15s cubic-bezier(0.16, 1, 0.3, 1)" }} />
         </div>
       )}
       {(status === "playing" || status === "paused") && (
@@ -1384,7 +1381,7 @@ function TtsVoiceSetting({ P, accent, at, S, sfx }) {
             color: voice === v ? at : P.ink2,
             border: `1px solid ${voice === v ? accent : P.line}`,
             borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
-            transition: "all 0.15s",
+            transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)",
           }}>{label}</button>
       ))}
     </div>
@@ -1795,8 +1792,8 @@ function App() {
                 <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                 <button style={S.searchBtn} onClick={() => ask()}>Inquire</button>
               </div>
-              <div style={S.chips}>
-                {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}), animationDelay: `${120 + i * 70}ms` }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
+              <div style={S.chips} className="cb-stagger">
+                {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
               <div style={S.trustRow}>
                 {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "arXiv", "Semantic Scholar"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
@@ -1969,7 +1966,7 @@ function BibEntry({ source, index, P, accent, style }) {
       padding: "12px 4px 12px 4px",
       borderTop: index === 1 ? "none" : `1px solid ${P.line}`,
       display: "flex", gap: 12, alignItems: "flex-start",
-      transition: "background 0.15s",
+      transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
       background: hover ? withAlpha(accent, 0.03) : "transparent",
       borderRadius: 6,
     }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
@@ -2037,7 +2034,7 @@ function bibBtn(P, accent) {
     background: "transparent", color: P.ink2,
     border: `1px solid ${P.line}`, borderRadius: 8,
     cursor: "pointer", fontFamily: "inherit",
-    transition: "border-color 0.15s, color 0.15s",
+    transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
   };
 }
 
@@ -2071,7 +2068,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                 color: s.query ? accent : P.faint,
                 border: `1px solid ${s.query ? withAlpha(accent, 0.3) : P.line}`,
                 borderRadius: 20, cursor: s.query ? "pointer" : "default",
-                fontFamily: "inherit", transition: "background 0.15s",
+                fontFamily: "inherit", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
               }}
             >
               {s.label} {s.query && <span style={{ opacity: 0.6, marginLeft: 4 }}>→</span>}
@@ -2086,11 +2083,11 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         <div style={{ marginTop: 20 }} className="cb-fade">
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, marginBottom: 10 }}>Related videos</div>
           {t.videos && t.videos.length > 0 ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }} className="cb-stagger">
               {t.videos.slice(0, 6).map((v, i) => (
-                <a key={v.id || i} href={v.url} target="_blank" rel="noreferrer" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 10, overflow: "hidden", textDecoration: "none", color: P.ink, transition: "transform 0.15s, box-shadow 0.15s, border-color 0.15s" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = P.shadow; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
+                <a key={v.id || i} href={v.url} target="_blank" rel="noreferrer" className="cb-fade cb-card" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 10, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = P.shadow; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
                   <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
                     <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                   </div>
@@ -2114,7 +2111,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                 textDecoration: "none",
                 color: P.ink,
                 fontSize: 13.5,
-                transition: "border-color 0.15s, transform 0.15s, box-shadow 0.15s",
+                transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
                 width: "100%",
                 boxSizing: "border-box",
               }}
@@ -2282,7 +2279,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                 ["starfield", "Starfield"],
               ].map(([v, label]) => (
                 <button key={v}
-                  style={{ padding: "9px 6px", fontSize: 12, fontWeight: 550, background: animPreset === v ? accent : "transparent", color: animPreset === v ? at : P.ink2, border: `1px solid ${animPreset === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}
+                  style={{ padding: "9px 6px", fontSize: 12, fontWeight: 550, background: animPreset === v ? accent : "transparent", color: animPreset === v ? at : P.ink2, border: `1px solid ${animPreset === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)" }}
                   onClick={() => { sfx(); setAnimPreset(v); }}>{label}</button>
               ))}
             </div>
@@ -2366,12 +2363,12 @@ function makeStyles(P, accent, at, isMobile = false) {
     heroMark: { marginBottom: 26, position: "relative" },
     heroTitle: { fontSize: isMobile ? 46 : 68, fontWeight: 750, letterSpacing: "-0.04em", lineHeight: 1, color: P.ink, marginBottom: 12, position: "relative" },
     heroSub: { fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em", position: "relative" },
-    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 580, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, padding: isMobile ? "6px 6px 6px 12px" : "7px 7px 7px 14px", boxShadow: P.shadow, transition: "all 0.2s", position: "relative" },
+    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 580, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, padding: isMobile ? "6px 6px 6px 12px" : "7px 7px 7px 14px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", position: "relative" },
     searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 3px ${withAlpha(accent, 0.12)}` },
     searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
     searchBtn: { fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", padding: isMobile ? "11px 14px" : "11px 20px", borderRadius: 9, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 8px ${withAlpha(accent, 0.3)}` },
     chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 22, maxWidth: 600, position: "relative" },
-    chip: { fontSize: 13.5, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "9px 15px", cursor: "pointer", transition: "all 0.18s", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    chip: { fontSize: 13.5, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "9px 15px", cursor: "pointer", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
     chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
@@ -2387,11 +2384,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     error: { padding: "14px 16px", background: withAlpha("#e5484d", 0.1), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.25)}` },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 13, padding: "6px 6px 6px 16px", boxShadow: P.shadow, transition: "all 0.2s", marginTop: 8 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 13, padding: "6px 6px 6px 16px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", marginTop: 8 },
     relatedWrap: { marginTop: 18 },
     relatedLabel: { fontSize: 11.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 10 },
     relatedList: { display: "flex", flexDirection: "column", gap: 8 },
-    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", padding: "12px 16px", fontSize: 14, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 11, cursor: "pointer", fontFamily: font, transition: "all 0.15s", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", padding: "12px 16px", fontSize: 14, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 11, cursor: "pointer", fontFamily: font, transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
     panel: { position: "sticky", top: 24, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "18px 18px", boxShadow: P.shadow, maxHeight: "calc(100vh - 130px)", overflowY: "auto" },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100vh", width: "88vw", maxWidth: 350, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, fontWeight: 650, color: P.ink, marginBottom: 14, letterSpacing: "-0.01em" },
@@ -2399,7 +2396,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
     srcFilterInput: { width: "100%", padding: "8px 11px", fontSize: 12.5, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: font, marginBottom: 8 },
     sortTabs: { display: "flex", gap: 3, background: P.bg, padding: 3, borderRadius: 9, marginBottom: 14, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "6px", fontSize: 11.5, background: "transparent", color: P.ink2, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: font, fontWeight: 550, transition: "all 0.15s" },
+    sortTab: { flex: 1, padding: "6px", fontSize: 11.5, background: "transparent", color: P.ink2, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: font, fontWeight: 550, transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)" },
     sortTabActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
     srcGroupLabel: { fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: accent, margin: "14px 0 8px", paddingBottom: 5, borderBottom: `1px solid ${P.line}` },
     sBtn: { flex: 1, fontSize: 12, padding: "8px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: font, fontWeight: 550 },
@@ -2410,11 +2407,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     zMsg: { fontSize: 11.5, color: accent },
     srcList: { display: "flex", flexDirection: "column", gap: 4 },
     empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "8px 0" },
-    srcItem: { padding: "13px 12px", margin: "0 -12px", borderRadius: 12, transition: "background 0.15s", borderBottom: `1px solid ${P.line}` },
-    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 5, transition: "color 0.15s", letterSpacing: "-0.01em" },
+    srcItem: { padding: "13px 12px", margin: "0 -12px", borderRadius: 12, transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1)", borderBottom: `1px solid ${P.line}` },
+    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 5, transition: "color 0.15s cubic-bezier(0.16, 1, 0.3, 1)", letterSpacing: "-0.01em" },
     srcMeta: { fontSize: 12, color: P.ink2, lineHeight: 1.45 },
     srcRow: { display: "flex", gap: 7, marginTop: 9 },
-    chipMini: { fontSize: 11.5, padding: "5px 10px", border: "1px solid", borderRadius: 7, cursor: "pointer", fontFamily: font, fontWeight: 550, background: "transparent", transition: "all 0.15s" },
+    chipMini: { fontSize: 11.5, padding: "5px 10px", border: "1px solid", borderRadius: 7, cursor: "pointer", fontFamily: font, fontWeight: 550, background: "transparent", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)" },
     foot: { marginTop: "auto", padding: "20px 0 26px", textAlign: "center" },
     disclaimer: { fontSize: 11.5, color: P.ink2, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 16px", padding: "10px 16px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 10 },
     footDbs: { fontSize: 11, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7 },
@@ -2438,11 +2435,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     accentDot: { width: 26, height: 26, borderRadius: "50%", border: "none", cursor: "pointer", transition: "transform 0.15s" },
     customDot: { width: 26, height: 26, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
     segment: { display: "flex", gap: 4, background: P.bg, padding: 4, borderRadius: 11, marginBottom: 22, border: `1px solid ${P.line}` },
-    segBtn: { flex: 1, padding: "9px", fontSize: 13, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", textTransform: "capitalize", fontFamily: font, fontWeight: 550, transition: "all 0.15s" },
+    segBtn: { flex: 1, padding: "9px", fontSize: 13, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", textTransform: "capitalize", fontFamily: font, fontWeight: 550, transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)" },
     segActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
     toggle: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", fontSize: 13.5, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: font, fontWeight: 550, marginBottom: 8 },
     toggleOn: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
-    toggleKnob: { width: 34, height: 20, borderRadius: 12, position: "relative", transition: "all 0.2s", display: "inline-block", flexShrink: 0 },
+    toggleKnob: { width: 34, height: 20, borderRadius: 12, position: "relative", transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", display: "inline-block", flexShrink: 0 },
     setNote: { fontSize: 12, color: P.faint, lineHeight: 1.5, marginBottom: 18, marginTop: 2 },
     clearAll: { width: "100%", padding: "11px", fontSize: 13, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 10, cursor: "pointer", marginBottom: 12, marginTop: 8, fontFamily: font, fontWeight: 550 },
     modalClose: { width: "100%", padding: "13px", fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 11, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
@@ -2467,13 +2464,61 @@ if (typeof document !== "undefined") {
       @keyframes cbspin { to { transform: rotate(360deg); } }
       @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
       @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
-      @keyframes cbRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
-      @keyframes cbPop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-      @keyframes cbPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.08); } }
-      @keyframes cbGate { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-      @keyframes cbHero { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-      @keyframes cb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+      /* Subtle entrances — no more than 8px translate, no scale, pure ease-out */
+      @keyframes cbRise { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+      @keyframes cbPop { from { opacity: 0; transform: translate3d(0, 6px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+      @keyframes cbPulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.4; } }
+      @keyframes cbGate { from { opacity: 0; transform: translate3d(0, 12px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+      @keyframes cbHero { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+      /* Logo float: kept, but slower and shorter travel */
+      @keyframes cb-float { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(0, -3px, 0); } }
       @keyframes cb-burst {
+        0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.4); }
+        20% { opacity: 1; }
+        100% { opacity: 0; transform: translate3d(var(--bx, 0), var(--by, -60px), 0) scale(1); }
+      }
+      @keyframes cb-egg-in { from { opacity: 0; transform: translate3d(0, 6px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+      @keyframes cb-wiggle {
+        0%, 100% { transform: rotate(0); }
+        25% { transform: rotate(-4deg); }
+        75% { transform: rotate(4deg); }
+      }
+
+      /* Premium easing curves */
+      .cb-wiggle { animation: cb-wiggle 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+      .cb-fade { animation: cbFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .cb-rise { animation: cbRise 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .cb-pop { animation: cbPop 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .cb-gate { animation: cbGate 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .cb-hero { animation: cbHero 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+      /* Staggered list entrances — cascade at 40ms intervals up to 400ms */
+      .cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
+      .cb-stagger > *:nth-child(2) { animation-delay: 40ms; }
+      .cb-stagger > *:nth-child(3) { animation-delay: 80ms; }
+      .cb-stagger > *:nth-child(4) { animation-delay: 120ms; }
+      .cb-stagger > *:nth-child(5) { animation-delay: 160ms; }
+      .cb-stagger > *:nth-child(6) { animation-delay: 200ms; }
+      .cb-stagger > *:nth-child(7) { animation-delay: 240ms; }
+      .cb-stagger > *:nth-child(8) { animation-delay: 280ms; }
+      .cb-stagger > *:nth-child(9) { animation-delay: 320ms; }
+      .cb-stagger > *:nth-child(10) { animation-delay: 360ms; }
+      .cb-stagger > *:nth-child(n+11) { animation-delay: 400ms; }
+
+      /* Physical button feedback — instant hover lift, scale-down on press */
+      *, *::before, *::after { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      button, a { -webkit-tap-highlight-color: transparent; }
+      button:not(:disabled):active { transform: scale(0.98); }
+      .cb-btn { transition: transform 0.1s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1); }
+      .cb-btn:hover:not(:disabled) { transform: translate3d(0, -1px, 0); }
+      .cb-btn:active:not(:disabled) { transform: scale(0.98); }
+
+      /* Card hover lift */
+      .cb-card { transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1); }
+      .cb-card:hover { transform: translate3d(0, -2px, 0); }
+
+      input[type="range"] { -webkit-appearance: none; height: 4px; border-radius: 2px; }
+      input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: currentColor; cursor: pointer; transition: transform 0.1s cubic-bezier(0.16, 1, 0.3, 1); }
         0% { opacity: 0; transform: translate(0, 0) scale(0.3); }
         15% { opacity: 1; transform: translate(0, 0) scale(1); }
         100% { opacity: 0; transform: translate(var(--cb-dx, 0), var(--cb-dy, 60px)) scale(0.6) rotate(var(--cb-rot, 30deg)); }
@@ -2483,24 +2528,6 @@ if (typeof document !== "undefined") {
         to { opacity: 1; transform: translateY(0) scale(1); }
       }
       }
-      @keyframes cb-wiggle {
-        0%, 100% { transform: rotate(0deg) scale(1); }
-        30% { transform: rotate(-10deg) scale(1.08); }
-        60% { transform: rotate(8deg) scale(1.05); }
-        85% { transform: rotate(-3deg) scale(1.02); }
-      }
-      .cb-wiggle { animation: cb-wiggle 0.55s cubic-bezier(0.34, 1.56, 0.64, 1); }
-      .cb-fade { animation: cbFade 0.55s cubic-bezier(0.4, 0.0, 0.2, 1) forwards; }
-      .cb-rise { animation: cbRise 0.7s cubic-bezier(0.34, 1.32, 0.64, 1) forwards; }
-      .cb-pop { animation: cbPop 0.42s cubic-bezier(0.34, 1.32, 0.64, 1) forwards; }
-      .cb-gate { animation: cbGate 0.9s cubic-bezier(0.34, 1.28, 0.64, 1) forwards; }
-      .cb-hero { animation: cbHero 0.8s cubic-bezier(0.34, 1.28, 0.64, 1) forwards; }
-      *, *::before, *::after { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      button, a { -webkit-tap-highlight-color: transparent; }
-      input[type="range"] { -webkit-appearance: none; height: 4px; border-radius: 2px; }
-      input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: currentColor; cursor: pointer; transition: transform 0.15s cubic-bezier(0.34, 1.32, 0.64, 1); }
-      input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
-      input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.3); }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
       a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
