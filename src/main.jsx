@@ -1042,6 +1042,318 @@ function BrainEasterEgg() {
 
 
 
+// Voice dictation button using the browser's Web Speech API.
+// Works in Chrome/Edge/Safari without any key or account. Falls back gracefully
+// when unsupported (button hides itself). Streams interim results to the parent
+// so the user sees words appear as they speak.
+function MicButton({ onTranscript, accent, P }) {
+  const [supported, setSupported] = useState(true);
+  const [listening, setListening] = useState(false);
+  const recRef = useRef(null);
+
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setSupported(false); return; }
+    const rec = new SR();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = navigator.language || "en-US";
+    rec.onresult = (e) => {
+      let final = "";
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += t;
+        else interim += t;
+      }
+      onTranscript((final || interim).trim(), !!final);
+    };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => setListening(false);
+    recRef.current = rec;
+    return () => { try { rec.abort(); } catch {} };
+  }, [onTranscript]);
+
+  if (!supported) return null;
+
+  const toggle = () => {
+    if (!recRef.current) return;
+    if (listening) {
+      try { recRef.current.stop(); } catch {}
+      setListening(false);
+    } else {
+      try {
+        recRef.current.start();
+        setListening(true);
+      } catch { setListening(false); }
+    }
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      title={listening ? "Stop dictation" : "Start voice dictation"}
+      style={{
+        width: 34, height: 34, borderRadius: 8,
+        border: "none", cursor: "pointer",
+        background: listening ? accent : "transparent",
+        color: listening ? "#fff" : P.faint,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0, transition: "all 0.15s",
+        position: "relative",
+      }}
+    >
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+        <path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5 12a7 7 0 0014 0M12 19v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      {listening && (
+        <span style={{
+          position: "absolute", inset: -3, borderRadius: 10,
+          border: `2px solid ${accent}`,
+          animation: "cbPulse 1.4s ease-in-out infinite",
+        }} />
+      )}
+    </button>
+  );
+}
+
+// Text-to-speech player. Uses ElevenLabs when a user-supplied key is in
+// localStorage; otherwise falls back to the browser's built-in SpeechSynthesis.
+// Play/pause with visible progress bar. Never sends audio anywhere except to
+// ElevenLabs directly if the user provides their own key.
+function AnswerPlayer({ text, accent, P }) {
+  const [status, setStatus] = useState("idle"); // idle | loading | playing | paused
+  const [progress, setProgress] = useState(0);
+  const audioRef = useRef(null);
+  const utterRef = useRef(null);
+  const [useElevenLabs, setUseElevenLabs] = useState(false);
+
+  useEffect(() => {
+    try { setUseElevenLabs(!!localStorage.getItem("cb_eleven_key")); } catch {}
+  }, []);
+
+  const stop = () => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    try { window.speechSynthesis.cancel(); } catch {}
+    utterRef.current = null;
+    setStatus("idle");
+    setProgress(0);
+  };
+
+  const playBrowser = () => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.0;
+    utter.pitch = 1.0;
+    // Prefer a natural-sounding English voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const pref = voices.find((v) => /Google.*(US|English)|Samantha|Alex|Karen|Daniel/i.test(v.name)) || voices.find((v) => /en/i.test(v.lang));
+    if (pref) utter.voice = pref;
+    utter.onstart = () => setStatus("playing");
+    utter.onend = () => { setStatus("idle"); setProgress(0); };
+    utter.onerror = () => { setStatus("idle"); setProgress(0); };
+    utter.onboundary = (e) => {
+      if (e.charIndex && text.length) setProgress(e.charIndex / text.length);
+    };
+    utterRef.current = utter;
+    window.speechSynthesis.speak(utter);
+  };
+
+  const playEleven = async () => {
+    const key = localStorage.getItem("cb_eleven_key");
+    const voiceId = localStorage.getItem("cb_eleven_voice") || "21m00Tcm4TlvDq8ikWAM"; // Rachel default
+    if (!key) return playBrowser();
+    setStatus("loading");
+    try {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
+        method: "POST",
+        headers: {
+          "xi-api-key": key,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          model_id: "eleven_flash_v2_5",
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        }),
+      });
+      if (!res.ok) throw new Error("ElevenLabs error " + res.status);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.ontimeupdate = () => {
+        if (audio.duration) setProgress(audio.currentTime / audio.duration);
+      };
+      audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onerror = () => { setStatus("idle"); playBrowser(); };
+      await audio.play();
+      setStatus("playing");
+    } catch {
+      // fall back gracefully
+      playCerebrum();
+    }
+  };
+
+  // Cloudflare Workers AI (MeloTTS) via our own /api/tts endpoint.
+  // Free, keyless, works for every user. Falls back to browser voice on failure.
+  const playCerebrum = async () => {
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error("TTS " + res.status);
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.startsWith("audio/")) throw new Error("Non-audio response");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.ontimeupdate = () => {
+        if (audio.duration) setProgress(audio.currentTime / audio.duration);
+      };
+      audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onerror = () => { setStatus("idle"); playBrowser(); };
+      await audio.play();
+      setStatus("playing");
+    } catch {
+      playBrowser();
+    }
+  };
+
+  const onClick = () => {
+    if (status === "playing") {
+      if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; }
+      try { window.speechSynthesis.pause(); setStatus("paused"); } catch {}
+      return;
+    }
+    if (status === "paused") {
+      if (audioRef.current) { audioRef.current.play(); setStatus("playing"); return; }
+      try { window.speechSynthesis.resume(); setStatus("playing"); } catch {}
+      return;
+    }
+    // Priority: user's own ElevenLabs key (best) > shared Cerebrum TTS (free) > browser TTS
+    if (useElevenLabs) playEleven();
+    else playCerebrum();
+  };
+
+  useEffect(() => () => stop(), []);
+
+  const label = status === "loading" ? "Loading..." :
+                status === "playing" ? "Pause" :
+                status === "paused" ? "Resume" : "Listen";
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+      <button onClick={onClick} style={{
+        padding: "6px 12px", fontSize: 12, fontWeight: 500,
+        background: status === "playing" || status === "paused" ? accent : "transparent",
+        color: status === "playing" || status === "paused" ? "#fff" : P.ink2,
+        border: `1px solid ${status === "playing" || status === "paused" ? accent : P.line}`,
+        borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+        display: "inline-flex", alignItems: "center", gap: 6,
+      }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+          {status === "playing" ? (
+            <><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>
+          ) : (
+            <path d="M8 5v14l11-7z" />
+          )}
+        </svg>
+        {label}
+        {useElevenLabs && <span style={{ fontSize: 9, opacity: 0.7, marginLeft: 2, letterSpacing: "0.05em" }}>· 11</span>}
+      </button>
+      {(status === "playing" || status === "paused") && (
+        <div style={{ width: 100, height: 3, background: P.line, borderRadius: 2, overflow: "hidden" }}>
+          <div style={{ width: `${progress * 100}%`, height: "100%", background: accent, transition: "width 0.15s" }} />
+        </div>
+      )}
+      {(status === "playing" || status === "paused") && (
+        <button onClick={stop} title="Stop" style={{
+          background: "transparent", border: "none", cursor: "pointer",
+          color: P.faint, padding: 2, fontSize: 14, lineHeight: 1,
+        }}>×</button>
+      )}
+    </div>
+  );
+}
+
+function ElevenLabsSetting({ P, accent, at, S, sfx }) {
+  const [key, setKey] = useState(() => { try { return localStorage.getItem("cb_eleven_key") || ""; } catch { return ""; } });
+  const [voice, setVoice] = useState(() => { try { return localStorage.getItem("cb_eleven_voice") || "21m00Tcm4TlvDq8ikWAM"; } catch { return "21m00Tcm4TlvDq8ikWAM"; } });
+  const [saved, setSaved] = useState(false);
+
+  // A few well-known ElevenLabs preset voices anyone can use with any key.
+  const voices = [
+    { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel (female, calm)" },
+    { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi (female, strong)" },
+    { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella (female, soft)" },
+    { id: "ErXwobaYiN019PkySvjV", name: "Antoni (male, well-rounded)" },
+    { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli (female, emotional)" },
+    { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh (male, deep)" },
+    { id: "VR6AewLTigWG4xSOukaG", name: "Arnold (male, crisp)" },
+    { id: "pNInz6obpgDQGcFmaJgB", name: "Adam (male, narration)" },
+    { id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam (male, raspy)" },
+  ];
+
+  const save = () => {
+    try {
+      if (key.trim()) localStorage.setItem("cb_eleven_key", key.trim());
+      else localStorage.removeItem("cb_eleven_key");
+      localStorage.setItem("cb_eleven_voice", voice);
+    } catch {}
+    sfx();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const clear = () => {
+    setKey("");
+    try { localStorage.removeItem("cb_eleven_key"); } catch {}
+    sfx();
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <input
+        type="password"
+        placeholder="ElevenLabs API key (optional — leave blank to use browser voice)"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+        style={{
+          padding: "10px 12px", fontSize: 12.5,
+          background: P.surface, color: P.ink,
+          border: `1px solid ${P.line}`, borderRadius: 8,
+          fontFamily: "inherit", outline: "none",
+        }}
+      />
+      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{
+        padding: "10px 12px", fontSize: 12.5,
+        background: P.surface, color: P.ink,
+        border: `1px solid ${P.line}`, borderRadius: 8,
+        fontFamily: "inherit", cursor: "pointer", outline: "none",
+      }}>
+        {voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+      </select>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button onClick={save} style={{ flex: 1, padding: "8px 12px", fontSize: 12, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
+          {saved ? "✓ Saved" : "Save"}
+        </button>
+        {key && (
+          <button onClick={clear} style={{ padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
+            Clear key
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
@@ -1372,6 +1684,7 @@ function App() {
               <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
                 <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
+                <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                 <button style={S.searchBtn} onClick={() => ask()}>Inquire</button>
               </div>
               <div style={S.chips}>
@@ -1399,6 +1712,7 @@ function App() {
                 {turns.length > 0 && !busy && (
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
                     <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a follow-up — it remembers the thread" />
+                    <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
                   </div>
                 )}
@@ -1633,6 +1947,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
             <span style={S.aiTag}>AI-generated · verify with sources</span>
           </div>
         )}
+        {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
       </div>
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
       {done && t.suggestions && t.suggestions.length > 0 && (
@@ -1839,6 +2154,9 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         <div style={S.setNote}>A second model checks each claim against the cited abstracts and flags anything unsupported. It verifies source-support, not real-world truth.</div>
         <div style={S.setLabel}>Typewriter reveal</div>
         <button style={{ ...S.toggle, ...(typewriter ? S.toggleOn : {}) }} onClick={() => { sfx(); setTypewriter(!typewriter); }}><span>{typewriter ? "Animated reveal on" : "Instant answers"}</span><span style={{ ...S.toggleKnob, transform: typewriter ? "translateX(20px)" : "none", background: typewriter ? at : P.faint }} /></button>
+        <div style={S.setLabel}>Text-to-speech voice</div>
+        <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+        <div style={S.setNote}>By default, answers use your browser's built-in voice (free, robotic). For studio-quality voice, paste your ElevenLabs API key. Cerebrum doesn't proxy or store it; the key stays on this device and calls ElevenLabs directly from your browser.</div>
         <div style={S.setLabel}>Animations</div>
         <div style={S.segment}>{[["cinematic", "Full"], ["subtle", "Subtle"], ["off", "Off"]].map(([v, label]) => (<button key={v} style={{ ...S.segBtn, ...(animationMode === v ? S.segActive : {}) }} onClick={() => { sfx(); setAnimationMode(v); }}>{label}</button>))}</div>
         <div style={S.setNote}>Full: all effects active. Subtle: fewer particles, quieter. Off: static.</div>
@@ -2042,6 +2360,7 @@ if (typeof document !== "undefined") {
       @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
       @keyframes cbRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes cbPop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+      @keyframes cbPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.08); } }
       @keyframes cbGate { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes cbHero { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes cb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
