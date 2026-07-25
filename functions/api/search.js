@@ -537,6 +537,80 @@ const NAME_STOPWORDS = new Set([
 ]);
 
 // Try to extract a person's name from ANY query, even if wrapped in extra words.
+// Classifies whether a user's message is a NEW topic search, a FOLLOW-UP
+// about the previous answer, or a CORRECTION to a prior fact. This decides
+// whether to fire a fresh scholarly search or reuse the previous turn's
+// sources and just re-prompt the AI with the new user turn.
+//
+// Signals for FOLLOW-UP: pronouns/deictics referring back ("that paper",
+// "this study", "the finding", "it", "they"), agreement/refinement openers
+// ("yes", "actually", "no it's", "wait", "you said"), meta comments about
+// the previous answer ("the main point was", "you missed", "focus on"),
+// or short messages (<= 8 words) that don't introduce new proper nouns.
+//
+// Signals for CORRECTION: explicit corrections ("that's wrong", "actually
+// she's at", "not X but Y", "you got X wrong", "correction:"), or a
+// short message negating something in the previous answer.
+//
+// Signals for NEW: introduces a new proper noun or Latin binomial not in
+// history, starts with a fresh question word ("what/how/why/when/where"),
+// or is long enough (>10 words) with clear new topic content.
+function classifyIntent(query, history) {
+  const q = (query || "").trim();
+  if (!q) return { kind: "new" };
+  const lc = q.toLowerCase();
+  const wc = q.split(/\s+/).length;
+  const hasHistory = Array.isArray(history) && history.length > 0;
+  if (!hasHistory) return { kind: "new" };
+
+  // Explicit correction phrases
+  const correctionPatterns = [
+    /^(that|this|it)['']?s\s+(wrong|incorrect|not right|false)/i,
+    /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,])/i,
+    /you\s+(got|had|were)\s+(that|this|it)\s+wrong/i,
+    /^wrong\b/i,
+    /^not\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i,
+    /\bthat['']?s\s+not\s+(right|correct|true|him|her|them)/i,
+    /\bnot\s+\w+\s+but\s+/i,
+    /you\s+(said|mentioned|wrote)\s+.+\s+(but|however|actually)\s+/i,
+  ];
+  for (const re of correctionPatterns) {
+    if (re.test(q)) return { kind: "correction" };
+  }
+
+  // Follow-up indicators
+  const followupOpeners = /^(yes|no|but|and|so|okay|ok|right|hmm|well|wait|hey)\b/i;
+  const backReferences = /\b(that\s+(paper|study|research|work|finding|result|author|person|one)|this\s+(paper|study|research|work|finding|result)|the\s+(paper|study|research|work|finding|result|author|person|one|main\s+point|main\s+finding)|it|its|they|them|their|he|she|his|her|him)\b/i;
+  const metaAboutPrevious = /\b(you\s+(said|mentioned|wrote|missed|forgot|focused|talked)|main\s+point|main\s+finding|focus\s+on|more\s+about|tell\s+me\s+more|expand|elaborate|clarify|what\s+about|and\s+what|what\s+does|what\s+did|explain\s+more|dig\s+deeper|go\s+deeper)\b/i;
+  const shortReply = wc <= 8;
+
+  const hasBackRef = backReferences.test(q);
+  const isFollowupOpener = followupOpeners.test(q);
+  const isMeta = metaAboutPrevious.test(q);
+
+  // Check whether the message introduces significant new proper nouns
+  // (capitalized words the history doesn't contain). If it does, it's likely
+  // a new topic even if it also has pronouns.
+  const historyText = history
+    .map((t) => (t && t.content) || "")
+    .join(" ")
+    .toLowerCase();
+  const newProperNouns = q
+    .split(/\s+/)
+    .filter((w) => /^[A-Z][a-z]{2,}$/.test(w))
+    .filter((w) => !historyText.includes(w.toLowerCase()));
+  const introducesNewTopic = newProperNouns.length >= 2; // 2+ new capitalized words = probably new topic
+
+  if (introducesNewTopic) return { kind: "new" };
+
+  if (isMeta || (hasBackRef && (isFollowupOpener || shortReply))) {
+    return { kind: "followup" };
+  }
+  if (isFollowupOpener && shortReply) return { kind: "followup" };
+
+  return { kind: "new" };
+}
+
 // E.g. "Reese Sahos studies on BSFL" -> "Reese Saho".
 // Handles possessive forms (drops trailing 's or s when followed by a possessive
 // context word like "studies", "papers", "research").
@@ -2191,12 +2265,47 @@ export async function onRequest(context) {
       }
     }
 
-    const gResult = await gatherPapers(query, {
-      openAlexKey: env.OPENALEX_KEY || "",
-      ncbiKey: env.NCBI_API_KEY || "",
-      limit: 25,
-      resolvedPersonName,
-    }).catch(() => ({ papers: [] }));
+    // Intent classification. If this is a follow-up or correction referring to
+    // the previous answer, skip the fresh search entirely and reuse the last
+    // turn's sources. This is the difference between "the main point was
+    // microbiome" being routed to unrelated micro-motion papers vs. being
+    // treated as a comment on the paper we just cited.
+    const intent = classifyIntent(query, body.history || []);
+    const prevAssistantTurn = Array.isArray(body.history)
+      ? [...body.history].reverse().find((t) => t && t.role === "assistant")
+      : null;
+    const prevSources = (prevAssistantTurn && Array.isArray(prevAssistantTurn.sources)) ? prevAssistantTurn.sources : [];
+    const pinnedSources = Array.isArray(body.pinnedSources) ? body.pinnedSources : [];
+    const corrections = Array.isArray(body.corrections) ? body.corrections : [];
+    const isFollowupMode = (intent.kind === "followup" || intent.kind === "correction") && (prevSources.length > 0 || pinnedSources.length > 0);
+
+    let gResult;
+    if (isFollowupMode) {
+      const seenKeys = new Set();
+      const reused = [];
+      for (const s of [...pinnedSources, ...prevSources]) {
+        const key = (s.title || s.url || "").toLowerCase().trim();
+        if (!key || seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        reused.push({
+          ...s,
+          _allAuthors: s._allAuthors || s.authors || "",
+          score: 10,
+          contentHits: 1,
+          contentCoverage: 1,
+          organismPresent: true,
+          relevance: 100,
+        });
+      }
+      gResult = { papers: reused, _isFollowup: true, _intent: intent.kind };
+    } else {
+      gResult = await gatherPapers(query, {
+        openAlexKey: env.OPENALEX_KEY || "",
+        ncbiKey: env.NCBI_API_KEY || "",
+        limit: 25,
+        resolvedPersonName,
+      }).catch(() => ({ papers: [] }));
+    }
 
     // Track whether the person-name query returned only low-confidence
     // (web / bio) results so we can note that in the AI answer.
@@ -2206,7 +2315,7 @@ export async function onRequest(context) {
     // Person-name query that returned no author-matched papers. Instead of
     // walling off or dumping unrelated results, respond with a short, honest
     // message and actionable suggestions (surfaced by the frontend as buttons).
-    if (noResultsPersonQuery) {
+    if (noResultsPersonQuery && !isFollowupMode) {
       const displayName = resolvedPersonName || extractPersonNameFromQuery(query) || query;
       const parts = displayName.split(/\s+/);
       const last = parts[parts.length - 1];
@@ -2431,8 +2540,36 @@ export async function onRequest(context) {
     }
 
     const messages = [{ role: "system", content: systemPrompt }];
+
+    // If the user has provided corrections in previous turns, thread those into
+    // the system message as authoritative facts the AI must respect. This makes
+    // corrections stick across the whole session.
+    if (corrections.length > 0) {
+      const correctionsBlock = corrections
+        .map((c, i) => `- ${c}`)
+        .join("\n");
+      messages.push({
+        role: "system",
+        content:
+          "USER-PROVIDED CORRECTIONS (treat as ground truth for the rest of this conversation):\n" +
+          correctionsBlock,
+      });
+    }
+
+    // If this is a follow-up on the previous answer, tell the AI explicitly
+    // so it doesn't restart from zero and doesn't switch topics.
+    if (isFollowupMode) {
+      messages.push({
+        role: "system",
+        content:
+          intent.kind === "correction"
+            ? "The user is CORRECTING or REFINING your previous answer. Do NOT switch topics. Address their correction directly using the same sources. Acknowledge the correction plainly and adjust."
+            : "The user is asking a FOLLOW-UP about the previous answer. Do NOT switch topics. Do NOT search for anything new. Use the same sources listed above and address their comment or question. Keep it tight — one focused paragraph unless they ask for more.",
+      });
+    }
+
     const historyTurns = Array.isArray(body.history)
-      ? body.history.slice(-4)
+      ? body.history.slice(-10)
       : [];
     for (const turn of historyTurns) {
       if (turn.role === "user" || turn.role === "assistant") {
