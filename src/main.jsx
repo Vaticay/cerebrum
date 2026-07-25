@@ -1050,28 +1050,92 @@ function MicButton({ onTranscript, accent, P }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
+  // The user's intent: are they trying to keep dictating? Used to distinguish
+  // "user tapped stop" from "browser cut us off after a pause".
+  const wantListenRef = useRef(false);
+  // Accumulated finalized text across the whole session. We add newly-final
+  // chunks here and stream that + current interim to the parent.
+  const finalTextRef = useRef("");
+
+  // Small Web Audio beeps for start/stop feedback — no bundled files.
+  const beep = (freq, dur = 0.08, gain = 0.05) => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      g.gain.value = 0;
+      osc.connect(g); g.connect(ctx.destination);
+      const now = ctx.currentTime;
+      g.gain.linearRampToValueAtTime(gain, now + 0.01);
+      g.gain.linearRampToValueAtTime(0, now + dur);
+      osc.start(now);
+      osc.stop(now + dur + 0.02);
+      setTimeout(() => { try { ctx.close(); } catch {} }, (dur + 0.1) * 1000);
+    } catch {}
+  };
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setSupported(false); return; }
     const rec = new SR();
-    rec.continuous = false;
+    // continuous=true is REQUIRED for real dictation. With false, the browser
+    // stops after the first pause (often a single word or syllable) and calls
+    // onend, which was killing sessions instantly.
+    rec.continuous = true;
     rec.interimResults = true;
     rec.lang = navigator.language || "en-US";
+
     rec.onresult = (e) => {
-      let final = "";
       let interim = "";
+      // Accumulate any newly-finalized chunks into the persistent buffer, so
+      // if the browser restarts a segment we don't lose earlier words.
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) final += t;
-        else interim += t;
+        if (e.results[i].isFinal) {
+          finalTextRef.current = (finalTextRef.current + " " + t).replace(/\s+/g, " ").trim();
+        } else {
+          interim += t;
+        }
       }
-      onTranscript((final || interim).trim(), !!final);
+      const combined = (finalTextRef.current + (interim ? " " + interim : "")).replace(/\s+/g, " ").trim();
+      onTranscript(combined, false);
     };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
+
+    rec.onerror = (e) => {
+      // "no-speech" and "aborted" are common non-fatal errors — don't kill the
+      // session unless the user asked to stop.
+      const err = e && e.error;
+      if (err === "no-speech" || err === "aborted") return;
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        wantListenRef.current = false;
+        setListening(false);
+      }
+    };
+
+    rec.onend = () => {
+      // If the user still wants to listen but the browser cut us off (common
+      // in Chrome after a few seconds of silence), immediately restart. This
+      // is what makes dictation feel truly continuous.
+      if (wantListenRef.current) {
+        try { rec.start(); } catch {
+          // If restart fails (rare), give up gracefully.
+          wantListenRef.current = false;
+          setListening(false);
+        }
+      } else {
+        setListening(false);
+      }
+    };
+
     recRef.current = rec;
-    return () => { try { rec.abort(); } catch {} };
+    return () => {
+      wantListenRef.current = false;
+      try { rec.abort(); } catch {}
+    };
   }, [onTranscript]);
 
   if (!supported) return null;
@@ -1079,13 +1143,29 @@ function MicButton({ onTranscript, accent, P }) {
   const toggle = () => {
     if (!recRef.current) return;
     if (listening) {
+      // User is stopping. Suppress auto-restart, then stop, and finalize the
+      // current buffer as the transcript so the parent gets a clean "final".
+      wantListenRef.current = false;
       try { recRef.current.stop(); } catch {}
       setListening(false);
+      onTranscript(finalTextRef.current.trim(), true);
+      // Descending two-tone beep (stop)
+      beep(660, 0.09);
+      setTimeout(() => beep(440, 0.11), 90);
     } else {
+      // Fresh session — clear the buffer.
+      finalTextRef.current = "";
+      wantListenRef.current = true;
       try {
         recRef.current.start();
         setListening(true);
-      } catch { setListening(false); }
+        // Ascending two-tone beep (start)
+        beep(523, 0.07);
+        setTimeout(() => beep(784, 0.09), 70);
+      } catch {
+        wantListenRef.current = false;
+        setListening(false);
+      }
     }
   };
 
@@ -1202,10 +1282,13 @@ function AnswerPlayer({ text, accent, P }) {
   const playCerebrum = async () => {
     setStatus("loading");
     try {
+      // Voice preference stored in localStorage by Settings ("female" | "male")
+      let voicePref = "";
+      try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {}
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice: voicePref }),
       });
       if (!res.ok) throw new Error("TTS " + res.status);
       const ct = res.headers.get("content-type") || "";
@@ -1279,6 +1362,31 @@ function AnswerPlayer({ text, accent, P }) {
           color: P.faint, padding: 2, fontSize: 14, lineHeight: 1,
         }}>×</button>
       )}
+    </div>
+  );
+}
+
+function TtsVoiceSetting({ P, accent, at, S, sfx }) {
+  const [voice, setVoice] = useState(() => { try { return localStorage.getItem("cb_tts_voice") || "female"; } catch { return "female"; } });
+  const set = (v) => {
+    setVoice(v);
+    try { localStorage.setItem("cb_tts_voice", v); } catch {}
+    sfx();
+  };
+  return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+      {[["female", "Female"], ["male", "Male"]].map(([v, label]) => (
+        <button key={v}
+          onClick={() => set(v)}
+          style={{
+            flex: 1, padding: "9px 6px", fontSize: 12, fontWeight: 550,
+            background: voice === v ? accent : "transparent",
+            color: voice === v ? at : P.ink2,
+            border: `1px solid ${voice === v ? accent : P.line}`,
+            borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+            transition: "all 0.15s",
+          }}>{label}</button>
+      ))}
     </div>
   );
 }
@@ -2155,8 +2263,9 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         <div style={S.setLabel}>Typewriter reveal</div>
         <button style={{ ...S.toggle, ...(typewriter ? S.toggleOn : {}) }} onClick={() => { sfx(); setTypewriter(!typewriter); }}><span>{typewriter ? "Animated reveal on" : "Instant answers"}</span><span style={{ ...S.toggleKnob, transform: typewriter ? "translateX(20px)" : "none", background: typewriter ? at : P.faint }} /></button>
         <div style={S.setLabel}>Text-to-speech voice</div>
+        <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
         <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-        <div style={S.setNote}>By default, answers use your browser's built-in voice (free, robotic). For studio-quality voice, paste your ElevenLabs API key. Cerebrum doesn't proxy or store it; the key stays on this device and calls ElevenLabs directly from your browser.</div>
+        <div style={S.setNote}>Default voice runs on Cerebrum's servers (free, no key needed). Try each voice — quality varies by engine. For studio-quality voice, paste your own ElevenLabs API key; it stays on this device and calls ElevenLabs directly from your browser.</div>
         <div style={S.setLabel}>Animations</div>
         <div style={S.segment}>{[["cinematic", "Full"], ["subtle", "Subtle"], ["off", "Off"]].map(([v, label]) => (<button key={v} style={{ ...S.segBtn, ...(animationMode === v ? S.segActive : {}) }} onClick={() => { sfx(); setAnimationMode(v); }}>{label}</button>))}</div>
         <div style={S.setNote}>Full: all effects active. Subtle: fewer particles, quieter. Off: static.</div>
