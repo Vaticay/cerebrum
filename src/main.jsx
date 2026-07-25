@@ -1860,8 +1860,8 @@ function App() {
       )}
 
       {savedOpen && (
-        <div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-fade">
-          <div style={{ ...S.modal, width: 560 }} onClick={(e) => e.stopPropagation()} className="cb-pop">
+        <div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop">
+          <div style={{ ...S.modal, width: 560 }} onClick={(e) => e.stopPropagation()} className="cb-modal">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <div style={S.modalTitle}>Saved articles</div>
               <span style={S.srcCount}>{saved.length}</span>
@@ -2168,8 +2168,8 @@ function HowItWorksModal({ P, accent, close }) {
   );
 
   return (
-    <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-fade">
-      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}` }} className="cb-pop">
+    <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}` }} className="cb-modal">
         <div style={{ position: "sticky", top: 0, background: P.bg, padding: "20px 28px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: "-0.01em", color: P.ink }}>How Cerebrum works</div>
@@ -2232,11 +2232,38 @@ function HowItWorksModal({ P, accent, close }) {
   );
 }
 
+// A slider that keeps drag state LOCAL. The parent's state only updates when
+// the user releases the pointer, so dragging doesn't cause the whole app to
+// re-render 60 times per second. This is the difference between silky and
+// molasses when Settings is open.
+function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P }) {
+  const [local, setLocal] = useState(value);
+  // Sync down when the parent value changes (e.g. Reset button)
+  useEffect(() => { setLocal(value); }, [value]);
+  const commit = () => { if (local !== value) onCommit(local); };
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 12, color: P.ink2 }}>{label}</span>
+        <span style={{ fontSize: 11, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{format(local)}</span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={local}
+        onChange={(e) => setLocal(parseFloat(e.target.value))}
+        onMouseUp={commit}
+        onTouchEnd={commit}
+        onKeyUp={commit}
+        style={{ width: "100%", accentColor: accent, cursor: "pointer" }}
+      />
+    </div>
+  );
+}
+
 function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close }) {
   const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
   return (
-    <div style={S.modalWrap} onClick={close} className="cb-fade">
-      <div style={S.modal} onClick={(e) => e.stopPropagation()} className="cb-pop">
+    <div style={S.modalWrap} onClick={close} className="cb-backdrop">
+      <div style={S.modal} onClick={(e) => e.stopPropagation()} className="cb-modal">
         <div style={S.modalTitle}>Settings</div>
         <div style={S.setLabel}>Appearance</div>
         <div style={S.palRow}>
@@ -2284,30 +2311,9 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               ))}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: P.ink2 }}>Density</span>
-                  <span style={{ fontSize: 11, color: P.faint }}>{animDensity.toFixed(1)}x</span>
-                </div>
-                <input type="range" min="0.3" max="2.5" step="0.1" value={animDensity} onChange={(e) => setAnimDensity(parseFloat(e.target.value))}
-                  style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
-              </div>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: P.ink2 }}>Speed</span>
-                  <span style={{ fontSize: 11, color: P.faint }}>{animSpeed.toFixed(1)}x</span>
-                </div>
-                <input type="range" min="0.2" max="3" step="0.1" value={animSpeed} onChange={(e) => setAnimSpeed(parseFloat(e.target.value))}
-                  style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
-              </div>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: P.ink2 }}>Opacity</span>
-                  <span style={{ fontSize: 11, color: P.faint }}>{Math.round(animOpacity * 100)}%</span>
-                </div>
-                <input type="range" min="0.2" max="1.5" step="0.1" value={animOpacity} onChange={(e) => setAnimOpacity(parseFloat(e.target.value))}
-                  style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
-              </div>
+              <LocalSlider label="Density" value={animDensity} min={0.3} max={2.5} step={0.1} format={(v) => v.toFixed(1) + "x"} onCommit={setAnimDensity} accent={accent} P={P} />
+              <LocalSlider label="Speed" value={animSpeed} min={0.2} max={3} step={0.1} format={(v) => v.toFixed(1) + "x"} onCommit={setAnimSpeed} accent={accent} P={P} />
+              <LocalSlider label="Opacity" value={animOpacity} min={0.2} max={1.5} step={0.1} format={(v) => Math.round(v * 100) + "%"} onCommit={setAnimOpacity} accent={accent} P={P} />
               <button onClick={() => { sfx(); setAnimPreset("particles"); setAnimDensity(1); setAnimSpeed(1); setAnimOpacity(1); }}
                 style={{ fontSize: 11, padding: "6px 10px", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 6, color: P.faint, cursor: "pointer", fontFamily: "inherit", alignSelf: "flex-start" }}>Reset</button>
             </div>
@@ -2417,15 +2423,15 @@ function makeStyles(P, accent, at, isMobile = false) {
     footDbs: { fontSize: 11, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7 },
     aiTag: { fontSize: 11, color: P.faint, fontWeight: 550, letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 5 },
     mobSrcBtn: { position: "fixed", bottom: 20, right: 20, background: accent, color: at, border: "none", borderRadius: 26, padding: "13px 22px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: `0 8px 24px ${withAlpha(accent, 0.4)}`, zIndex: 20, fontFamily: font },
-    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25, backdropFilter: "blur(3px)" },
-    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, backdropFilter: "blur(6px)" },
+    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25, },
+    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, },
     cmdBox: { width: 560, maxWidth: "92vw", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", overflow: "hidden", fontFamily: font },
     cmdInputRow: { display: "flex", alignItems: "center", gap: 11, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
     cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, color: P.ink, fontFamily: font },
     cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
     cmdSection: { fontSize: 11, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, padding: "10px 12px 6px" },
     cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", fontSize: 14, color: P.ink, background: "transparent", border: "none", borderRadius: 9, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.12s" },
-    modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16, backdropFilter: "blur(6px)" },
+    modalWrap: { position: "fixed", inset: 0, background: P.dark ? "rgba(0,0,0,0.72)" : "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
     modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 20, padding: 28, width: 440, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 70px rgba(0,0,0,0.4)" },
     modalTitle: { fontSize: 21, fontWeight: 700, color: P.ink, marginBottom: 22, letterSpacing: "-0.02em" },
     setLabel: { fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.08em", color: P.faint, marginBottom: 10, marginTop: 4, fontWeight: 650 },
@@ -2467,6 +2473,9 @@ if (typeof document !== "undefined") {
       /* Subtle entrances — no more than 8px translate, no scale, pure ease-out */
       @keyframes cbRise { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
       @keyframes cbPop { from { opacity: 0; transform: translate3d(0, 6px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+      @keyframes cbModal { from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.98); } to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }
+      @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes cbGlow { 0% { box-shadow: 0 0 0 0 var(--cb-glow, rgba(0,0,0,0)); } 100% { box-shadow: 0 0 0 8px transparent; } }
       @keyframes cbPulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.4; } }
       @keyframes cbGate { from { opacity: 0; transform: translate3d(0, 12px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
       @keyframes cbHero { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
@@ -2491,6 +2500,8 @@ if (typeof document !== "undefined") {
       .cb-pop { animation: cbPop 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       .cb-gate { animation: cbGate 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       .cb-hero { animation: cbHero 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      .cb-modal { animation: cbModal 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards; will-change: transform, opacity; }
+      .cb-backdrop { animation: cbBackdrop 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
       /* Staggered list entrances — cascade at 40ms intervals up to 400ms */
       .cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
