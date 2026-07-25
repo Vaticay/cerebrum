@@ -729,6 +729,32 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
             r: (0.6 + Math.random() * 1.2) * dpr,
           });
         }
+      } else if (preset === "orbs") {
+        // Orbs: 5 large soft glows anchored in the corners + a floater.
+        // Each has an orbital drift so it moves quietly without ever leaving
+        // its zone. Density slider scales orb count from 3 to 7.
+        const count = Math.max(3, Math.min(7, Math.round(5 * getDensity())));
+        const anchors = [
+          { x: cw * 0.15, y: ch * 0.2 },
+          { x: cw * 0.85, y: ch * 0.25 },
+          { x: cw * 0.2, y: ch * 0.85 },
+          { x: cw * 0.8, y: ch * 0.8 },
+          { x: cw * 0.5, y: ch * 0.5 },
+          { x: cw * 0.5, y: ch * 0.1 },
+          { x: cw * 0.5, y: ch * 0.9 },
+        ];
+        for (let i = 0; i < count; i++) {
+          const a = anchors[i % anchors.length];
+          items.push({
+            anchorX: a.x,
+            anchorY: a.y,
+            baseRad: (140 + Math.random() * 120) * dpr,
+            intensity: 0.14 + Math.random() * 0.08,
+            orbitSpeed: 0.6 + Math.random() * 0.8,
+            orbitR: 0.5 + Math.random() * 0.6,
+            orbitPhase: Math.random() * Math.PI * 2,
+          });
+        }
       }
       stateRef.current.items = items;
     };
@@ -958,6 +984,86 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       }
     }
 
+    // Stripe-style aurora: soft, slow, blurred color washes that drift diagonally.
+    // Pure gradient fills, no particles. Feels premium and expensive to render
+    // (it's not — it's just a handful of radial gradients).
+    function drawAurora(elapsed) {
+      const cw = canvas.width, ch = canvas.height;
+      const t = elapsed * 0.15 * getSpeed();
+      // Three overlapping blobs, each drifting on its own slow orbit
+      const blobs = [
+        { hueShift: 0,   speedX: 1.0, speedY: 0.7, phaseX: 0,       phaseY: 1.2, size: 0.75 },
+        { hueShift: 30,  speedX: 0.8, speedY: 1.1, phaseX: 2.4,     phaseY: 0.4, size: 0.85 },
+        { hueShift: -30, speedX: 1.3, speedY: 0.9, phaseX: 4.1,     phaseY: 3.3, size: 0.65 },
+      ];
+      // Base fill (subtle wash of accent so canvas isn't purely transparent)
+      ctx.fillStyle = `rgba(${ar},${ag},${ab},0.02)`;
+      ctx.fillRect(0, 0, cw, ch);
+      for (const b of blobs) {
+        const cx = cw * (0.5 + 0.4 * Math.sin(t * b.speedX + b.phaseX));
+        const cy = ch * (0.5 + 0.35 * Math.cos(t * b.speedY + b.phaseY));
+        const rad = Math.max(cw, ch) * b.size;
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+        // Shift accent colors slightly per blob for that iridescent aurora feel
+        const sr = Math.min(255, Math.max(0, ar + b.hueShift));
+        const sg = Math.min(255, Math.max(0, ag + b.hueShift * 0.5));
+        const sb = Math.min(255, Math.max(0, ab - b.hueShift * 0.4));
+        g.addColorStop(0, `rgba(${sr},${sg},${sb},0.28)`);
+        g.addColorStop(0.5, `rgba(${sr},${sg},${sb},0.08)`);
+        g.addColorStop(1, `rgba(${sr},${sg},${sb},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, cw, ch);
+      }
+    }
+
+    // Soft glowing orbs: 4-6 large, blurred orbs drift slowly in the corners.
+    // No jitter, no lines, no particles. Just quiet ambient movement.
+    function drawOrbs(elapsed) {
+      const cw = canvas.width, ch = canvas.height;
+      const items = stateRef.current.items;
+      const t = elapsed * 0.08 * getSpeed();
+      for (const o of items) {
+        // Orbit each orb around its anchor point on a slow ellipse
+        const cx = o.anchorX + Math.cos(t * o.orbitSpeed + o.orbitPhase) * o.orbitR * cw * 0.08;
+        const cy = o.anchorY + Math.sin(t * o.orbitSpeed + o.orbitPhase) * o.orbitR * ch * 0.08;
+        // Breathing radius for gentle life
+        const rad = o.baseRad * (1 + 0.08 * Math.sin(t * 1.3 + o.orbitPhase));
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+        g.addColorStop(0, `rgba(${ar},${ag},${ab},${o.intensity})`);
+        g.addColorStop(0.4, `rgba(${ar},${ag},${ab},${o.intensity * 0.35})`);
+        g.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
+      }
+    }
+
+    // Static subtle grid: pure geometry, no motion. Cheapest option, most
+    // "engineered" feel. Just draws a faint dot grid once per frame.
+    function drawGrid() {
+      const cw = canvas.width, ch = canvas.height;
+      const cell = 40 * dpr;
+      ctx.fillStyle = `rgba(${ar},${ag},${ab},0.08)`;
+      for (let x = cell; x < cw; x += cell) {
+        for (let y = cell; y < ch; y += cell) {
+          ctx.beginPath();
+          ctx.arc(x, y, 1 * dpr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Solid background: just a single accent-tinted wash. Zero motion,
+    // Linear-style clean canvas.
+    function drawNone() {
+      const cw = canvas.width, ch = canvas.height;
+      // Very subtle diagonal gradient using accent, barely visible
+      const g = ctx.createLinearGradient(0, 0, cw, ch);
+      g.addColorStop(0, `rgba(${ar},${ag},${ab},0.03)`);
+      g.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, cw, ch);
+    }
+
     function draw(now) {
       // Skip repaint when paused (e.g. Settings modal open) so slider drags
       // don't compete with a full-viewport canvas for main-thread time.
@@ -971,6 +1077,10 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       else if (preset === "dna") drawDNA(elapsed);
       else if (preset === "circuits") drawCircuits(elapsed);
       else if (preset === "starfield") drawStarfield(elapsed);
+      else if (preset === "aurora") drawAurora(elapsed);
+      else if (preset === "orbs") drawOrbs(elapsed);
+      else if (preset === "grid") drawGrid();
+      else if (preset === "none") drawNone();
       else drawParticles(elapsed); // particles + neurons default
       rafRef.current = requestAnimationFrame(draw);
     }
@@ -1491,7 +1601,7 @@ function App() {
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver"); // vancouver | apa | mla | chicago | bibtex
   const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim") || "cinematic"); // cinematic | subtle | off
-  const [animPreset, setAnimPreset] = useState(() => getCookie("cb_animP") || "dna"); // particles | waves | dna | circuits | neurons | starfield
+  const [animPreset, setAnimPreset] = useState(() => getCookie("cb_animP") || "aurora"); // aurora | orbs | grid | none | particles | waves | dna | circuits | neurons | starfield
   const [animDensity, setAnimDensity] = useState(() => parseFloat(getCookie("cb_animD") || "1"));
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
   const [animOpacity, setAnimOpacity] = useState(() => parseFloat(getCookie("cb_animO") || "1"));
@@ -1675,7 +1785,11 @@ function App() {
   const typeColor = (t) => t === "Preprint" ? "#d97706" : t === "Reference" ? "#7c3aed" : t === "Dataset" ? "#0284c7" : accent;
 
   const SourceCard = (s, i) => (
-    <div key={i} style={{ ...S.srcItem, background: hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent" }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
+    <div key={i} style={{
+      ...S.srcItem,
+      background: hover === "src" + i ? withAlpha(accent, 0.06) : hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent",
+      transform: hover === "src" + i ? "translate3d(0, -1px, 0)" : "translate3d(0, 0, 0)",
+    }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, flexWrap: "wrap" }}>
         {s.type && <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.type}</span>}
         {typeof s.relevance === "number" && <span style={{ fontSize: 9.5, fontWeight: 700, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.relevance}% match</span>}
@@ -1948,27 +2062,27 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
           <button onClick={downloadFile} style={bibBtn(P, accent)} title="Download as file">Download</button>
         </div>
       </div>
-      <ol style={{ margin: 0, padding: 0, listStyle: "none", counterReset: "biblio" }}>
+      <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", counterReset: "biblio" }}>
         {sources.map((src, i) => (
-          <BibEntry key={i} source={src} index={i + 1} P={P} accent={accent} style={citationStyle} />
+          <BibEntry key={i} source={src} index={i + 1} P={P} accent={accent} style={citationStyle} className="cb-fade" />
         ))}
       </ol>
     </div>
   );
 }
 
-function BibEntry({ source, index, P, accent, style }) {
+function BibEntry({ source, index, P, accent, style, className }) {
   const [hover, setHover] = useState(false);
   const formatted = formatCitation(source, style, index);
-  // Break long URLs to prevent overflow
   return (
-    <li id={`ref-${index}`} style={{
+    <li id={`ref-${index}`} className={className} style={{
       padding: "12px 4px 12px 4px",
       borderTop: index === 1 ? "none" : `1px solid ${P.line}`,
       display: "flex", gap: 12, alignItems: "flex-start",
       transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
       background: hover ? withAlpha(accent, 0.03) : "transparent",
       borderRadius: 6,
+      opacity: 0,
     }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <div style={{
         flexShrink: 0, minWidth: 26,
@@ -2296,6 +2410,20 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         {animationMode !== "off" && (
           <>
             <div style={S.setLabel}>Background style</div>
+            <div style={{ fontSize: 10.5, color: P.faint, marginBottom: 6, letterSpacing: "0.04em", textTransform: "uppercase" }}>Premium</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+              {[
+                ["aurora", "Aurora"],
+                ["orbs", "Soft orbs"],
+                ["grid", "Grid"],
+                ["none", "Solid"],
+              ].map(([v, label]) => (
+                <button key={v} className="cb-btn"
+                  style={{ padding: "10px 6px", fontSize: 12.5, fontWeight: 600, background: animPreset === v ? accent : "transparent", color: animPreset === v ? at : P.ink2, border: `1px solid ${animPreset === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}
+                  onClick={() => { sfx(); setAnimPreset(v); }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 10.5, color: P.faint, marginBottom: 6, letterSpacing: "0.04em", textTransform: "uppercase" }}>Playful</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 10 }}>
               {[
                 ["particles", "Particles"],
@@ -2305,8 +2433,8 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                 ["circuits", "Circuits"],
                 ["starfield", "Starfield"],
               ].map(([v, label]) => (
-                <button key={v}
-                  style={{ padding: "9px 6px", fontSize: 12, fontWeight: 550, background: animPreset === v ? accent : "transparent", color: animPreset === v ? at : P.ink2, border: `1px solid ${animPreset === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)" }}
+                <button key={v} className="cb-btn"
+                  style={{ padding: "9px 6px", fontSize: 12, fontWeight: 550, background: animPreset === v ? accent : "transparent", color: animPreset === v ? at : P.ink2, border: `1px solid ${animPreset === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}
                   onClick={() => { sfx(); setAnimPreset(v); }}>{label}</button>
               ))}
             </div>
@@ -2375,7 +2503,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     searchBtn: { fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", padding: isMobile ? "11px 14px" : "11px 20px", borderRadius: 9, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 8px ${withAlpha(accent, 0.3)}` },
     chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 22, maxWidth: 600, position: "relative" },
     chip: { fontSize: 13.5, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 20, padding: "9px 15px", cursor: "pointer", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
-    chipHover: { borderColor: accent, color: accent, transform: "translateY(-1px)" },
+    chipHover: { borderColor: accent, color: accent, transform: "translate3d(0, -2px, 0)", boxShadow: `0 4px 12px ${withAlpha(accent, 0.15)}` },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 40, opacity: 0.65 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.01em" },
     workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
@@ -2413,7 +2541,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     zMsg: { fontSize: 11.5, color: accent },
     srcList: { display: "flex", flexDirection: "column", gap: 4 },
     empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "8px 0" },
-    srcItem: { padding: "13px 12px", margin: "0 -12px", borderRadius: 12, transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1)", borderBottom: `1px solid ${P.line}` },
+    srcItem: { padding: "13px 12px", margin: "0 -12px", borderRadius: 12, transition: "background 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1)", borderBottom: `1px solid ${P.line}` },
     srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 5, transition: "color 0.15s cubic-bezier(0.16, 1, 0.3, 1)", letterSpacing: "-0.01em" },
     srcMeta: { fontSize: 12, color: P.ink2, lineHeight: 1.45 },
     srcRow: { display: "flex", gap: 7, marginTop: 9 },
