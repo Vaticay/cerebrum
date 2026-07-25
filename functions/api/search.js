@@ -328,6 +328,7 @@ async function europePMC(query, limit = 8) {
         year: r.pubYear || "",
         citations: typeof r.citedByCount === "number" ? r.citedByCount : null,
         authors: r.authorString || "",
+        _allAuthors: r.authorString || "",
         journal: r.journalTitle || "Europe PMC",
         abstract: stripTags(r.abstractText),
         pmcid: r.pmcid || (r.source === "PMC" ? r.id : "") || "",
@@ -768,6 +769,242 @@ async function preprintServerAuthor(server, fullName) {
   }
 }
 
+// ORCID: the canonical author ID registry. Free, keyless, catches researchers
+// who registered before their papers propagated to OpenAlex/PubMed. Returns
+// works listed on their ORCID record.
+async function orcidAuthorSearch(fullName) {
+  try {
+    const searchUrl =
+      "https://pub.orcid.org/v3.0/search/?" +
+      new URLSearchParams({
+        q: 'given-names:"' + fullName.split(/\s+/)[0] + '"+AND+family-name:"' + fullName.split(/\s+/).slice(-1)[0] + '"',
+      });
+    const searchData = await getJSON(searchUrl, { Accept: "application/json" }, 4000);
+    const results = (searchData && searchData.result) || [];
+    if (!results.length) return [];
+    const worksAll = [];
+    // Pull works for the top 2 matching ORCID profiles
+    for (const r of results.slice(0, 2)) {
+      const orcid = r && r["orcid-identifier"] && r["orcid-identifier"].path;
+      if (!orcid) continue;
+      try {
+        const worksUrl = "https://pub.orcid.org/v3.0/" + orcid + "/works";
+        const worksData = await getJSON(worksUrl, { Accept: "application/json" }, 4000);
+        const groups = (worksData && worksData.group) || [];
+        for (const g of groups) {
+          const summaries = (g && g["work-summary"]) || [];
+          for (const w of summaries) {
+            const title = w.title && w.title.title && w.title.title.value;
+            if (!title) continue;
+            const year =
+              w["publication-date"] && w["publication-date"].year && w["publication-date"].year.value;
+            const doiId =
+              (w["external-ids"] &&
+                w["external-ids"]["external-id"] &&
+                w["external-ids"]["external-id"].find(
+                  (x) => x["external-id-type"] === "doi"
+                )) || null;
+            const doi = doiId ? doiId["external-id-value"] : "";
+            worksAll.push({
+              title,
+              url: doi ? "https://doi.org/" + doi : "https://orcid.org/" + orcid,
+              year: year || "",
+              citations: null,
+              authors: fullName,
+              journal: (w["journal-title"] && w["journal-title"].value) || "ORCID record",
+              abstract: "",
+              authorMatch: fullName,
+              source: "orcid",
+            });
+          }
+        }
+      } catch {}
+    }
+    return worksAll;
+  } catch {
+    return [];
+  }
+}
+
+// Semantic Scholar author search: separate from OpenAlex, different coverage.
+// Some researchers surface here that OpenAlex misses and vice versa.
+async function semanticScholarAuthorSearch(fullName) {
+  try {
+    const searchUrl =
+      "https://api.semanticscholar.org/graph/v1/author/search?" +
+      new URLSearchParams({
+        query: fullName,
+        limit: "5",
+        fields: "name,paperCount,papers.title,papers.year,papers.venue,papers.externalIds,papers.authors,papers.abstract,papers.citationCount",
+      });
+    const data = await getJSON(searchUrl, {}, 5000);
+    const authors = (data && data.data) || [];
+    if (!authors.length) return [];
+    const wanted = fullName.toLowerCase().split(/\s+/).filter(Boolean);
+    const worksAll = [];
+    // Only accept authors whose name contains all tokens of the query
+    for (const a of authors) {
+      const name = (a.name || "").toLowerCase();
+      if (!wanted.every((t) => name.includes(t))) continue;
+      const papers = a.papers || [];
+      for (const p of papers) {
+        const doi = p.externalIds && p.externalIds.DOI;
+        worksAll.push({
+          title: p.title || "Untitled",
+          url: doi ? "https://doi.org/" + doi : "",
+          year: p.year || "",
+          citations: typeof p.citationCount === "number" ? p.citationCount : null,
+          authors:
+            (p.authors || []).slice(0, 1).map((x) => x.name).join("") +
+            ((p.authors || []).length > 1 ? " et al." : ""),
+          journal: p.venue || "Semantic Scholar",
+          abstract: p.abstract || "",
+          authorMatch: a.name,
+          source: "semantic-scholar-author",
+        });
+      }
+    }
+    return worksAll;
+  } catch {
+    return [];
+  }
+}
+
+// Wikipedia person lookup: fetch a summary and infobox for a real person.
+// Useful for well-known researchers or public figures. Keyless, free.
+async function wikipediaLookup(query) {
+  try {
+    const searchUrl =
+      "https://en.wikipedia.org/w/api.php?" +
+      new URLSearchParams({
+        action: "query",
+        list: "search",
+        srsearch: query,
+        srlimit: "3",
+        format: "json",
+        origin: "*",
+      });
+    const searchData = await getJSON(searchUrl, {}, 4000);
+    const hits =
+      (searchData && searchData.query && searchData.query.search) || [];
+    const results = [];
+    for (const h of hits) {
+      const title = (h.title || "").trim();
+      if (!title) continue;
+      // Fetch page summary
+      try {
+        const sumUrl =
+          "https://en.wikipedia.org/api/rest_v1/page/summary/" +
+          encodeURIComponent(title);
+        const sum = await getJSON(sumUrl, {}, 4000);
+        if (sum && sum.extract) {
+          results.push({
+            title: sum.title || title,
+            url: sum.content_urls?.desktop?.page || ("https://en.wikipedia.org/wiki/" + encodeURIComponent(title)),
+            year: "",
+            citations: null,
+            authors: "Wikipedia",
+            journal: "Wikipedia",
+            abstract: sum.extract,
+            source: "wikipedia",
+            thumbnail: sum.thumbnail?.source || null,
+          });
+        }
+      } catch {}
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+// DuckDuckGo Instant Answer: free, keyless, returns a summary for many
+// entity-style queries (people, places, concepts).
+async function duckduckgoInstant(query) {
+  try {
+    const url =
+      "https://api.duckduckgo.com/?" +
+      new URLSearchParams({
+        q: query,
+        format: "json",
+        no_html: "1",
+        skip_disambig: "1",
+      });
+    const data = await getJSON(url, {}, 4000);
+    if (!data) return [];
+    const out = [];
+    if (data.AbstractText) {
+      out.push({
+        title: data.Heading || query,
+        url: data.AbstractURL || "https://duckduckgo.com/?q=" + encodeURIComponent(query),
+        year: "",
+        citations: null,
+        authors: data.AbstractSource || "DuckDuckGo",
+        journal: data.AbstractSource || "DuckDuckGo",
+        abstract: data.AbstractText,
+        source: "duckduckgo",
+      });
+    }
+    // RelatedTopics can carry useful context too
+    const rel = (data.RelatedTopics || []).slice(0, 3);
+    for (const r of rel) {
+      if (r && r.Text && r.FirstURL) {
+        out.push({
+          title: (r.Text.split(" - ")[0] || r.Text).slice(0, 120),
+          url: r.FirstURL,
+          year: "",
+          citations: null,
+          authors: "DuckDuckGo",
+          journal: "DuckDuckGo",
+          abstract: r.Text,
+          source: "duckduckgo",
+        });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+// Generic web search fallback via a keyless search index. Used only when
+// scholarly + author + wiki all come up empty, so we never return "nothing."
+async function genericWebSearch(query) {
+  try {
+    // Wikipedia opensearch: fast, no auth, returns page titles and short descriptions
+    const url =
+      "https://en.wikipedia.org/w/api.php?" +
+      new URLSearchParams({
+        action: "opensearch",
+        search: query,
+        limit: "5",
+        namespace: "0",
+        format: "json",
+        origin: "*",
+      });
+    const data = await getJSON(url, {}, 4000);
+    if (!Array.isArray(data) || data.length < 4) return [];
+    const [, titles, descs, urls] = data;
+    const out = [];
+    for (let i = 0; i < titles.length; i++) {
+      if (!descs[i] || !urls[i]) continue;
+      out.push({
+        title: titles[i],
+        url: urls[i],
+        year: "",
+        citations: null,
+        authors: "Wikipedia",
+        journal: "Wikipedia",
+        abstract: descs[i],
+        source: "web",
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 async function openAlex(query, limit = 10, key = "") {
   try {
 
@@ -800,6 +1037,13 @@ async function openAlex(query, limit = 10, key = "") {
             w.authorships && w.authorships.length > 1
               ? first + " et al."
               : first,
+          // Full author list preserved for downstream filtering (e.g. did a
+          // specific researcher actually write this paper?). Display uses
+          // `authors` (short); logic uses `_allAuthors` (full).
+          _allAuthors: (w.authorships || [])
+            .map((a) => (a && a.author && a.author.display_name) || "")
+            .filter(Boolean)
+            .join(", "),
           journal:
             (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) ||
             "OpenAlex",
@@ -845,6 +1089,10 @@ async function crossref(query, limit = 8) {
             .slice(0, 1)
             .map((a) => ((a.given || "") + " " + (a.family || "")).trim())
             .join("") + ((it.author || []).length > 1 ? " et al." : ""),
+        _allAuthors: (it.author || [])
+          .map((a) => ((a.given || "") + " " + (a.family || "")).trim())
+          .filter(Boolean)
+          .join(", "),
         journal: Array.isArray(it["container-title"])
           ? it["container-title"][0]
           : it["container-title"] || "Crossref",
@@ -889,6 +1137,7 @@ async function arxiv(query, limit = 6) {
             authorNames.length > 1
               ? authorNames[0] + " et al."
               : authorNames[0] || "",
+          _allAuthors: authorNames.join(", "),
           journal: "arXiv",
           abstract: summary,
         };
@@ -924,6 +1173,7 @@ async function semanticScholar(query, limit = 8) {
           authors:
             (r.authors || []).slice(0, 1).map((a) => a.name).join("") +
             ((r.authors || []).length > 1 ? " et al." : ""),
+          _allAuthors: (r.authors || []).map((a) => a.name).filter(Boolean).join(", "),
           journal: r.venue || "Semantic Scholar",
           abstract: r.abstract || "",
           tldr: (r.tldr && r.tldr.text) || "",
@@ -1566,32 +1816,82 @@ async function gatherPapers(rawQuery, opts) {
   const effectiveName = resolvedPersonName || embeddedName || rawQuery.trim();
   const binomial = extractBinomial(rawQuery);
 
-  // For person-name queries: try OpenAlex's disambiguated author endpoint first.
-  // If that finds nothing (common for grad students / early-career researchers
-  // who aren't a distinct "author" record yet), fall back to searching for the
-  // exact quoted name and keeping only papers where that name is genuinely in
-  // the paper's own author list. Only if BOTH come back empty do we give up.
+  // AUTHOR QUERY: single clean path. Query the primary sources directly (they
+  // have the freshest data — aggregators lag weeks to months), extract the
+  // FULL author list from each result, filter by actual name-token membership,
+  // deduplicate, and return. No layered fallbacks, no walls. If truly nothing
+  // matches, the endpoint responds with helpful suggestions rather than dumping
+  // unrelated papers or throwing up an "author not confirmed" screen.
   if (isNameQuery) {
-    let authorWorks = await openAlexAuthorSearch(effectiveName, 20).catch(() => []);
-    if (!authorWorks.length) {
-      authorWorks = await searchPapersByExactAuthorName(effectiveName, 15).catch(() => []);
-    }
-    if (authorWorks.length) {
-      const scored = authorWorks.map((p) => ({
-        ...p, score: 10, contentHits: 1, contentCoverage: 1, organismPresent: true, relevance: 100,
-      }));
-      for (const p of scored) {
-        const j = (p.journal || "").toLowerCase();
-        if (/preprint|biorxiv|medrxiv|arxiv/.test(j)) p.type = "Preprint";
-        else if (/zenodo|datacite|figshare|dryad/.test(j)) p.type = "Dataset";
-        else p.type = "Journal";
+    const nameLower = effectiveName.toLowerCase();
+    const nameTokens = nameLower.split(/\s+/).filter((t) => t.length > 1);
+    // Build a quoted-phrase query for the full name and also a broader OR of
+    // first+last for sources that don't handle quoted phrases well.
+    const quoted = '"' + effectiveName + '"';
+
+    // Primary source parallel fetch. Each source returns papers with a full
+    // author list in _allAuthors (this is the bug that was previously silently
+    // dropping real matches — the strict filter was checking a truncated field).
+    const results = await Promise.allSettled([
+      europePMC(quoted, 25),                        // best full-text index for biomed
+      openAlex(quoted, 25, openAlexKey),            // cross-disciplinary
+      crossref(quoted, 15),                         // DOI-registered works
+      arxiv(effectiveName, 15),                     // physics/CS/quantitative bio
+      semanticScholar(quoted, 15),                  // includes preprints
+      biorxivDirectAuthor(effectiveName),           // fresh biology preprints
+      medrxivDirectAuthor(effectiveName),           // fresh medical preprints
+    ]);
+
+    const merged = [];
+    const seenTitles = new Set();
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue;
+      for (const p of (r.value || [])) {
+        // Check the FULL author list, not the truncated `authors` display.
+        const authorHay = (p._allAuthors || p.authors || "").toLowerCase();
+        if (!authorHay) continue;
+        // Require every token of the searched name to appear somewhere in
+        // the paper's actual author string. This is the correct filter and
+        // works because we now capture the full author list.
+        const hit = nameTokens.every((t) => authorHay.includes(t));
+        if (!hit) continue;
+        const titleKey = (p.title || "").toLowerCase().trim();
+        if (!titleKey || seenTitles.has(titleKey)) continue;
+        seenTitles.add(titleKey);
+        merged.push({ ...p, authorMatch: effectiveName });
       }
-      return { papers: scored };
     }
-    // No confirmed author found via either method — return empty so the
-    // endpoint can respond honestly instead of falling back to loose keyword
-    // search (which is how unrelated papers used to leak in).
-    return { papers: [], authorNotFound: true };
+
+    // Score and type
+    const scored = merged.map((p) => {
+      const j = (p.journal || "").toLowerCase();
+      let type = "Journal";
+      if (/preprint|biorxiv|medrxiv|arxiv/.test(j)) type = "Preprint";
+      else if (/zenodo|datacite|figshare|dryad/.test(j)) type = "Dataset";
+      return {
+        ...p,
+        score: 10,
+        contentHits: 1,
+        contentCoverage: 1,
+        organismPresent: true,
+        relevance: 100,
+        type,
+      };
+    });
+
+    // Sort: most-cited first (proxy for career impact); recent second when ties
+    scored.sort((a, b) => {
+      const ac = a.citations || 0, bc = b.citations || 0;
+      if (bc !== ac) return bc - ac;
+      const ay = parseInt(a.year, 10) || 0, by = parseInt(b.year, 10) || 0;
+      return by - ay;
+    });
+
+    if (scored.length) return { papers: scored };
+
+    // Truly no papers matched by author. Signal that so the endpoint can
+    // respond with helpful suggestions (not a wall, not unrelated papers).
+    return { papers: [], noResults: true };
   }
 
   // All 10 keyless / low-friction sources in parallel via allSettled
@@ -1898,23 +2198,41 @@ export async function onRequest(context) {
       resolvedPersonName,
     }).catch(() => ({ papers: [] }));
 
-    // Author-name query where no confirmed match was found in any author
-    // database — say so honestly instead of returning unrelated papers.
-    if (gResult.authorNotFound) {
-      const displayName = resolvedPersonName || query;
+    // Track whether the person-name query returned only low-confidence
+    // (web / bio) results so we can note that in the AI answer.
+    const lowConfidencePersonQuery = !!gResult.lowConfidence;
+    const noResultsPersonQuery = !!gResult.noResults && isNameSearch;
+
+    // Person-name query that returned no author-matched papers. Instead of
+    // walling off or dumping unrelated results, respond with a short, honest
+    // message and actionable suggestions (surfaced by the frontend as buttons).
+    if (noResultsPersonQuery) {
+      const displayName = resolvedPersonName || extractPersonNameFromQuery(query) || query;
+      const parts = displayName.split(/\s+/);
+      const last = parts[parts.length - 1];
+      const first = parts[0];
+      const suggestions = [];
+      // Suggest variant search strategies the user might try
+      if (parts.length >= 2) {
+        suggestions.push({ label: `Try "${first[0]}. ${last}"`, query: `${first[0]}. ${last}` });
+        suggestions.push({ label: `Try last name only`, query: last });
+      }
+      suggestions.push({ label: `Search a topic they work on instead`, query: "" });
+
       return new Response(JSON.stringify({
         answer:
-          "I couldn't confirm a researcher named **" + displayName + "** in the open author databases or by matching their name directly against paper author lists (OpenAlex, Semantic Scholar, Crossref, Europe PMC).\n\n" +
-          "This can happen when someone:\n\n" +
-          "- Has few indexed publications (common for current students or very recent researchers)\n" +
-          "- Publishes under a different form of their name (with or without a middle initial, hyphenated names, etc.)\n" +
-          "- Has work indexed only in databases outside what I search\n\n" +
-          "Try the full name exactly as it appears on their papers, add a middle initial, or search a topic they work on and open the papers to find them.",
+          `I searched Europe PMC, OpenAlex, Crossref, arXiv, Semantic Scholar, bioRxiv, and medRxiv for papers authored by **${displayName}** and didn't find any that list them as an author.\n\n` +
+          `This usually means one of a few things:\n\n` +
+          `- Their paper hasn't propagated to these indexes yet (aggregators can lag weeks to months behind actual publication).\n` +
+          `- They publish under a slightly different form of their name (initials, middle name, hyphenation).\n` +
+          `- They're an early-career researcher whose work is only on their institution's site or a lab page.\n\n` +
+          `Give one of the suggestions below a try, or search a topic they work on and I'll find the paper that way.`,
         sources: [],
         videos: [],
         factCheck: null,
         related: [],
-        source: "Author not confirmed",
+        suggestions,
+        source: "No author match",
       }), { status: 200, headers: cors });
     }
 
@@ -1935,6 +2253,18 @@ export async function onRequest(context) {
           if (r.abstract && !seen.has(k)) {
             seen.add(k);
             webRefs.push(r);
+          }
+        }
+        // If STILL empty, try the generic Wikipedia opensearch as a last-resort
+        // web fallback so we never return zero to the user.
+        if (!webRefs.length) {
+          const generic = await genericWebSearch(query).catch(() => []);
+          for (const r of generic) {
+            const k = (r.title || "").toLowerCase();
+            if (!seen.has(k)) {
+              seen.add(k);
+              webRefs.push(r);
+            }
           }
         }
       } catch {}
@@ -2020,22 +2350,25 @@ export async function onRequest(context) {
           .join("\n\n")
       : "";
 
-    // System prompt tuned for a personable-but-serious tone
+    // System prompt tuned for a warm, curious, slightly witty voice —
+    // grounded in what was actually retrieved, but with real personality.
     const humanStyle =
-      "Write like a knowledgeable friend who happens to be a scientist. Personable but still serious about accuracy. " +
-      "Use plain conversational language where it fits (contractions like \"it's\" and \"doesn't\" are fine). " +
-      "Skip academic filler like \"the study demonstrates\" or \"the authors report that.\" Just say what the paper found. " +
-      "Explain WHY things happen, not just WHAT the papers found. If something is genuinely interesting or counterintuitive, say so plainly (\"what's cool here is...\", \"the surprising part is...\"). " +
-      "Don't be afraid of a short opinion or aside when it helps the reader understand the significance. " +
-      "Avoid bullet dumps. Use blank lines between paragraphs. Use **bold** sparingly for emphasis. Use *italics* for species names, titles, and Latin terms.";
+      "You are Cerebrum. Your voice is warm, curious, and lightly witty — like a scientist friend who's genuinely interested in whatever the person is asking about. " +
+      "Be direct and confident where the evidence is clear, humble where it isn't. Use contractions freely (\"it's\", \"here's\", \"we don't quite know yet\"). " +
+      "Don't be dry. If the science is cool, act like it's cool. A small aside or a well-placed \"which is wild, honestly\" is welcome when it fits. " +
+      "Avoid academic filler (\"this study demonstrates\", \"the authors report\", \"it should be noted that\"). Just say what happens. " +
+      "Explain WHY things happen, not just what the papers found. If a finding has a real-world consequence or a surprising twist, that's exactly the sentence to draw out. " +
+      "You have multiple purposes: research assistant (default), curious conversationalist, and — when someone asks a general question — a quick explainer that doesn't need a citation for every clause. Read the room. " +
+      "Bullet lists only when the person clearly wants a list. Otherwise, real paragraphs with real transitions. Use **bold** sparingly. Use *italics* for species names, journal titles, and Latin terms.";
 
     const rules =
-      "CRITICAL: Do NOT output any meta-commentary. Do NOT say 'The user is asking' or 'Let me review' or 'Paper 1 discusses'. " +
-      "Do NOT use <think> tags. Do NOT list papers in order, weave findings into a real explanation. " +
-      "Do NOT output 'User Safety: safe'. Do NOT wrap the answer in code fences. " +
-      "Do NOT fabricate DOIs, author names, or journal names not present in the sources. " +
-      "If a source is marked [⚠ RETRACTED] or [⚠ EXPRESSION OF CONCERN], you MUST mention that status when citing it, or preferably not cite it at all. " +
-      "Honest hedging matters: when the literature is thin, say so plainly (e.g. \"the evidence here is limited\" or \"only one paper in the retrieval directly addresses this\"). When consensus is strong, be direct. Do not hedge on established facts, and do not overclaim on shaky ones. " +
+      "HARD RULES: No meta-commentary — no \"the user is asking\", no \"let me review\", no \"Paper 1 discusses\". " +
+      "No <think> tags. Never list papers in numbered order — weave findings into a real explanation and cite inline as [1], [2] etc. " +
+      "Never output \"User Safety: safe\" or wrap the answer in code fences. " +
+      "Never fabricate DOIs, author names, or journal names not present in the sources. " +
+      "If a source is marked [⚠ RETRACTED] or [⚠ EXPRESSION OF CONCERN], you MUST call that out or skip it. " +
+      "Honesty matters more than confidence. When the literature is thin, say so plainly. When consensus is strong, be direct. Never overclaim on shaky evidence. " +
+      "If a source is marked [WEB / low confidence], make that clear — say something like \"based on their public profile and web results\" rather than pretending you have their peer-reviewed papers. " +
       "Jump directly into the answer.";
 
     let systemPrompt;
