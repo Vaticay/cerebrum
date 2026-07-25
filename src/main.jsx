@@ -1047,6 +1047,8 @@ function App() {
   const [entered, setEntered] = useState(false);
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState([]);
+  const [pinnedSources, setPinnedSources] = useState([]); // user-pinned sources persist across turns
+  const [corrections, setCorrections] = useState([]);     // sticky user corrections for the session
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [allSources, setAllSources] = useState([]);
@@ -1100,20 +1102,46 @@ function App() {
     if (!mutedRef.current) Audio.click();
 
     setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    // Build history: each user turn contributes content; each assistant turn
+    // contributes content AND its sources, so the backend can reuse them for
+    // follow-ups without a fresh search. Trim to last 10 rounds (20 messages).
     const prior = [];
-    turns.forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer }); });
+    turns.slice(-10).forEach((t) => {
+      prior.push({ role: "user", content: t.q });
+      prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] });
+    });
     try {
-      // Fire search and videos in parallel. The answer arrives from /api/search;
-      // videos arrive independently and get merged into the turn when they show up.
       const videosPromise = fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question }) })
         .then((r) => r.ok ? r.json() : { videos: [] })
         .catch(() => ({ videos: [] }));
 
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck } }) });
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: question,
+          history: prior,
+          settings: { answerLength, factCheck },
+          pinnedSources,
+          corrections,
+        }),
+      });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Something went sideways. Try that again?"); setBusy(false); return; }
       const turnId = Date.now() + Math.random();
       const nt = { id: turnId, q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      // Auto-detect user corrections in the question and stash them so they
+      // persist for the rest of the session. Very simple heuristic: if the
+      // question starts with a correction opener or contains "actually" or
+      // "that's wrong", store the full question as a correction.
+      const q = question.toLowerCase();
+      const looksLikeCorrection =
+        /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) ||
+        /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) ||
+        /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
+      if (looksLikeCorrection) {
+        setCorrections((prev) => [...prev, question].slice(-20));
+      }
       setTurns((t) => [...t, nt]);
       setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
@@ -1174,8 +1202,10 @@ function App() {
   }, []);
 
 
-  function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
+  function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
+  function isPinned(s) { const k = (s.title || "").toLowerCase(); return pinnedSources.some((x) => (x.title || "").toLowerCase() === k); }
+  function togglePin(s) { sfx(); setPinnedSources((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
   const isSaved = (s) => saved.some((x) => (x.title || "").toLowerCase() === (s.title || "").toLowerCase());
   async function doZotero() { setZMsg(""); const list = saved.length ? saved : allSources; if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; } try { await saveToZotero(list, zKey.trim(), zUser.trim()); setZMsg(`Saved ${list.length} items.`); } catch (e) { setZMsg(`Failed: ${e.message}`); } }
 
@@ -1238,6 +1268,11 @@ function App() {
       <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} citations`}</div>
       <div style={S.srcRow}>
         <button style={{ ...S.chipMini, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}>{isSaved(s) ? "★ Saved" : "☆ Save"}</button>
+        <button
+          style={{ ...S.chipMini, color: isPinned(s) ? at : P.ink2, background: isPinned(s) ? accent : "transparent", borderColor: isPinned(s) ? accent : P.line2 }}
+          onClick={() => togglePin(s)}
+          title={isPinned(s) ? "This source is pinned to the conversation" : "Pin this source so it stays in follow-ups"}
+        >{isPinned(s) ? "📌 Pinned" : "📌 Pin"}</button>
         {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
       </div>
     </div>
@@ -1246,6 +1281,18 @@ function App() {
   const SourcesInner = (
     <>
       <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
+      {pinnedSources.length > 0 && (
+        <div style={{ padding: "8px 12px", margin: "0 0 10px", background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 8, fontSize: 12, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span>📌 {pinnedSources.length} pinned {pinnedSources.length === 1 ? "source" : "sources"} — will stay in every follow-up</span>
+          <button onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: 11, textDecoration: "underline" }}>Clear</button>
+        </div>
+      )}
+      {corrections.length > 0 && (
+        <div style={{ padding: "8px 12px", margin: "0 0 10px", background: withAlpha("#f59e0b", 0.08), border: `1px solid ${withAlpha("#f59e0b", 0.3)}`, borderRadius: 8, fontSize: 12, color: "#f59e0b", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span>✎ {corrections.length} {corrections.length === 1 ? "correction" : "corrections"} remembered</span>
+          <button onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: "#f59e0b", cursor: "pointer", fontSize: 11, textDecoration: "underline" }}>Clear</button>
+        </div>
+      )}
 {allSources.length > 0 && (
         <>
           <div style={S.srcActions}>
