@@ -1113,7 +1113,7 @@ function App() {
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Something went sideways. Try that again?"); setBusy(false); return; }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], fresh: typewriter };
+      const nt = { id: turnId, q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       setTurns((t) => [...t, nt]);
       setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
@@ -1588,6 +1588,27 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         )}
       </div>
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
+      {done && t.suggestions && t.suggestions.length > 0 && (
+        <div style={{ marginTop: 18, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
+          {t.suggestions.map((s, i) => (
+            <button
+              key={i}
+              onClick={() => s.query && onRelated && onRelated(s.query)}
+              disabled={!s.query}
+              style={{
+                padding: "8px 14px", fontSize: 13, fontWeight: 500,
+                background: s.query ? withAlpha(accent, 0.1) : "transparent",
+                color: s.query ? accent : P.faint,
+                border: `1px solid ${s.query ? withAlpha(accent, 0.3) : P.line}`,
+                borderRadius: 20, cursor: s.query ? "pointer" : "default",
+                fontFamily: "inherit", transition: "background 0.15s",
+              }}
+            >
+              {s.label} {s.query && <span style={{ opacity: 0.6, marginLeft: 4 }}>→</span>}
+            </button>
+          ))}
+        </div>
+      )}
       {done && t.sources && t.sources.length > 0 && (
         <Bibliography sources={t.sources} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />
       )}
