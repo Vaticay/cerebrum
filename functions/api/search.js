@@ -108,6 +108,18 @@ function stripFabricatedCitations(text, sourceCount) {
   if (!text) return text;
   let t = text;
 
+  // 0. Normalize Markdown-link citations back to bare brackets so downstream
+  //    logic sees `[1]` not `[1](#ref-1)`.
+  t = t.replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]");
+
+  // 0b. Strip any "References:" / "Sources:" / "Bibliography:" section the
+  //     model appended, regardless of sourceCount. We render the real
+  //     bibliography separately from the answer, so ANY inline references
+  //     block the model writes is either a duplicate (when it matches) or a
+  //     fabrication (when it doesn't) — either way, remove it.
+  t = t.replace(/\n[-—]{2,}\s*\n/g, "\n\n");
+  t = t.replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "").trim();
+
   // 1. Remove any trailing "References:" / "Sources:" / "Bibliography:" block.
   //    These are almost always fabricated when sourceCount is 0.
   if (sourceCount === 0) {
