@@ -1997,8 +1997,28 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
 
-  // Relevance scoring
-  const terms = query.split(/\s+/).filter((t) => t.length > 2);
+  // ============ RELEVANCE SCORING ============
+  // Rebuilt from scratch. The old version had five compounding bugs that were
+  // the root cause of nearly every "wrong paper" report:
+  //
+  //   1. Used hay.indexOf(term) — substring matching. "micro" matched
+  //      "micro-motion", "microscopy", "micrometer". A query about the
+  //      microbiome returned radar engineering papers at 100% relevance.
+  //   2. Stemmer stripped "ion"/"al"/"ed" unconditionally, so "motion" -> "mot"
+  //      which then matched "motor", "remote", "mother", "promote".
+  //   3. Relevance was RELATIVE (score / maxScore). If every result was
+  //      garbage, the least-bad garbage still displayed "100% match".
+  //   4. No absolute quality floor — top N were returned no matter how bad,
+  //      then handed to the AI, which dutifully cited them.
+  //   5. Stopwords were never filtered, so "the", "was", "that", "main",
+  //      "point" all counted as content matches and inflated every score.
+  //
+  // Every one of those is fixed below.
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.replace(/[^a-z0-9\-]/g, ""))
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
   const expansions = expansionsFor(terms);
 
   // Neutral (organism) words vs content (topic) words
@@ -2013,22 +2033,88 @@ async function gatherPapers(rawQuery, opts) {
   }
   const contentTerms = terms.filter((t) => !neutralWords.has(t));
 
-  const stem = (w) => w.replace(/(ies|es|s|al|ion|ing|ed)$/i, "");
+  // Conservative stemmer. Only strips endings when the remaining stem is still
+  // long enough to be meaningful (>= 4 chars). The old version turned "motion"
+  // into "mot" and "radial" into "radi", which matched half the dictionary.
+  const stem = (w) => {
+    if (w.length <= 4) return w;
+    // Plurals and simple verb forms only. Never strip "al"/"ion" — those are
+    // part of the root in most scientific vocabulary (radial, motion, ionic).
+    const stripped = w.replace(/(ies|ied)$/i, "y").replace(/(es|s|ing|ed)$/i, "");
+    return stripped.length >= 4 ? stripped : w;
+  };
+
+  // Word-boundary matcher. Builds one regex per term that matches the term (or
+  // its stem) only at word boundaries, so "micro" can never match "micro-motion"
+  // or "microscopy". Hyphens count as boundaries, which is correct for science
+  // ("gut-microbiome" should match "microbiome").
+  const matcherCache = new Map();
+  const matcherFor = (term) => {
+    if (matcherCache.has(term)) return matcherCache.get(term);
+    const t = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const s = stem(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Match term OR stem, allowing common suffixes after the stem, but always
+    // anchored at word boundaries on both sides.
+    const pattern = s !== t
+      ? `(?<![a-z0-9])(?:${t}|${s}(?:s|es|ing|ed|al)?)(?![a-z0-9])`
+      : `(?<![a-z0-9])${t}(?:s|es|ing|ed)?(?![a-z0-9])`;
+    let re;
+    try {
+      re = new RegExp(pattern, "i");
+    } catch {
+      // Lookbehind unsupported on some older runtimes — fall back to \b
+      re = new RegExp(`\\b(?:${t}|${s})\\w{0,3}\\b`, "i");
+    }
+    matcherCache.set(term, re);
+    return re;
+  };
+
+  // Compound-term detection. Scientific vocabulary is full of terms users split
+  // apart when typing: "micro biome" vs "microbiome", "bio conversion" vs
+  // "bioconversion", "gut micro biome". Strict word-boundary matching would
+  // (correctly) refuse to match "micro" inside "microbiome" — but then the
+  // legitimate paper gets rejected too. So we also test adjacent term pairs
+  // joined together, and if the compound appears, both halves count as matched.
+  const compoundPairs = [];
+  for (let i = 0; i < contentTerms.length - 1; i++) {
+    const joined = contentTerms[i] + contentTerms[i + 1];
+    if (joined.length >= 6) {
+      compoundPairs.push({ a: contentTerms[i], b: contentTerms[i + 1], joined });
+    }
+  }
 
   const scored = merged
     .map((p) => {
-      const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
-      const titleHay = (p.title || "").toLowerCase();
-      const has = (t) => hay.indexOf(t) !== -1 || hay.indexOf(stem(t)) !== -1;
-      const hasTitle = (t) =>
-        titleHay.indexOf(t) !== -1 || titleHay.indexOf(stem(t)) !== -1;
+      const title = p.title || "";
+      const abstract = p.abstract || "";
+      const hay = (title + " " + abstract).toLowerCase();
+      const titleHay = title.toLowerCase();
+
+      // Which terms were satisfied via a compound match in body / title
+      const compoundSatisfied = new Set();
+      const compoundSatisfiedTitle = new Set();
+      for (const cp of compoundPairs) {
+        if (matcherFor(cp.joined).test(hay)) {
+          compoundSatisfied.add(cp.a);
+          compoundSatisfied.add(cp.b);
+        }
+        if (matcherFor(cp.joined).test(titleHay)) {
+          compoundSatisfiedTitle.add(cp.a);
+          compoundSatisfiedTitle.add(cp.b);
+        }
+      }
+
+      const has = (t) => compoundSatisfied.has(t) || matcherFor(t).test(hay);
+      const hasTitle = (t) => compoundSatisfiedTitle.has(t) || matcherFor(t).test(titleHay);
 
       const contentHits = contentTerms.filter(has).length;
       const titleContentHits = contentTerms.filter(hasTitle).length;
       const neutralHit = [...neutralWords].some(has);
+      // Multi-word expansions are checked as exact phrases (they're already
+      // specific enough that substring matching is safe and desirable here).
       let expHit = false;
       for (const phrase of expansions) {
-        if (hay.indexOf(phrase) !== -1) {
+        if (hay.indexOf(phrase.toLowerCase()) !== -1) {
           expHit = true;
           break;
         }
@@ -2038,21 +2124,48 @@ async function gatherPapers(rawQuery, opts) {
         ? contentHits / contentTerms.length
         : 1;
 
-      let score = 0;
-      score += contentHits * 5;
-      score += contentCoverage * 6;
-      score += titleContentHits * 3;
-      if (organismPresent && contentHits > 0) score += 3;
-      if (p.abstract) score += 0.5;
-      if (typeof p.citations === "number")
-        score += Math.min(p.citations / 800, 1.0);
+      // ---- Absolute scoring, normalized to a 0-100 scale ----
+      // The maximum achievable "match" component is 70 points; the remaining 30
+      // come from quality signals (citations, recency, full abstract present).
+      // This means a genuinely poor match can never display as "100%".
+      let match = 0;
+      // Coverage is the single strongest signal: what fraction of the user's
+      // meaningful terms actually appear in this paper?
+      match += contentCoverage * 40;
+      // Title matches are worth far more than abstract matches — a paper whose
+      // TITLE contains your terms is almost certainly on-topic.
+      match += contentTerms.length
+        ? (titleContentHits / contentTerms.length) * 22
+        : 0;
+      // Organism/entity presence when the query named one
+      if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 8;
+
+      let quality = 0;
+      if (abstract.length > 200) quality += 8;      // has a real abstract
+      else if (abstract.length > 0) quality += 3;
+      if (typeof p.citations === "number") {
+        // Log scale — 10 citations matters much more than 1000 vs 990
+        quality += Math.min(Math.log10(Math.max(1, p.citations)) * 4, 12);
+      }
       const yr = parseInt(p.year, 10);
-      if (yr && yr >= 2015) score += 0.3;
+      const nowYear = new Date().getFullYear();
+      if (yr) {
+        const age = nowYear - yr;
+        if (age <= 2) quality += 10;
+        else if (age <= 5) quality += 7;
+        else if (age <= 10) quality += 4;
+        else if (age <= 20) quality += 1;
+      }
+
+      const score = match + quality;
 
       return {
         ...p,
         score,
+        matchScore: match,       // 0-70, pure topical relevance
+        qualityScore: quality,   // 0-30, source quality signals
         contentHits,
+        titleContentHits,
         contentCoverage,
         organismPresent,
       };
@@ -2073,6 +2186,22 @@ async function gatherPapers(rawQuery, opts) {
       }
       // Name queries: keep everything relevance-sorted, don't apply topic gate.
       if (isNameQuery) return true;
+
+      // ---- HARD QUALITY FLOOR ----
+      // A paper must clear a real topical-match bar to be returned at all.
+      // Previously the top N were returned regardless of quality and then fed
+      // to the AI, which is precisely how unrelated papers ended up cited.
+      // matchScore is 0-70; we require meaningful topical overlap.
+      if (contentTerms.length > 0) {
+        // Single-term queries: the term must actually be present.
+        if (contentTerms.length === 1 && p.contentHits === 0) return false;
+        // Multi-term queries: require at least 45% term coverage, OR a strong
+        // title match (title hits are a much stronger signal than abstract).
+        const coverageOK = p.contentCoverage >= 0.45;
+        const titleStrong = p.titleContentHits >= Math.max(1, Math.ceil(contentTerms.length * 0.5));
+        if (!coverageOK && !titleStrong) return false;
+      }
+
       const queryNamesOrganism = neutralWords.size > 0;
       if (queryNamesOrganism) {
         return (
@@ -2080,18 +2209,18 @@ async function gatherPapers(rawQuery, opts) {
           (contentTerms.length === 0 || p.contentHits > 0)
         );
       }
-      if (contentTerms.length === 0) return true;
-      if (contentTerms.length <= 2) return p.contentHits > 0;
-      return p.contentHits / contentTerms.length >= 0.4;
+      return true;
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
-  const maxScore = scored.length
-    ? Math.max(...scored.map((p) => p.score))
-    : 1;
   for (const p of scored) {
-    p.relevance = maxScore > 0 ? Math.round((p.score / maxScore) * 100) : 0;
+    // ---- ABSOLUTE RELEVANCE ----
+    // Score is already on a 0-100 absolute scale (70 match + 30 quality), so we
+    // report it directly instead of normalizing against the best result in the
+    // set. A weak match now honestly reads as "38% match" rather than being
+    // inflated to 100% just because everything else was worse.
+    p.relevance = Math.max(0, Math.min(100, Math.round(p.score)));
     const j = (p.journal || "").toLowerCase();
     if (/wikipedia/.test(j)) p.type = "Reference";
     else if (/preprint|biorxiv|medrxiv|arxiv|ssrn|research square/.test(j))
@@ -2382,7 +2511,28 @@ export async function onRequest(context) {
     const useEvidence = hasPapers;
     const useWeb = !useEvidence && webRefs.length > 0;
 
-    const sourceList = (useEvidence ? papers : useWeb ? webRefs : []).map(
+    // Detect if this was a person-name query (matches the same logic gatherPapers uses)
+    const isNameSearch = !!extractPersonNameFromQuery(query);
+    const speciesSearch = extractBinomial(query);
+
+    // Only send genuinely relevant papers to the AI. Previously the top 12 were
+    // sent regardless of match quality, and the model would faithfully cite
+    // whatever it received — the direct cause of confidently-wrong answers.
+    // Author and follow-up modes bypass this (their papers are pre-verified).
+    const evidencePapers = (isNameSearch || isFollowupMode)
+      ? papers.slice(0, 12)
+      : (() => {
+          const strong = papers.filter((p) => (p.relevance || 0) >= 45);
+          // If nothing clears the bar, fall back to the best 4 so the AI still
+          // has something — but they'll be tagged as weak below.
+          return (strong.length >= 2 ? strong : papers.slice(0, 4)).slice(0, 12);
+        })();
+
+    // CITATION ALIGNMENT: the bibliography the user sees MUST be the exact same
+    // list, in the exact same order, that the AI was given. Otherwise the model
+    // writes "[3]" meaning its third source while the UI renders a different
+    // paper as entry 3. This was silently misattributing citations.
+    const sourceList = (useEvidence ? evidencePapers : useWeb ? webRefs : []).map(
       ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType }) => ({
         title,
         url,
@@ -2399,17 +2549,8 @@ export async function onRequest(context) {
       })
     );
 
-    // Build evidence block
-    // Detect if this was a person-name query (matches the same logic gatherPapers uses)
-    const isNameSearch = !!extractPersonNameFromQuery(query);
-    const speciesSearch = extractBinomial(query);
-
-    // Build evidence. For name queries, EXPLICITLY mark which papers are
-    // author-matched (real author search hits) vs keyword hits, and show every
-    // author verbatim so the model can't invent name variants.
     const evidence = useEvidence
-      ? papers
-          .slice(0, 12)
+      ? evidencePapers
           .map((p, i) => {
             const authorTag = isNameSearch
               ? (p.authorMatch
@@ -2443,11 +2584,20 @@ export async function onRequest(context) {
               : p.concern
               ? " [⚠ EXPRESSION OF CONCERN issued for this paper]"
               : "";
+            // Relevance honesty tag. If a paper only weakly matches the query,
+            // say so explicitly so the model treats it as background context
+            // rather than direct evidence.
+            const rel = typeof p.relevance === "number" ? p.relevance : null;
+            let relTag = "";
+            if (!isNameSearch && !isFollowupMode && rel !== null) {
+              if (rel < 45) relTag = " [WEAK MATCH (" + rel + "%) — only tangentially related; do NOT present this as directly answering the question]";
+              else if (rel < 65) relTag = " [PARTIAL MATCH (" + rel + "%) — related but not a direct answer]";
+            }
             const tldrLine = p.tldr ? "\nTL;DR: " + p.tldr : "";
             return (
               "[" + (i + 1) + "] " + p.title +
               " (Authors: " + (p.authors || "n/a") + ", " +
-              p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag +
+              p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag +
               tldrLine +
               "\nAbstract: " + (p.abstract || "(no abstract available)")
             );
@@ -2478,6 +2628,12 @@ export async function onRequest(context) {
       "If a source is marked [⚠ RETRACTED] or [⚠ EXPRESSION OF CONCERN], you MUST call that out or skip it. " +
       "Honesty matters more than confidence. When the literature is thin, say so plainly. When consensus is strong, be direct. Never overclaim on shaky evidence. " +
       "If a source is marked [WEB / low confidence], make that clear — say something like \"based on their public profile and web results\" rather than pretending you have their peer-reviewed papers. " +
+      "\n\nGROUNDING (most important rules in this prompt):\n" +
+      "1. A source marked [WEAK MATCH] is NOT evidence for the question. Do not build claims on it. Either ignore it entirely, or mention it only as tangential background and say plainly that it doesn't directly address the question.\n" +
+      "2. A source marked [PARTIAL MATCH] can be cited, but frame it accurately — say what it actually studied, not what the user hoped it studied.\n" +
+      "3. Only attach a citation [N] to a sentence if source N genuinely supports that specific sentence. Never decorate a general statement with a citation just because the paper is in the list.\n" +
+      "4. If the retrieved sources do not actually answer the question, SAY SO in the first sentence. \"The papers I found don't directly address this\" is a correct and valuable answer. Inventing a synthesis from unrelated papers is the single worst thing you can do.\n" +
+      "5. Never state a specific number, percentage, date, sample size, or finding unless it appears verbatim in one of the abstracts above. If you're unsure, describe the finding qualitatively instead.\n" +
       "Jump directly into the answer.";
 
     let systemPrompt;
