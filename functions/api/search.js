@@ -129,6 +129,31 @@ function stripFabricatedCitations(text, sourceCount) {
     t = t.replace(/\((?:[A-Z][A-Za-z\-']+(?:,| &| and|\set al\.?)?[\s,]*){1,4}\d{4}[a-z]?\)/g, "");
     // 4. Strip superscript-style numeric refs left dangling after words.
     t = t.replace(/([a-z])\s*\u00b9|\u00b2|\u00b3|[\u2070-\u2079]/g, "$1");
+
+    // 5. Strip PROSE-form invented references. With no retrieved papers the
+    //    model still writes things like "a 2002 study published in the Journal
+    //    of Biological Chemistry reported that..." — no brackets, so the
+    //    citation stripper above misses it, but it is entirely fabricated.
+    //    We remove the attribution clause and keep the claim, so the sentence
+    //    survives as a general statement instead of a fake citation.
+    const proseRefs = [
+      // "a 2019 study published in Nature reported that" / "...found that"
+      /\b(?:a|an|one)\s+\d{4}\s+(?:study|paper|article|report|review|analysis)\s+(?:published\s+)?(?:in\s+(?:the\s+)?(?:journal\s+)?[A-Z][A-Za-z&.\s]{2,60}?\s+)?(?:reported|found|showed|demonstrated|revealed|concluded|suggested)\s+that\s+/gi,
+      // "a study published in the journal Science reported that"
+      /\b(?:a|an|one)\s+(?:study|paper|article|report|review)\s+published\s+in\s+(?:the\s+)?(?:journal\s+)?[A-Z][A-Za-z&.\s]{2,60}?\s+(?:reported|found|showed|demonstrated|revealed|concluded|suggested)\s+that\s+/gi,
+      // "according to a 2018 paper in Cell,"
+      /\baccording\s+to\s+(?:a|an|the)\s+(?:\d{4}\s+)?(?:study|paper|article|report|review)\s+(?:published\s+)?in\s+(?:the\s+)?(?:journal\s+)?[A-Z][A-Za-z&.\s]{2,60}?,\s*/gi,
+      // "research published in PNAS in 2020 showed"
+      /\bresearch\s+published\s+in\s+(?:the\s+)?(?:journal\s+)?[A-Z][A-Za-z&.\s]{2,60}?(?:\s+in\s+\d{4})?\s+(?:reported|found|showed|demonstrated|revealed)\s+(?:that\s+)?/gi,
+    ];
+    for (const re of proseRefs) {
+      t = t.replace(re, (m) => {
+        // Keep the sentence readable: "For instance, X" rather than a fragment.
+        return "";
+      });
+    }
+    // Capitalize any sentence left starting lowercase after a removal.
+    t = t.replace(/(^|[.!?]\s+)([a-z])/g, (m, p1, p2) => p1 + p2.toUpperCase());
   }
 
   // 5. Tidy the punctuation left behind by removals.
@@ -420,7 +445,47 @@ function buildStructuredQuery(query) {
       .map((e) => (e.includes(" ") ? '"' + e + '"' : e))
       .join(" OR ");
   }
-  return query;
+
+  // ---- Natural-language questions ----
+  // Previously this returned the query verbatim. A question like "What types of
+  // enzymes do insects have to degrade plastic compounds, and how do gut
+  // microbes capitalize from them?" became a 9-word string, which PubMed and
+  // Europe PMC treat as an implicit AND across every word. No paper contains
+  // all nine, so retrieval returned ZERO and the answer fell back to the
+  // model's memory — which is where the invented studies came from.
+  //
+  // Instead: keep only the most topic-bearing terms, expand each with its
+  // concept group as an OR set, and AND the groups together. That turns the
+  // question into (enzyme OR oxidase OR hydrolase...) AND (plastic OR
+  // polyethylene OR PET...) AND (insect OR larvae OR Galleria...), which
+  // actually retrieves the relevant literature.
+  const qTerms = query
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
+  if (!qTerms.length) return query;
+
+  const ranked = qTerms
+    .map((t) => ({ t, spec: termSpecificity(t) }))
+    .sort((a, b) => b.spec - a.spec);
+  // Two to four anchors. More than four AND-ed groups over-constrains again.
+  const anchors = ranked.filter((x) => x.spec >= 0.5).slice(0, 4).map((x) => x.t);
+  if (anchors.length < 2) {
+    // Not enough specific terms to build groups — OR the best few so we still
+    // get recall rather than an over-narrow AND.
+    return ranked.slice(0, 4).map((x) => x.t).join(" OR ");
+  }
+
+  const groups = anchors.map((t) => {
+    const set = CONCEPT_LOOKUP.get(t);
+    if (!set) return t;
+    // Cap expansion so the request URL stays reasonable, and keep the original
+    // term first so it carries the most weight in relevance-ranked engines.
+    const members = [t, ...[...set].filter((m) => m !== t)].slice(0, 7);
+    return "(" + members.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")";
+  });
+  return groups.join(" AND ");
 }
 
 const STOPWORDS = new Set([
