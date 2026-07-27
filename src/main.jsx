@@ -1781,18 +1781,22 @@ function App() {
     return null; // relevance = flat list
   })();
 
-  const relColor = (r) => r >= 75 ? "#10b981" : r >= 45 ? "#d9a520" : P.faint;
+  // Relevance is now an ABSOLUTE 0-100 score (70 pts topical match + 30 pts
+  // source quality), not a relative ranking. Thresholds recalibrated to match:
+  // 65+ is a genuinely strong match, 45-64 is partial, below 45 is tangential.
+  const relColor = (r) => r >= 65 ? "#10b981" : r >= 45 ? "#d9a520" : "#9ca3af";
+  const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
   const typeColor = (t) => t === "Preprint" ? "#d97706" : t === "Reference" ? "#7c3aed" : t === "Dataset" ? "#0284c7" : accent;
 
   const SourceCard = (s, i) => (
-    <div key={i} style={{
+    <div key={i} className="cb-fade" style={{
       ...S.srcItem,
       background: hover === "src" + i ? withAlpha(accent, 0.06) : hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent",
       transform: hover === "src" + i ? "translate3d(0, -1px, 0)" : "translate3d(0, 0, 0)",
     }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, flexWrap: "wrap" }}>
         {s.type && <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.type}</span>}
-        {typeof s.relevance === "number" && <span style={{ fontSize: 9.5, fontWeight: 700, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.relevance}% match</span>}
+        {typeof s.relevance === "number" && <span title={`Relevance: ${relLabel(s.relevance)} match (absolute score, not relative to other results)`} style={{ fontSize: 9.5, fontWeight: 700, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.12), padding: "2px 6px", borderRadius: 5 }}>{s.relevance}% {relLabel(s.relevance)}</span>}
         {s.year && <span style={{ fontSize: 10, color: P.faint }}>{s.year}</span>}
       </div>
       <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title || s.url}</a>
@@ -1848,11 +1852,11 @@ function App() {
           {zMsg && <div style={S.zMsg}>{zMsg}</div>}
         </div>
       )}
-      <div style={S.srcList}>
-        {allSources.length === 0 ? <div style={S.empty}>Sources appear here as you research.</div> :
-          sortedSources.length === 0 ? <div style={S.empty}>No sources match "{srcFilter}".</div> :
+      <div style={S.srcList} className="cb-stagger">
+        {allSources.length === 0 ? <div style={S.empty} className="cb-fade">Sources appear here as you research.</div> :
+          sortedSources.length === 0 ? <div style={S.empty} className="cb-fade">No sources match "{srcFilter}".</div> :
           grouped ? grouped.map(([label, items]) => (
-            <div key={label}>
+            <div key={label} className="cb-fade">
               <div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>
               {items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}
             </div>
@@ -2595,78 +2599,167 @@ if (typeof document !== "undefined") {
     const st = document.createElement("style");
     st.id = "cb-anim";
     st.textContent = `
+      /* ============================================================
+         CEREBRUM MOTION SYSTEM
+         Design tokens first, then keyframes, then utilities.
+         Every animation touches only transform / opacity / filter.
+         ============================================================ */
+      :root {
+        /* Durations */
+        --cb-instant: 90ms;
+        --cb-quick: 160ms;
+        --cb-base: 280ms;
+        --cb-slow: 460ms;
+        --cb-ambient: 720ms;
+        /* Easings */
+        --cb-out: cubic-bezier(0.16, 1, 0.3, 1);        /* decisive ease-out */
+        --cb-inout: cubic-bezier(0.65, 0, 0.35, 1);      /* symmetric */
+        --cb-entrance: cubic-bezier(0.22, 1, 0.36, 1);   /* soft arrival */
+        --cb-exit: cubic-bezier(0.4, 0, 1, 1);           /* accelerate away */
+      }
+
+      /* ---- Keyframes ---- */
       @keyframes cbspin { to { transform: rotate(360deg); } }
       @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
       @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
-      /* Subtle entrances — no more than 8px translate, no scale, pure ease-out */
-      @keyframes cbRise { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
-      @keyframes cbPop { from { opacity: 0; transform: translate3d(0, 6px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
-      @keyframes cbModal { from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.98); } to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }
+
+      /* Blur-in entrances. The slight defocus on arrival reads as depth rather
+         than as a slide, which is what separates crafted motion from templated
+         motion. Blur is GPU-composited, same cost class as transform. */
+      @keyframes cbRise {
+        from { opacity: 0; transform: translate3d(0, 10px, 0); filter: blur(6px); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+      }
+      @keyframes cbPop {
+        from { opacity: 0; transform: translate3d(0, 6px, 0);  filter: blur(4px); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+      }
+      @keyframes cbHero {
+        from { opacity: 0; transform: translate3d(0, 14px, 0); filter: blur(8px); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+      }
+      @keyframes cbGate {
+        from { opacity: 0; transform: translate3d(0, 12px, 0); filter: blur(6px); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+      }
+      @keyframes cbModal {
+        from { opacity: 0; transform: translate3d(0, 14px, 0) scale(0.985); filter: blur(5px); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1);        filter: blur(0); }
+      }
       @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
-      @keyframes cbGlow { 0% { box-shadow: 0 0 0 0 var(--cb-glow, rgba(0,0,0,0)); } 100% { box-shadow: 0 0 0 8px transparent; } }
-      @keyframes cbPulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.4; } }
-      @keyframes cbGate { from { opacity: 0; transform: translate3d(0, 12px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
-      @keyframes cbHero { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
-      /* Logo float: kept, but slower and shorter travel */
-      @keyframes cb-float { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(0, -3px, 0); } }
-      @keyframes cb-burst {
-        0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.4); }
-        20% { opacity: 1; }
-        100% { opacity: 0; transform: translate3d(var(--bx, 0), var(--by, -60px), 0) scale(1); }
+      @keyframes cbPulse { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.35; } }
+
+      /* Ambient breathing for the logo — long, barely perceptible */
+      @keyframes cb-float {
+        0%, 100% { transform: translate3d(0, 0, 0); }
+        50%      { transform: translate3d(0, -3px, 0); }
       }
-      @keyframes cb-egg-in { from { opacity: 0; transform: translate3d(0, 6px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
       @keyframes cb-wiggle {
-        0%, 100% { transform: rotate(0); }
-        25% { transform: rotate(-4deg); }
-        75% { transform: rotate(4deg); }
+        0%, 100% { transform: rotate(0deg); }
+        30%      { transform: rotate(-5deg); }
+        70%      { transform: rotate(4deg); }
       }
-
-      /* Premium easing curves */
-      .cb-wiggle { animation: cb-wiggle 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-      .cb-fade { animation: cbFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      .cb-rise { animation: cbRise 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      .cb-pop { animation: cbPop 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      .cb-gate { animation: cbGate 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      .cb-hero { animation: cbHero 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      .cb-modal { animation: cbModal 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards; will-change: transform, opacity; }
-      .cb-backdrop { animation: cbBackdrop 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-
-      /* Staggered list entrances — cascade at 40ms intervals up to 400ms */
-      .cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
-      .cb-stagger > *:nth-child(2) { animation-delay: 40ms; }
-      .cb-stagger > *:nth-child(3) { animation-delay: 80ms; }
-      .cb-stagger > *:nth-child(4) { animation-delay: 120ms; }
-      .cb-stagger > *:nth-child(5) { animation-delay: 160ms; }
-      .cb-stagger > *:nth-child(6) { animation-delay: 200ms; }
-      .cb-stagger > *:nth-child(7) { animation-delay: 240ms; }
-      .cb-stagger > *:nth-child(8) { animation-delay: 280ms; }
-      .cb-stagger > *:nth-child(9) { animation-delay: 320ms; }
-      .cb-stagger > *:nth-child(10) { animation-delay: 360ms; }
-      .cb-stagger > *:nth-child(n+11) { animation-delay: 400ms; }
-
-      /* Physical button feedback — instant hover lift, scale-down on press */
-      *, *::before, *::after { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      button, a { -webkit-tap-highlight-color: transparent; }
-      button:not(:disabled):active { transform: scale(0.98); }
-      .cb-btn { transition: transform 0.1s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1); }
-      .cb-btn:hover:not(:disabled) { transform: translate3d(0, -1px, 0); }
-      .cb-btn:active:not(:disabled) { transform: scale(0.98); }
-
-      /* Card hover lift */
-      .cb-card { transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1); }
-      .cb-card:hover { transform: translate3d(0, -2px, 0); }
-
-      input[type="range"] { -webkit-appearance: none; height: 4px; border-radius: 2px; }
-      input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: currentColor; cursor: pointer; transition: transform 0.1s cubic-bezier(0.16, 1, 0.3, 1); }
-        0% { opacity: 0; transform: translate(0, 0) scale(0.3); }
-        15% { opacity: 1; transform: translate(0, 0) scale(1); }
-        100% { opacity: 0; transform: translate(var(--cb-dx, 0), var(--cb-dy, 60px)) scale(0.6) rotate(var(--cb-rot, 30deg)); }
+      @keyframes cb-burst {
+        0%   { opacity: 0; transform: translate3d(0, 0, 0) scale(0.4); }
+        18%  { opacity: 1; }
+        100% { opacity: 0; transform: translate3d(var(--cb-dx, 0), var(--cb-dy, 60px), 0) scale(0.7) rotate(var(--cb-rot, 24deg)); }
       }
       @keyframes cb-egg-in {
-        from { opacity: 0; transform: translateY(-6px) scale(0.96); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
+        from { opacity: 0; transform: translate3d(0, -6px, 0); filter: blur(4px); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
       }
+      /* Caret for streaming text — soft breath, not a hard blink */
+      @keyframes cbCaret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0.15; } }
+
+      /* ---- Entrance utilities ---- */
+      .cb-fade   { animation: cbFade   var(--cb-base) var(--cb-out) both; }
+      .cb-rise   { animation: cbRise   var(--cb-slow) var(--cb-entrance) both; }
+      .cb-pop    { animation: cbPop    var(--cb-base) var(--cb-entrance) both; }
+      .cb-gate   { animation: cbGate   var(--cb-ambient) var(--cb-entrance) both; }
+      .cb-hero   { animation: cbHero   var(--cb-ambient) var(--cb-entrance) both; }
+      .cb-modal  { animation: cbModal  var(--cb-base) var(--cb-entrance) both; will-change: transform, opacity, filter; }
+      .cb-backdrop { animation: cbBackdrop var(--cb-quick) var(--cb-out) both; }
+      .cb-wiggle { animation: cb-wiggle 380ms var(--cb-out); }
+
+      /* ---- Staggered cascades ---- */
+      .cb-stagger > *:nth-child(1)  { animation-delay: 0ms; }
+      .cb-stagger > *:nth-child(2)  { animation-delay: 45ms; }
+      .cb-stagger > *:nth-child(3)  { animation-delay: 90ms; }
+      .cb-stagger > *:nth-child(4)  { animation-delay: 135ms; }
+      .cb-stagger > *:nth-child(5)  { animation-delay: 180ms; }
+      .cb-stagger > *:nth-child(6)  { animation-delay: 225ms; }
+      .cb-stagger > *:nth-child(7)  { animation-delay: 270ms; }
+      .cb-stagger > *:nth-child(8)  { animation-delay: 315ms; }
+      .cb-stagger > *:nth-child(9)  { animation-delay: 360ms; }
+      .cb-stagger > *:nth-child(10) { animation-delay: 405ms; }
+      .cb-stagger > *:nth-child(n+11) { animation-delay: 450ms; }
+
+      /* ---- Micro-interactions ---- */
+      *, *::before, *::after { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      button, a { -webkit-tap-highlight-color: transparent; }
+
+      /* GLOBAL button physics. Applied to every <button> so the whole app feels
+         consistent without having to tag each one. Transform-only, so it
+         composites on the GPU and never triggers layout. */
+      button {
+        transition: transform var(--cb-instant) var(--cb-out),
+                    opacity   var(--cb-quick)   var(--cb-out),
+                    box-shadow var(--cb-quick)  var(--cb-out),
+                    background-color var(--cb-quick) var(--cb-out),
+                    border-color var(--cb-quick) var(--cb-out),
+                    color var(--cb-quick) var(--cb-out);
       }
+      button:not(:disabled):hover  { transform: translate3d(0, -1.5px, 0); }
+      button:not(:disabled):active { transform: scale(0.975) translate3d(0, 0, 0); transition-duration: 60ms; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      /* Opt-in class kept for elements that aren't <button> but should feel like one */
+      .cb-btn {
+        transition: transform var(--cb-instant) var(--cb-out),
+                    opacity   var(--cb-quick)   var(--cb-out),
+                    box-shadow var(--cb-quick)  var(--cb-out);
+      }
+      .cb-btn:hover:not(:disabled)  { transform: translate3d(0, -1.5px, 0); }
+      .cb-btn:active:not(:disabled) { transform: scale(0.975); transition-duration: 60ms; }
+
+      .cb-card {
+        transition: transform var(--cb-quick) var(--cb-out),
+                    border-color var(--cb-quick) var(--cb-out),
+                    box-shadow var(--cb-quick) var(--cb-out);
+      }
+      .cb-card:hover  { transform: translate3d(0, -2px, 0); }
+      .cb-card:active { transform: translate3d(0, -1px, 0) scale(0.995); transition-duration: 60ms; }
+
+      /* Focus rings — visible for keyboard users, invisible for mouse users */
+      :focus { outline: none; }
+      :focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+        border-radius: 6px;
+      }
+
+      /* Range sliders */
+      input[type="range"] { -webkit-appearance: none; height: 4px; border-radius: 2px; }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 16px; height: 16px; border-radius: 50%;
+        background: currentColor; cursor: pointer;
+        transition: transform var(--cb-instant) var(--cb-out);
+      }
+      input[type="range"]::-webkit-slider-thumb:hover  { transform: scale(1.18); }
+      input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.32); }
+
+      /* Respect users who ask for reduced motion. Content still appears —
+         it just arrives without travel or blur. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+        .cb-rise, .cb-pop, .cb-hero, .cb-gate, .cb-modal { filter: none !important; }
+      }
+
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
       a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
