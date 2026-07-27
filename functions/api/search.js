@@ -2188,52 +2188,61 @@ async function gatherPapers(rawQuery, opts) {
     return { papers: [], noResults: true };
   }
 
-  // ---- PROGRESSIVE RETRIEVAL LADDER ----
-  // Previously all 10 sources received the same raw multi-word string, which
-  // most engines treat as an implicit AND. A 9-word question therefore matched
-  // nothing anywhere, retrieval returned zero, and the answer fell back to the
-  // model's memory — the direct cause of invented studies.
+  // ---- PROGRESSIVE RETRIEVAL LADDER (per-source syntax) ----
+  // Engines do NOT share a query language. Europe PMC and PubMed parse full
+  // boolean expressions; OpenAlex, Crossref, Semantic Scholar, DOAJ, PLOS and
+  // Zenodo treat "(a OR b) AND (c OR d)" as literal text and match nothing;
+  // arXiv needs each term prefixed (all:x AND all:y), so parentheses after
+  // all: are a syntax error.
   //
-  // Now we try progressively looser formulations and stop at the first that
-  // actually returns papers. A well-formed scientific question can no longer
-  // come back empty.
-  const conceptQuery = buildStructuredQuery(query);           // (a OR a') AND (b OR b') ...
+  // Sending one boolean string to all ten was returning zero everywhere. Each
+  // source now gets the query in its own dialect, and we climb down through
+  // looser formulations until enough papers come back.
   const ranked = query
     .split(/\s+/)
     .filter((t) => t.length > 2 && !STOPWORDS.has(t))
     .map((t) => ({ t, spec: termSpecificity(t) }))
-    .sort((a, b) => b.spec - a.spec);
-  const topTwo = ranked.slice(0, 2).map((x) => x.t).join(" AND ");
-  const topOne = ranked.slice(0, 1).map((x) => x.t).join("");
-  const broadOr = ranked.slice(0, 5).map((x) => x.t).join(" OR ");
+    .sort((a, b) => b.spec - a.spec)
+    .map((x) => x.t);
 
-  const rungs = [conceptQuery, topTwo, broadOr, topOne, query].filter(
-    (q, i, arr) => q && arr.indexOf(q) === i
-  );
+  const booleanQuery = buildStructuredQuery(query);   // EPMC / PubMed only
+  const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
 
-  const fanout = (q) => [
-    europePMC(q, 10),
-    pubmed(q, 10, ncbiKey),
-    openAlex(q, 10, openAlexKey),
-    crossref(q, 8),
-    arxiv(q, 6),
-    semanticScholar(q, 8),
-    doaj(q, 6),
-    biorxiv(q, 6),
-    zenodo(q, 4),
-    plos(q, 6),
-  ];
+  // Each rung: how many of the top terms to use for the plain-keyword engines.
+  const rungs = [
+    ranked.slice(0, 4),
+    ranked.slice(0, 3),
+    ranked.slice(0, 2),
+    ranked.slice(0, 1),
+  ].filter((r) => r.length > 0);
+  if (!rungs.length) rungs.push([query]);
+
+  const fanout = (terms, useBoolean) => {
+    const plain = terms.join(" ");
+    return [
+      europePMC(useBoolean ? booleanQuery : plain, 10),
+      pubmed(useBoolean ? booleanQuery : plain, 10, ncbiKey),
+      openAlex(plain, 10, openAlexKey),
+      crossref(plain, 8),
+      arxiv(arxivQuery(terms), 6),
+      semanticScholar(plain, 8),
+      doaj(plain, 6),
+      biorxiv(plain, 6),
+      zenodo(plain, 4),
+      plos(plain, 6),
+    ];
+  };
 
   let results = [];
-  let usedRung = rungs[0];
-  for (const rung of rungs) {
-    results = await Promise.allSettled(fanout(rung));
+  for (let i = 0; i < rungs.length; i++) {
+    // Use the boolean form on the first rung only — it is the most precise,
+    // but if it under-returns we want plain keywords everywhere.
+    results = await Promise.allSettled(fanout(rungs[i], i === 0));
     const got = results.reduce(
       (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0),
       0
     );
-    usedRung = rung;
-    if (got >= 4) break; // enough to work with — stop climbing down
+    if (got >= 5) break;
   }
 
   const merged = [];
