@@ -112,6 +112,28 @@ function stripFabricatedCitations(text, sourceCount) {
   //    These are almost always fabricated when sourceCount is 0.
   if (sourceCount === 0) {
     t = t.replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?[\s\S]*$/i, "");
+
+    // 1b. Headerless bibliography. Model writes references at the end WITHOUT
+    //     a "References:" header — as free-standing citation lines. Detect any
+    //     line that starts with "Lastname, X. ... (YYYY)." and strip from the
+    //     first such line onward if it lands in the tail of the answer.
+    const lines = t.split(/\n/);
+    // Match: "Lastname, A." or "Lastname, A. B." (with optional & or comma
+    // authors after), then anywhere on the line a "(YYYY)." — this catches
+    // APA-style entries whether the title is on the same line or a wrap.
+    const apaStart = /^\s*[A-Z][A-Za-zöäüéèçñ\-']+,\s+[A-Z]\.(?:\s?[A-Z]\.)?(?:\s*,\s*(?:&|and)?\s*[A-Z][A-Za-zöäüéèçñ\-']+,\s+[A-Z]\.(?:\s?[A-Z]\.)?)*.*\(\d{4}\)/;
+    let firstBibLine = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (apaStart.test(lines[i])) { firstBibLine = i; break; }
+    }
+    if (firstBibLine !== -1) {
+      // Only strip if it's in the last ~third of the answer (avoid killing a
+      // legitimate in-body author reference).
+      const cutoffChars = lines.slice(0, firstBibLine).join("\n").length;
+      if (cutoffChars > t.length * 0.4) {
+        t = lines.slice(0, firstBibLine).join("\n").trimEnd();
+      }
+    }
   }
 
   // 2. Strip bracketed citation markers that have no matching source.
@@ -127,6 +149,23 @@ function stripFabricatedCitations(text, sourceCount) {
     //    (Smith et al., 2021). Only when we have no sources at all — with real
     //    sources these could legitimately appear inside a quoted title.
     t = t.replace(/\((?:[A-Z][A-Za-z\-']+(?:,| &| and|\set al\.?)?[\s,]*){1,4}\d{4}[a-z]?\)/g, "");
+
+    // 3b. Strip freestanding APA-style reference lines. The model sometimes
+    //     appends "Author, A. B. (2020). Title. Journal, 12(3), 45-67." at the
+    //     end even with brackets forbidden. These are always fabricated when
+    //     sourceCount is 0. Run iteratively so multiple back-to-back
+    //     references all get removed, not just the first.
+    const refPattern = /(?:[A-Z][a-zA-Z\-']+,\s+[A-Z]\.(?:\s*[A-Z]\.)*(?:,\s*(?:&\s+)?[A-Z][a-zA-Z\-']+,\s+[A-Z]\.(?:\s*[A-Z]\.)*)*)\s*\(\d{4}[a-z]?\)\.\s*[^.]{5,120}?\.(?:\s*[^.]{3,80}?,\s*\d+(?:\(\d+\))?,\s*\d+[-–]\d+\.)?/g;
+    for (let pass = 0; pass < 6; pass++) {
+      const before = t;
+      t = t.replace(refPattern, "");
+      if (t === before) break;
+    }
+    // "Smith et al. (2021)" style inline
+    t = t.replace(/\b[A-Z][a-zA-Z\-']+\s+et\s+al\.\s*\(\d{4}[a-z]?\)/g, "");
+    // Bare "According to Author (2019),"
+    t = t.replace(/(?:^|\s)According to\s+[A-Z][a-zA-Z\-']+(?:\s+(?:and|&)\s+[A-Z][a-zA-Z\-']+)?\s*\(\d{4}[a-z]?\)\s*,\s*/gi, " ");
+
     // 4. Strip superscript-style numeric refs left dangling after words.
     t = t.replace(/([a-z])\s*\u00b9|\u00b2|\u00b3|[\u2070-\u2079]/g, "$1");
 
