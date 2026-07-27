@@ -2469,6 +2469,12 @@ async function gatherPapers(rawQuery, opts) {
       const has = (t) => compoundSatisfied.has(t) || matcherFor(t).test(hay);
       const hasTitle = (t) => compoundSatisfiedTitle.has(t) || matcherFor(t).test(titleHay);
 
+      // Precompute gate-hit counts here so the downstream .filter() (which
+      // is in a different scope and can't reach these closures) can read them
+      // as properties on the returned paper object.
+      const gateCoreHits = gateTerms.filter(has).length;
+      const gateCoreTitleHits = gateTerms.filter(hasTitle).length;
+
       const contentHits = contentTerms.filter(has).length;
       const titleContentHits = contentTerms.filter(hasTitle).length;
       const neutralHit = [...neutralWords].some(has);
@@ -2530,6 +2536,8 @@ async function gatherPapers(rawQuery, opts) {
         titleContentHits,
         contentCoverage,
         organismPresent,
+        gateCoreHits,             // used by the downstream .filter()
+        gateCoreTitleHits,
       };
     })
     .filter((p) => {
@@ -2555,14 +2563,21 @@ async function gatherPapers(rawQuery, opts) {
       // enzymes matched only 2 of 9 words in a long question and got dropped.
       // The threshold also relaxes as the core set grows, because no single
       // paper contains every concept in a multi-part question.
+      //
+      // NOTE: `has` and `hasTitle` are closures defined per-paper inside the
+      // preceding .map(). They don't exist in this .filter() scope. We use the
+      // pre-computed count fields on `p` instead — which was the bug that has
+      // been silently killing every retrieval for weeks (ReferenceError inside
+      // a Promise.allSettled callback, swallowed by the outer catch).
       if (gateTerms.length > 0) {
-        const coreHits = gateTerms.filter(has).length;
+        const coreHits = p.gateCoreHits || 0;
+        const coreTitleHits = p.gateCoreTitleHits || 0;
         let required;
         if (gateTerms.length <= 2) required = 1;
         else if (gateTerms.length <= 4) required = 2;
         else if (gateTerms.length <= 6) required = 2;
         else required = 3;
-        const titleStrong = gateTerms.filter(hasTitle).length >= 2;
+        const titleStrong = coreTitleHits >= 2;
         if (coreHits < required && !titleStrong) return false;
       }
 
