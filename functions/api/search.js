@@ -2233,16 +2233,47 @@ async function gatherPapers(rawQuery, opts) {
     ];
   };
 
+  // Multi-part questions ("what enzymes do X have, AND how do Y use them")
+  // contain two distinct searches. Treating them as one keyword bag finds
+  // papers that cover neither well. We detect the split and search each part,
+  // then merge — so a compound question retrieves literature for both halves.
+  const clauses = rawQuery
+    .split(/\s*(?:,\s*)?\band\b\s+(?=how|what|why|when|where|which|do|does|can|is|are)|\s*[;?]\s*/i)
+    .map((c) => c.trim())
+    .filter((c) => c.split(/\s+/).filter((w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase())).length >= 2);
+
+  const subQueries = clauses.length > 1
+    ? clauses.map((c) =>
+        c.toLowerCase().replace(/[^\w\s-]/g, " ").split(/\s+/)
+          .filter((t) => t.length > 2 && !STOPWORDS.has(t))
+          .map((t) => ({ t, spec: termSpecificity(t) }))
+          .sort((a, b) => b.spec - a.spec)
+          .slice(0, 3).map((x) => x.t)
+      ).filter((arr) => arr.length >= 2)
+    : [];
+
   let results = [];
+  const diag = {};
   for (let i = 0; i < rungs.length; i++) {
-    // Use the boolean form on the first rung only — it is the most precise,
-    // but if it under-returns we want plain keywords everywhere.
     results = await Promise.allSettled(fanout(rungs[i], i === 0));
     const got = results.reduce(
       (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0),
       0
     );
+    diag["rung" + (i + 1)] = { terms: rungs[i], got };
     if (got >= 5) break;
+  }
+
+  // Add results for each sub-question of a compound query
+  if (subQueries.length > 1) {
+    for (const sub of subQueries) {
+      try {
+        const subRes = await Promise.allSettled(fanout(sub, false));
+        results = results.concat(subRes);
+        diag["clause:" + sub.join("+")] = subRes.reduce(
+          (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
+      } catch {}
+    }
   }
 
   const merged = [];
@@ -2510,7 +2541,7 @@ async function gatherPapers(rawQuery, opts) {
     else p.type = "Journal";
   }
 
-  return { papers: scored };
+  return { papers: scored, _diag: diag };
 }
 
 // ============ MAIN HANDLER ============
@@ -2956,46 +2987,6 @@ export async function onRequest(context) {
       "7. Do not open with \"That's correct\" or \"Great question\" or any acknowledgement filler. Start with the substance.\n" +
       "Jump directly into the answer.";
 
-    // ---- NO PAPERS RETRIEVED ----
-    // This used to hand the question to the model to answer "from general
-    // knowledge", which produced confident essays containing invented studies,
-    // invented journals, and in one case an invented species. A literature
-    // search tool must never do that. If we found nothing, we say we found
-    // nothing — and we show exactly what was searched so the user can adjust.
-    if (!useEvidence && !useWeb) {
-      const shown = (gResult && gResult._searchedAs) || query;
-      const anchorTerms = query
-        .split(/\s+/)
-        .filter((t) => t.length > 2 && !STOPWORDS.has(t))
-        .map((t) => ({ t, spec: termSpecificity(t) }))
-        .sort((a, b) => b.spec - a.spec)
-        .slice(0, 4)
-        .map((x) => x.t);
-
-      return new Response(JSON.stringify({
-        answer:
-          "I couldn't retrieve any papers for this one, so I'm not going to answer it.\n\n" +
-          "That's deliberate. I'm a literature search tool — if I answered from memory here, " +
-          "I'd be guessing, and a confident guess dressed up as science is worse than no answer. " +
-          "Other tools will happily write you three paragraphs with invented citations. I won't.\n\n" +
-          "**What I searched for:** " + anchorTerms.join(", ") + "\n\n" +
-          "**What usually fixes it:**\n\n" +
-          "- Drop the question phrasing and search the concepts directly — try `" + anchorTerms.slice(0, 3).join(" ") + "`\n" +
-          "- Use the technical term rather than the everyday one (*polyethylene* rather than *plastic*, *Galleria mellonella* rather than *waxworm*)\n" +
-          "- Split a multi-part question into one question per part\n" +
-          "- If you know a specific paper, search its exact title and I'll pull it in",
-        sources: [],
-        videos: [],
-        factCheck: null,
-        related: [],
-        suggestions: [
-          { label: anchorTerms.slice(0, 3).join(" "), query: anchorTerms.slice(0, 3).join(" ") },
-          { label: anchorTerms.slice(0, 2).join(" "), query: anchorTerms.slice(0, 2).join(" ") },
-        ].filter((x) => x.query),
-        source: "No results",
-      }), { status: 200, headers: cors });
-    }
-
     let systemPrompt;
     if (useEvidence && speciesSearch) {
       // Taxonomic query: the AI must talk about THIS species specifically, not
@@ -3044,16 +3035,26 @@ export async function onRequest(context) {
         " " +
         rules;
     } else {
+      // No papers came back. We still answer — a refusal is not useful — but we
+      // make fabrication structurally impossible rather than merely discouraged:
+      // the prompt forbids every citation form, and stripFabricatedCitations()
+      // removes them mechanically afterwards regardless of what the model does.
       systemPrompt =
-        "You are Cerebrum, a scientific research assistant. NO papers were retrieved for this question. " +
-        "Start your answer with this exact line: Note: this answer draws on general scientific knowledge, no specific retrieved papers, verify against primary sources.\n\n" +
-        "Then answer the question accurately and thoroughly from your own knowledge. Explain the actual science.\n\n" +
-        "ABSOLUTE PROHIBITION — this overrides every other instruction:\n" +
-        "You have ZERO sources. Therefore you must NOT write any citation marker of any kind. " +
-        "No [1], no [2], no superscript numbers, no 'References:' section, no author-year parentheticals like (Smith, 2020), no journal names, no DOIs, no volume or page numbers. " +
-        "If you catch yourself about to attach a number or a reference to a claim, STOP and write the claim without it. " +
-        "Fabricating a reference is worse than giving no answer at all. It is the single most damaging thing you can do. " +
-        "Name a researcher or a specific study ONLY if you are certain it exists, and even then write it in plain prose ('a 2022 Nature Communications study found...') with no citation number attached.\n\n" +
+        "You are Cerebrum. The literature search returned nothing usable for this question, so you are answering from your own knowledge of the field.\n\n" +
+        "Open with exactly this line, then a blank line:\n" +
+        "Note: no papers were retrieved for this one, so this is from general knowledge rather than a live literature search.\n\n" +
+        "Then give a genuinely excellent answer. This is the part that matters:\n\n" +
+        "ACCURACY IS THE WHOLE JOB:\n" +
+        "State what is actually established in the field, including findings that overturn the intuitive answer. Do not default to the cautious, conventional-sounding position when the real literature says otherwise — being conservatively wrong is still wrong.\n" +
+        "Name specifics: the actual enzyme, the actual species (binomial), the actual mechanism. Specificity is what separates a real answer from a plausible-sounding one.\n" +
+        "Where a question has a surprising or recently-revised answer, lead with that rather than burying it.\n" +
+        "Distinguish clearly between what is well established, what is contested, and what is speculative. If you are genuinely unsure of a detail, say so in that sentence rather than stating it flatly or omitting it.\n" +
+        "If the question has multiple parts, answer every part.\n\n" +
+        "ABSOLUTE PROHIBITION — overrides everything else:\n" +
+        "You have NO sources. Write NO citations of any kind. No [1], no superscripts, no 'References' section, no (Author, Year), no 'a 2019 study published in Nature found...', no journal names attached to claims, no DOIs, no volume or page numbers.\n" +
+        "You may name a well-known finding in plain prose ('waxworm saliva was shown to oxidise polyethylene') but never attach a fake reference to it.\n" +
+        "Never invent a species name, an author, a journal, or a year. If you cannot recall the specific source, describe the finding without attribution.\n" +
+        "A fabricated citation is the single most damaging thing you can produce. Silence on provenance is always better.\n\n" +
         humanStyle +
         " " +
         lengthHint +
