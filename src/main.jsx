@@ -259,6 +259,46 @@ const Audio = (() => {
   return { click, pop, startAmbient, stopAmbient, preview };
 })();
 
+// Minimal stroke-icon set. Replaces the emoji that were being used for header
+// actions (🔇 ⚙ ★) — emoji render differently on every OS, break visual weight,
+// and read as unfinished. These are 24x24, 1.7 stroke, matched to the wordmark.
+function Icon({ name, size = 17, className, style }) {
+  const common = {
+    width: size, height: size, viewBox: "0 0 24 24", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round",
+    strokeLinejoin: "round", className, style,
+    "aria-hidden": true, focusable: false,
+  };
+  switch (name) {
+    case "plus":
+      return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
+    case "bookmark":
+      return <svg {...common}><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
+    case "bookmarkFilled":
+      return <svg {...common} fill="currentColor" stroke="none"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
+    case "settings":
+      return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg>;
+    case "volumeOn":
+      return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" /></svg>;
+    case "volumeOff":
+      return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M22 9l-6 6M16 9l6 6" /></svg>;
+    case "search":
+      return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.2-4.2" /></svg>;
+    case "close":
+      return <svg {...common}><path d="M18 6L6 18M6 6l12 12" /></svg>;
+    case "arrowRight":
+      return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
+    case "mic":
+      return <svg {...common}><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" /><path d="M5 12a7 7 0 0014 0M12 19v3" /></svg>;
+    case "check":
+      return <svg {...common}><path d="M20 6L9 17l-5-5" /></svg>;
+    case "external":
+      return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
+    default:
+      return null;
+  }
+}
+
 function Mark({ size = 26, accent, glow }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 10px ${withAlpha(accent, 0.45)})` : "none" }}>
@@ -411,9 +451,23 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const resize = () => { canvas.width = canvas.offsetWidth * dpr; canvas.height = canvas.offsetHeight * dpr; };
-    resize(); window.addEventListener("resize", resize);
-    const ctx = canvas.getContext("2d");
+    // Mobile-safe sizing: cap total pixels and debounce, so the keyboard or the
+    // URL bar collapsing doesn't thrash canvas allocation. See the matching
+    // comment in LivingBackground for why this matters (iOS reload bug).
+    const resize = () => {
+      const cssW = canvas.offsetWidth || window.innerWidth || 1;
+      const cssH = canvas.offsetHeight || window.innerHeight || 1;
+      const MAX_PIXELS = 4_500_000;
+      let effDpr = dpr;
+      while (cssW * effDpr * cssH * effDpr > MAX_PIXELS && effDpr > 0.75) effDpr -= 0.25;
+      canvas.width = Math.max(1, Math.floor(cssW * effDpr));
+      canvas.height = Math.max(1, Math.floor(cssH * effDpr));
+    };
+    resize();
+    let rt = null;
+    const onResize = () => { if (rt) clearTimeout(rt); rt = setTimeout(resize, 180); };
+    window.addEventListener("resize", onResize, { passive: true });
+    const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true });
 
     // Distribute neurons in an ELLIPTICAL RING around the text zone. This means
     // the animation never draws through the title/subtitle/button area. Denser
@@ -501,8 +555,8 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
       // is transparent. Text sits roughly in a horizontal band ~340px wide, ~280px
       // tall centered on the canvas. We fade neurons that fall inside that ellipse.
       const isMobile = canvas.width < 700 * dpr;
-      const maskRx = (isMobile ? 160 : 240) * dpr; // horizontal radius of the text zone
-      const maskRy = (isMobile ? 140 : 180) * dpr; // vertical radius
+      const maskRx = (isMobile ? 185 : 330) * dpr; // horizontal radius of the text zone
+      const maskRy = (isMobile ? 300 : 320) * dpr; // vertical radius
       const maskFade = (px, py) => {
         const dx = (px - cx) / maskRx;
         const dy = (py - cy) / maskRy;
@@ -593,7 +647,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
       rafRef.current = requestAnimationFrame(draw);
     }
     rafRef.current = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener("resize", resize); };
+    return () => { cancelAnimationFrame(rafRef.current); if (rt) clearTimeout(rt); window.removeEventListener("resize", onResize); };
   }, [accent, onEnter, textReveal]);
 
   const go = () => {
@@ -614,17 +668,83 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
     : `radial-gradient(circle at 50% 45%, ${withAlpha(accent, 0.06)}, ${P.bg} 65%)`;
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, fontFamily: "'Inter', -apple-system, sans-serif", position: "relative", overflow: "hidden", padding: 20 }}>
+    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, fontFamily: "'Inter', -apple-system, sans-serif", position: "relative", overflow: "hidden", padding: "32px 20px" }}>
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: animationMode === "off" ? 0 : animationMode === "subtle" ? 0.45 : 0.95, transition: "opacity 0.7s cubic-bezier(0.4, 0.0, 0.2, 1)" }} />
-      <div style={{ position: "relative", zIndex: 1, textAlign: "center", transition: "opacity 0.9s cubic-bezier(0.4, 0.0, 0.2, 1), transform 0.9s cubic-bezier(0.4, 0.0, 0.2, 1)", opacity: phase === "forming" ? 0 : 1, transform: phase === "forming" ? "scale(0.96) translateY(6px)" : "scale(1)" }}>
-        <div style={{ marginBottom: 22, animation: "cb-float 4s ease-in-out infinite" }}><Mark size={54} accent={accent} glow={P.dark} /></div>
-        <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, marginBottom: 14 }}>A Research Instrument</div>
-        <div style={{ fontSize: 52, fontWeight: 750, letterSpacing: "-0.035em", color: P.ink, marginBottom: 12, lineHeight: 1 }}>Cerebrum</div>
-        <div style={{ fontSize: 17, color: P.ink2, marginBottom: 34, letterSpacing: "-0.01em" }}>Peer-reviewed answers, on demand.</div>
-        <button onClick={go} className="cb-btn" style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "14px 32px", fontSize: 15, fontWeight: 600, background: accent, color: accentText(accent), border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}`, letterSpacing: "-0.01em" }}>
-          Initialize <span>→</span>
+      <div style={{
+        position: "relative", zIndex: 1, textAlign: "center",
+        maxWidth: 620, width: "100%",
+        transition: "opacity 0.9s cubic-bezier(0.4, 0.0, 0.2, 1), transform 0.9s cubic-bezier(0.4, 0.0, 0.2, 1)",
+        opacity: phase === "forming" ? 0 : 1,
+        transform: phase === "forming" ? "scale(0.97) translateY(6px)" : "scale(1)",
+      }}>
+        <div style={{ marginBottom: 26, animation: "cb-float 5s ease-in-out infinite", display: "inline-block" }}>
+          <Mark size={52} accent={accent} glow={P.dark} />
+        </div>
+
+        <h1 style={{ fontSize: "clamp(38px, 9vw, 56px)", fontWeight: 700, letterSpacing: "-0.04em", color: P.ink, margin: "0 0 14px", lineHeight: 1 }}>
+          Cerebrum
+        </h1>
+
+        <p style={{ fontSize: "clamp(16px, 4vw, 19px)", color: P.ink2, margin: "0 auto 30px", letterSpacing: "-0.01em", lineHeight: 1.5, maxWidth: 460 }}>
+          Ask a research question. Get an answer assembled from peer-reviewed
+          literature, with every claim traceable to its source.
+        </p>
+
+        {/* Three concrete capabilities — substance instead of a tagline */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 1,
+          maxWidth: 520, margin: "0 auto 32px",
+          background: P.line,
+          border: `1px solid ${P.line}`,
+          borderRadius: 12,
+          overflow: "hidden",
+          textAlign: "left",
+        }} className="cb-stagger">
+          {[
+            { n: "16", label: "open databases", sub: "queried in parallel" },
+            { n: "0", label: "paywalls", sub: "no account, no ads" },
+            { n: "100%", label: "cited", sub: "real DOIs, verifiable" },
+          ].map((s) => (
+            <div key={s.label} className="cb-fade" style={{ background: P.bg, padding: "16px 16px 15px" }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: accent, letterSpacing: "-0.03em", lineHeight: 1, marginBottom: 5 }}>{s.n}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: P.ink, letterSpacing: "-0.005em" }}>{s.label}</div>
+              <div style={{ fontSize: 11, color: P.faint, marginTop: 2, lineHeight: 1.35 }}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={go} className="cb-btn" style={{
+          display: "inline-flex", alignItems: "center", gap: 9,
+          padding: "14px 30px", fontSize: 15, fontWeight: 600,
+          background: accent, color: accentText(accent),
+          border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit",
+          boxShadow: `0 6px 24px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em",
+        }}>
+          Begin
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
         </button>
-        <div style={{ fontSize: 12.5, color: P.faint, marginTop: 18 }}>No account · nothing stored on a server</div>
+
+        {/* Source provenance — names the actual indexes, which is what a
+            researcher checks before trusting a tool */}
+        <div style={{ marginTop: 34, paddingTop: 22, borderTop: `1px solid ${P.line}`, maxWidth: 520, marginLeft: "auto", marginRight: "auto" }}>
+          <div style={{ fontSize: 10, fontWeight: 650, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, marginBottom: 11 }}>
+            Indexes searched
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "6px 14px", fontSize: 12, color: P.ink2, lineHeight: 1.4 }}>
+            {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "arXiv", "bioRxiv", "medRxiv", "Semantic Scholar", "DOAJ", "PLOS", "Zenodo"].map((d) => (
+              <span key={d}>{d}</span>
+            ))}
+            <span style={{ color: P.faint }}>+ more</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: P.faint, marginTop: 16, lineHeight: 1.5 }}>
+            Answers are AI-generated summaries of retrieved literature.
+            Always verify against the cited papers.
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -759,23 +879,85 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       stateRef.current.items = items;
     };
 
-    const resize = () => {
-      canvas.width = canvas.offsetWidth * dpr;
-      canvas.height = canvas.offsetHeight * dpr;
-      initItems();
-    };
-    resize();
-    window.addEventListener("resize", resize);
-    const ctx = canvas.getContext("2d");
+    // ---- Resize handling (mobile-crash fix) ----
+    // Previously this was an undebounced listener that reallocated the canvas
+    // backing store AND rebuilt every particle on every resize event. On mobile,
+    // opening the keyboard fires dozens of resize events during the slide-up
+    // animation. Each one allocated a fresh multi-megabyte canvas buffer, which
+    // spiked memory hard enough that iOS Safari terminated and reloaded the page
+    // — that's the "search, then the page refreshes" bug.
+    //
+    // Fixes: (1) ignore height-only changes, which is what a keyboard causes;
+    // (2) debounce genuine resizes; (3) cap total canvas pixels so we never
+    // exceed mobile GPU/memory limits.
+    let lastW = 0;
+    let lastH = 0;
+    let resizeTimer = null;
 
+    const applySize = () => {
+      const cssW = canvas.offsetWidth || window.innerWidth || 1;
+      const cssH = canvas.offsetHeight || window.innerHeight || 1;
+      // iOS enforces a hard total-canvas-area limit. Stay well under it by
+      // scaling dpr down if the buffer would get too large.
+      const MAX_PIXELS = 4_500_000;
+      let effDpr = dpr;
+      while (cssW * effDpr * cssH * effDpr > MAX_PIXELS && effDpr > 0.75) {
+        effDpr -= 0.25;
+      }
+      canvas.width = Math.max(1, Math.floor(cssW * effDpr));
+      canvas.height = Math.max(1, Math.floor(cssH * effDpr));
+    };
+
+    const resize = (rebuild) => {
+      applySize();
+      if (rebuild) initItems();
+      lastW = canvas.offsetWidth;
+      lastH = canvas.offsetHeight;
+    };
+
+    const onResize = () => {
+      const w = canvas.offsetWidth;
+      const h = canvas.offsetHeight;
+      const widthChanged = Math.abs(w - lastW) > 2;
+      // A mobile keyboard changes height only. Height-only changes get a cheap
+      // buffer resize with NO particle rebuild — that alone prevents the crash.
+      const heightChangedALot = Math.abs(h - lastH) > 220;
+      if (!widthChanged && !heightChangedALot) {
+        // Small height shift (keyboard, URL bar collapse). Just resize the
+        // buffer, keep the existing particles.
+        applySize();
+        lastH = h;
+        return;
+      }
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { resize(true); }, 180);
+    };
+
+    resize(true);
+    window.addEventListener("resize", onResize, { passive: true });
+    // Track orientation separately — that IS a real layout change worth rebuilding.
+    window.addEventListener("orientationchange", () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => resize(true), 300);
+    }, { passive: true });
+
+    const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true });
+
+    // Mouse-follow interaction is pointless on touch devices — these listeners
+    // never fire but still cost memory and wake-ups. Only attach for real mice.
+    const hasMouse = typeof window.matchMedia === "function"
+      ? window.matchMedia("(hover: hover) and (pointer: fine)").matches
+      : true;
     const onMove = (e) => {
       const rect = canvas.getBoundingClientRect();
       mouseRef.current.x = (e.clientX - rect.left) * dpr;
       mouseRef.current.y = (e.clientY - rect.top) * dpr;
     };
     const onLeave = () => { mouseRef.current.x = -9999; mouseRef.current.y = -9999; };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseleave", onLeave);
+    if (hasMouse) {
+      window.addEventListener("mousemove", onMove, { passive: true });
+      window.addEventListener("mouseleave", onLeave, { passive: true });
+    }
 
     const startTime = performance.now();
     const linkDist = 130 * dpr;
@@ -1087,7 +1269,8 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
     rafRef.current = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(rafRef.current);
-      window.removeEventListener("resize", resize);
+      if (resizeTimer) clearTimeout(resizeTimer);
+      window.removeEventListener("resize", onResize);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseleave", onLeave);
     };
@@ -1887,11 +2070,34 @@ function App() {
             {easterEgg.render}
           </div>
           <div style={S.headActions}>
-            {!isMobile && <button style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>}
-            <button style={S.ghostBtn} onClick={() => { sfx(); newSession(); }}>New</button>
-            <button style={S.ghostBtn} onClick={() => { sfx(); setSavedOpen(true); }}>{isMobile ? "★" : "Saved"}{saved.length > 0 ? (isMobile ? ` ${saved.length}` : ` · ${saved.length}`) : ""}</button>
-            <button style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"}>{muted ? "🔇" : "🔊"}</button>
-            <button style={S.ghostBtn} onClick={() => { sfx(); setSettingsOpen(true); }}>{isMobile ? "⚙" : "Settings"}</button>
+            {!isMobile && (
+              <button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette">
+                <Icon name="search" size={14} />
+                <span>Search</span>
+                <kbd style={S.kbd}>{kbdLabel("K")}</kbd>
+              </button>
+            )}
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation">
+              <Icon name="plus" size={17} />
+              {!isMobile && <span style={S.iconBtnLabel}>New</span>}
+            </button>
+            <button
+              className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }}
+              onClick={() => { sfx(); setSavedOpen(true); }}
+              title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`}
+              aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}
+            >
+              <Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={17} />
+              {!isMobile && <span style={S.iconBtnLabel}>Saved</span>}
+              {saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}
+            </button>
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute interface sounds" : "Mute interface sounds"} aria-label={muted ? "Unmute" : "Mute"}>
+              <Icon name={muted ? "volumeOff" : "volumeOn"} size={17} />
+            </button>
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsOpen(true); }} title="Settings" aria-label="Settings">
+              <Icon name="settings" size={17} />
+              {!isMobile && <span style={S.iconBtnLabel}>Settings</span>}
+            </button>
           </div>
         </div>
       </header>
@@ -2378,104 +2584,302 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
 }
 
 function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close }) {
+  const isMobile = useIsMobile();
+  const [tab, setTab] = useState("look");
+  const [confirmClear, setConfirmClear] = useState(false);
   const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
+
+  const TABS = [
+    ["look", "Look"],
+    ["answers", "Answers"],
+    ["motion", "Motion"],
+    ["audio", "Audio"],
+    ["data", "Data"],
+  ];
+
+  // --- shared local sub-components so every row reads the same ---
+  const Group = ({ title, hint, children }) => (
+    <div style={{ marginBottom: 26 }}>
+      <div style={{ fontSize: 13, fontWeight: 650, color: P.ink, letterSpacing: "-0.01em", marginBottom: hint ? 3 : 10 }}>{title}</div>
+      {hint && <div style={{ fontSize: 12, color: P.faint, lineHeight: 1.5, marginBottom: 11 }}>{hint}</div>}
+      {children}
+    </div>
+  );
+
+  const Row = ({ label, desc, control }) => (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      gap: 16, padding: "12px 0",
+      borderBottom: `1px solid ${P.line}`,
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, color: P.ink, fontWeight: 500, letterSpacing: "-0.005em" }}>{label}</div>
+        {desc && <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.45, marginTop: 2 }}>{desc}</div>}
+      </div>
+      <div style={{ flexShrink: 0 }}>{control}</div>
+    </div>
+  );
+
+  const Switch = ({ on, onChange, label }) => (
+    <button
+      role="switch" aria-checked={on} aria-label={label}
+      onClick={() => { sfx(); onChange(!on); }}
+      style={{
+        width: 44, height: 26, borderRadius: 20, position: "relative",
+        background: on ? accent : P.line2,
+        border: "none", cursor: "pointer", padding: 0,
+        transition: "background var(--cb-quick, 160ms) var(--cb-out, ease)",
+      }}
+    >
+      <span style={{
+        position: "absolute", top: 3, left: 3,
+        width: 20, height: 20, borderRadius: "50%",
+        background: on ? at : P.bg,
+        transform: on ? "translateX(18px)" : "translateX(0)",
+        transition: "transform var(--cb-quick, 160ms) var(--cb-out, ease)",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+      }} />
+    </button>
+  );
+
+  const Seg = ({ value, options, onChange }) => (
+    <div style={{ display: "inline-flex", background: P.bg, border: `1px solid ${P.line}`, borderRadius: 9, padding: 2, gap: 2 }}>
+      {options.map(([v, label]) => (
+        <button key={v} onClick={() => { sfx(); onChange(v); }}
+          style={{
+            padding: "6px 12px", fontSize: 12.5, fontWeight: 550,
+            background: value === v ? accent : "transparent",
+            color: value === v ? at : P.ink2,
+            border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "inherit",
+            letterSpacing: "-0.005em",
+          }}>{label}</button>
+      ))}
+    </div>
+  );
+
+  const PresetCard = ({ id, label, sub, active }) => (
+    <button className="cb-btn" onClick={() => { sfx(); setAnimPreset(id); }}
+      style={{
+        display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2,
+        padding: "11px 12px", textAlign: "left",
+        background: active ? withAlpha(accent, 0.1) : "transparent",
+        border: `1px solid ${active ? accent : P.line}`,
+        borderRadius: 10, cursor: "pointer", fontFamily: "inherit",
+      }}>
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: active ? accent : P.ink }}>{label}</span>
+      <span style={{ fontSize: 10.5, color: P.faint, lineHeight: 1.3 }}>{sub}</span>
+    </button>
+  );
+
   return (
     <div style={S.modalWrap} onClick={close} className="cb-backdrop">
-      <div style={S.modal} onClick={(e) => e.stopPropagation()} className="cb-modal">
-        <div style={S.modalTitle}>Settings</div>
-        <div style={S.setLabel}>Appearance</div>
-        <div style={S.palRow}>
-          {Object.keys(PALETTES).map((pn) => (
-            <button key={pn} style={{ ...S.palCard, background: PALETTES[pn].bg, borderColor: paletteName === pn ? accent : PALETTES[pn].line2, borderWidth: paletteName === pn ? 2 : 1 }} onClick={() => { sfx(); setPaletteName(pn); }}>
-              <div style={{ display: "flex", gap: 4 }}><span style={{ width: 22, height: 22, borderRadius: 6, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} /><span style={{ width: 22, height: 22, borderRadius: 6, background: accent }} /></div>
-              <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: 550 }}>{pn}</span>
-            </button>
-          ))}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="cb-modal"
+        style={{
+          background: P.surface,
+          border: `1px solid ${P.line2}`,
+          borderRadius: isMobile ? 18 : 18,
+          width: 520, maxWidth: "100%",
+          maxHeight: isMobile ? "92vh" : "86vh",
+          display: "flex", flexDirection: "column",
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+          boxShadow: "0 24px 70px rgba(0,0,0,0.42)",
+          overflow: "hidden",
+        }}
+      >
+        {/* Header + tabs (sticky) */}
+        <div style={{ padding: isMobile ? "18px 18px 0" : "22px 24px 0", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 680, color: P.ink, letterSpacing: "-0.02em" }}>Settings</div>
+            <button onClick={close} aria-label="Close settings" style={{
+              background: "transparent", border: "none", color: P.faint,
+              width: 32, height: 32, borderRadius: 8, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }} className="cb-hbtn"><Icon name="close" size={17} /></button>
+          </div>
+          <div style={{ display: "flex", gap: 2, overflowX: "auto", scrollbarWidth: "none" }}>
+            {TABS.map(([id, label]) => (
+              <button key={id} onClick={() => { sfx(); setTab(id); }}
+                style={{
+                  padding: "9px 13px 11px", fontSize: 13, fontWeight: 550,
+                  background: "transparent", border: "none",
+                  borderBottom: `2px solid ${tab === id ? accent : "transparent"}`,
+                  color: tab === id ? P.ink : P.faint,
+                  cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+                  letterSpacing: "-0.01em", marginBottom: -1,
+                }}>{label}</button>
+            ))}
+          </div>
         </div>
-        <div style={S.setLabel}>Accent</div>
-        <div style={S.accentRow}>
-          {Object.keys(ACCENTS).map((an) => (<button key={an} title={an} style={{ ...S.accentDot, background: ACCENTS[an], transform: (!customAccent && accentName === an) ? "scale(1.15)" : "none", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${P.surface}, 0 0 0 4px ${ACCENTS[an]}` : "none" }} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }} />))}
-          <label style={S.customDot} title="Custom"><input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} /><span style={{ fontSize: 15, color: P.ink2 }}>+</span></label>
+
+        {/* Scrollable body */}
+        <div key={tab} className="cb-fade" style={{ padding: isMobile ? "18px" : "22px 24px", overflowY: "auto", flex: 1, WebkitOverflowScrolling: "touch" }}>
+
+          {tab === "look" && (
+            <>
+              <Group title="Theme">
+                <div style={S.palRow}>
+                  {Object.keys(PALETTES).map((pn) => (
+                    <button key={pn} style={{ ...S.palCard, background: PALETTES[pn].bg, borderColor: paletteName === pn ? accent : PALETTES[pn].line2, borderWidth: paletteName === pn ? 2 : 1 }} onClick={() => { sfx(); setPaletteName(pn); }}>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <span style={{ width: 22, height: 22, borderRadius: 6, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} />
+                        <span style={{ width: 22, height: 22, borderRadius: 6, background: accent }} />
+                      </div>
+                      <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: 550 }}>{pn}</span>
+                    </button>
+                  ))}
+                </div>
+              </Group>
+              <Group title="Accent colour" hint="Used for citations, highlights, and the background wash.">
+                <div style={S.accentRow}>
+                  {Object.keys(ACCENTS).map((an) => (
+                    <button key={an} title={an} aria-label={an} style={{ ...S.accentDot, background: ACCENTS[an], transform: (!customAccent && accentName === an) ? "scale(1.15)" : "none", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${P.surface}, 0 0 0 4px ${ACCENTS[an]}` : "none" }} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }} />
+                  ))}
+                  <label style={S.customDot} title="Custom colour">
+                    <input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} />
+                    <span style={{ fontSize: 15, color: P.ink2 }}>+</span>
+                  </label>
+                </div>
+              </Group>
+            </>
+          )}
+
+          {tab === "answers" && (
+            <>
+              <Group title="Response">
+                <Row label="Answer length"
+                  desc="How much detail to write by default."
+                  control={<Seg value={answerLength} options={[["short", "Short"], ["medium", "Medium"], ["long", "Long"]]} onChange={setAnswerLength} />} />
+                <Row label="Verify claims"
+                  desc="A second pass checks each claim against the cited abstracts and flags anything unsupported. Checks source-support, not real-world truth."
+                  control={<Switch on={factCheck} onChange={setFactCheck} label="Verify claims" />} />
+                <Row label="Animated reveal"
+                  desc="Type answers out as they stream in."
+                  control={<Switch on={typewriter} onChange={setTypewriter} label="Animated reveal" />} />
+              </Group>
+            </>
+          )}
+
+          {tab === "motion" && (
+            <>
+              <Group title="Motion level" hint="Full runs every effect. Subtle thins them out. Off makes the background static — best for low-power devices.">
+                <Seg value={animationMode} options={[["cinematic", "Full"], ["subtle", "Subtle"], ["off", "Off"]]} onChange={setAnimationMode} />
+              </Group>
+              {animationMode !== "off" && (
+                <>
+                  <Group title="Background">
+                    <div style={{ fontSize: 10.5, color: P.faint, marginBottom: 8, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 650 }}>Ambient</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+                      <PresetCard id="aurora" label="Aurora" sub="Drifting colour wash" active={animPreset === "aurora"} />
+                      <PresetCard id="orbs" label="Soft orbs" sub="Slow glowing spheres" active={animPreset === "orbs"} />
+                      <PresetCard id="grid" label="Grid" sub="Static dot lattice" active={animPreset === "grid"} />
+                      <PresetCard id="none" label="Solid" sub="No motion at all" active={animPreset === "none"} />
+                    </div>
+                    <div style={{ fontSize: 10.5, color: P.faint, marginBottom: 8, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 650 }}>Scientific</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <PresetCard id="dna" label="Helix" sub="Rotating double strand" active={animPreset === "dna"} />
+                      <PresetCard id="neurons" label="Neurons" sub="Linked synapse network" active={animPreset === "neurons"} />
+                      <PresetCard id="particles" label="Particles" sub="Drifting point field" active={animPreset === "particles"} />
+                      <PresetCard id="waves" label="Waves" sub="Layered sine curves" active={animPreset === "waves"} />
+                      <PresetCard id="circuits" label="Circuits" sub="Signal traces" active={animPreset === "circuits"} />
+                      <PresetCard id="starfield" label="Starfield" sub="Radial streaks" active={animPreset === "starfield"} />
+                    </div>
+                  </Group>
+                  <Group title="Fine tuning">
+                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                      <LocalSlider label="Density" value={animDensity} min={0.3} max={2.5} step={0.1} format={(v) => v.toFixed(1) + "\u00d7"} onCommit={setAnimDensity} accent={accent} P={P} />
+                      <LocalSlider label="Speed" value={animSpeed} min={0.2} max={3} step={0.1} format={(v) => v.toFixed(1) + "\u00d7"} onCommit={setAnimSpeed} accent={accent} P={P} />
+                      <LocalSlider label="Opacity" value={animOpacity} min={0.2} max={1.5} step={0.1} format={(v) => Math.round(v * 100) + "%"} onCommit={setAnimOpacity} accent={accent} P={P} />
+                      <button className="cb-btn" onClick={() => { sfx(); setAnimPreset("aurora"); setAnimDensity(1); setAnimSpeed(1); setAnimOpacity(1); }}
+                        style={{ fontSize: 12, padding: "8px 12px", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "inherit", alignSelf: "flex-start", fontWeight: 500 }}>Reset to defaults</button>
+                    </div>
+                  </Group>
+                </>
+              )}
+            </>
+          )}
+
+          {tab === "audio" && (
+            <>
+              <Group title="Interface sound">
+                <Row label="Sound effects"
+                  desc="Subtle tones on search, dictation, and selection."
+                  control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
+              </Group>
+              <Group title="Search tone" hint="Plays while a search runs. Tap to preview.">
+                <div style={{ ...S.soundGrid, opacity: muted ? 0.4 : 1, pointerEvents: muted ? "none" : "auto" }}>
+                  {SOUND_MODES.map(([id, name]) => (
+                    <button key={id} style={{ ...S.soundBtn, ...(soundMode === id ? S.soundBtnActive : {}) }} onClick={() => { setSoundMode(id); Audio.preview(id); }}>
+                      <span>{name}</span>
+                      {soundMode === id && <Icon name="check" size={13} style={{ color: accent }} />}
+                    </button>
+                  ))}
+                </div>
+              </Group>
+              <Group title="Read answers aloud" hint="The default voice runs on Cerebrum's servers \u2014 free, no key required. For studio-grade narration, add your own ElevenLabs key; it never leaves this device.">
+                <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+                <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+              </Group>
+            </>
+          )}
+
+          {tab === "data" && (
+            <>
+              <Group title="Local data" hint="Cerebrum stores your saved articles, session history, and preferences in this browser only. Nothing is sent to a server or tied to an account.">
+                <Row label="Saved articles & sessions"
+                  desc="Clearing this cannot be undone."
+                  control={
+                    confirmClear ? (
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => { setSessions([]); setSaved([]); setConfirmClear(false); sfx(); }}
+                          style={{ padding: "7px 12px", fontSize: 12.5, fontWeight: 600, background: "#e5484d", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Confirm</button>
+                        <button onClick={() => setConfirmClear(false)}
+                          style={{ padding: "7px 12px", fontSize: 12.5, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmClear(true)}
+                        style={{ padding: "7px 12px", fontSize: 12.5, fontWeight: 500, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.4)}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Clear all</button>
+                    )
+                  } />
+              </Group>
+              <Group title="Keyboard shortcuts">
+                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {[
+                    [kbdLabel("K"), "Open search palette"],
+                    [kbdLabel("J"), "New investigation"],
+                    [kbdLabel("B"), "Saved articles"],
+                    [kbdLabel("/"), "Settings"],
+                    ["Esc", "Close any panel"],
+                  ].map(([key, desc]) => (
+                    <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderBottom: `1px solid ${P.line}` }}>
+                      <span style={{ fontSize: 13, color: P.ink2 }}>{desc}</span>
+                      <kbd style={S.kbd}>{key}</kbd>
+                    </div>
+                  ))}
+                </div>
+              </Group>
+            </>
+          )}
         </div>
-        <div style={S.setLabel}>Answer length</div>
-        <div style={S.segment}>{["short", "medium", "long"].map((v) => (<button key={v} style={{ ...S.segBtn, ...(answerLength === v ? S.segActive : {}) }} onClick={() => { sfx(); setAnswerLength(v); }}>{v}</button>))}</div>
-        <div style={S.setLabel}>Fact-check</div>
-        <button style={{ ...S.toggle, ...(factCheck ? S.toggleOn : {}) }} onClick={() => { sfx(); setFactCheck(!factCheck); }}><span>{factCheck ? "Verification on" : "Verification off"}</span><span style={{ ...S.toggleKnob, transform: factCheck ? "translateX(20px)" : "none", background: factCheck ? at : P.faint }} /></button>
-        <div style={S.setNote}>A second model checks each claim against the cited abstracts and flags anything unsupported. It verifies source-support, not real-world truth.</div>
-        <div style={S.setLabel}>Typewriter reveal</div>
-        <button style={{ ...S.toggle, ...(typewriter ? S.toggleOn : {}) }} onClick={() => { sfx(); setTypewriter(!typewriter); }}><span>{typewriter ? "Animated reveal on" : "Instant answers"}</span><span style={{ ...S.toggleKnob, transform: typewriter ? "translateX(20px)" : "none", background: typewriter ? at : P.faint }} /></button>
-        <div style={S.setLabel}>Text-to-speech voice</div>
-        <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-        <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-        <div style={S.setNote}>Default voice runs on Cerebrum's servers (free, no key needed). Try each voice — quality varies by engine. For studio-quality voice, paste your own ElevenLabs API key; it stays on this device and calls ElevenLabs directly from your browser.</div>
-        <div style={S.setLabel}>Animations</div>
-        <div style={S.segment}>{[["cinematic", "Full"], ["subtle", "Subtle"], ["off", "Off"]].map(([v, label]) => (<button key={v} style={{ ...S.segBtn, ...(animationMode === v ? S.segActive : {}) }} onClick={() => { sfx(); setAnimationMode(v); }}>{label}</button>))}</div>
-        <div style={S.setNote}>Full: all effects active. Subtle: fewer particles, quieter. Off: static.</div>
-        {animationMode !== "off" && (
-          <>
-            <div style={S.setLabel}>Background style</div>
-            <div style={{ fontSize: 10.5, color: P.faint, marginBottom: 6, letterSpacing: "0.04em", textTransform: "uppercase" }}>Premium</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-              {[
-                ["aurora", "Aurora"],
-                ["orbs", "Soft orbs"],
-                ["grid", "Grid"],
-                ["none", "Solid"],
-              ].map(([v, label]) => (
-                <button key={v} className="cb-btn"
-                  style={{ padding: "10px 6px", fontSize: 12.5, fontWeight: 600, background: animPreset === v ? accent : "transparent", color: animPreset === v ? at : P.ink2, border: `1px solid ${animPreset === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}
-                  onClick={() => { sfx(); setAnimPreset(v); }}>{label}</button>
-              ))}
-            </div>
-            <div style={{ fontSize: 10.5, color: P.faint, marginBottom: 6, letterSpacing: "0.04em", textTransform: "uppercase" }}>Playful</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 10 }}>
-              {[
-                ["particles", "Particles"],
-                ["neurons", "Neurons"],
-                ["waves", "Waves"],
-                ["dna", "DNA"],
-                ["circuits", "Circuits"],
-                ["starfield", "Starfield"],
-              ].map(([v, label]) => (
-                <button key={v} className="cb-btn"
-                  style={{ padding: "9px 6px", fontSize: 12, fontWeight: 550, background: animPreset === v ? accent : "transparent", color: animPreset === v ? at : P.ink2, border: `1px solid ${animPreset === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}
-                  onClick={() => { sfx(); setAnimPreset(v); }}>{label}</button>
-              ))}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>
-              <LocalSlider label="Density" value={animDensity} min={0.3} max={2.5} step={0.1} format={(v) => v.toFixed(1) + "x"} onCommit={setAnimDensity} accent={accent} P={P} />
-              <LocalSlider label="Speed" value={animSpeed} min={0.2} max={3} step={0.1} format={(v) => v.toFixed(1) + "x"} onCommit={setAnimSpeed} accent={accent} P={P} />
-              <LocalSlider label="Opacity" value={animOpacity} min={0.2} max={1.5} step={0.1} format={(v) => Math.round(v * 100) + "%"} onCommit={setAnimOpacity} accent={accent} P={P} />
-              <button onClick={() => { sfx(); setAnimPreset("particles"); setAnimDensity(1); setAnimSpeed(1); setAnimOpacity(1); }}
-                style={{ fontSize: 11, padding: "6px 10px", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 6, color: P.faint, cursor: "pointer", fontFamily: "inherit", alignSelf: "flex-start" }}>Reset</button>
-            </div>
-          </>
-        )}
-        <div style={S.setLabel}>Sound</div>
-        <button style={{ ...S.toggle, ...(!muted ? S.toggleOn : {}) }} onClick={() => setMuted(!muted)}><span>{muted ? "Sound off" : "Sound on"}</span><span style={{ ...S.toggleKnob, transform: !muted ? "translateX(20px)" : "none", background: !muted ? at : P.faint }} /></button>
-        <div style={{ ...S.setLabel, opacity: muted ? 0.4 : 1 }}>Search sound</div>
-        <div style={{ ...S.soundGrid, opacity: muted ? 0.4 : 1, pointerEvents: muted ? "none" : "auto" }}>
-          {SOUND_MODES.map(([id, name]) => (
-            <button key={id} style={{ ...S.soundBtn, ...(soundMode === id ? S.soundBtnActive : {}) }} onClick={() => { setSoundMode(id); Audio.preview(id); }}>
-              <span>{name}</span>
-              {soundMode === id && <span style={{ color: accent, fontSize: 12 }}>♪</span>}
-            </button>
-          ))}
+
+        {/* Footer (sticky) */}
+        <div style={{ padding: isMobile ? "14px 18px" : "14px 24px", borderTop: `1px solid ${P.line}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <span style={{ fontSize: 11.5, color: P.faint }}>Stored on this device</span>
+          <button onClick={close}
+            style={{ padding: "9px 20px", fontSize: 13.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 9, cursor: "pointer", fontFamily: "inherit", letterSpacing: "-0.01em" }}>Done</button>
         </div>
-        <div style={S.setNote}>Plays while searching. Tap a style to preview it.</div>
-        <button style={S.clearAll} onClick={() => { setSessions([]); setSaved([]); }}>Clear sessions & saved</button>
-        <button style={S.modalClose} onClick={close}>Done</button>
-        <div style={S.shortcuts}>{kbdLabel("K")} search · {kbdLabel("J")} new · {kbdLabel("B")} saved · {kbdLabel("/")} settings · esc close</div>
       </div>
     </div>
   );
 }
 
+
 function makeStyles(P, accent, at, isMobile = false) {
   const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   const pad = isMobile ? 16 : 24;
   return {
-    gate: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: P.bg, padding: 20, fontFamily: font, position: "relative", overflow: "hidden" },
+    gate: { minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: P.bg, padding: 20, fontFamily: font, position: "relative", overflow: "hidden" },
     gateGlow: { position: "absolute", width: 600, height: 600, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.14 : 0.08)}, transparent 68%)`, top: "20%", filter: "blur(30px)", pointerEvents: "none" },
     gateInner: { textAlign: "center", maxWidth: 440, position: "relative", zIndex: 1 },
     gateKicker: { fontSize: 12, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: accent, marginBottom: 14 },
@@ -2483,17 +2887,42 @@ function makeStyles(P, accent, at, isMobile = false) {
     gateSub: { fontSize: 16, color: P.ink2, marginBottom: 32, lineHeight: 1.6, letterSpacing: "-0.01em" },
     gateBtn: { display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 28px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: font, boxShadow: `0 4px 16px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em" },
     gateNote: { fontSize: 12.5, color: P.faint, marginTop: 18 },
-    page: { minHeight: "100vh", height: "100vh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
+    page: { minHeight: "100dvh", height: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
     header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 20 },
     headInner: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, height: 58, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
     brand: { fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", color: P.ink },
-    headActions: { display: "flex", alignItems: "center", gap: 6 },
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontFamily: font, boxShadow: P.shadowSm },
+    headActions: { display: "flex", alignItems: "center", gap: isMobile ? 2 : 4 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, color: P.ink2, padding: "7px 8px 7px 12px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontFamily: font, boxShadow: P.shadowSm, marginRight: 4 },
     kbd: { fontSize: 11, fontFamily: font, color: P.faint, background: P.bg, border: `1px solid ${P.line2}`, borderRadius: 5, padding: "1px 6px", fontWeight: 550 },
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px 8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: isMobile ? 14 : 13.5, fontWeight: 550, fontFamily: font, letterSpacing: "-0.01em" },
-    iconBtn: { background: "transparent", border: "none", color: P.ink2, width: 36, height: 36, borderRadius: 8, cursor: "pointer", fontSize: 15 },
+    // Icon-first header button. On desktop it shows icon + label; on mobile it
+    // collapses to a 40px square tap target (Apple HIG minimum is 44, we're at
+    // 40 + 4 gap which reads correctly and keeps the bar compact).
+    iconBtn: {
+      background: "transparent", border: "none", color: P.ink2,
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      gap: 7,
+      height: 38,
+      minWidth: isMobile ? 40 : 38,
+      padding: isMobile ? "0 8px" : "0 11px",
+      borderRadius: 9, cursor: "pointer",
+      fontSize: 13.5, fontWeight: 550, fontFamily: font,
+      letterSpacing: "-0.01em",
+      position: "relative",
+    },
+    iconBtnLabel: { lineHeight: 1 },
+    countPill: {
+      fontSize: 10.5, fontWeight: 700, lineHeight: 1,
+      background: accent, color: at,
+      padding: "3px 5px", borderRadius: 20,
+      minWidth: 16, textAlign: "center",
+      marginLeft: isMobile ? 0 : -2,
+      position: isMobile ? "absolute" : "static",
+      top: isMobile ? 2 : undefined,
+      right: isMobile ? 2 : undefined,
+    },
     scroll: { flex: 1, overflowY: "auto" },
     container: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px 0 60px", position: "relative" },
@@ -2513,7 +2942,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
     workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
-    turn: { marginBottom: 40 },
+    turn: { marginBottom: isMobile ? 30 : 40 },
     qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
     qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
     headline: { fontWeight: 700, fontSize: isMobile ? 21 : 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
@@ -2527,8 +2956,8 @@ function makeStyles(P, accent, at, isMobile = false) {
     relatedLabel: { fontSize: 11.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, marginBottom: 10 },
     relatedList: { display: "flex", flexDirection: "column", gap: 8 },
     relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", padding: "12px 16px", fontSize: 14, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 11, cursor: "pointer", fontFamily: font, transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
-    panel: { position: "sticky", top: 24, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "18px 18px", boxShadow: P.shadow, maxHeight: "calc(100vh - 130px)", overflowY: "auto" },
-    panelMobile: { position: "fixed", top: 0, right: 0, height: "100vh", width: "88vw", maxWidth: 350, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" },
+    panel: { position: "sticky", top: 24, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: "18px 18px", boxShadow: P.shadow, maxHeight: "calc(100dvh - 130px)", overflowY: "auto" },
+    panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: "88vw", maxWidth: 350, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, fontWeight: 650, color: P.ink, marginBottom: 14, letterSpacing: "-0.01em" },
     srcCount: { fontSize: 11.5, fontWeight: 600, color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 20 },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
@@ -2713,6 +3142,11 @@ if (typeof document !== "undefined") {
       button:not(:disabled):active { transform: scale(0.975) translate3d(0, 0, 0); transition-duration: 60ms; }
       button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+      /* Header action buttons get a soft surface on hover. Inline React styles
+         can't express :hover, so the affordance lives here. */
+      .cb-hbtn:hover:not(:disabled) { background: var(--cb-hover-surface, rgba(128,128,128,0.10)) !important; }
+      .cb-hbtn:active:not(:disabled) { background: var(--cb-hover-surface, rgba(128,128,128,0.16)) !important; }
+
       /* Opt-in class kept for elements that aren't <button> but should feel like one */
       .cb-btn {
         transition: transform var(--cb-instant) var(--cb-out),
@@ -2761,9 +3195,32 @@ if (typeof document !== "undefined") {
       }
 
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body {
+        margin: 0;
+        overflow-x: hidden;
+        max-width: 100%;
+        /* Prevent the browser's pull-to-refresh gesture. Swiping down at the top
+           of the page was reloading the app mid-search on mobile, which is
+           indistinguishable from a crash from the user's side. "contain" keeps
+           scroll chaining inside the app without disabling normal scrolling. */
+        overscroll-behavior-y: contain;
+        /* Older engines that don't understand dvh fall back to vh via this var. */
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+      /* Respect notches and home indicators on phones */
+      @supports (padding: max(0px)) {
+        body {
+          padding-left: env(safe-area-inset-left);
+          padding-right: env(safe-area-inset-right);
+        }
+      }
+      /* Prevent iOS from auto-zooming when focusing an input (any font-size
+         below 16px triggers it, which then breaks the layout on return). */
+      input, textarea, select { font-size: 16px; }
       html, body { margin: 0; overflow-x: hidden; max-width: 100%; }
       a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
-      input { font-size: 16px; }
+      /* superseded by the input/textarea/select rule above */
       input::placeholder { color: inherit; opacity: 0.5; }
       ::-webkit-scrollbar { width: 10px; }
       ::-webkit-scrollbar-track { background: transparent; }
