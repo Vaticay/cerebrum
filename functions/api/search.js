@@ -2292,15 +2292,20 @@ async function gatherPapers(rawQuery, opts) {
     : [];
 
   let results = [];
-  const diag = {};
+  const diag = { rungs: [], sourceOutcomes: null };
+  const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos"];
   for (let i = 0; i < rungs.length; i++) {
     results = await Promise.allSettled(fanout(rungs[i], i === 0));
-    const got = results.reduce(
-      (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0),
-      0
-    );
-    diag["rung" + (i + 1)] = { terms: rungs[i], got };
-    if (got >= 5) break;
+    const perSource = results.map((r, idx) => ({
+      source: sourceNames[idx],
+      status: r.status,
+      count: r.status === "fulfilled" ? (r.value || []).length : 0,
+      error: r.status === "rejected" ? String(r.reason && r.reason.message || r.reason).slice(0, 120) : null,
+    }));
+    const got = perSource.reduce((n, x) => n + x.count, 0);
+    diag.rungs.push({ terms: rungs[i], got, perSource });
+    if (got >= 5) { diag.sourceOutcomes = perSource; break; }
+    diag.sourceOutcomes = perSource;
   }
 
   // Add results for each sub-question of a compound query
@@ -3331,6 +3336,10 @@ export async function onRequest(context) {
             : aiOK
             ? "General knowledge (AI)"
             : dbUsed,
+        // Diagnostics: which query rung ran, and how many papers each source
+        // returned. Surfaced so retrieval failures can be diagnosed from the
+        // browser's Network tab instead of blind guessing.
+        _diag: gResult && gResult._diag ? gResult._diag : null,
       }),
       { status: 200, headers: cors }
     );
