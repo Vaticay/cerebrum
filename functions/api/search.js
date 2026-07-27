@@ -2135,10 +2135,14 @@ async function gatherByAuthor(name) {
 
 
 async function gatherPapers(rawQuery, opts) {
+  // Wrap the entire function so ANY thrown error still returns a diagnostic
+  // rather than being swallowed by the outer .catch and losing all context.
+  const _outerDiag = { entered: true, phase: "start", rawQuery: (rawQuery || "").slice(0, 200) };
+  try {
   const openAlexKey = (opts && opts.openAlexKey) || "";
   const ncbiKey = (opts && opts.ncbiKey) || "";
   const limit = (opts && opts.limit) || 25;
-  const query = cleanQuery(rawQuery);
+  _outerDiag.phase = "cleaned_query"; const query = cleanQuery(rawQuery); _outerDiag.cleanedQuery = query.slice(0, 200);
   // A resolved person name from conversation history (pronoun follow-up like
   // "he has papers from UTK") takes priority over re-detecting from rawQuery.
   const resolvedPersonName = opts && opts.resolvedPersonName;
@@ -2155,7 +2159,9 @@ async function gatherPapers(rawQuery, opts) {
   // deduplicate, and return. No layered fallbacks, no walls. If truly nothing
   // matches, the endpoint responds with helpful suggestions rather than dumping
   // unrelated papers or throwing up an "author not confirmed" screen.
+  _outerDiag.phase = "name_check_done"; _outerDiag.isNameQuery = isNameQuery;
   if (isNameQuery) {
+    _outerDiag.phase = "author_branch";
     const nameLower = effectiveName.toLowerCase();
     const nameTokens = nameLower.split(/\s+/).filter((t) => t.length > 1);
     // Build a quoted-phrase query for the full name and also a broader OR of
@@ -2196,7 +2202,7 @@ async function gatherPapers(rawQuery, opts) {
     }
 
     // Score and type
-    const scored = merged.map((p) => {
+    _outerDiag.phase = "scoring"; const scored = merged.map((p) => {
       const j = (p.journal || "").toLowerCase();
       let type = "Journal";
       if (/preprint|biorxiv|medrxiv|arxiv/.test(j)) type = "Preprint";
@@ -2227,6 +2233,7 @@ async function gatherPapers(rawQuery, opts) {
     return { papers: [], noResults: true };
   }
 
+  _outerDiag.phase = "before_ladder";
   // ---- PROGRESSIVE RETRIEVAL LADDER (per-source syntax) ----
   // Engines do NOT share a query language. Europe PMC and PubMed parse full
   // boolean expressions; OpenAlex, Crossref, Semantic Scholar, DOAJ, PLOS and
@@ -2291,6 +2298,7 @@ async function gatherPapers(rawQuery, opts) {
       ).filter((arr) => arr.length >= 2)
     : [];
 
+  _outerDiag.phase = "ladder_start";
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
   const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos"];
@@ -2586,6 +2594,21 @@ async function gatherPapers(rawQuery, opts) {
   }
 
   return { papers: scored, _diag: diag };
+  } catch (e) {
+    // Any throw in gatherPapers: return an empty result WITH the error surfaced
+    // so the response body shows exactly where retrieval died instead of
+    // silently defaulting to "General knowledge (AI)".
+    return {
+      papers: [],
+      _diag: {
+        ..._outerDiag,
+        threwAt: _outerDiag.phase,
+        errorMessage: String((e && e.message) || e).slice(0, 500),
+        errorName: (e && e.name) || "Unknown",
+        errorStack: String((e && e.stack) || "").slice(0, 1000),
+      },
+    };
+  }
 }
 
 // ============ MAIN HANDLER ============
@@ -2816,7 +2839,18 @@ export async function onRequest(context) {
         ncbiKey: env.NCBI_API_KEY || "",
         limit: 25,
         resolvedPersonName,
-      }).catch(() => ({ papers: [] }));
+      }).catch((e) => ({
+        papers: [],
+        // Surface the caught error so we can actually see what is going wrong.
+        // Previously this catch swallowed EVERYTHING silently and returned an
+        // empty _diag, which is why every retrieval failure looked identical.
+        _diag: {
+          fatalError: String((e && e.message) || e).slice(0, 500),
+          errorType: (e && e.name) || "Unknown",
+          stack: String((e && e.stack) || "").slice(0, 800),
+          calledWith: searchQuery,
+        },
+      }));
     }
 
     // Track whether the person-name query returned only low-confidence
