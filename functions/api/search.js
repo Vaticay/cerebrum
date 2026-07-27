@@ -99,6 +99,46 @@ function extractDoi(url) {
 
 // ============ AI RESPONSE CLEANER ============
 // Strips chain-of-thought leakage, meta-monologues, and robotic openings.
+// When we have NO sources, the model sometimes invents a full reference list
+// anyway — prompt instructions are not a reliable guard against this. This
+// strips every citation artifact mechanically so a fabricated bibliography can
+// never reach the user. Also used to remove citations that point past the end
+// of a real source list (e.g. the model writes [7] when only 4 sources exist).
+function stripFabricatedCitations(text, sourceCount) {
+  if (!text) return text;
+  let t = text;
+
+  // 1. Remove any trailing "References:" / "Sources:" / "Bibliography:" block.
+  //    These are almost always fabricated when sourceCount is 0.
+  if (sourceCount === 0) {
+    t = t.replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?[\s\S]*$/i, "");
+  }
+
+  // 2. Strip bracketed citation markers that have no matching source.
+  t = t.replace(/\[(\d{1,3})\]/g, (m, n) => {
+    const idx = parseInt(n, 10);
+    if (sourceCount === 0) return "";          // nothing to cite
+    if (idx < 1 || idx > sourceCount) return ""; // dangling reference
+    return m;                                    // valid, keep
+  });
+
+  if (sourceCount === 0) {
+    // 3. Strip author-year parentheticals: (Smith, 2020), (Smith & Jones 2019),
+    //    (Smith et al., 2021). Only when we have no sources at all — with real
+    //    sources these could legitimately appear inside a quoted title.
+    t = t.replace(/\((?:[A-Z][A-Za-z\-']+(?:,| &| and|\set al\.?)?[\s,]*){1,4}\d{4}[a-z]?\)/g, "");
+    // 4. Strip superscript-style numeric refs left dangling after words.
+    t = t.replace(/([a-z])\s*\u00b9|\u00b2|\u00b3|[\u2070-\u2079]/g, "$1");
+  }
+
+  // 5. Tidy the punctuation left behind by removals.
+  t = t.replace(/[ \t]{2,}/g, " ");
+  t = t.replace(/\s+([.,;:!?])/g, "$1");
+  t = t.replace(/([.,;:])\1+/g, "$1");
+  t = t.replace(/\n{3,}/g, "\n\n");
+  return t.trim();
+}
+
 // Force any close-but-wrong variant of a name (e.g. "Sahoy" for "Saho") back
 // to the exact form the user searched. Free AI models routinely hallucinate
 // name variants; this is a hard post-processing correction so the user never
@@ -158,6 +198,14 @@ function cleanAIResponse(raw) {
     /^to answer this/i,
     /^now we need to/i,
   ];
+
+  // Strip self-introductions and acknowledgement filler mid-answer. The model
+  // was writing "That's correct, Cerebrum here." at the top of follow-ups.
+  // Prompt rules help but aren't reliable, so we also remove them mechanically.
+  c = c.replace(/^\s*(that'?s (correct|right)[,.]?\s*)?(cerebrum here|as cerebrum|i'?m cerebrum|this is cerebrum)[,.!]?\s*/i, "");
+  c = c.replace(/^\s*(great|good|excellent|interesting)\s+question[,.!]?\s*/i, "");
+  c = c.replace(/^\s*(sure|certainly|absolutely|of course)[,.!]\s*/i, "");
+  c = c.replace(/^\s*that'?s (correct|right)[,.]\s+/i, "");
   const paras = c.split(/\n{2,}/);
   while (paras.length > 1) {
     const first = paras[0].trim();
@@ -179,6 +227,113 @@ function cleanAIResponse(raw) {
 }
 
 // ============ QUERY LOGIC ============
+
+// ---- TERM SPECIFICITY ----
+// Not every word in a question carries equal search weight. In
+// "What types of enzymes do insects have to degrade plastic compounds, and how
+// do gut microbes capitalize from them?" the words that actually identify the
+// topic are enzymes / insects / plastic / gut / microbes. Words like types,
+// compounds, capitalize are scientific filler — they appear in millions of
+// papers and matching them proves nothing.
+//
+// Requiring a flat percentage of ALL terms was rejecting correct papers for
+// verbose questions (a real Nature Communications paper on waxworm saliva
+// enzymes scored 22% and got dropped). We now separate CORE terms from
+// PERIPHERAL ones and gate only on CORE coverage.
+const GENERIC_SCIENCE_WORDS = new Set([
+  "types", "type", "kinds", "kind", "sort", "sorts", "form", "forms",
+  "compound", "compounds", "substance", "substances", "material", "materials",
+  "capitalize", "utilize", "utilise", "leverage", "involve", "involves",
+  "process", "processes", "method", "methods", "approach", "approaches",
+  "effect", "effects", "impact", "impacts", "influence", "role", "roles",
+  "function", "functions", "mechanism", "mechanisms", "system", "systems",
+  "factor", "factors", "level", "levels", "amount", "amounts", "rate", "rates",
+  "result", "results", "outcome", "outcomes", "finding", "findings",
+  "study", "studies", "research", "paper", "papers", "article", "articles",
+  "analysis", "data", "evidence", "review", "reviews", "report", "reports",
+  "different", "various", "several", "many", "much", "high", "low", "large",
+  "small", "new", "novel", "recent", "current", "important", "significant",
+  "possible", "potential", "specific", "general", "common", "main", "major",
+  "help", "helps", "make", "makes", "made", "get", "gets", "give", "gives",
+  "produce", "produces", "produced", "production",
+  "related", "associated", "based", "including", "such", "well", "known",
+  "information", "info", "detail", "details", "aspect", "aspects",
+  "question", "answer", "example", "examples", "case", "cases",
+]);
+
+// Concept equivalence groups. If a query term is in a group, a paper matching
+// ANY member of that group satisfies the term. This is what lets a question
+// about "plastic" find a paper that only ever says "polyethylene", and a
+// question about "insects" find one that says "Galleria mellonella".
+const CONCEPT_GROUPS = [
+  ["plastic", "plastics", "polymer", "polymers", "polyethylene", "polystyrene",
+   "polypropylene", "polyurethane", "pvc", "pet", "ldpe", "hdpe", "microplastic",
+   "microplastics", "nanoplastic", "nanoplastics", "polyolefin"],
+  ["insect", "insects", "larva", "larvae", "larval", "worm", "worms", "caterpillar",
+   "grub", "mealworm", "waxworm", "galleria", "tenebrio", "hermetia", "zophobas",
+   "beetle", "moth", "fly", "arthropod", "arthropods", "entomological"],
+  ["microbe", "microbes", "microbial", "microbiome", "microbiota", "bacteria",
+   "bacterial", "bacterium", "gut flora", "microflora", "symbiont", "symbionts",
+   "microorganism", "microorganisms"],
+  ["enzyme", "enzymes", "enzymatic", "oxidase", "oxidases", "hydrolase",
+   "hydrolases", "esterase", "esterases", "cutinase", "lipase", "protease",
+   "depolymerase", "oxidoreductase", "oxidoreductases", "phenoloxidase",
+   "laccase", "peroxidase"],
+  ["degrade", "degradation", "degrading", "biodegradation", "biodegrade",
+   "breakdown", "depolymerization", "depolymerisation", "catabolism",
+   "decompose", "decomposition", "oxidation", "oxidize", "oxidise", "oxidative"],
+  ["gut", "intestinal", "intestine", "digestive", "midgut", "hindgut",
+   "gastrointestinal", "alimentary"],
+  ["saliva", "salivary", "secretion", "secretions", "oral", "labial"],
+  ["cancer", "tumour", "tumor", "carcinoma", "neoplasm", "oncology", "malignant"],
+  ["gene", "genes", "genetic", "genomic", "genome", "transcript", "transcriptome"],
+  ["protein", "proteins", "proteomic", "peptide", "peptides", "polypeptide"],
+  ["climate", "warming", "temperature", "thermal", "heat"],
+  ["neuron", "neurons", "neural", "neuronal", "brain", "cortical", "cerebral"],
+];
+
+// Build a fast lookup: term -> the full set of equivalent terms
+const CONCEPT_LOOKUP = (() => {
+  const map = new Map();
+  for (const group of CONCEPT_GROUPS) {
+    const set = new Set(group);
+    for (const t of group) map.set(t, set);
+  }
+  return map;
+})();
+
+// Score how specific/informative a term is. Higher = more worth gating on.
+function termSpecificity(term) {
+  if (GENERIC_SCIENCE_WORDS.has(term)) return 0.15;
+  let score = 0.5;
+  // Longer words are usually more technical
+  if (term.length >= 10) score += 0.3;
+  else if (term.length >= 7) score += 0.2;
+  else if (term.length <= 4) score -= 0.1;
+  // Being part of a known concept group means it's a real topic anchor
+  if (CONCEPT_LOOKUP.has(term)) score += 0.35;
+  // Scientific morphology markers
+  if (/(ase|ome|itis|osis|genic|troph|phyll|plast|cyte|blast|lysis|philic|phobic)$/.test(term)) score += 0.3;
+  // Short technical identifiers are highly specific despite being short:
+  // gene/protein names (p53, tau, myc), acronyms (mRNA, TNF, PCR), and
+  // alphanumeric designators (CD4, IL6, BRCA1). Without this, a query like
+  // "p53 mutations in glioma" would treat p53 as filler.
+  if (/\d/.test(term) && /[a-z]/.test(term)) score += 0.4;   // alphanumeric: p53, il6, cd4
+  if (SYNONYMS[term]) score += 0.4;                            // known scientific acronym
+  if (term.length <= 5 && !COMMON_SHORT_WORDS.has(term)) score += 0.25;
+  return Math.min(1, score);
+}
+
+// Short everyday words that should NOT get the "short technical term" boost.
+const COMMON_SHORT_WORDS = new Set([
+  "have", "them", "make", "made", "take", "give", "come", "know", "think",
+  "want", "need", "find", "show", "tell", "work", "call", "keep", "help",
+  "good", "bad", "best", "worst", "more", "less", "many", "much", "very",
+  "also", "even", "just", "only", "well", "back", "down", "over", "same",
+  "like", "than", "then", "when", "what", "does", "did", "was", "were",
+  "any", "all", "some", "each", "both", "few", "own", "such", "why", "how",
+]);
+
 
 const SYNONYMS = {
   bsfl: ["black soldier fly larvae", "hermetia illucens"],
@@ -2044,30 +2199,47 @@ async function gatherPapers(rawQuery, opts) {
     return stripped.length >= 4 ? stripped : w;
   };
 
-  // Word-boundary matcher. Builds one regex per term that matches the term (or
-  // its stem) only at word boundaries, so "micro" can never match "micro-motion"
-  // or "microscopy". Hyphens count as boundaries, which is correct for science
-  // ("gut-microbiome" should match "microbiome").
+  // Concept-aware matcher. Beyond the term itself and its stem, this also
+  // matches any member of the term's concept group — so a query for "plastic"
+  // is satisfied by a paper that only ever writes "polyethylene".
   const matcherCache = new Map();
   const matcherFor = (term) => {
     if (matcherCache.has(term)) return matcherCache.get(term);
-    const t = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const s = stem(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Match term OR stem, allowing common suffixes after the stem, but always
-    // anchored at word boundaries on both sides.
-    const pattern = s !== t
-      ? `(?<![a-z0-9])(?:${t}|${s}(?:s|es|ing|ed|al)?)(?![a-z0-9])`
-      : `(?<![a-z0-9])${t}(?:s|es|ing|ed)?(?![a-z0-9])`;
+    const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const t = esc(term);
+    const s = esc(stem(term));
+    const group = CONCEPT_LOOKUP.get(term);
+    const alts = new Set([t]);
+    if (s !== t) alts.add(s + "(?:s|es|ing|ed|al)?");
+    else alts.add(t + "(?:s|es|ing|ed)?");
+    if (group) {
+      for (const g of group) {
+        if (g === term) continue;
+        alts.add(esc(g).replace(/\s+/g, "\\s+"));
+      }
+    }
+    const body = [...alts].join("|");
     let re;
     try {
-      re = new RegExp(pattern, "i");
+      re = new RegExp(`(?<![a-z0-9])(?:${body})(?![a-z0-9])`, "i");
     } catch {
-      // Lookbehind unsupported on some older runtimes — fall back to \b
-      re = new RegExp(`\\b(?:${t}|${s})\\w{0,3}\\b`, "i");
+      re = new RegExp(`\\b(?:${body})\\b`, "i");
     }
     matcherCache.set(term, re);
     return re;
   };
+
+  // Split content terms by how much they actually identify the topic. Gating
+  // happens on CORE terms only; peripheral terms still add score when present
+  // but never cause a real paper to be rejected.
+  const rankedTerms = contentTerms
+    .map((t) => ({ t, spec: termSpecificity(t) }))
+    .sort((a, b) => b.spec - a.spec);
+  const coreTerms = rankedTerms.filter((x) => x.spec >= 0.5).map((x) => x.t);
+  const peripheralTerms = rankedTerms.filter((x) => x.spec < 0.5).map((x) => x.t);
+  // If nothing cleared the specificity bar (very generic query), fall back to
+  // the three most specific terms available so we still gate on something.
+  const gateTerms = coreTerms.length ? coreTerms : rankedTerms.slice(0, 3).map((x) => x.t);
 
   // Compound-term detection. Scientific vocabulary is full of terms users split
   // apart when typing: "micro biome" vs "microbiome", "bio conversion" vs
@@ -2125,20 +2297,20 @@ async function gatherPapers(rawQuery, opts) {
         : 1;
 
       // ---- Absolute scoring, normalized to a 0-100 scale ----
-      // The maximum achievable "match" component is 70 points; the remaining 30
-      // come from quality signals (citations, recency, full abstract present).
-      // This means a genuinely poor match can never display as "100%".
+      // Coverage is measured on CORE terms (the ones that actually identify the
+      // topic) rather than every word, so filler words in a long question can't
+      // dilute a genuinely on-topic paper's score.
+      const coreHitCount = gateTerms.filter(has).length;
+      const coreCoverage = gateTerms.length ? coreHitCount / gateTerms.length : 1;
+      const coreTitleHits = gateTerms.filter(hasTitle).length;
+      const periphHits = peripheralTerms.filter(has).length;
+
       let match = 0;
-      // Coverage is the single strongest signal: what fraction of the user's
-      // meaningful terms actually appear in this paper?
-      match += contentCoverage * 40;
-      // Title matches are worth far more than abstract matches — a paper whose
-      // TITLE contains your terms is almost certainly on-topic.
-      match += contentTerms.length
-        ? (titleContentHits / contentTerms.length) * 22
-        : 0;
-      // Organism/entity presence when the query named one
-      if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 8;
+      match += coreCoverage * 42;
+      match += gateTerms.length ? (coreTitleHits / gateTerms.length) * 20 : 0;
+      // Peripheral terms are a small bonus, never a requirement
+      match += peripheralTerms.length ? (periphHits / peripheralTerms.length) * 4 : 0;
+      if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 4;
 
       let quality = 0;
       if (abstract.length > 200) quality += 8;      // has a real abstract
@@ -2187,19 +2359,21 @@ async function gatherPapers(rawQuery, opts) {
       // Name queries: keep everything relevance-sorted, don't apply topic gate.
       if (isNameQuery) return true;
 
-      // ---- HARD QUALITY FLOOR ----
-      // A paper must clear a real topical-match bar to be returned at all.
-      // Previously the top N were returned regardless of quality and then fed
-      // to the AI, which is precisely how unrelated papers ended up cited.
-      // matchScore is 0-70; we require meaningful topical overlap.
-      if (contentTerms.length > 0) {
-        // Single-term queries: the term must actually be present.
-        if (contentTerms.length === 1 && p.contentHits === 0) return false;
-        // Multi-term queries: require at least 45% term coverage, OR a strong
-        // title match (title hits are a much stronger signal than abstract).
-        const coverageOK = p.contentCoverage >= 0.45;
-        const titleStrong = p.titleContentHits >= Math.max(1, Math.ceil(contentTerms.length * 0.5));
-        if (!coverageOK && !titleStrong) return false;
+      // ---- QUALITY FLOOR (core-term based) ----
+      // Gate on CORE terms only. A flat percentage of every word was rejecting
+      // correct papers for verbose questions — a real paper on waxworm saliva
+      // enzymes matched only 2 of 9 words in a long question and got dropped.
+      // The threshold also relaxes as the core set grows, because no single
+      // paper contains every concept in a multi-part question.
+      if (gateTerms.length > 0) {
+        const coreHits = gateTerms.filter(has).length;
+        let required;
+        if (gateTerms.length <= 2) required = 1;
+        else if (gateTerms.length <= 4) required = 2;
+        else if (gateTerms.length <= 6) required = 2;
+        else required = 3;
+        const titleStrong = gateTerms.filter(hasTitle).length >= 2;
+        if (coreHits < required && !titleStrong) return false;
       }
 
       const queryNamesOrganism = neutralWords.size > 0;
@@ -2428,7 +2602,34 @@ export async function onRequest(context) {
       }
       gResult = { papers: reused, _isFollowup: true, _intent: intent.kind };
     } else {
-      gResult = await gatherPapers(query, {
+      // A follow-up phrase on its own is a useless search query. "What about
+      // the info from this paper?" contains no topic at all — searching it
+      // literally is how a health-technology-assessment paper came back for a
+      // question about insect enzymes. When the message reads as a follow-up
+      // but there were no previous sources to reuse, we search the PREVIOUS
+      // question instead, carrying any new terms the follow-up added.
+      let searchQuery = query;
+      const looksLikeFollowup = intent.kind === "followup" || intent.kind === "correction";
+      if (looksLikeFollowup && Array.isArray(body.history)) {
+        const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 0);
+        if (prevUser) {
+          const prevQ = String(prevUser.content).trim();
+          // Merge: previous question provides the topic, current message may add
+          // a new angle. Dedupe words so we don't double-weight anything.
+          const seenW = new Set();
+          const merged = (prevQ + " " + query)
+            .split(/\s+/)
+            .filter((w) => {
+              const k = w.toLowerCase().replace(/[^a-z0-9]/g, "");
+              if (!k || seenW.has(k)) return false;
+              seenW.add(k);
+              return true;
+            })
+            .join(" ");
+          searchQuery = merged;
+        }
+      }
+      gResult = await gatherPapers(searchQuery, {
         openAlexKey: env.OPENALEX_KEY || "",
         ncbiKey: env.NCBI_API_KEY || "",
         limit: 25,
@@ -2634,6 +2835,8 @@ export async function onRequest(context) {
       "3. Only attach a citation [N] to a sentence if source N genuinely supports that specific sentence. Never decorate a general statement with a citation just because the paper is in the list.\n" +
       "4. If the retrieved sources do not actually answer the question, SAY SO in the first sentence. \"The papers I found don't directly address this\" is a correct and valuable answer. Inventing a synthesis from unrelated papers is the single worst thing you can do.\n" +
       "5. Never state a specific number, percentage, date, sample size, or finding unless it appears verbatim in one of the abstracts above. If you're unsure, describe the finding qualitatively instead.\n" +
+      "6. Never introduce yourself mid-conversation. Do not write \"Cerebrum here\", \"As Cerebrum\", \"I'm Cerebrum\", or any variant. The user knows what they are using. Answer the question and nothing else.\n" +
+      "7. Do not open with \"That's correct\" or \"Great question\" or any acknowledgement filler. Start with the substance.\n" +
       "Jump directly into the answer.";
 
     let systemPrompt;
@@ -2685,9 +2888,15 @@ export async function onRequest(context) {
         rules;
     } else {
       systemPrompt =
-        "You are Cerebrum, a scientific research assistant. No papers were retrieved for this question. " +
+        "You are Cerebrum, a scientific research assistant. NO papers were retrieved for this question. " +
         "Start your answer with this exact line: Note: this answer draws on general scientific knowledge, no specific retrieved papers, verify against primary sources.\n\n" +
-        "Then answer the question accurately and thoroughly from your knowledge. Explain the actual science. Do NOT fabricate specific citations, DOIs, or author names. " +
+        "Then answer the question accurately and thoroughly from your own knowledge. Explain the actual science.\n\n" +
+        "ABSOLUTE PROHIBITION — this overrides every other instruction:\n" +
+        "You have ZERO sources. Therefore you must NOT write any citation marker of any kind. " +
+        "No [1], no [2], no superscript numbers, no 'References:' section, no author-year parentheticals like (Smith, 2020), no journal names, no DOIs, no volume or page numbers. " +
+        "If you catch yourself about to attach a number or a reference to a claim, STOP and write the claim without it. " +
+        "Fabricating a reference is worse than giving no answer at all. It is the single most damaging thing you can do. " +
+        "Name a researcher or a specific study ONLY if you are certain it exists, and even then write it in plain prose ('a 2022 Nature Communications study found...') with no citation number attached.\n\n" +
         humanStyle +
         " " +
         lengthHint +
@@ -2900,6 +3109,11 @@ export async function onRequest(context) {
 
     // Final safety: if this was a person-name query, force-correct any close
     // variants the AI hallucinated ("Sahoy" -> "Saho") in the answer body.
+    // HARD GUARD against fabricated references. Runs on every answer, not just
+    // the no-sources case: it also removes dangling markers like [7] when only
+    // 4 sources exist, which would otherwise render as a broken citation link.
+    answer = stripFabricatedCitations(answer, sourceList.length);
+
     const canonicalName = resolvedPersonName || extractPersonNameFromQuery(query) || (isNameSearch ? query : "");
     if (canonicalName) {
       answer = correctNameVariants(answer, canonicalName);
