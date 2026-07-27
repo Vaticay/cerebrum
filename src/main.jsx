@@ -1801,6 +1801,17 @@ function ElevenLabsSetting({ P, accent, at, S, sfx }) {
   );
 }
 
+// Detects follow-up messages that lack a topic of their own — "but you forgot
+// about X", "what about that", "explain more". These carry no searchable
+// content, so for the video query we merge in the previous user turn.
+function looksLikeFollowupText(q) {
+  if (!q) return false;
+  const s = q.toLowerCase().trim();
+  if (s.length < 8) return true;
+  return /^(but|and|also|what about|how about|explain|tell me more|more on|also,|actually|wait|no,)/i.test(s)
+      || /\b(you (forgot|missed)|the (paper|study|source|answer)|that (paper|study|source|answer)|this (paper|study))\b/i.test(s);
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
@@ -1870,7 +1881,14 @@ function App() {
       prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] });
     });
     try {
-      const videosPromise = fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question }) })
+      // Videos search a smarter query than the raw question. A follow-up
+      // message ("but it forgot about X") has no topic on its own, so we merge
+      // the previous user turn in so the video query still knows the subject.
+      const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
+      const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question))
+        ? priorUserTurn.q + " " + question
+        : question;
+      const videosPromise = fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) })
         .then((r) => r.ok ? r.json() : { videos: [] })
         .catch(() => ({ videos: [] }));
 
