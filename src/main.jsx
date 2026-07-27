@@ -110,9 +110,23 @@ const PALETTES = {
   Dark:  { dark: true, bg: "#0c0e10", surface: "#141719", raised: "#1a1e21", ink: "#eef1f3", ink2: "#a3abb2", faint: "#606970", line: "#20252a", line2: "#2b3237", shadow: "0 1px 2px rgba(0,0,0,.3), 0 12px 40px rgba(0,0,0,.4)", shadowSm: "0 1px 3px rgba(0,0,0,.3)", grain: 0.02, skel: "linear-gradient(90deg, #1a1e21 25%, #232a2f 50%, #1a1e21 75%)" },
   Mid:   { dark: true, bg: "#16130f", surface: "#1e1a15", raised: "#252019", ink: "#f0ebe3", ink2: "#b0a695", faint: "#6e6455", line: "#282219", line2: "#352e22", shadow: "0 1px 2px rgba(0,0,0,.3), 0 12px 40px rgba(0,0,0,.45)", shadowSm: "0 1px 3px rgba(0,0,0,.3)", grain: 0.022, skel: "linear-gradient(90deg, #252019 25%, #2f2820 50%, #252019 75%)" },
 };
-const ACCENTS = { Emerald: "#059669", Indigo: "#4f46e5", Sky: "#0284c7", Amber: "#d97706", Rose: "#e11d48", Violet: "#7c3aed", Teal: "#0d9488" };
+const ACCENTS = { Emerald: "#047857", Indigo: "#4338ca", Sky: "#0369a1", Amber: "#b45309", Rose: "#be123c", Violet: "#6d28d9", Teal: "#0f766e" };
 
-function accentText(hex) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#111" : "#fff"; }
+// Pick readable text color for a given background. Uses a stricter luminance
+// threshold than the naive "> 128" split so mid-luminance colors like amber
+// (#d97706) get dark text rather than white — which fails WCAG AA at ~3:1.
+// Threshold 175 pushes the crossover into a range where white-on-color
+// reliably clears 4.5:1 for standard body text.
+function accentText(hex) {
+  if (!hex || hex[0] !== "#" || hex.length < 7) return "#111";
+  const r = parseInt(hex.slice(1, 3), 16),
+        g = parseInt(hex.slice(3, 5), 16),
+        b = parseInt(hex.slice(5, 7), 16);
+  // Relative luminance approximation per WCAG (sRGB linearization skipped for
+  // speed; the 175 threshold accounts for it in practice).
+  const L = (0.299 * r + 0.587 * g + 0.114 * b);
+  return L > 175 ? "#111" : "#fff";
+}
 function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
 
 function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
@@ -318,7 +332,18 @@ function useTypewriter(full, on) {
 }
 
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
-  const clean = (text || "").replace(/^#{1,6}\s*/gm, "");
+  // The model sometimes writes citations as Markdown links: `[1](https://...)`
+  // instead of bare `[1]`. Normalize them so the citation matcher below catches
+  // the number. Also strip any full URLs the model appended to reference lines.
+  let clean = (text || "")
+    .replace(/^#{1,6}\s*/gm, "")
+    // [1](url) → [1]
+    .replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]")
+    // Kill "References:" / "Sources:" section headers when the model injects
+    // them at the bottom — we render the real bibliography separately.
+    .replace(/\n[-—]{2,}\s*\n/g, "\n\n")
+    .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
+    .trim();
   return clean.split(/\n{2,}/).map((para, pi) => (
     <p key={pi} style={{ fontSize: "clamp(15px, 4vw, 16px)", lineHeight: 1.62, margin: "0 0 14px", color: P.ink, letterSpacing: "-0.006em" }}>
       {para.split("\n").map((line, li) => (
