@@ -2188,21 +2188,54 @@ async function gatherPapers(rawQuery, opts) {
     return { papers: [], noResults: true };
   }
 
-  // All 10 keyless / low-friction sources in parallel via allSettled
-  const jobs = [
-    europePMC(query, 10),
-    pubmed(query, 10, ncbiKey),
-    openAlex(query, 10, openAlexKey),
-    crossref(query, 8),
-    arxiv(query, 6),
-    semanticScholar(query, 8),
-    doaj(query, 6),
-    biorxiv(query, 6),
-    zenodo(query, 4),
-    plos(query, 6),
+  // ---- PROGRESSIVE RETRIEVAL LADDER ----
+  // Previously all 10 sources received the same raw multi-word string, which
+  // most engines treat as an implicit AND. A 9-word question therefore matched
+  // nothing anywhere, retrieval returned zero, and the answer fell back to the
+  // model's memory — the direct cause of invented studies.
+  //
+  // Now we try progressively looser formulations and stop at the first that
+  // actually returns papers. A well-formed scientific question can no longer
+  // come back empty.
+  const conceptQuery = buildStructuredQuery(query);           // (a OR a') AND (b OR b') ...
+  const ranked = query
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t))
+    .map((t) => ({ t, spec: termSpecificity(t) }))
+    .sort((a, b) => b.spec - a.spec);
+  const topTwo = ranked.slice(0, 2).map((x) => x.t).join(" AND ");
+  const topOne = ranked.slice(0, 1).map((x) => x.t).join("");
+  const broadOr = ranked.slice(0, 5).map((x) => x.t).join(" OR ");
+
+  const rungs = [conceptQuery, topTwo, broadOr, topOne, query].filter(
+    (q, i, arr) => q && arr.indexOf(q) === i
+  );
+
+  const fanout = (q) => [
+    europePMC(q, 10),
+    pubmed(q, 10, ncbiKey),
+    openAlex(q, 10, openAlexKey),
+    crossref(q, 8),
+    arxiv(q, 6),
+    semanticScholar(q, 8),
+    doaj(q, 6),
+    biorxiv(q, 6),
+    zenodo(q, 4),
+    plos(q, 6),
   ];
 
-  const results = await Promise.allSettled(jobs);
+  let results = [];
+  let usedRung = rungs[0];
+  for (const rung of rungs) {
+    results = await Promise.allSettled(fanout(rung));
+    const got = results.reduce(
+      (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0),
+      0
+    );
+    usedRung = rung;
+    if (got >= 4) break; // enough to work with — stop climbing down
+  }
+
   const merged = [];
   const seen = new Set();
   for (const res of results) {
@@ -2878,13 +2911,23 @@ export async function onRequest(context) {
     // System prompt tuned for a warm, curious, slightly witty voice —
     // grounded in what was actually retrieved, but with real personality.
     const humanStyle =
-      "You are Cerebrum. Your voice is warm, curious, and lightly witty — like a scientist friend who's genuinely interested in whatever the person is asking about. " +
-      "Be direct and confident where the evidence is clear, humble where it isn't. Use contractions freely (\"it's\", \"here's\", \"we don't quite know yet\"). " +
-      "Don't be dry. If the science is cool, act like it's cool. A small aside or a well-placed \"which is wild, honestly\" is welcome when it fits. " +
-      "Avoid academic filler (\"this study demonstrates\", \"the authors report\", \"it should be noted that\"). Just say what happens. " +
-      "Explain WHY things happen, not just what the papers found. If a finding has a real-world consequence or a surprising twist, that's exactly the sentence to draw out. " +
-      "You have multiple purposes: research assistant (default), curious conversationalist, and — when someone asks a general question — a quick explainer that doesn't need a citation for every clause. Read the room. " +
-      "Bullet lists only when the person clearly wants a list. Otherwise, real paragraphs with real transitions. Use **bold** sparingly. Use *italics* for species names, journal titles, and Latin terms.";
+      "You are Cerebrum. Write the way a sharp postdoc explains something to a colleague over coffee: warm, direct, genuinely interested, zero performance.\n\n" +
+      "HOW TO THINK BEFORE YOU WRITE:\n" +
+      "Read every retrieved abstract properly. Work out what these specific papers actually established, where they disagree, and what remains open. Notice which findings are strong (replicated, large sample, direct measurement) versus weak (single study, correlational, in vitro only). Then write.\n\n" +
+      "HOW TO WRITE:\n" +
+      "Lead with the actual answer in the first sentence. No throat-clearing, no restating the question, no 'this is a fascinating area'.\n" +
+      "Explain MECHANISM, not just outcome. 'X increases Y' is a data point; 'X increases Y because it blocks the receptor that normally suppresses it' is an explanation. Always reach for the second one when the sources support it.\n" +
+      "Name the specific thing. Not 'certain enzymes' but the actual enzyme. Not 'some insects' but the actual species. Not 'a study found' but what was measured and in what system. Vagueness is the tell of an answer that hasn't done the work.\n" +
+      "Use contractions. Vary sentence length. A short one lands harder after a long one.\n" +
+      "If something in the literature is genuinely surprising or counterintuitive, say so and say why — that's the part worth reading.\n" +
+      "If the papers disagree, present the disagreement rather than averaging it into mush.\n" +
+      "Quantify when the sources quantify. '40% reduction' beats 'a substantial reduction'.\n\n" +
+      "WHAT NOT TO DO:\n" +
+      "No numbered lists of generic categories. A list of 'Oxidoreductases / Hydrolases / Esterases' with textbook definitions is exactly the kind of answer that looks informative and teaches nothing — if you catch yourself writing that shape, stop and write about what the retrieved papers actually found instead.\n" +
+      "No 'it's important to note', 'it's worth mentioning', 'plays a crucial role', 'a complex process not fully understood'. These are filler.\n" +
+      "Don't end with a generic 'further research is needed' paragraph. If there's a specific open question, name it. Otherwise stop.\n" +
+      "Use **bold** rarely. Use *italics* for species names, journal titles, and Latin terms.\n\n" +
+      "'I don't know' and 'the retrieved papers don't cover this' are correct, valuable answers. Never fill a gap with plausible-sounding invention.";
 
     const rules =
       "HARD RULES: No meta-commentary — no \"the user is asking\", no \"let me review\", no \"Paper 1 discusses\". " +
@@ -2903,6 +2946,46 @@ export async function onRequest(context) {
       "6. Never introduce yourself mid-conversation. Do not write \"Cerebrum here\", \"As Cerebrum\", \"I'm Cerebrum\", or any variant. The user knows what they are using. Answer the question and nothing else.\n" +
       "7. Do not open with \"That's correct\" or \"Great question\" or any acknowledgement filler. Start with the substance.\n" +
       "Jump directly into the answer.";
+
+    // ---- NO PAPERS RETRIEVED ----
+    // This used to hand the question to the model to answer "from general
+    // knowledge", which produced confident essays containing invented studies,
+    // invented journals, and in one case an invented species. A literature
+    // search tool must never do that. If we found nothing, we say we found
+    // nothing — and we show exactly what was searched so the user can adjust.
+    if (!useEvidence && !useWeb) {
+      const shown = (gResult && gResult._searchedAs) || query;
+      const anchorTerms = query
+        .split(/\s+/)
+        .filter((t) => t.length > 2 && !STOPWORDS.has(t))
+        .map((t) => ({ t, spec: termSpecificity(t) }))
+        .sort((a, b) => b.spec - a.spec)
+        .slice(0, 4)
+        .map((x) => x.t);
+
+      return new Response(JSON.stringify({
+        answer:
+          "I couldn't retrieve any papers for this one, so I'm not going to answer it.\n\n" +
+          "That's deliberate. I'm a literature search tool — if I answered from memory here, " +
+          "I'd be guessing, and a confident guess dressed up as science is worse than no answer. " +
+          "Other tools will happily write you three paragraphs with invented citations. I won't.\n\n" +
+          "**What I searched for:** " + anchorTerms.join(", ") + "\n\n" +
+          "**What usually fixes it:**\n\n" +
+          "- Drop the question phrasing and search the concepts directly — try `" + anchorTerms.slice(0, 3).join(" ") + "`\n" +
+          "- Use the technical term rather than the everyday one (*polyethylene* rather than *plastic*, *Galleria mellonella* rather than *waxworm*)\n" +
+          "- Split a multi-part question into one question per part\n" +
+          "- If you know a specific paper, search its exact title and I'll pull it in",
+        sources: [],
+        videos: [],
+        factCheck: null,
+        related: [],
+        suggestions: [
+          { label: anchorTerms.slice(0, 3).join(" "), query: anchorTerms.slice(0, 3).join(" ") },
+          { label: anchorTerms.slice(0, 2).join(" "), query: anchorTerms.slice(0, 2).join(" ") },
+        ].filter((x) => x.query),
+        source: "No results",
+      }), { status: 200, headers: cors });
+    }
 
     let systemPrompt;
     if (useEvidence && speciesSearch) {
@@ -2993,8 +3076,8 @@ export async function onRequest(context) {
         role: "system",
         content:
           intent.kind === "correction"
-            ? "The user is CORRECTING or REFINING your previous answer. Do NOT switch topics. Address their correction directly using the same sources. Acknowledge the correction plainly and adjust."
-            : "The user is asking a FOLLOW-UP about the previous answer. Do NOT switch topics. Do NOT search for anything new. Use the same sources listed above and address their comment or question. Keep it tight — one focused paragraph unless they ask for more.",
+            ? "The user is CORRECTING you. Take it seriously — assume they are right until the sources clearly show otherwise, because they often know this literature better than the retrieval does. Do not switch topics. Do not get defensive or over-apologise. State plainly what you got wrong, give the corrected account with the same rigour as a fresh answer, and if the correction reveals something the retrieved sources missed, say that explicitly."
+            : "The user is asking a FOLLOW-UP on the previous answer. Do NOT restart, do NOT re-summarise what you already said, and do NOT switch topics. They have read your answer — build on it. Go DEEPER than the previous turn: more mechanism, more specificity, more of what the sources actually measured. Reuse the sources above. Answer the precise thing they asked, not the general topic. If their question exposes a limit of the retrieved evidence, say so directly rather than padding. Two or three tight paragraphs unless they ask for more.",
       });
     }
 
