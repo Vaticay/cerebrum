@@ -320,7 +320,7 @@ function useTypewriter(full, on) {
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   const clean = (text || "").replace(/^#{1,6}\s*/gm, "");
   return clean.split(/\n{2,}/).map((para, pi) => (
-    <p key={pi} style={{ fontSize: 16, lineHeight: 1.7, margin: "0 0 16px", color: P.ink, letterSpacing: "-0.006em" }}>
+    <p key={pi} style={{ fontSize: "clamp(15px, 4vw, 16px)", lineHeight: 1.62, margin: "0 0 14px", color: P.ink, letterSpacing: "-0.006em" }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|\[\d+\])/g).map((seg, si) => {
@@ -606,8 +606,11 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
       // is transparent. Text sits roughly in a horizontal band ~340px wide, ~280px
       // tall centered on the canvas. We fade neurons that fall inside that ellipse.
       const isMobile = canvas.width < 700 * dpr;
-      const maskRx = (isMobile ? 185 : 330) * dpr; // horizontal radius of the text zone
-      const maskRy = (isMobile ? 300 : 320) * dpr; // vertical radius
+      // Sized to the actual content block (max 400px wide, ~340px tall).
+      // An oversized mask erases most of the animation and leaves the page
+      // looking blank; too small and neurons draw through the wordmark.
+      const maskRx = (isMobile ? 165 : 235) * dpr;
+      const maskRy = (isMobile ? 205 : 215) * dpr;
       const maskFade = (px, py) => {
         const dx = (px - cx) / maskRx;
         const dy = (py - cy) / maskRy;
@@ -719,82 +722,77 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
     : `radial-gradient(circle at 50% 45%, ${withAlpha(accent, 0.06)}, ${P.bg} 65%)`;
 
   return (
-    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, fontFamily: "'Inter', -apple-system, sans-serif", position: "relative", overflow: "hidden", padding: "32px 20px" }}>
-      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: animationMode === "off" ? 0 : animationMode === "subtle" ? 0.45 : 0.95, transition: "opacity 0.7s cubic-bezier(0.4, 0.0, 0.2, 1)" }} />
+    <div style={{
+      minHeight: "100dvh",
+      display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center",
+      background: bg,
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+      position: "relative", overflow: "hidden",
+      padding: "clamp(24px, 6vw, 48px) 22px",
+      textAlign: "center",
+    }}>
+      <canvas ref={canvasRef} style={{
+        position: "absolute", inset: 0, width: "100%", height: "100%",
+        opacity: animationMode === "off" ? 0 : animationMode === "subtle" ? 0.4 : 0.85,
+        transition: "opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1)",
+      }} />
+
       <div style={{
-        position: "relative", zIndex: 1, textAlign: "center",
-        maxWidth: 620, width: "100%",
-        transition: "opacity 0.9s cubic-bezier(0.4, 0.0, 0.2, 1), transform 0.9s cubic-bezier(0.4, 0.0, 0.2, 1)",
+        position: "relative", zIndex: 1,
+        maxWidth: 400, width: "100%",
+        display: "flex", flexDirection: "column", alignItems: "center",
+        transition: "opacity 0.9s cubic-bezier(0.4, 0, 0.2, 1), transform 0.9s cubic-bezier(0.4, 0, 0.2, 1)",
         opacity: phase === "forming" ? 0 : 1,
-        transform: phase === "forming" ? "scale(0.97) translateY(6px)" : "scale(1)",
+        transform: phase === "forming" ? "translateY(-6px)" : "none",
       }}>
-        <div style={{ marginBottom: 26, animation: "cb-float 5s ease-in-out infinite", display: "inline-block" }}>
-          <Mark size={52} accent={accent} glow={P.dark} />
+        <div style={{ animation: "cb-float 5s ease-in-out infinite", marginBottom: "clamp(20px, 5vw, 28px)" }}>
+          <Mark size={46} accent={accent} glow={P.dark} />
         </div>
 
-        <h1 style={{ fontSize: "clamp(38px, 9vw, 56px)", fontWeight: 700, letterSpacing: "-0.04em", color: P.ink, margin: "0 0 14px", lineHeight: 1 }}>
+        <h1 style={{
+          fontSize: "clamp(40px, 12vw, 54px)",
+          fontWeight: 700, letterSpacing: "-0.045em",
+          color: P.ink, margin: "0 0 14px", lineHeight: 0.98,
+        }}>
           Cerebrum
         </h1>
 
-        <p style={{ fontSize: "clamp(16px, 4vw, 19px)", color: P.ink2, margin: "0 auto 30px", letterSpacing: "-0.01em", lineHeight: 1.5, maxWidth: 460 }}>
-          Ask a research question. Get an answer assembled from peer-reviewed
-          literature, with every claim traceable to its source.
+        <p style={{
+          fontSize: "clamp(15px, 4.2vw, 17px)",
+          color: P.ink2, margin: "0 0 clamp(28px, 7vw, 38px)",
+          letterSpacing: "-0.012em", lineHeight: 1.5,
+          maxWidth: 330,
+        }}>
+          Research questions in. Cited answers out.
         </p>
 
-        {/* Three concrete capabilities — substance instead of a tagline */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-          gap: 1,
-          maxWidth: 520, margin: "0 auto 32px",
-          background: P.line,
-          border: `1px solid ${P.line}`,
-          borderRadius: 12,
-          overflow: "hidden",
-          textAlign: "left",
-        }} className="cb-stagger">
-          {[
-            { n: "16", label: "open databases", sub: "queried in parallel" },
-            { n: "0", label: "paywalls", sub: "no account, no ads" },
-            { n: "100%", label: "cited", sub: "real DOIs, verifiable" },
-          ].map((s) => (
-            <div key={s.label} className="cb-fade" style={{ background: P.bg, padding: "16px 16px 15px" }}>
-              <div style={{ fontSize: 22, fontWeight: 700, color: accent, letterSpacing: "-0.03em", lineHeight: 1, marginBottom: 5 }}>{s.n}</div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: P.ink, letterSpacing: "-0.005em" }}>{s.label}</div>
-              <div style={{ fontSize: 11, color: P.faint, marginTop: 2, lineHeight: 1.35 }}>{s.sub}</div>
-            </div>
-          ))}
-        </div>
-
         <button onClick={go} className="cb-btn" style={{
-          display: "inline-flex", alignItems: "center", gap: 9,
-          padding: "14px 30px", fontSize: 15, fontWeight: 600,
+          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 9,
+          padding: "15px 34px", fontSize: 15.5, fontWeight: 600,
           background: accent, color: accentText(accent),
-          border: "none", borderRadius: 11, cursor: "pointer", fontFamily: "inherit",
-          boxShadow: `0 6px 24px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em",
+          border: "none", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+          boxShadow: `0 8px 28px ${withAlpha(accent, 0.32)}`,
+          letterSpacing: "-0.015em",
         }}>
           Begin
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M5 12h14M13 6l6 6-6 6" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5" />
           </svg>
         </button>
 
-        {/* Source provenance — names the actual indexes, which is what a
-            researcher checks before trusting a tool */}
-        <div style={{ marginTop: 34, paddingTop: 22, borderTop: `1px solid ${P.line}`, maxWidth: 520, marginLeft: "auto", marginRight: "auto" }}>
-          <div style={{ fontSize: 10, fontWeight: 650, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, marginBottom: 11 }}>
-            Indexes searched
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "6px 14px", fontSize: 12, color: P.ink2, lineHeight: 1.4 }}>
-            {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "arXiv", "bioRxiv", "medRxiv", "Semantic Scholar", "DOAJ", "PLOS", "Zenodo"].map((d) => (
-              <span key={d}>{d}</span>
-            ))}
-            <span style={{ color: P.faint }}>+ more</span>
-          </div>
-          <div style={{ fontSize: 11.5, color: P.faint, marginTop: 16, lineHeight: 1.5 }}>
-            Answers are AI-generated summaries of retrieved literature.
-            Always verify against the cited papers.
-          </div>
+        {/* One quiet line of provenance. Detail lives in How it works, not here. */}
+        <div style={{
+          marginTop: "clamp(26px, 6vw, 34px)",
+          display: "flex", alignItems: "center", gap: 9,
+          fontSize: 11.5, color: P.faint, letterSpacing: "0.005em",
+        }}>
+          <span style={{ width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.8, flexShrink: 0 }} />
+          <span>16 open indexes</span>
+          <span style={{ opacity: 0.35 }}>/</span>
+          <span>no account</span>
+          <span style={{ opacity: 0.35 }}>/</span>
+          <span>no ads</span>
         </div>
       </div>
     </div>
@@ -2213,7 +2211,17 @@ function App() {
         </div>
       </div>
 
-      {started && isMobile && <button style={S.mobSrcBtn} onClick={() => setMobilePanel(true)}>Sources · {allSources.length}</button>}
+      {started && isMobile && (
+        <button style={S.mobSrcBtn} onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}>
+          <Icon name="bookmark" size={15} />
+          <span>Sources</span>
+          {allSources.length > 0 && (
+            <span style={{ fontSize: 11.5, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 20, lineHeight: 1.3 }}>
+              {allSources.length}
+            </span>
+          )}
+        </button>
+      )}
       {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} /><aside style={{ ...S.panel, ...S.panelMobile }}><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
 
       {cmdOpen && (
@@ -2974,7 +2982,7 @@ function makeStyles(P, accent, at, isMobile = false) {
       top: isMobile ? 2 : undefined,
       right: isMobile ? 2 : undefined,
     },
-    scroll: { flex: 1, overflowY: "auto" },
+    scroll: { flex: 1, overflowY: "auto" , paddingBottom: isMobile ? 88 : 0},
     container: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "40px 0 60px", position: "relative" },
     heroGlow: { position: "absolute", width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.1 : 0.06)}, transparent 65%)`, top: "8%", filter: "blur(40px)", pointerEvents: "none" },
@@ -2996,8 +3004,8 @@ function makeStyles(P, accent, at, isMobile = false) {
     turn: { marginBottom: isMobile ? 30 : 40 },
     qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
     qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
-    headline: { fontWeight: 700, fontSize: isMobile ? 21 : 27, lineHeight: 1.2, marginBottom: 18, color: P.ink, letterSpacing: "-0.025em" },
-    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: isMobile ? "18px 18px" : "22px 26px", boxShadow: P.shadow },
+    headline: { fontWeight: 680, fontSize: isMobile ? 19 : 26, lineHeight: 1.25, marginBottom: isMobile ? 14 : 18, color: P.ink, letterSpacing: "-0.022em" },
+    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "16px 15px" : "22px 26px", boxShadow: P.shadow },
     byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
@@ -3034,7 +3042,17 @@ function makeStyles(P, accent, at, isMobile = false) {
     disclaimer: { fontSize: 11.5, color: P.ink2, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 16px", padding: "10px 16px", background: withAlpha(accent, 0.05), border: `1px solid ${P.line}`, borderRadius: 10 },
     footDbs: { fontSize: 11, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7 },
     aiTag: { fontSize: 11, color: P.faint, fontWeight: 550, letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 5 },
-    mobSrcBtn: { position: "fixed", bottom: 20, right: 20, background: accent, color: at, border: "none", borderRadius: 26, padding: "13px 22px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: `0 8px 24px ${withAlpha(accent, 0.4)}`, zIndex: 20, fontFamily: font },
+    mobSrcBtn: {
+      position: "fixed",
+      // Sit above the iOS home indicator / browser toolbar, not on top of it
+      bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+      right: 16,
+      background: accent, color: at, border: "none", borderRadius: 24,
+      padding: "11px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+      boxShadow: `0 6px 20px ${withAlpha(accent, 0.35)}`,
+      zIndex: 20, fontFamily: font, letterSpacing: "-0.01em",
+      display: "inline-flex", alignItems: "center", gap: 7,
+    },
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25, },
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50, },
     cmdBox: { width: 560, maxWidth: "92vw", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", overflow: "hidden", fontFamily: font },
