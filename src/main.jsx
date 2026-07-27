@@ -10,82 +10,79 @@ const MOD = IS_MAC ? "⌘" : "Ctrl";
 const kbdLabel = (key) => `${MOD}${IS_MAC ? "" : "+"}${key}`;
 
 const LOADING_MESSAGES = [
-  "Looking through the microscope",
-  "Consulting the literature",
-  "Cross-referencing citations",
-  "Peering into petri dishes",
-  "Aligning the sequences",
-  "Calibrating the spectrometer",
-  "Sifting through preprints",
-  "Interrogating the abstracts",
-  "Following the paper trail",
-  "Centrifuging the results",
-  "Decoding the methods sections",
-  "Chasing down DOIs",
-  "Scanning the stacks",
-  "Titrating the findings",
-  "Querying fourteen databases",
-  "Reading between the citations",
-  "Isolating the signal",
-  "Culturing conclusions",
-  "Amplifying the relevant hits",
-  "Filtering out the noise",
-  "Consulting the peer reviewers",
-  "Dusting off the journals",
-  "Mining the metadata",
-  "Sequencing the sources",
-  "Distilling the abstracts",
-  "Weighing the evidence",
-  "Tracing the references",
-  "Pipetting the papers",
-  "Surveying the field",
-  "Parsing the preprints",
-  "Examining the specimens",
-  "Reviewing the methodology",
-  "Synthesizing the studies",
-  "Gathering the citations",
-  "Focusing the lens",
-  "Running the analysis",
-  "Cataloguing the results",
-  "Combing the archives",
-  "Digging through the data",
-  "Assembling the bibliography",
-  "Checking the replication",
-  "Measuring the effect sizes",
-  "Extracting the key findings",
-  "Screening the abstracts",
-  "Collating the research",
-  "Verifying the sources",
-  "Indexing the literature",
-  "Untangling the results",
-  "Polishing the conclusions",
-  "Consulting fourteen databases at once",
-  // Personality (mixed in ~1 in 4)
+  // Pop culture
   "Is this the Krusty Krab? No, this is Cerebrum",
-  "Dusty waz h3re",
-  "Vaticay was here",
-  "Reticulating splines (obligatory)",
-  "Reading the paper so you don't have to",
-  "Bribing PubMed with a warm cookie",
-  "Convincing OpenAlex you're not a robot",
-  "Asking arXiv to hurry up",
-  "Explaining to bioRxiv what a preprint is",
-  "Beeping. Also booping",
-  "Feeding the graduate students",
-  "Making Google Scholar jealous",
-  "Pretending I know what phenology means",
-  "Locating the ethics board",
+  "Reticulating splines (legally required)",
   "One does not simply search PubMed",
   "It's not a bug, it's peer review",
-  "Consulting Sagan's ghost",
-  "42",
-  "Trust me, I'm a language model",
-  "Waiting for the reviewer's response (kidding, that would take months)",
-  "Downloading more RAM for science",
   "Enhancing... enhancing... enhancing",
-  "Assembling the Illuminati... I mean, editorial board",
+  "Downloading more RAM for science",
   "Yes chef",
+  "He who controls the citations controls the universe",
+  "Somebody once told me the results are gonna roll in",
+  "Loading... and my axe",
+  "This is fine",
+  "The cake is a preprint",
+  "I'm sorry Dave, I'm afraid I found 47 papers",
+  "Do a barrel roll through the literature",
+  "It's dangerous to go alone, take this citation",
+  "Achievement unlocked: asked a real question",
+  "Press F to pay respects to null results",
+  "Task failed successfully (just kidding, still loading)",
+  // Signed
+  "Dusty waz h3re",
+  "Vaticay was here",
+  // Academic suffering
+  "Bribing PubMed with a warm cookie",
+  "Convincing OpenAlex you're not a robot",
+  "Asking arXiv to please hurry up",
+  "Explaining to bioRxiv what a preprint is",
+  "Negotiating with Reviewer 2",
+  "Reviewer 2 says reject. Ignoring Reviewer 2",
+  "Waiting on revisions since 2019",
+  "Politely declining to read the supplementary material",
+  "Pretending to understand the methods section",
+  "Skipping straight to the figures like everyone does",
+  "Checking if the p-value is load-bearing",
+  "Counting how many times they wrote 'novel'",
+  "Looking for the one paper everyone cites but nobody read",
+  "Determining whether 'further research is needed'",
+  "Spoiler: further research is needed",
+  "Finding the paper that contradicts the last paper",
+  "Locating the ethics board",
+  "Feeding the graduate students",
+  "The grad students have been fed",
+  "Emailing the corresponding author (no reply expected)",
+  "Requesting the dataset. Author has left academia",
+  "Untangling a 400-author collaboration",
+  "Deciding if the abstract oversold it (it did)",
+  // Absurd
+  "Beeping. Also booping",
+  "Aligning the chakras of the citation graph",
   "Doing the little citation dance",
+  "Politely asking the electrons to hurry",
+  "Consulting the ghost of Carl Sagan",
+  "Sagan says: billions and billions of results",
+  "Rolling for initiative against the paywall",
+  "Sharpening the Occam's razor",
+  "Applying Occam's razor. Ouch",
+  "Dividing by n-1 out of respect",
+  "Correcting for multiple comparisons, reluctantly",
+  "Bonferroni is coming for your p-values",
+  "Wondering if the mitochondria is still the powerhouse",
+  "Confirming: mitochondria, still the powerhouse",
+  "Checking if it's lupus. It's never lupus",
+  "42",
+  "Still 42",
+  "Trust me, I'm a language model",
+  "Making the little numbers go up",
+  "Asking nicely. Now asking firmly",
+  "Reading the paper so you don't have to",
+  "Pretending I know what phenology means",
+  "Googling 'phenology'. Don't tell anyone",
+  "Consulting fourteen databases simultaneously, showing off",
+  "Arguing with a bibliography",
+  "The bibliography won",
 ];
 
 const SUGGESTION_POOL = [
@@ -424,14 +421,68 @@ function useIsMobile() {
 
 function LoadingLine({ P, accent, S }) {
   const [msg, setMsg] = useState(() => LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
+  const [stage, setStage] = useState(0);
+  // What's actually happening, in order. Showing real stages makes a slow
+  // search feel intentional rather than broken, and it's honest — these are
+  // the genuine phases the backend moves through.
+  const STAGES = [
+    "Querying 16 indexes",
+    "Merging and de-duplicating",
+    "Scoring relevance",
+    "Checking for retractions",
+    "Writing the answer",
+  ];
   useEffect(() => {
-    const id = setInterval(() => { setMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]); }, 1800);
-    return () => clearInterval(id);
+    const msgId = setInterval(() => {
+      setMsg((prev) => {
+        let next = prev;
+        // Avoid repeating the same line twice in a row
+        while (next === prev && LOADING_MESSAGES.length > 1) {
+          next = LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)];
+        }
+        return next;
+      });
+    }, 2600);
+    const stageId = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 1900);
+    return () => { clearInterval(msgId); clearInterval(stageId); };
   }, []);
+
   return (
-    <div style={S.loading}>
-      <span style={S.spinner} />
-      <span key={msg} className="cb-fade">{msg}…</span>
+    <div style={{ padding: "18px 0 4px" }}>
+      {/* Synapse loader: three nodes firing in sequence along a connecting
+          line, matching the brain mark. Reads as signal transmission rather
+          than a generic spinner. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }} aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <span key={i} style={{
+              width: 7, height: 7, borderRadius: "50%",
+              background: accent,
+              animation: `cbSynapse 1.25s ${i * 0.18}s cubic-bezier(0.4, 0, 0.6, 1) infinite`,
+            }} />
+          ))}
+        </div>
+        <span key={msg} className="cb-fade" style={{ fontSize: 14.5, color: P.ink, letterSpacing: "-0.01em", fontWeight: 450 }}>
+          {msg}
+        </span>
+      </div>
+
+      {/* Honest stage indicator */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 1 }}>
+        <div style={{ display: "flex", gap: 3 }} aria-hidden="true">
+          {STAGES.map((_, i) => (
+            <span key={i} style={{
+              width: i === stage ? 16 : 5, height: 3, borderRadius: 2,
+              background: i <= stage ? accent : P.line2,
+              opacity: i <= stage ? 1 : 0.6,
+              transition: "width 320ms cubic-bezier(0.16,1,0.3,1), background 320ms cubic-bezier(0.16,1,0.3,1)",
+            }} />
+          ))}
+        </div>
+        <span key={stage} className="cb-fade" style={{ fontSize: 11.5, color: P.faint, letterSpacing: "0.01em" }}>
+          {STAGES[stage]}
+        </span>
+      </div>
     </div>
   );
 }
@@ -3077,6 +3128,12 @@ if (typeof document !== "undefined") {
       }
       @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
       @keyframes cbPulse { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.35; } }
+      /* Synapse loader: each node brightens and swells as the signal passes */
+      @keyframes cbSynapse {
+        0%, 100% { opacity: 0.25; transform: scale(0.75); }
+        30%      { opacity: 1;    transform: scale(1.25); }
+        60%      { opacity: 0.4;  transform: scale(0.9); }
+      }
 
       /* Ambient breathing for the logo — long, barely perceptible */
       @keyframes cb-float {
