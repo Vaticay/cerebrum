@@ -17,12 +17,26 @@ function decodeInverted(inv) {
   return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
-async function getJSON(url, headers = {}, timeoutMs = 4000) {
+// Standard headers every outbound request should carry. Several free scholarly
+// APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic — identifiable
+// requests with a User-Agent and mailto — to a faster, higher-quota pool than
+// anonymous ones. Anonymous requests can be silently deprioritized or rate-
+// limited to unusable levels. This alone can be the difference between "zero
+// papers" and "papers returned".
+const POLITE_UA =
+  "Cerebrum/1.0 (askcerebrum.org; a free scientific literature search; mailto:contact@askcerebrum.org)";
+
+async function getJSON(url, headers = {}, timeoutMs = 6500) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { headers, signal: c.signal });
+    const res = await fetch(url, {
+      headers: { "User-Agent": POLITE_UA, Accept: "application/json", ...headers },
+      signal: c.signal,
+      cf: { cacheTtl: 60, cacheEverything: true },
+    });
     clearTimeout(t);
+    if (res.status === 429) throw new Error("HTTP 429 rate-limited");
     if (!res.ok) throw new Error("HTTP " + res.status);
     return res.json();
   } catch (e) {
@@ -31,12 +45,17 @@ async function getJSON(url, headers = {}, timeoutMs = 4000) {
   }
 }
 
-async function getText(url, headers = {}, timeoutMs = 4000) {
+async function getText(url, headers = {}, timeoutMs = 6500) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { headers, signal: c.signal });
+    const res = await fetch(url, {
+      headers: { "User-Agent": POLITE_UA, ...headers },
+      signal: c.signal,
+      cf: { cacheTtl: 60, cacheEverything: true },
+    });
     clearTimeout(t);
+    if (res.status === 429) throw new Error("HTTP 429 rate-limited");
     if (!res.ok) throw new Error("HTTP " + res.status);
     return res.text();
   } catch (e) {
@@ -564,7 +583,10 @@ function cleanQuery(raw) {
 // Each source returns [] on any failure, never throws. Timeouts keep them fast.
 
 async function europePMC(query, limit = 8) {
-  const q = buildStructuredQuery(query);
+  // Trust the query we were given. The retrieval ladder passes progressively
+  // simpler forms — if this function silently rebuilds them, the ladder can't
+  // work. Only fall back to the structured/organism forms if the given query
+  // returns nothing.
   const runSearch = async (qs) => {
     const url =
       "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
@@ -579,15 +601,20 @@ async function europePMC(query, limit = 8) {
     return data && data.resultList && data.resultList.result ? data.resultList.result : [];
   };
   try {
-    let rows = await runSearch(q);
-    if (!rows.length && q !== query) {
+    let rows = await runSearch(query);
+    if (!rows.length) {
+      const structured = buildStructuredQuery(query);
+      if (structured && structured !== query) {
+        rows = await runSearch(structured);
+      }
+    }
+    if (!rows.length) {
       const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
       if (hasOrganism) {
         rows = await runSearch(
           orgPhrases.map((e) => (e.includes(" ") ? '"' + e + '"' : e)).join(" OR ")
         );
       }
-      if (!rows.length) rows = await runSearch(query);
     }
     return rows
       .filter((r) => r.title)
@@ -658,8 +685,6 @@ async function pubmed(query, limit = 10, apiKey = "") {
   const keyParam = apiKey ? "&api_key=" + apiKey : "";
   const tool = "&tool=cerebrum&email=noreply@example.com" + keyParam;
   try {
-    const structured = buildStructuredQuery(query);
-    let term = structured;
     let ids = [];
 
     const esUrl = (t) =>
@@ -673,21 +698,25 @@ async function pubmed(query, limit = 10, apiKey = "") {
       }) +
       tool;
 
-    const es = await getJSON(esUrl(term)).catch(() => null);
+    // Try the query we were given first (the ladder is calibrated for it).
+    const es = await getJSON(esUrl(query)).catch(() => null);
     ids = (es && es.esearchresult && es.esearchresult.idlist) || [];
 
-    // Fallback ladder
-    if (!ids.length && term !== query) {
+    // Fallback ladder: structured, then organism-focused
+    if (!ids.length) {
+      const structured = buildStructuredQuery(query);
+      if (structured && structured !== query) {
+        const es2 = await getJSON(esUrl(structured)).catch(() => null);
+        ids = (es2 && es2.esearchresult && es2.esearchresult.idlist) || [];
+      }
+    }
+    if (!ids.length) {
       const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
       if (hasOrganism) {
         const orgOnly = orgPhrases
           .map((e) => (e.includes(" ") ? '"' + e + '"' : e))
           .join(" OR ");
-        const es2 = await getJSON(esUrl(orgOnly)).catch(() => null);
-        ids = (es2 && es2.esearchresult && es2.esearchresult.idlist) || [];
-      }
-      if (!ids.length) {
-        const es3 = await getJSON(esUrl(query)).catch(() => null);
+        const es3 = await getJSON(esUrl(orgOnly)).catch(() => null);
         ids = (es3 && es3.esearchresult && es3.esearchresult.idlist) || [];
       }
     }
@@ -2256,6 +2285,7 @@ async function gatherPapers(rawQuery, opts) {
   // Sending one boolean string to all ten was returning zero everywhere. Each
   // source now gets the query in its own dialect, and we climb down through
   // looser formulations until enough papers come back.
+  // The ranked term list, most-specific first.
   const ranked = query
     .split(/\s+/)
     .filter((t) => t.length > 2 && !STOPWORDS.has(t))
@@ -2263,10 +2293,24 @@ async function gatherPapers(rawQuery, opts) {
     .sort((a, b) => b.spec - a.spec)
     .map((x) => x.t);
 
-  const booleanQuery = buildStructuredQuery(query);   // EPMC / PubMed only
+  const booleanQuery = buildStructuredQuery(query);
   const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
 
-  // Each rung: how many of the top terms to use for the plain-keyword engines.
+  // Expand a term with its concept-group synonyms as an OR clause. This is
+  // what lets a query for "plastic" also match "polyethylene", and "insects"
+  // also match "larvae". Plain-keyword engines then get the widened surface
+  // area they need to actually return papers.
+  const expandForPlainSearch = (term) => {
+    const group = CONCEPT_LOOKUP.get(term.toLowerCase());
+    if (!group || group.size <= 1) return term;
+    // Cap the expansion — some engines struggle with very long OR lists.
+    const members = [term, ...[...group].filter((m) => m !== term)].slice(0, 6);
+    return "(" + members.join(" OR ") + ")";
+  };
+
+  // Progressive rungs. Each rung is a set of terms — the higher the rung, the
+  // more terms it requires. The ladder tries the most-precise formulation
+  // first, then loosens until it finds papers.
   const rungs = [
     ranked.slice(0, 4),
     ranked.slice(0, 3),
@@ -2276,18 +2320,22 @@ async function gatherPapers(rawQuery, opts) {
   if (!rungs.length) rungs.push([query]);
 
   const fanout = (terms, useBoolean) => {
-    const plain = terms.join(" ");
+    // Concept-expanded query for plain-keyword engines. Each anchor becomes
+    // an OR clause: "plastic" -> "(plastic OR polyethylene OR polymer OR ...)"
+    // Multiple anchors are space-joined (implicit AND on most engines).
+    const expanded = terms.map(expandForPlainSearch).join(" ");
+    const bare = terms.join(" ");
     return [
-      europePMC(useBoolean ? booleanQuery : plain, 10),
-      pubmed(useBoolean ? booleanQuery : plain, 10, ncbiKey),
-      openAlex(plain, 10, openAlexKey),
-      crossref(plain, 8),
+      europePMC(useBoolean ? booleanQuery : expanded, 10),
+      pubmed(useBoolean ? booleanQuery : expanded, 10, ncbiKey),
+      openAlex(bare, 10, openAlexKey),         // OpenAlex handles bare best
+      crossref(bare, 8),                        // Crossref: bare only
       arxiv(arxivQuery(terms), 6),
-      semanticScholar(plain, 8),
-      doaj(plain, 6),
-      biorxiv(plain, 6),
-      zenodo(plain, 4),
-      plos(plain, 6),
+      semanticScholar(bare, 8),
+      doaj(expanded, 6),
+      biorxiv(bare, 6),
+      zenodo(bare, 4),
+      plos(expanded, 6),
     ];
   };
 
