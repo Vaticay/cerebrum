@@ -335,6 +335,87 @@ function cleanAIResponse(raw) {
 // verbose questions (a real Nature Communications paper on waxworm saliva
 // enzymes scored 22% and got dropped). We now separate CORE terms from
 // PERIPHERAL ones and gate only on CORE coverage.
+// Words that describe INTENT rather than TOPIC. High-value in conversation
+// ("papers that CAUTION against"), useless as search anchors. If we let these
+// dominate the anchor list, the actual domain terms get pushed off the top.
+const INTENT_WORDS = new Set([
+  "raise", "raises", "raising", "argue", "argues", "arguing", "suggest", "suggests",
+  "caution", "cautions", "warn", "warns", "warning", "critique", "critiques",
+  "review", "reviews", "reviewing", "discuss", "discusses", "discussing",
+  "papers", "paper", "article", "articles", "study", "studies", "work", "works",
+  "recommend", "recommends", "propose", "proposes", "consider", "considers",
+  "using", "used", "use", "uses", "usage", "applying", "apply",
+  "about", "regarding", "concerning", "against", "with", "without",
+  "against", "toward", "towards", "on",
+]);
+
+// Common misspellings and variants of scientific terms. Search engines don't
+// autocorrect — a typo returns zero. This runs before term extraction so the
+// canonical spelling reaches the API.
+const SPELLING_CORRECTIONS = {
+  "occurance": "occurrence",
+  "occurances": "occurrences",
+  "co-occurance": "co-occurrence",
+  "cooccurance": "co-occurrence",
+  "cooccurrence": "co-occurrence",
+  "seperate": "separate",
+  "recieve": "receive",
+  "acheive": "achieve",
+  "definately": "definitely",
+  "occured": "occurred",
+  "flourescent": "fluorescent",
+  "flourescence": "fluorescence",
+  "phylogenic": "phylogenetic",
+  "millenia": "millennia",
+  "existance": "existence",
+  "concious": "conscious",
+  "genomewide": "genome-wide",
+  "genemwide": "genome-wide",
+  "microbiom": "microbiome",
+};
+
+// Multi-word scientific terms that must be preserved as a phrase. Users type
+// them variably — "co occurrence", "co-occurrence", "cooccurrence" — but all
+// should become the canonical hyphenated form for search.
+const SCIENTIFIC_COMPOUNDS = [
+  [/\bco[\s-]?occurr?ence[s]?\b/gi, "co-occurrence"],
+  [/\bmachine[\s-]?learning\b/gi, "machine-learning"],
+  [/\bdeep[\s-]?learning\b/gi, "deep-learning"],
+  [/\bgene[\s-]?expression\b/gi, "gene-expression"],
+  [/\bwhole[\s-]?genome\b/gi, "whole-genome"],
+  [/\bhigh[\s-]?throughput\b/gi, "high-throughput"],
+  [/\bnext[\s-]?generation\b/gi, "next-generation"],
+  [/\bcell[\s-]?free\b/gi, "cell-free"],
+  [/\bsingle[\s-]?cell\b/gi, "single-cell"],
+  [/\bloss[\s-]?of[\s-]?function\b/gi, "loss-of-function"],
+  [/\bgain[\s-]?of[\s-]?function\b/gi, "gain-of-function"],
+  [/\bin[\s-]?vivo\b/gi, "in-vivo"],
+  [/\bin[\s-]?vitro\b/gi, "in-vitro"],
+  [/\bin[\s-]?silico\b/gi, "in-silico"],
+];
+
+// Preprocess a raw query BEFORE term extraction. Fixes typos, joins scientific
+// compounds, so downstream code sees the canonical form.
+function preprocessQuery(raw) {
+  let q = " " + (raw || "").toLowerCase() + " ";
+  // Spelling correction FIRST — otherwise a misspelled half of a compound
+  // ("co occurance") won't match the compound pattern (which expects the
+  // correct spelling).
+  const words = q.split(/(\s+)/);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i].replace(/[^a-z-]/g, "");
+    if (w && SPELLING_CORRECTIONS[w]) {
+      words[i] = words[i].replace(w, SPELLING_CORRECTIONS[w]);
+    }
+  }
+  q = words.join("");
+  // Then join scientific compounds so "co occurrence" becomes "co-occurrence".
+  for (const [re, canonical] of SCIENTIFIC_COMPOUNDS) {
+    q = q.replace(re, canonical);
+  }
+  return q.trim();
+}
+
 const GENERIC_SCIENCE_WORDS = new Set([
   "types", "type", "kinds", "kind", "sort", "sorts", "form", "forms",
   "compound", "compounds", "substance", "substances", "material", "materials",
@@ -400,6 +481,10 @@ const CONCEPT_LOOKUP = (() => {
 // Score how specific/informative a term is. Higher = more worth gating on.
 function termSpecificity(term) {
   if (GENERIC_SCIENCE_WORDS.has(term)) return 0.15;
+  // Intent verbs ("raise", "caution", "using") describe what the user WANTS
+  // but not what the paper is ABOUT. Score below the anchor threshold so they
+  // never dominate the top-4 rung.
+  if (INTENT_WORDS.has(term)) return 0.2;
   let score = 0.5;
   // Longer words are usually more technical
   if (term.length >= 10) score += 0.3;
@@ -2183,7 +2268,7 @@ async function gatherPapers(rawQuery, opts) {
   const openAlexKey = (opts && opts.openAlexKey) || "";
   const ncbiKey = (opts && opts.ncbiKey) || "";
   const limit = (opts && opts.limit) || 25;
-  _outerDiag.phase = "cleaned_query"; const query = cleanQuery(rawQuery); _outerDiag.cleanedQuery = query.slice(0, 200);
+  _outerDiag.phase = "cleaned_query"; const query = cleanQuery(preprocessQuery(rawQuery)); _outerDiag.cleanedQuery = query.slice(0, 200);
   // A resolved person name from conversation history (pronoun follow-up like
   // "he has papers from UTK") takes priority over re-detecting from rawQuery.
   const resolvedPersonName = opts && opts.resolvedPersonName;
