@@ -1,0 +1,22 @@
+# robots.txt for Cerebrum
+# https://askcerebrum.org
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Explicitly welcome the major search engines
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+# Allow reputation/security scanners so they can categorize us correctly
+User-agent: Slurp
+Allow: /
+
+Sitemap: https://askcerebrum.org/sitemap.xml

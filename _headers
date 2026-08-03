@@ -1,0 +1,60 @@
+# Cloudflare Pages headers configuration
+# https://developers.cloudflare.com/pages/configuration/headers/
+
+/*
+  # Prevents clickjacking — page cannot be embedded in an iframe on another site.
+  # Corporate filters flag sites that lack this because it's a common phishing vector.
+  X-Frame-Options: DENY
+
+  # Blocks MIME-type sniffing. Reputation scanners look for this — its presence
+  # signals a properly-configured site rather than a hastily-set-up phishing page.
+  X-Content-Type-Options: nosniff
+
+  # Referrer policy: send origin only, not the full URL of what the user was viewing.
+  # Better for user privacy and reduces scanner noise about sensitive parameter leakage.
+  Referrer-Policy: strict-origin-when-cross-origin
+
+  # HSTS: force HTTPS for one year including subdomains and pre-load list.
+  # Reputation systems weight HSTS heavily as a legitimacy signal.
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+
+  # Permissions: explicitly deny sensor and payment APIs we don't use, so scanners
+  # can't flag the site for requesting unnecessary capabilities.
+  Permissions-Policy: geolocation=(), camera=(), microphone=(self), payment=(), usb=(), interest-cohort=()
+
+  # Content Security Policy: which resources the browser is allowed to load.
+  # Tight enough to prove we're not doing anything sketchy, loose enough to work.
+  # - default-src 'self': only load from our own origin by default
+  # - script-src: same-origin + Anthropic API bridge (used inside artifacts)
+  # - style-src: allow inline styles (React inline styles need this)
+  # - img-src: allow images from anywhere including data URIs (video thumbnails, papers)
+  # - connect-src: allow the scholarly APIs we query directly from the browser
+  # - frame-ancestors: same as X-Frame-Options DENY, but the modern equivalent
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.openrouter.ai https://openrouter.ai https://api.elevenlabs.io https://www.ebi.ac.uk https://eutils.ncbi.nlm.nih.gov https://api.openalex.org https://api.crossref.org https://export.arxiv.org https://api.semanticscholar.org https://doaj.org https://api.biorxiv.org https://api.medrxiv.org https://zenodo.org https://journals.plos.org https://en.wikipedia.org https://api.duckduckgo.com https://www.youtube.com https://i.ytimg.com; media-src 'self' https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests
+
+  # Legacy XSS protection header. Modern browsers ignore it in favor of CSP,
+  # but some corporate scanners still look for it and mark sites down without it.
+  X-XSS-Protection: 1; mode=block
+
+  # Cross-origin isolation headers. These help against side-channel attacks
+  # and are a strong legitimacy signal to security scanners.
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+
+# Static assets: long cache with immutable, so reputation scanners see
+# well-configured caching (a signal of a real, maintained site).
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/favicon.svg
+  Cache-Control: public, max-age=86400
+
+/favicon-32x32.png
+  Cache-Control: public, max-age=86400
+
+/og-image.png
+  Cache-Control: public, max-age=86400
+
+# API responses shouldn't be cached — they change per query
+/api/*
+  Cache-Control: no-store

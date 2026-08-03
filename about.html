@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About — Cerebrum</title>
+  <meta name="description" content="Cerebrum is a free scientific literature search engine. It queries 16 open scholarly databases and returns cited answers, with no ads and no account required." />
+  <meta name="robots" content="index, follow" />
+  <meta name="author" content="Cerebrum" />
+  <link rel="canonical" href="https://askcerebrum.org/about" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="About Cerebrum" />
+  <meta property="og:description" content="Cerebrum is a free scientific literature search engine." />
+  <meta property="og:url" content="https://askcerebrum.org/about" />
+
+  <!-- Schema.org: identifies Cerebrum as a legitimate WebApplication in the
+       Educational / Research category. Reputation systems read this to
+       categorize sites correctly rather than flagging them as unknown. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Cerebrum",
+    "url": "https://askcerebrum.org",
+    "applicationCategory": "EducationalApplication",
+    "applicationSubCategory": "Scientific Literature Search",
+    "operatingSystem": "Any (web)",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "description": "A free scientific literature search engine that queries 16 open scholarly databases and returns cited, verifiable answers.",
+    "author": { "@type": "Organization", "name": "Cerebrum" }
+  }
+  </script>
+
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      background: #fafaf9; color: #18181b;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0f0f10; color: #e4e4e7; }
+      a { color: #f97316; }
+      .card { background: #18181b; border-color: #27272a; }
+      .muted { color: #a1a1aa; }
+    }
+    a { color: #b45309; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header {
+      padding: 20px 24px;
+      border-bottom: 1px solid rgba(128,128,128,0.15);
+    }
+    header a { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; color: inherit; font-size: 17px; letter-spacing: -0.01em; }
+    main { max-width: 720px; margin: 0 auto; padding: 48px 24px 96px; }
+    h1 { font-size: clamp(32px, 5vw, 44px); font-weight: 750; letter-spacing: -0.025em; margin: 0 0 12px; line-height: 1.1; }
+    h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.015em; margin: 40px 0 12px; }
+    .lede { font-size: 18px; color: #52525b; margin: 0 0 32px; letter-spacing: -0.01em; }
+    .muted { color: #71717a; font-size: 14px; }
+    p { margin: 0 0 16px; }
+    ul { padding-left: 22px; margin: 0 0 20px; }
+    li { margin-bottom: 8px; }
+    .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 20px 24px; margin: 24px 0; }
+    footer { border-top: 1px solid rgba(128,128,128,0.15); padding: 24px; text-align: center; font-size: 13px; color: #71717a; }
+    footer a { color: inherit; margin: 0 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
+        <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
+      </svg>
+      Cerebrum
+    </a>
+  </header>
+  <main>
+    <h1>About Cerebrum</h1>
+    <p class="lede">A free scientific literature search engine that returns cited answers from real peer-reviewed sources.</p>
+
+    <h2>What Cerebrum is</h2>
+    <p>Cerebrum is a research tool. You ask a scientific question — how mRNA vaccines trigger an immune response, what enzymes let insects degrade plastic, whether ocean acidification affects coral calcification — and Cerebrum queries a group of open scholarly databases in parallel, then writes a summary with each claim linked to the paper it came from.</p>
+    <p>The goal is honesty and traceability. Every citation is a real DOI. If no papers are retrieved for a question, the answer says so plainly rather than inventing sources.</p>
+
+    <h2>How it works</h2>
+    <p>When you submit a question, Cerebrum queries these open, non-proprietary indexes in parallel:</p>
+    <ul>
+      <li>Europe PMC (43 million articles)</li>
+      <li>PubMed (36 million articles)</li>
+      <li>OpenAlex (250 million works)</li>
+      <li>Crossref (150 million works)</li>
+      <li>Semantic Scholar (220 million papers)</li>
+      <li>arXiv, bioRxiv, medRxiv (preprints)</li>
+      <li>DOAJ, PLOS, Zenodo (open access)</li>
+    </ul>
+    <p>Results are merged, scored for relevance against the question's specific terminology, and passed to a language model that writes a summary constrained by what's actually in the retrieved abstracts.</p>
+
+    <h2>What Cerebrum is not</h2>
+    <ul>
+      <li><strong>Not a substitute for reading the papers.</strong> Every summary is AI-generated. Verify anything you plan to rely on against the cited source.</li>
+      <li><strong>Not a medical, legal, or financial advisor.</strong> Cerebrum is a literature search tool. Do not use it in place of a qualified professional.</li>
+      <li><strong>Not tracked or monetized.</strong> No ads. No account. No analytics beyond basic uptime monitoring.</li>
+    </ul>
+
+    <h2>Contact</h2>
+    <p>For questions, bug reports, or feature requests, see the <a href="/contact">contact page</a>.</p>
+  </main>
+  <footer>
+    <a href="/">Home</a> · <a href="/about">About</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a>
+    <div style="margin-top: 12px;">© 2026 Cerebrum</div>
+  </footer>
+</body>
+</html>
