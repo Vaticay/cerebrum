@@ -2,36 +2,113 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-    <title>Cerebrum — AI-powered science search</title>
-    <meta name="description" content="Ask any science question and get cited answers from 16 free scholarly databases. Real papers, real DOIs, no ads, no paywalls." />
-    <meta name="theme-color" content="#0f1116" />
+    <title>Cerebrum — Free Scientific Literature Search</title>
+    <meta name="description" content="Ask a research question. Get cited answers assembled from 16 open scholarly databases including PubMed, Europe PMC, OpenAlex, and Semantic Scholar. Free, no account required, no ads." />
+    <meta name="keywords" content="scientific literature search, research papers, PubMed, Europe PMC, OpenAlex, peer-reviewed, free research tool, academic search engine, science search" />
+    <meta name="author" content="Cerebrum" />
+    <meta name="publisher" content="Cerebrum" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="rating" content="general" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="theme-color" content="#0f1116" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
+    <link rel="canonical" href="https://askcerebrum.org/" />
 
-    <!-- Favicon: SVG works in all modern browsers. Fallback to PNG/ICO if provided. -->
+    <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="alternate icon" type="image/png" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-    <!-- Open Graph: link previews for iMessage, Slack, Discord, Facebook, LinkedIn, WhatsApp -->
+    <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Cerebrum" />
-    <meta property="og:title" content="Cerebrum — AI-powered science search" />
-    <meta property="og:description" content="Ask any science question. Get cited answers from 16 free scholarly databases." />
-    <meta property="og:url" content="https://askcerebrum.org" />
+    <meta property="og:title" content="Cerebrum — Free Scientific Literature Search" />
+    <meta property="og:description" content="Ask a research question. Get cited answers from 16 open scholarly databases. Free, no account, no ads." />
+    <meta property="og:url" content="https://askcerebrum.org/" />
     <meta property="og:image" content="https://askcerebrum.org/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Cerebrum — scientific literature search" />
+    <meta property="og:locale" content="en_US" />
 
     <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Cerebrum — AI-powered science search" />
-    <meta name="twitter:description" content="Ask any science question. Get cited answers from 16 free scholarly databases." />
+    <meta name="twitter:title" content="Cerebrum — Free Scientific Literature Search" />
+    <meta name="twitter:description" content="Ask a research question. Get cited answers from 16 open scholarly databases." />
     <meta name="twitter:image" content="https://askcerebrum.org/og-image.png" />
+
+    <!-- Structured data: identifies Cerebrum as a legitimate WebSite + SearchAction
+         in the Educational / Reference category. Reputation systems use this to
+         categorize sites correctly instead of flagging them as unknown/suspicious. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Cerebrum",
+      "alternateName": "Ask Cerebrum",
+      "url": "https://askcerebrum.org/",
+      "description": "A free scientific literature search engine that queries 16 open scholarly databases and returns cited, verifiable answers.",
+      "inLanguage": "en-US",
+      "publisher": {
+        "@type": "Organization",
+        "name": "Cerebrum",
+        "url": "https://askcerebrum.org/"
+      },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://askcerebrum.org/?q={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Cerebrum",
+      "url": "https://askcerebrum.org/",
+      "applicationCategory": "EducationalApplication",
+      "applicationSubCategory": "Scientific Literature Search",
+      "operatingSystem": "Any (web-based)",
+      "browserRequirements": "Requires JavaScript. Requires HTML5.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "creator": {
+        "@type": "Organization",
+        "name": "Cerebrum"
+      }
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <!-- Fallback content for crawlers and browsers with JS disabled. This is
+         what non-JS reputation scanners and search engine crawlers actually
+         index. Having real, descriptive content here — not just "loading..." —
+         is one of the single most-effective ways to be categorized correctly. -->
+    <noscript>
+      <div style="max-width: 720px; margin: 40px auto; padding: 20px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #18181b;">
+        <h1 style="font-size: 32px; font-weight: 700; letter-spacing: -0.02em;">Cerebrum</h1>
+        <p><strong>Cerebrum is a free scientific literature search engine.</strong> Ask a research question and receive cited answers assembled from open scholarly databases including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, medRxiv, DOAJ, PLOS, and Zenodo.</p>
+        <p>Every citation links to a real, verifiable paper. Cerebrum does not use ads, does not require an account, and does not track users.</p>
+        <p>Cerebrum requires JavaScript to run. Please enable JavaScript in your browser to use the search.</p>
+        <p>
+          <a href="/about">About Cerebrum</a> &middot;
+          <a href="/privacy">Privacy Policy</a> &middot;
+          <a href="/terms">Terms of Service</a> &middot;
+          <a href="/contact">Contact</a>
+        </p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
