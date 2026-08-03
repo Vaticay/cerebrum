@@ -2248,6 +2248,14 @@ function App() {
             <div style={{ fontSize: 10.5, color: P.faint, letterSpacing: "0.02em" }}>
               <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}`, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
               <span style={{ margin: "0 8px" }}>·</span>
+              <a href="/about" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>About</a>
+              <span style={{ margin: "0 8px" }}>·</span>
+              <a href="/privacy" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
+              <span style={{ margin: "0 8px" }}>·</span>
+              <a href="/terms" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
+              <span style={{ margin: "0 8px" }}>·</span>
+              <a href="/contact" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Contact</a>
+              <span style={{ margin: "0 8px" }}>·</span>
               © {new Date().getFullYear()} Cerebrum™
             </div>
           </div>
