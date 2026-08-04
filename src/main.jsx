@@ -2274,20 +2274,6 @@ function App() {
     </>
   );
 
-  // ---- ROUTE INTERCEPT ----
-  // Cloudflare Pages SPA mode serves index.html at every URL path, so
-  // standalone HTML files never reach the browser. Detect info pages and
-  // render them inside React instead of the search UI.
-  const infoPage = (() => {
-    const p = window.location.pathname.replace(/\.html$/, "").replace(/\/$/, "");
-    if (p === "/about") return "about";
-    if (p === "/privacy") return "privacy";
-    if (p === "/terms") return "terms";
-    if (p === "/contact") return "contact";
-    return null;
-  })();
-  if (infoPage) return <InfoPage page={infoPage} />;
-
   return (
     <div style={S.page}>
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
@@ -2396,13 +2382,13 @@ function App() {
             <div style={{ fontSize: 10.5, color: P.faint, letterSpacing: "0.02em" }}>
               <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}`, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
               <span style={{ margin: "0 8px" }}>·</span>
-              <a href="/about.html" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>About</a>
+              <a href="/about" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>About</a>
               <span style={{ margin: "0 8px" }}>·</span>
-              <a href="/privacy.html" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
+              <a href="/privacy" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
               <span style={{ margin: "0 8px" }}>·</span>
-              <a href="/terms.html" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
+              <a href="/terms" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
               <span style={{ margin: "0 8px" }}>·</span>
-              <a href="/contact.html" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Contact</a>
+              <a href="/contact" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Contact</a>
               <span style={{ margin: "0 8px" }}>·</span>
               © {new Date().getFullYear()} Cerebrum™
             </div>
@@ -3505,4 +3491,19 @@ if (typeof document !== "undefined") {
   }
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+// Route at the mount level. If the URL is an info page, render that instead
+// of the full App. This avoids any React hook-ordering issues from returning
+// early inside App, and guarantees the info page shows immediately with no
+// intro screen flash.
+function Root() {
+  const p = typeof window !== "undefined"
+    ? window.location.pathname.replace(/\.html$/, "").replace(/\/+$/, "")
+    : "";
+  if (p === "/about") return <InfoPage page="about" />;
+  if (p === "/privacy") return <InfoPage page="privacy" />;
+  if (p === "/terms") return <InfoPage page="terms" />;
+  if (p === "/contact") return <InfoPage page="contact" />;
+  return <App />;
+}
+
+createRoot(document.getElementById("root")).render(<Root />);
