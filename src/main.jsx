@@ -765,59 +765,101 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
 
       <div style={{
         position: "relative", zIndex: 1,
-        maxWidth: 480, width: "100%",
+        maxWidth: 560, width: "100%",
         display: "flex", flexDirection: "column", alignItems: "center",
-        transition: "opacity 0.9s cubic-bezier(0.4, 0, 0.2, 1), transform 0.9s cubic-bezier(0.4, 0, 0.2, 1)",
+        transition: "opacity 1s cubic-bezier(0.4, 0, 0.2, 1), transform 1s cubic-bezier(0.4, 0, 0.2, 1)",
         opacity: phase === "forming" ? 0 : 1,
-        transform: phase === "forming" ? "translateY(-6px)" : "none",
+        transform: phase === "forming" ? "translateY(8px)" : "none",
       }}>
-        <div style={{ animation: "cb-float 5s ease-in-out infinite", marginBottom: "clamp(20px, 5vw, 28px)" }}>
-          <Mark size={46} accent={accent} glow={P.dark} />
+        {/* Floating mark with glow halo */}
+        <div style={{
+          animation: "cb-float 5s ease-in-out infinite",
+          marginBottom: "clamp(24px, 5vw, 36px)",
+          position: "relative",
+        }}>
+          <div style={{
+            position: "absolute", inset: -20, borderRadius: "50%",
+            background: `radial-gradient(circle, ${withAlpha(accent, 0.25)}, transparent 70%)`,
+            filter: "blur(14px)", animation: "cbGlowPulse 3s ease-in-out infinite",
+          }} />
+          <Mark size={52} accent={accent} glow={P.dark} />
         </div>
 
         <h1 style={{
-          fontSize: "clamp(40px, 12vw, 54px)",
-          fontWeight: 700, letterSpacing: "-0.045em",
-          color: P.ink, margin: "0 0 14px", lineHeight: 0.98,
+          fontSize: "clamp(44px, 13vw, 64px)",
+          fontWeight: 760, letterSpacing: "-0.05em",
+          color: P.ink, margin: "0 0 8px", lineHeight: 0.95,
+          background: `linear-gradient(135deg, ${P.ink} 40%, ${accent})`,
+          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
         }}>
           Cerebrum
         </h1>
 
         <p style={{
-          fontSize: "clamp(15px, 4.2vw, 17px)",
-          color: P.ink2, margin: "0 0 clamp(28px, 7vw, 38px)",
-          letterSpacing: "-0.012em", lineHeight: 1.5,
-          maxWidth: 420,
+          fontSize: "clamp(13px, 3.5vw, 15px)",
+          color: accent, margin: "0 0 clamp(18px, 4vw, 24px)",
+          letterSpacing: "0.15em", textTransform: "uppercase",
+          fontWeight: 650,
         }}>
-          Your research sidekick. Ask anything scientific — we dig through millions of real papers and come back with answers you can actually trace.
+          Scientific Literature Engine
         </p>
 
-        <button onClick={go} className="cb-btn" style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 9,
-          padding: "15px 34px", fontSize: 15.5, fontWeight: 600,
-          background: accent, color: accentText(accent),
-          border: "none", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
-          boxShadow: `0 8px 28px ${withAlpha(accent, 0.32)}`,
-          letterSpacing: "-0.015em",
+        <p style={{
+          fontSize: "clamp(16px, 4.5vw, 19px)",
+          color: P.ink2, margin: "0 0 clamp(32px, 7vw, 44px)",
+          letterSpacing: "-0.012em", lineHeight: 1.55,
+          maxWidth: 440, fontWeight: 400,
         }}>
-          Start exploring
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5" />
-          </svg>
+          Ask anything scientific. We search millions of peer-reviewed papers
+          and give you answers you can actually verify.
+        </p>
+
+        {/* Feature pills */}
+        <div style={{
+          display: "flex", flexWrap: "wrap", justifyContent: "center",
+          gap: 10, marginBottom: "clamp(28px, 6vw, 40px)", maxWidth: 440,
+        }}>
+          {[
+            ["16 databases", "Searched in parallel"],
+            ["Real citations", "Every DOI is verifiable"],
+            ["Always free", "No account needed"],
+          ].map(([label, sub]) => (
+            <div key={label} className="cb-fade" style={{
+              background: withAlpha(P.surface, 0.7),
+              backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+              border: `1px solid ${P.line}`,
+              borderRadius: 14, padding: "12px 18px",
+              textAlign: "left", flex: "1 1 130px", minWidth: 130,
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 650, color: P.ink, letterSpacing: "-0.01em" }}>{label}</div>
+              <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2, lineHeight: 1.35 }}>{sub}</div>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={go} className="cb-btn cb-glow-btn" style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
+          padding: "16px 40px", fontSize: 16, fontWeight: 650,
+          background: `linear-gradient(135deg, ${accent}, ${withAlpha(accent, 0.75)})`,
+          color: accentText(accent),
+          border: "none", borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
+          boxShadow: `0 8px 32px ${withAlpha(accent, 0.35)}, inset 0 1px 0 ${withAlpha("#fff", 0.15)}`,
+          letterSpacing: "-0.015em", position: "relative", overflow: "hidden",
+        }}>
+          <span style={{ position: "relative", zIndex: 1 }}>Start exploring</span>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ position: "relative", zIndex: 1 }}><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
         </button>
 
-        {/* One quiet line of provenance. Detail lives in How it works, not here. */}
         <div style={{
-          marginTop: "clamp(26px, 6vw, 34px)",
-          display: "flex", alignItems: "center", gap: 9,
-          fontSize: 11.5, color: P.faint, letterSpacing: "0.005em",
+          marginTop: "clamp(32px, 7vw, 48px)",
+          display: "flex", flexWrap: "wrap", justifyContent: "center",
+          gap: "8px 20px", opacity: 0.55,
         }}>
-          <span style={{ width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.8, flexShrink: 0 }} />
-          <span>16 databases</span>
-          <span style={{ opacity: 0.35 }}>·</span>
-          <span>real citations</span>
-          <span style={{ opacity: 0.35 }}>·</span>
-          <span>always free</span>
+          {["Europe PMC", "PubMed", "OpenAlex", "Semantic Scholar", "arXiv", "Crossref"].map((d) => (
+            <span key={d} style={{ fontSize: 11, fontWeight: 550, color: P.ink2, letterSpacing: "0.03em" }}>{d}</span>
+          ))}
+          <span style={{ fontSize: 11, color: P.faint }}>+ 10 more</span>
         </div>
       </div>
     </div>
@@ -2385,7 +2427,7 @@ function App() {
               <div style={S.heroGlow} />
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
               <h1 style={S.heroTitle}>Cerebrum</h1>
-              <p style={{ fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em" }}>Dig into the science. Every answer cites real papers you can check.</p>
+              <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can check.</p>
               <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
                 <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
@@ -3222,14 +3264,14 @@ function makeStyles(P, accent, at, isMobile = false) {
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "48px 0 72px", position: "relative" },
     heroGlow: { position: "absolute", width: 620, height: 620, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.12 : 0.07)}, transparent 65%)`, top: "4%", filter: "blur(50px)", pointerEvents: "none" },
     heroMark: { marginBottom: 30, position: "relative" },
-    heroTitle: { fontSize: isMobile ? 50 : 76, fontWeight: 750, letterSpacing: "-0.045em", lineHeight: 0.95, color: P.ink, marginBottom: 14, position: "relative" },
+    heroTitle: { fontSize: isMobile ? 44 : 72, fontWeight: 750, letterSpacing: "-0.045em", lineHeight: 0.95, color: P.ink, marginBottom: 14, position: "relative" },
     heroSub: { fontSize: isMobile ? 15.5 : 18, color: P.ink2, maxWidth: 460, lineHeight: 1.5, marginBottom: 40, letterSpacing: "-0.012em", position: "relative", fontWeight: 400 },
-    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 620, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: isMobile ? "7px 7px 7px 14px" : "8px 8px 8px 16px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", position: "relative" },
+    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 640, backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: isMobile ? "7px 7px 7px 14px" : "8px 8px 8px 16px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", position: "relative" },
     searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 4px ${withAlpha(accent, 0.14)}` },
     searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
-    searchBtn: { fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", padding: isMobile ? "12px 16px" : "12px 22px", borderRadius: 10, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 10px ${withAlpha(accent, 0.32)}` },
+    searchBtn: { fontSize: 14.5, fontWeight: 650, background: `linear-gradient(135deg, ${accent}, ${withAlpha(accent, 0.8)})`, color: at, border: "none", padding: isMobile ? "12px 16px" : "12px 22px", borderRadius: 10, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 10px ${withAlpha(accent, 0.32)}` },
     chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 24, maxWidth: 620, position: "relative" },
-    chip: { fontSize: 13.5, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 22, padding: "9px 15px", cursor: "pointer", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    chip: { fontSize: 13.5, color: P.ink2, background: withAlpha(P.surface, 0.7), backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: `1px solid ${P.line}`, borderRadius: 22, padding: "9px 15px", cursor: "pointer", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
     chipHover: { borderColor: accent, color: accent, transform: "translate3d(0, -3px, 0) scale(1.03)", boxShadow: `0 4px 12px ${withAlpha(accent, 0.15)}` },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 44, opacity: 0.7 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.015em" },
@@ -3240,7 +3282,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
     qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
     headline: { fontWeight: 680, fontSize: isMobile ? 19 : 26, lineHeight: 1.25, marginBottom: isMobile ? 14 : 18, color: P.ink, letterSpacing: "-0.022em" },
-    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderLeft: `3px solid ${accent}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "16px 15px" : "22px 26px", boxShadow: P.shadow },
+    answerCard: { background: withAlpha(P.surface, 0.85), backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: `1px solid ${P.line}`, borderLeft: `3px solid ${accent}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "16px 15px" : "22px 26px", boxShadow: P.shadow },
     byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
@@ -3382,6 +3424,65 @@ if (typeof document !== "undefined") {
       @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
       @keyframes cbPulse { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.35; } }
       /* Synapse loader: each node brightens and swells as the signal passes */
+      /* ---- PREMIUM EFFECTS ---- */
+      @keyframes cbGlowPulse {
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.15); }
+      }
+
+      /* Gradient shimmer sweep on the CTA button */
+      .cb-glow-btn::before {
+        content: "";
+        position: absolute; inset: 0;
+        background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.18) 45%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0.18) 55%, transparent 65%);
+        background-size: 250% 100%;
+        animation: cbBtnShimmer 3s ease-in-out infinite;
+        border-radius: inherit;
+      }
+      @keyframes cbBtnShimmer {
+        0% { background-position: 200% center; }
+        100% { background-position: -200% center; }
+      }
+
+      /* Smooth entrance for the whole hero area */
+      .cb-hero {
+        animation: cbHeroIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      @keyframes cbHeroIn {
+        from { opacity: 0; transform: translateY(24px) scale(0.98); }
+        to { opacity: 1; transform: none; }
+      }
+
+      /* Answer card entrance */
+      .cb-answer-enter {
+        animation: cbAnswerIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      @keyframes cbAnswerIn {
+        from { opacity: 0; transform: translateY(16px); }
+        to { opacity: 1; transform: none; }
+      }
+
+      /* Source card hover lift */
+      .cb-src-card {
+        transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s, border-color 0.2s;
+      }
+      .cb-src-card:hover {
+        transform: translateY(-2px);
+      }
+
+      /* Gradient text utility */
+      .cb-grad-text {
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      /* Smooth scrollbar styling */
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.25); border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.4); }
+
       @keyframes cbSlideUp {
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: none; }
