@@ -1954,7 +1954,7 @@ function App() {
           <div style={{ ...S.brandRow, position: "relative" }}>
             <div onClick={(e) => { e.stopPropagation(); easterEgg.trigger(); }} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
               <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
-              <span style={S.brand}>Cerebrum</span>
+              <span style={S.brand}>Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 500, marginLeft: 2, opacity: 0.6, letterSpacing: "0.02em" }}>™</sup></span>
             </div>
             {easterEgg.render}
           </div>
@@ -2034,202 +2034,274 @@ function App() {
    CSS — Observatory design system keyframes, utilities, fonts
    ============================================================ */
 const CSS = `
-/* ── Typography custom properties ── */
+/* ============================================================
+   CEREBRUM v3.0 — OBSERVATORY DESIGN SYSTEM
+   Three-font system. Blur-in depth. Instrument precision.
+   ============================================================ */
+
+/* ── Typography ── */
 :root {
   --cb-display: 'DM Sans', 'Inter', system-ui, -apple-system, sans-serif;
   --cb-body:    'Inter', system-ui, -apple-system, sans-serif;
   --cb-mono:    'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --cb-instant: 90ms;
+  --cb-quick:   160ms;
+  --cb-base:    280ms;
+  --cb-slow:    460ms;
+  --cb-ambient: 720ms;
+  --cb-out:      cubic-bezier(0.16, 1, 0.3, 1);
+  --cb-inout:    cubic-bezier(0.65, 0, 0.35, 1);
+  --cb-entrance: cubic-bezier(0.22, 1, 0.36, 1);
+  --cb-exit:     cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* ── Core keyframes ── */
+/* ── Premium globals ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+html, body {
+  margin: 0; overflow-x: hidden; max-width: 100%;
+  overscroll-behavior-y: contain;
+  min-height: 100vh; min-height: 100dvh;
+  scroll-behavior: smooth;
+}
+@supports (padding: max(0px)) {
+  body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+}
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  body { padding-bottom: env(safe-area-inset-bottom); }
+}
+input, textarea, select { font-size: 16px; }
+a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
+a { color: inherit; }
+input::placeholder, textarea::placeholder { color: inherit; opacity: 0.4; }
+summary::-webkit-details-marker { display: none; }
+::selection { background: rgba(16, 185, 129, 0.2); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.2); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.35); }
+* { scrollbar-width: thin; scrollbar-color: rgba(128,128,128,0.2) transparent; }
+
+/* ── Keyframes ── */
 @keyframes cbspin { to { transform: rotate(360deg); } }
+@keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
 
-@keyframes cbShimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-@keyframes cbFade {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
+/* Blur-in entrances — the slight defocus reads as depth, not as a slide.
+   Blur is GPU-composited, same cost class as transform. */
 @keyframes cbRise {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translate3d(0, 10px, 0); filter: blur(6px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
 }
-
 @keyframes cbPop {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translate3d(0, 6px, 0);  filter: blur(4px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
 }
-
 @keyframes cbHero {
-  from { opacity: 0; transform: translateY(16px) scale(0.97); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translate3d(0, 14px, 0); filter: blur(8px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
 }
-
 @keyframes cbGate {
-  from { opacity: 0; transform: translateY(20px); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translate3d(0, 12px, 0); filter: blur(6px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
 }
-
 @keyframes cbModal {
-  from { opacity: 0; transform: translateY(12px) scale(0.97); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translate3d(0, 14px, 0) scale(0.985); filter: blur(5px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1);        filter: blur(0); }
 }
-
-@keyframes cbBackdrop {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
+@keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
 @keyframes cbSlideUp {
-  from { opacity: 0; transform: translateY(18px); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translateY(20px); filter: blur(4px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
 }
-
 @keyframes cbMicPulse {
-  0%, 100% { transform: scale(1); opacity: 0.7; }
-  50%      { transform: scale(1.3); opacity: 0; }
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%      { opacity: 0; transform: scale(1.5); }
 }
-
 @keyframes cbSynapse {
-  0%, 100% { transform: scale(0.6); opacity: 0.3; }
-  50%      { transform: scale(1.2); opacity: 1; }
+  0%, 100% { opacity: 0.25; transform: scale(0.75); }
+  30%      { opacity: 1;    transform: scale(1.25); }
+  60%      { opacity: 0.4;  transform: scale(0.9); }
 }
-
 @keyframes cb-float {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-6px); }
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(0, -3px, 0); }
 }
-
 @keyframes cb-wiggle {
-  0%, 100% { transform: rotate(0); }
-  25%      { transform: rotate(-10deg); }
-  75%      { transform: rotate(10deg); }
+  0%, 100% { transform: rotate(0deg); }
+  30%      { transform: rotate(-5deg); }
+  70%      { transform: rotate(4deg); }
 }
-
 @keyframes cbGlowPulse {
   0%, 100% { opacity: 0.5; transform: scale(1); }
-  50%      { opacity: 1; transform: scale(1.1); }
+  50%      { opacity: 1; transform: scale(1.15); }
+}
+@keyframes cbCaret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0.15; } }
+@keyframes cb-burst {
+  0%   { opacity: 0; transform: translate3d(0, 0, 0) scale(0.4); }
+  18%  { opacity: 1; }
+  100% { opacity: 0; transform: translate3d(var(--cb-dx, 0), var(--cb-dy, 60px), 0) scale(0.7) rotate(var(--cb-rot, 24deg)); }
+}
+@keyframes cb-egg-in {
+  from { opacity: 0; transform: translate3d(0, -6px, 0); filter: blur(4px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
 }
 
+/* CTA button shimmer sweep */
+.cb-glow-btn { position: relative; overflow: hidden; }
+.cb-glow-btn::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.18) 45%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0.18) 55%, transparent 65%);
+  background-size: 250% 100%;
+  animation: cbBtnShimmer 3s ease-in-out infinite;
+  border-radius: inherit;
+}
 @keyframes cbBtnShimmer {
-  from { transform: translateX(-100%) skewX(-15deg); }
-  to   { transform: translateX(200%) skewX(-15deg); }
+  0%   { background-position: 200% center; }
+  100% { background-position: -200% center; }
 }
 
-@keyframes cbCaret {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0; }
+/* Hero entrance */
+.cb-hero { animation: cbHeroIn 0.8s var(--cb-out) both; }
+@keyframes cbHeroIn {
+  from { opacity: 0; transform: translateY(24px) scale(0.98); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
 }
 
-/* ── Gradient border for search glow ── */
-@property --gradient-angle {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-
-@keyframes cbGradientSpin {
-  to { --gradient-angle: 360deg; }
+/* Answer card entrance */
+.cb-answer-enter { animation: cbAnswerIn 0.5s var(--cb-out) both; }
+@keyframes cbAnswerIn {
+  from { opacity: 0; transform: translateY(16px); filter: blur(4px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
 }
 
 /* ── Entrance utility classes ── */
-.cb-fade    { animation: cbFade 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.cb-rise    { animation: cbRise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.cb-pop     { animation: cbPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.cb-gate    { animation: cbGate 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.cb-hero    { animation: cbHero 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.cb-modal   { animation: cbModal 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.cb-backdrop { animation: cbBackdrop 0.25s ease both; }
-.cb-wiggle  { animation: cb-wiggle 0.4s ease; }
-
-.cb-answer-enter {
-  animation: cbRise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
+.cb-fade    { animation: cbFade   var(--cb-base) var(--cb-out) both; }
+.cb-rise    { animation: cbRise   var(--cb-slow) var(--cb-entrance) both; }
+.cb-pop     { animation: cbPop    var(--cb-base) var(--cb-entrance) both; }
+.cb-gate    { animation: cbGate   var(--cb-ambient) var(--cb-entrance) both; }
+.cb-modal   { animation: cbModal  var(--cb-base) var(--cb-entrance) both; will-change: transform, opacity, filter; }
+.cb-backdrop { animation: cbBackdrop var(--cb-quick) var(--cb-out) both; }
+.cb-wiggle  { animation: cb-wiggle 380ms var(--cb-out); }
 
 /* ── Stagger cascade ── */
-.cb-stagger > * {
-  opacity: 0;
-  animation: cbFade 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-.cb-stagger > *:nth-child(1) { animation-delay: 0.04s; }
-.cb-stagger > *:nth-child(2) { animation-delay: 0.08s; }
-.cb-stagger > *:nth-child(3) { animation-delay: 0.12s; }
-.cb-stagger > *:nth-child(4) { animation-delay: 0.16s; }
-.cb-stagger > *:nth-child(5) { animation-delay: 0.20s; }
-.cb-stagger > *:nth-child(6) { animation-delay: 0.24s; }
-.cb-stagger > *:nth-child(7) { animation-delay: 0.28s; }
-.cb-stagger > *:nth-child(8) { animation-delay: 0.32s; }
-.cb-stagger > *:nth-child(n+9) { animation-delay: 0.36s; }
+.cb-stagger > *:nth-child(1)  { animation-delay: 0ms; }
+.cb-stagger > *:nth-child(2)  { animation-delay: 45ms; }
+.cb-stagger > *:nth-child(3)  { animation-delay: 90ms; }
+.cb-stagger > *:nth-child(4)  { animation-delay: 135ms; }
+.cb-stagger > *:nth-child(5)  { animation-delay: 180ms; }
+.cb-stagger > *:nth-child(6)  { animation-delay: 225ms; }
+.cb-stagger > *:nth-child(7)  { animation-delay: 270ms; }
+.cb-stagger > *:nth-child(8)  { animation-delay: 315ms; }
+.cb-stagger > *:nth-child(9)  { animation-delay: 360ms; }
+.cb-stagger > *:nth-child(10) { animation-delay: 405ms; }
+.cb-stagger > *:nth-child(n+11) { animation-delay: 450ms; }
 
-/* ── Button physics ── */
-.cb-btn {
-  transition: transform 120ms ease, box-shadow 120ms ease, background 150ms ease;
+/* ── Global button physics ── 
+   Applied to every <button> so the whole app feels consistent.
+   Transform-only — composites on GPU, never triggers layout. */
+button {
+  transition: transform var(--cb-instant) var(--cb-out),
+              opacity   var(--cb-quick)   var(--cb-out),
+              box-shadow var(--cb-quick)  var(--cb-out),
+              background-color var(--cb-quick) var(--cb-out),
+              border-color var(--cb-quick) var(--cb-out),
+              color var(--cb-quick) var(--cb-out);
 }
-.cb-btn:active {
-  transform: scale(0.97) !important;
-}
+button:not(:disabled):hover  { transform: translate3d(0, -2px, 0); }
+button:not(:disabled):active { transform: scale(0.97) translate3d(0, 0, 0); transition-duration: 60ms; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.cb-glow-btn::after {
+/* ── Animated conic-gradient border — the signature search glow ── */
+@property --gradient-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes cbGradientSpin { to { --gradient-angle: 360deg; } }
+.cb-search-glow { position: relative; }
+.cb-search-glow::before {
   content: '';
-  position: absolute;
-  top: 0; left: 0;
-  width: 40%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-  animation: cbBtnShimmer 3s ease-in-out infinite;
-  pointer-events: none;
+  position: absolute; inset: -1.5px; border-radius: 14px;
+  background: conic-gradient(from var(--gradient-angle), transparent 40%, var(--cb-accent, #10b981) 50%, transparent 60%);
+  animation: cbGradientSpin 3.5s linear infinite;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: -1;
+}
+.cb-search-glow:focus-within::before { opacity: 1; }
+/* Fallback for browsers without @property */
+@supports not (background: conic-gradient(red, blue)) {
+  .cb-search-glow:focus-within {
+    box-shadow: 0 0 0 2px var(--cb-accent, #10b981), 0 0 20px rgba(16,185,129,0.15);
+  }
 }
 
-/* ── Header buttons ── */
-.cb-hbtn {
-  transition: background 150ms ease, color 150ms ease, transform 100ms ease;
-}
-.cb-hbtn:hover {
-  background: rgba(128, 128, 128, 0.08) !important;
-}
-.cb-hbtn:active {
-  transform: scale(0.96);
-}
+/* ── Header action buttons ── */
+.cb-hbtn:hover:not(:disabled)  { background: var(--cb-hover-surface, rgba(128,128,128,0.10)) !important; }
+.cb-hbtn:active:not(:disabled) { background: var(--cb-hover-surface, rgba(128,128,128,0.16)) !important; }
 
-/* ── Search glow border on focus ── */
-.cb-search-glow:focus-within {
-  border-color: var(--cb-accent, #10b981) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #10b981) 12%, transparent),
-              0 2px 12px rgba(0,0,0,0.08) !important;
+/* ── Opt-in button class ── */
+.cb-btn {
+  transition: transform var(--cb-instant) var(--cb-out),
+              opacity   var(--cb-quick)   var(--cb-out),
+              box-shadow var(--cb-quick)  var(--cb-out);
 }
-
-/* ── Focus rings ── */
-:focus-visible {
-  outline: 2px solid var(--cb-accent, #10b981);
-  outline-offset: 2px;
-}
-button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
-  outline: 2px solid var(--cb-accent, #10b981);
-  outline-offset: 2px;
-}
-input[type="range"]:focus-visible {
-  outline: none;
-}
+.cb-btn:hover:not(:disabled)  { transform: translate3d(0, -1.5px, 0); }
+.cb-btn:active:not(:disabled) { transform: scale(0.975); transition-duration: 60ms; }
 
 /* ── Cards ── */
 .cb-card {
-  transition: border-color 180ms ease, transform 120ms ease, box-shadow 150ms ease !important;
+  transition: transform var(--cb-quick) var(--cb-out),
+              border-color var(--cb-quick) var(--cb-out),
+              box-shadow var(--cb-quick) var(--cb-out);
 }
-.cb-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+.cb-card:hover  { transform: translate3d(0, -2px, 0); }
+.cb-card:active { transform: translate3d(0, -1px, 0) scale(0.995); transition-duration: 60ms; }
+
+/* Source card hover lift */
+.cb-src-card {
+  transition: transform 0.2s var(--cb-out), box-shadow 0.2s, border-color 0.2s;
+}
+.cb-src-card:hover { transform: translateY(-2px); }
+
+/* Glass card hover */
+.cb-glass-card {
+  transition: transform 0.25s var(--cb-out), box-shadow 0.25s var(--cb-out), border-color 0.25s;
+}
+.cb-glass-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
 }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.25); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, 0.4); }
-* { scrollbar-width: thin; scrollbar-color: rgba(128, 128, 128, 0.25) transparent; }
+/* Gradient text utility */
+.cb-grad-text {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ── Focus rings — keyboard only ── */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ── Range slider styling ── */
+input[type="range"] { -webkit-appearance: none; height: 4px; border-radius: 2px; }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: currentColor; cursor: pointer;
+  transition: transform var(--cb-instant) var(--cb-out);
+}
+input[type="range"]::-webkit-slider-thumb:hover  { transform: scale(1.18); }
+input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.32); }
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
@@ -2238,19 +2310,7 @@ input[type="range"]:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* ── Base reset ── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { margin: 0; padding: 0; }
-a { color: inherit; }
-input::placeholder, textarea::placeholder { color: inherit; opacity: 0.4; }
-summary::-webkit-details-marker { display: none; }
-
-/* ── Safe area insets ── */
-@supports (padding-bottom: env(safe-area-inset-bottom)) {
-  body { padding-bottom: env(safe-area-inset-bottom); }
+  .cb-rise, .cb-pop, .cb-hero, .cb-gate, .cb-modal { filter: none !important; }
 }
 `;
 
@@ -2272,25 +2332,17 @@ summary::-webkit-details-marker { display: none; }
    ROOT — inject CSS, mount React
    ============================================================ */
 function Root() {
-  const pathname = typeof window !== "undefined" ? window.location.pathname : "/";
-  const page = pathname.replace(/^\//, "").replace(/\/$/, "");
-  if (["about", "privacy", "terms", "contact"].includes(page)) {
-    return (
-      <>
-        <style dangerouslySetInnerHTML={{ __html: CSS }} />
-        <InfoPage page={page} />
-      </>
-    );
-  }
-  return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <App />
-    </>
-  );
+  const p = typeof window !== "undefined"
+    ? window.location.pathname.replace(/\.html$/, "").replace(/\/+$/, "")
+    : "";
+  if (p === "/about") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="about" /></>;
+  if (p === "/privacy") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="privacy" /></>;
+  if (p === "/terms") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="terms" /></>;
+  if (p === "/contact") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="contact" /></>;
+  return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><App /></>;
 }
 
 const rootEl = document.getElementById("root");
 if (rootEl) {
-  ReactDOM.createRoot(rootEl).render(<Root />);
+  createRoot(rootEl).render(<Root />);
 }
