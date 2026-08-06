@@ -3563,122 +3563,99 @@ export async function onRequest(context) {
       );
     }
 
-    // ============ AI ANSWER GENERATION ============
+    // ============ AI ANSWER GENERATION (Smart Router) ============
+    // Race 2-3 models in parallel — take the first good response. Over time,
+    // D1 tracks which model wins per domain so we skip the race.
     let answer = "";
     let aiOK = false;
     const token = env.OPENROUTER_API_KEY;
 
-    // TIER 1: OpenRouter — prioritize the best free models for accuracy.
-    // DeepSeek and Gemini Flash are the strongest free options as of mid-2025.
-    // Order matters: we try the best model first and stop at the first success.
-    if (token) {
-      const models = [
-        "deepseek/deepseek-chat-v3-0324:free",     // best free reasoning model
-        "deepseek/deepseek-chat:free",              // fallback deepseek
-        "google/gemini-2.0-flash-exp:free",         // strong, fast
-        "google/gemini-2.5-flash-preview:free",     // newer gemini
-        "meta-llama/llama-4-maverick:free",         // latest llama
-        "meta-llama/llama-3.3-70b-instruct:free",   // proven llama
-        "qwen/qwen-2.5-72b-instruct:free",          // strong Chinese model
-        "mistralai/mistral-small-3.1-24b-instruct:free",
-        "meta-llama/llama-3.1-8b-instruct:free",    // last resort free
-      ];
-      for (const model of models) {
-        try {
-          const r = await fetch(
-            "https://openrouter.ai/api/v1/chat/completions",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: "Bearer " + token,
-                "HTTP-Referer": "https://askcerebrum.org",
-                "X-Title": "Cerebrum",
-              },
-              body: JSON.stringify({
-                model,
-                temperature: 0.3,      // lower = more factual, less creative
-                max_tokens: maxTokens,
-                messages,
-              }),
-            }
-          );
-          if (r.ok) {
-            const j = await r.json();
-            let c =
-              j && j.choices && j.choices[0] && j.choices[0].message
-                ? j.choices[0].message.content
-                : "";
-            if (c) {
-              c = cleanAIResponse(c);
-              if (c.length > 30) {
-                answer = c;
-                aiOK = true;
-                break;
-              }
-            }
-          }
-        } catch {}
+    const callOR = async (model, msgs, maxTok) => {
+      if (!token) throw new Error("no key");
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 12000);
+      try {
+        const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
+          body: JSON.stringify({ model, temperature: 0.3, max_tokens: maxTok, messages: msgs }),
+          signal: c.signal,
+        });
+        clearTimeout(t);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const j = await r.json();
+        const txt = j?.choices?.[0]?.message?.content || "";
+        const cleaned = cleanAIResponse(txt);
+        if (cleaned.length < 30) throw new Error("too short");
+        return { answer: cleaned, model };
+      } catch (e) { clearTimeout(t); throw e; }
+    };
+
+    const callCF = async (model, msgs, maxTok) => {
+      if (!env.AI || typeof env.AI.run !== "function") throw new Error("no AI");
+      const out = await env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) });
+      const cleaned = cleanAIResponse((out && out.response) || "");
+      if (cleaned.length < 30) throw new Error("too short");
+      return { answer: cleaned, model };
+    };
+
+    // Check if we know the best model for this topic domain
+    const domainKey = query.toLowerCase().split(/\s+/).slice(0, 3).join(" ");
+    let preferredModel = null;
+    if (env.DB) {
+      try {
+        const pref = await env.DB.prepare(
+          "SELECT model, wins FROM model_perf WHERE domain = ? ORDER BY wins DESC LIMIT 1"
+        ).bind(domainKey).first();
+        if (pref && pref.wins >= 3) preferredModel = pref.model;
+      } catch {}
+    }
+
+    // Fast path: known best model for this domain
+    if (preferredModel && token) {
+      try { const r = await callOR(preferredModel, messages, maxTokens); answer = r.answer; aiOK = true; } catch {}
+    }
+
+    // Race path: 3 models in parallel, first good answer wins
+    if (!aiOK && token) {
+      try {
+        const winner = await Promise.any([
+          callOR("deepseek/deepseek-chat-v3-0324:free", messages, maxTokens),
+          callOR("google/gemini-2.0-flash-exp:free", messages, maxTokens),
+          callOR("meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens),
+        ]);
+        answer = winner.answer; aiOK = true;
+        if (env.DB) {
+          try { await env.DB.prepare("INSERT INTO model_perf (domain, model, wins) VALUES (?, ?, 1) ON CONFLICT(domain, model) DO UPDATE SET wins = wins + 1").bind(domainKey, winner.model).run(); } catch {}
+        }
+      } catch {
+        for (const m of ["qwen/qwen-2.5-72b-instruct:free", "mistralai/mistral-small-3.1-24b-instruct:free", "meta-llama/llama-3.1-8b-instruct:free"]) {
+          try { const r = await callOR(m, messages, maxTokens); answer = r.answer; aiOK = true; break; } catch {}
+        }
       }
     }
 
-    // TIER 2: Cloudflare Workers AI — better models than before.
-    // @cf/meta/llama-3.3-70b-instruct-fp8-fast is the strongest free CF model.
+    // TIER 2: Workers AI race
     if (!aiOK && env.AI && typeof env.AI.run === "function") {
-      const cfModels = [
-        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-        "@cf/meta/llama-3.1-70b-instruct",
-        "@cf/meta/llama-3.1-8b-instruct",
-        "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
-        "@cf/mistral/mistral-7b-instruct-v0.1",
-      ];
-      for (const m of cfModels) {
-        try {
-          const out = await env.AI.run(m, {
-            messages,
-            max_tokens: Math.min(maxTokens, 2048),
-          });
-          let c = (out && out.response) || "";
-          if (c) {
-            c = cleanAIResponse(c);
-            if (c.length > 30) {
-              answer = c;
-              dbUsed = m.split("/").pop();
-              break;
-            }
-          }
-        } catch {}
+      try {
+        const winner = await Promise.any([
+          callCF("@cf/meta/llama-3.3-70b-instruct-fp8-fast", messages, maxTokens),
+          callCF("@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", messages, maxTokens),
+        ]);
+        answer = winner.answer; aiOK = true;
+      } catch {
+        try { const r = await callCF("@cf/meta/llama-3.1-8b-instruct", messages, maxTokens); answer = r.answer; aiOK = true; } catch {}
       }
     }
 
-    // TIER 3: Pollinations keyless (final fallback)
+    // TIER 3: Pollinations
     if (!aiOK) {
       try {
-        const shortMessages = [
-          {
-            role: "system",
-            content:
-              "You are a science assistant. Answer the question naturally and clearly, like a colleague explaining something. " +
-              "Do NOT refuse. Do NOT fabricate DOIs or citations. Start with: Note: this answer draws on general scientific knowledge, verify against primary sources.\n\n" +
-              humanStyle +
-              " " +
-              rules,
-          },
-          { role: "user", content: query },
-        ];
         const pRes = await fetch("https://text.pollinations.ai/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: shortMessages, model: "openai" }),
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: [{ role: "system", content: "You are a science assistant. Answer naturally. Do NOT fabricate citations. " + humanStyle + " " + rules }, { role: "user", content: query }], model: "openai" }),
         });
-        if (pRes.ok) {
-          let c = await pRes.text();
-          c = cleanAIResponse(c);
-          if (c && c.length > 30) {
-            answer = c;
-            aiOK = true;
-          }
-        }
+        if (pRes.ok) { let c = cleanAIResponse(await pRes.text()); if (c && c.length > 30) { answer = c; aiOK = true; } }
       } catch {}
     }
 
