@@ -3614,7 +3614,6 @@ export async function onRequest(context) {
               if (c.length > 30) {
                 answer = c;
                 aiOK = true;
-                dbUsed = model.split("/").pop().split(":")[0];
                 break;
               }
             }
@@ -3644,7 +3643,6 @@ export async function onRequest(context) {
             c = cleanAIResponse(c);
             if (c.length > 30) {
               answer = c;
-              aiOK = true;
               dbUsed = m.split("/").pop();
               break;
             }
