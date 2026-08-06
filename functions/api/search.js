@@ -3127,7 +3127,34 @@ export async function onRequest(context) {
     const prevSources = (prevAssistantTurn && Array.isArray(prevAssistantTurn.sources)) ? prevAssistantTurn.sources : [];
     const pinnedSources = Array.isArray(body.pinnedSources) ? body.pinnedSources : [];
     const corrections = Array.isArray(body.corrections) ? body.corrections : [];
-    const isFollowupMode = (intent.kind === "followup" || intent.kind === "correction") && (prevSources.length > 0 || pinnedSources.length > 0);
+
+    // ---- SMART FOLLOW-UP LOGIC ----
+    // When a user says "what about papers by Reese Saho" after a failed search,
+    // that's a NEW search for an author, not a follow-up on empty results.
+    // Previously the classifier treated it as a follow-up, merged it with the
+    // old failed query terms, and searched for gibberish.
+    //
+    // Rule: if the message contains a person name OR specific new search terms
+    // that weren't in the previous query, treat it as a fresh search regardless
+    // of what the intent classifier says.
+    const embeddedNameInFollowup = extractPersonNameFromQuery(query);
+    const hasNewSubstance = (() => {
+      if (!Array.isArray(body.history)) return true;
+      const prevUser = [...body.history].reverse().find((t) => t && t.role === "user");
+      if (!prevUser) return true;
+      const prevTerms = new Set(
+        (prevUser.content || "").toLowerCase().split(/\s+/).filter((w) => w.length > 3)
+      );
+      const newTerms = query.toLowerCase().split(/\s+/).filter(
+        (w) => w.length > 3 && !STOPWORDS.has(w) && !prevTerms.has(w)
+      );
+      return newTerms.length >= 2; // at least 2 genuinely new content words
+    })();
+
+    const forceNewSearch = !!embeddedNameInFollowup || hasNewSubstance;
+    const isFollowupMode = !forceNewSearch
+      && (intent.kind === "followup" || intent.kind === "correction")
+      && (prevSources.length > 0 || pinnedSources.length > 0);
 
     let gResult;
     if (isFollowupMode) {
@@ -3149,14 +3176,12 @@ export async function onRequest(context) {
       }
       gResult = { papers: reused, _isFollowup: true, _intent: intent.kind };
     } else {
-      // A follow-up phrase on its own is a useless search query. "What about
-      // the info from this paper?" contains no topic at all — searching it
-      // literally is how a health-technology-assessment paper came back for a
-      // question about insect enzymes. When the message reads as a follow-up
-      // but there were no previous sources to reuse, we search the PREVIOUS
-      // question instead, carrying any new terms the follow-up added.
+      // Fresh search. If the intent classifier thought this was a follow-up
+      // but we overrode it (because the user named an author or introduced
+      // genuinely new search terms), search the user's actual message — do NOT
+      // merge with the previous failed query.
       let searchQuery = query;
-      const looksLikeFollowup = intent.kind === "followup" || intent.kind === "correction";
+      const looksLikeFollowup = !forceNewSearch && (intent.kind === "followup" || intent.kind === "correction");
       if (looksLikeFollowup && Array.isArray(body.history)) {
         const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 0);
         if (prevUser) {
