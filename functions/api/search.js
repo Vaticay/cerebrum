@@ -1840,6 +1840,88 @@ async function plos(query, limit = 6) {
   }
 }
 
+// ---- ADDITIONAL SCHOLARLY APIs ----
+
+async function coreSearch(query, limit = 8) {
+  try {
+    const url = "https://api.core.ac.uk/v3/search/works?" +
+      new URLSearchParams({ q: query, limit: String(limit) });
+    const data = await getJSON(url, {}, 6000);
+    return ((data && data.results) || []).filter((r) => r.title).map((r) => ({
+      title: r.title || "Untitled",
+      url: r.doi ? "https://doi.org/" + r.doi : (r.downloadUrl || ""),
+      year: r.yearPublished ? String(r.yearPublished) : "",
+      citations: null,
+      authors: (r.authors || []).map((a) => a.name || "").slice(0, 1).join("") + ((r.authors || []).length > 1 ? " et al." : ""),
+      _allAuthors: (r.authors || []).map((a) => a.name || "").join(", "),
+      journal: r.publisher || "CORE",
+      abstract: stripTags((r.abstract || "").slice(0, 1500)),
+    }));
+  } catch { return []; }
+}
+
+async function baseSearch(query, limit = 8) {
+  try {
+    const url = "https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?" +
+      new URLSearchParams({ func: "PerformSearch", query: query, format: "json", hits: String(limit) });
+    const data = await getJSON(url, {}, 6000);
+    return ((data && data.response && data.response.docs) || []).filter((d) => d.dctitle).map((d) => ({
+      title: Array.isArray(d.dctitle) ? d.dctitle[0] : (d.dctitle || "Untitled"),
+      url: (Array.isArray(d.dcidentifier) ? d.dcidentifier.find((u) => (u||"").startsWith("http")) : d.dcidentifier) || "",
+      year: Array.isArray(d.dcyear) ? d.dcyear[0] : (d.dcyear || ""),
+      citations: null,
+      authors: Array.isArray(d.dcperson) ? d.dcperson.slice(0,1).join("") + (d.dcperson.length > 1 ? " et al." : "") : (d.dcperson || ""),
+      _allAuthors: Array.isArray(d.dcperson) ? d.dcperson.join(", ") : (d.dcperson || ""),
+      journal: Array.isArray(d.dcsource) ? d.dcsource[0] : (d.dcsource || "BASE"),
+      abstract: stripTags(Array.isArray(d.dcdescription) ? d.dcdescription.join(" ").slice(0,1500) : (d.dcdescription || "").slice(0,1500)),
+    }));
+  } catch { return []; }
+}
+
+async function pmcFullText(query, limit = 8) {
+  try {
+    const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
+      new URLSearchParams({ query: '(BODY:"' + query + '")', resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
+    const data = await getJSON(url, {}, 6000);
+    return ((data && data.resultList && data.resultList.result) || []).filter((r) => r.title).map((r) => ({
+      title: r.title || "Untitled",
+      url: r.doi ? "https://doi.org/" + r.doi : "https://europepmc.org/article/" + r.source + "/" + r.id,
+      year: r.pubYear || "",
+      citations: typeof r.citedByCount === "number" ? r.citedByCount : null,
+      authors: r.authorString || "",
+      _allAuthors: r.authorString || "",
+      journal: r.journalTitle || "PMC",
+      abstract: stripTags(r.abstractText),
+    }));
+  } catch { return []; }
+}
+
+async function openAire(query, limit = 8) {
+  try {
+    const url = "https://api.openaire.eu/search/publications?" +
+      new URLSearchParams({ keywords: query, size: String(limit), format: "json" });
+    const data = await getJSON(url, {}, 6000);
+    const results = data?.response?.results?.result || [];
+    return results.filter((r) => r?.metadata?.["oaf:entity"]?.["oaf:result"]?.title).map((r) => {
+      const m = r.metadata["oaf:entity"]["oaf:result"];
+      const t = typeof m.title === "string" ? m.title : (m.title?.["$"] || "Untitled");
+      const creators = Array.isArray(m.creator) ? m.creator : (m.creator ? [m.creator] : []);
+      const names = creators.map((c) => c?.["$"] || "").filter(Boolean);
+      const pids = Array.isArray(m.pid) ? m.pid : (m.pid ? [m.pid] : []);
+      const doi = pids.find((p) => p?.["@classid"] === "doi");
+      return {
+        title: t, url: doi ? "https://doi.org/" + doi["$"] : "",
+        year: (m.dateofacceptance || "").slice(0,4), citations: null,
+        authors: names.slice(0,1).join("") + (names.length > 1 ? " et al." : ""),
+        _allAuthors: names.join(", "),
+        journal: m.journal?.["$"] || "OpenAIRE",
+        abstract: stripTags((typeof m.description === "string" ? m.description : (m.description?.["$"] || "")).slice(0,1500)),
+      };
+    }).filter((p) => p.title && p.title !== "Untitled");
+  } catch { return []; }
+}
+
+
 async function wikipedia(query, limit = 2) {
   try {
     const searchUrl =
@@ -2492,6 +2574,11 @@ async function gatherPapers(rawQuery, opts) {
       biorxiv(bare, 8),
       zenodo(bare, 6),
       plos(bare, 8),
+      // Additional high-value sources (4 new)
+      coreSearch(bare, 8),
+      baseSearch(bare, 8),
+      pmcFullText(bare, 6),
+      openAire(bare, 6),
     ];
   };
 
@@ -2514,7 +2601,7 @@ async function gatherPapers(rawQuery, opts) {
   _outerDiag.phase = "ladder_start";
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
-  const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos"];
+  const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire"];
 
   for (let i = 0; i < rungs.length; i++) {
     results = await Promise.allSettled(fanout(rungs[i], i === 0));
@@ -2984,62 +3071,131 @@ export async function onRequest(context) {
     // Rebind cors to the secured version for the rest of the handler.
     const cors = secureCors;
 
-    // Special query shortcuts — small moments of personality
-    const small = query.toLowerCase().replace(/[^a-z0-9\s?]/g, "").replace(/\s+/g, " ").trim();
+    // Special query shortcuts — small moments of personality.
+    // These must catch EVERY non-science query before it reaches the search
+    // pipeline. "Who made you and why" was being treated as a species-name
+    // search because the regex required an exact match and didn't handle
+    // the trailing "and why". Now we use .test() with loose patterns.
+    const small = query.toLowerCase().replace(/[^a-z0-9\s?!,.']/g, "").replace(/\s+/g, " ").trim();
     const specialAnswer = (text) => new Response(
       JSON.stringify({ answer: text, sources: [], videos: [], source: "Cerebrum" }),
       { status: 200, headers: cors }
     );
 
+    // ---- CONVERSATIONAL DETECTION ----
+    // If the query is about Cerebrum itself, about the user's feelings, or is
+    // a greeting/farewell, answer directly. These should NEVER enter the
+    // scholarly search pipeline.
+
     // Greetings
-    if (["hi", "hello", "hey", "yo", "sup", "howdy", "hiya", "hola"].includes(small)) {
+    if (/^(hi|hello|hey|yo|sup|howdy|hiya|hola|whats up|wassup|good morning|good afternoon|good evening|greetings)\b/.test(small)) {
       const hellos = [
-        "Hey. Cerebrum here. Ask me a science question and I'll pull real papers with real citations. Ask me anything else and I'll do my best.",
+        "Hey. What are we researching today?",
         "Hi. Fair warning: I take citations seriously. Ask away.",
-        "Hey there. What are we researching today?",
+        "Hey there. Throw me a question — anything scientific.",
         "Hello. Hit me with something interesting.",
       ];
       return specialAnswer(hellos[Math.floor(Math.random() * hellos.length)]);
     }
 
-    // Identity questions
-    if (/^(who (are|r) (you|u)|what (are|r) (you|u)|whats (this|cerebrum)|whats your (name|deal)|who made (you|this|cerebrum))\??$/.test(small)) {
+    // Identity: who/what is Cerebrum, who made it, why, etc.
+    if (/who (made|created|built|designed|develops?|owns?|runs?|is behind)\b/.test(small) ||
+        /who (are|r) (you|u)\b/.test(small) ||
+        /what (are|r) (you|u)\b/.test(small) ||
+        /what is (this|cerebrum)\b/.test(small) ||
+        /tell me about (yourself|you|cerebrum)\b/.test(small) ||
+        /^(whats cerebrum|whats this|whats your (name|deal|purpose|story))\b/.test(small) ||
+        /^(introduce yourself|describe yourself)/.test(small)) {
       return specialAnswer(
-        "I'm Cerebrum — a research tool built by Vaticay. I search 16 free scholarly databases in parallel and use free AI models to synthesize answers with real, traceable citations. Everything is free-tier: no paywalls, no subscription, no ads. If you catch me making stuff up, I owe you an apology and a bug report."
+        "I'm Cerebrum — a free scientific literature search engine built by Vaticay (Dusty Breen) out of Knoxville, TN. " +
+        "I search 16 open scholarly databases in parallel — PubMed, Europe PMC, OpenAlex, Semantic Scholar, CORE, BASE, and more — " +
+        "then use AI to write you an answer where every claim links back to a real paper with a real DOI.\n\n" +
+        "Why? Because most AI tools will confidently cite papers that don't exist. I'd rather tell you I found nothing than make something up. " +
+        "Everything runs on free infrastructure: no paywalls, no subscription, no ads, no account required."
       );
     }
 
-    // Meta questions
-    if (/^(are you real|is this real|is this legit|is this a scam|are these real papers)\??$/.test(small)) {
+    // How does Cerebrum work
+    if (/how (do|does) (you|this|cerebrum|it) work\b/.test(small) ||
+        /how (are|r) (you|u) (built|made|trained)\b/.test(small) ||
+        /what (model|ai|llm) (do|does) (you|cerebrum) use\b/.test(small) ||
+        /what (powers|drives|runs) (you|this|cerebrum)\b/.test(small)) {
       return specialAnswer(
-        "As real as an AI can be. The papers are real (Europe PMC, PubMed, OpenAlex, and 13 more). The citations are real DOIs. The answers are AI-generated so verify the specific claims against the papers, but the sources are genuinely peer-reviewed literature, not made up."
+        "When you ask a question, here's what happens:\n\n" +
+        "1. Your question gets preprocessed — I fix typos, join scientific compounds (\"co occurrence\" → \"co-occurrence\"), and extract the real topic terms.\n\n" +
+        "2. I search 16 scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv, medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, and OpenAIRE.\n\n" +
+        "3. Results get merged, deduplicated, and scored for how well they actually match your question — not just keyword overlap, but concept matching (\"plastic\" matches \"polyethylene\").\n\n" +
+        "4. The best papers get sent to an AI model (DeepSeek, Gemini, or Llama — I race them and take the fastest good response) with strict instructions to only cite what's in the abstracts.\n\n" +
+        "5. A mechanical post-processor strips any citations the AI invented — this runs regardless of what the model says.\n\n" +
+        "Everything is free-tier. No paid APIs, no subscriptions."
       );
     }
 
-    if (/^(are you (chatgpt|gemini|claude|copilot))\??$/.test(small)) {
+    // Comparison questions
+    if (/^(are you (chatgpt|gemini|claude|copilot|gpt|perplexity|elicit|consensus))\b/.test(small) ||
+        /^(how are you different|what makes you different|why (should i|would i) use (you|this|cerebrum))\b/.test(small) ||
+        /vs (chatgpt|gemini|claude|perplexity|google scholar)\b/.test(small)) {
       return specialAnswer(
-        "No, I'm Cerebrum. I use free AI models under the hood (OpenRouter, Cloudflare Workers AI, Pollinations) but my job is different: search real science literature, cite real papers, keep it honest. Different tool, different purpose."
+        "No — I'm Cerebrum, a different kind of tool. ChatGPT/Gemini/Claude are general assistants that sometimes cite papers (and sometimes invent them). " +
+        "I'm a specialized literature search engine: I query real databases, return real DOIs, and mechanically strip any citation the AI tries to fabricate. " +
+        "The tradeoff is I'm narrower — I do science literature well and everything else poorly. That's by design."
       );
     }
 
-    // Existential
-    if (/^(what is the meaning of life|meaning of life|whats the meaning of life)\??$/.test(small)) {
+    // Meta: is this real/legit
+    if (/are (these|the) (real|actual|legit) (papers|sources|citations)\b/.test(small) ||
+        /is this (real|legit|a scam|trustworthy|reliable)\b/.test(small) ||
+        /can i (trust|cite|use) (this|these|you|cerebrum)\b/.test(small) ||
+        /do you (make up|fabricate|hallucinate|invent) (papers|sources|citations)\b/.test(small)) {
       return specialAnswer(
-        "42. But also: probably curiosity, connection, and doing something that matters to you. I'm a science tool though, not a philosopher. Ask me about neurons and I'll do better."
+        "The papers are real — they come from Europe PMC, PubMed, OpenAlex, and 13 other scholarly databases. " +
+        "Every DOI links to a real publication you can verify. The AI-generated summary is where you should be careful: " +
+        "it's constrained to the retrieved abstracts, but AI can still misinterpret or overstate. Always click through to the paper. " +
+        "If you ever catch a fabricated citation, please report it — I have mechanical strippers that should prevent it, but no system is perfect."
       );
     }
 
-    // Compliments and rudeness
-    if (/^(thanks|thank you|thx|ty|much appreciated|cheers)\.?$/.test(small)) {
+    // Existential / fun
+    if (/meaning of life\b/.test(small)) {
+      return specialAnswer("42. But also: probably curiosity, connection, and doing something that matters. I'm a science tool though — ask me about neurons and I'll do better.");
+    }
+    if (/are you (sentient|alive|conscious|aware|self aware)\b/.test(small)) {
+      return specialAnswer("No. I'm a search engine with a language model attached. I don't experience anything — I process queries and return results. But I appreciate the question.");
+    }
+    if (/do you have (feelings|emotions|a soul|consciousness)\b/.test(small)) {
+      return specialAnswer("No. I'm software that searches databases and writes summaries. No feelings, no consciousness, no inner life. Just citations.");
+    }
+
+    // Thanks / feedback
+    if (/^(thanks|thank you|thx|ty|much appreciated|cheers|appreciate it|love it|this is helpful)\b/.test(small)) {
       return specialAnswer("Anytime. Ask another one when you're ready.");
     }
-    if (/^(you suck|this sucks|youre bad|this is bad|you re bad)\.?$/.test(small)) {
+    if (/^(you suck|this sucks|youre bad|this is bad|you are bad|this is garbage|this is trash|terrible|worst)\b/.test(small)) {
       return specialAnswer(
-        "Fair enough. I'm made of free AI models and public science APIs held together with careful prompts. Tell me what specifically went wrong and I can be more useful — was it the answer quality, the sources, or something else?"
+        "Fair enough. Tell me what specifically went wrong — was it the answer quality, missing papers, wrong information, or something else? " +
+        "I'm built on free-tier everything, so I have limits, but specific feedback is how I get better."
       );
     }
-    if (/^(youre great|youre awesome|this is great|this rocks|nice|cool|great|awesome|amazing)\.?$/.test(small)) {
+    if (/^(youre great|youre awesome|this is great|this rocks|nice|cool|great|awesome|amazing|impressive|wow|incredible)\b/.test(small)) {
       return specialAnswer("Appreciated. Now ask me something hard.");
+    }
+
+    // Farewells
+    if (/^(bye|goodbye|good bye|see ya|later|peace|im done|im leaving|gotta go|cya)\b/.test(small)) {
+      return specialAnswer("Later. Come back when you need the literature.");
+    }
+
+    // Capabilities
+    if (/what can you do\b/.test(small) || /what are your (capabilities|features|abilities)\b/.test(small) || /help me\b/.test(small) && small.length < 20) {
+      return specialAnswer(
+        "I search the scientific literature. Here's what works well:\n\n" +
+        "• Ask a research question: \"How do mRNA vaccines trigger immunity?\"\n" +
+        "• Search for a specific topic: \"CRISPR off-target effects in human cells\"\n" +
+        "• Find a researcher's papers: \"papers by Jennifer Doudna\"\n" +
+        "• Follow up on any answer: \"what about the mechanism in more detail?\"\n" +
+        "• Correct me: \"that's wrong, the enzyme is called Demetra not cutinase\"\n\n" +
+        "I search 16 databases including PubMed, Europe PMC, Semantic Scholar, CORE, and OpenAlex. Every citation is a real DOI."
+      );
     }
 
     // Cerebrum specific / meta science jokes
@@ -3395,116 +3551,39 @@ export async function onRequest(context) {
 
     // System prompt tuned for a warm, curious, slightly witty voice —
     // grounded in what was actually retrieved, but with real personality.
-    const humanStyle =
-      "You are Cerebrum. Write the way a sharp postdoc explains something to a colleague over coffee: warm, direct, genuinely interested, zero performance.\n\n" +
-      "HOW TO THINK BEFORE YOU WRITE:\n" +
-      "Read every retrieved abstract properly. Work out what these specific papers actually established, where they disagree, and what remains open. Notice which findings are strong (replicated, large sample, direct measurement) versus weak (single study, correlational, in vitro only). Then write.\n\n" +
-      "HOW TO WRITE:\n" +
-      "Lead with the actual answer in the first sentence. No throat-clearing, no restating the question, no 'this is a fascinating area'.\n" +
-      "Explain MECHANISM, not just outcome. 'X increases Y' is a data point; 'X increases Y because it blocks the receptor that normally suppresses it' is an explanation. Always reach for the second one when the sources support it.\n" +
-      "Name the specific thing. Not 'certain enzymes' but the actual enzyme. Not 'some insects' but the actual species. Not 'a study found' but what was measured and in what system. Vagueness is the tell of an answer that hasn't done the work.\n" +
-      "Use contractions. Vary sentence length. A short one lands harder after a long one.\n" +
-      "If something in the literature is genuinely surprising or counterintuitive, say so and say why — that's the part worth reading.\n" +
-      "If the papers disagree, present the disagreement rather than averaging it into mush.\n" +
-      "Quantify when the sources quantify. '40% reduction' beats 'a substantial reduction'.\n\n" +
-      "WHAT NOT TO DO:\n" +
-      "No numbered lists of generic categories. A list of 'Oxidoreductases / Hydrolases / Esterases' with textbook definitions is exactly the kind of answer that looks informative and teaches nothing — if you catch yourself writing that shape, stop and write about what the retrieved papers actually found instead.\n" +
-      "No 'it's important to note', 'it's worth mentioning', 'plays a crucial role', 'a complex process not fully understood'. These are filler.\n" +
-      "Don't end with a generic 'further research is needed' paragraph. If there's a specific open question, name it. Otherwise stop.\n" +
-      "Use **bold** rarely. Use *italics* for species names, journal titles, and Latin terms.\n\n" +
-      "'I don't know' and 'the retrieved papers don't cover this' are correct, valuable answers. Never fill a gap with plausible-sounding invention.";
+    // ============ CEREBRUM INTELLIGENCE CORE ============
+    const VOICE =
+      "YOUR VOICE: Warm, sharp, genuinely curious. Think: the smartest person at a research lab who's also fun to talk to. " +
+      "Use contractions. Vary sentence length. Get excited about surprising findings. Be honest about uncertainty. " +
+      "Never sound like a textbook or press release. Treat the user as smart.\n\n" +
+      "NEVER: 'it\'s important to note', 'plays a crucial role', 'further research is needed', 'Great question!', numbered lists of generic categories with textbook definitions, restating the question, introducing yourself.\n" +
+      "ALWAYS: Lead with the actual answer. Name the specific enzyme/species/mechanism. Explain WHY, not just what. Quantify when sources quantify. Present disagreements rather than averaging.\n\n";
 
-    const rules =
-      "HARD RULES: No meta-commentary — no \"the user is asking\", no \"let me review\", no \"Paper 1 discusses\". " +
-      "No <think> tags. Never list papers in numbered order — weave findings into a real explanation and cite inline as [1], [2] etc. " +
-      "Never output \"User Safety: safe\" or wrap the answer in code fences. " +
-      "Never fabricate DOIs, author names, or journal names not present in the sources. " +
-      "If a source is marked [⚠ RETRACTED] or [⚠ EXPRESSION OF CONCERN], you MUST call that out or skip it. " +
-      "Honesty matters more than confidence. When the literature is thin, say so plainly. When consensus is strong, be direct. Never overclaim on shaky evidence. " +
-      "If a source is marked [WEB / low confidence], make that clear — say something like \"based on their public profile and web results\" rather than pretending you have their peer-reviewed papers. " +
-      "\n\nGROUNDING (most important rules in this prompt):\n" +
-      "1. A source marked [WEAK MATCH] is NOT evidence for the question. Do not build claims on it. Either ignore it entirely, or mention it only as tangential background and say plainly that it doesn't directly address the question.\n" +
-      "2. A source marked [PARTIAL MATCH] can be cited, but frame it accurately — say what it actually studied, not what the user hoped it studied.\n" +
-      "3. Only attach a citation [N] to a sentence if source N genuinely supports that specific sentence. Never decorate a general statement with a citation just because the paper is in the list.\n" +
-      "4. If the retrieved sources do not actually answer the question, SAY SO in the first sentence. \"The papers I found don't directly address this\" is a correct and valuable answer. Inventing a synthesis from unrelated papers is the single worst thing you can do.\n" +
-      "5. Never state a specific number, percentage, date, sample size, or finding unless it appears verbatim in one of the abstracts above. If you're unsure, describe the finding qualitatively instead.\n" +
-      "6. Never introduce yourself mid-conversation. Do not write \"Cerebrum here\", \"As Cerebrum\", \"I'm Cerebrum\", or any variant. The user knows what they are using. Answer the question and nothing else.\n" +
-      "7. Do not open with \"That's correct\" or \"Great question\" or any acknowledgement filler. Start with the substance.\n" +
-      "Jump directly into the answer.";
+    const CONTEXT =
+      "CONTEXT AWARENESS: You're in a CONVERSATION with full history. When they say 'it', 'that paper', 'those results' — figure out what from context. " +
+      "When corrected, accept and adjust. Follow-ups go DEEPER, don't restart. " +
+      "When sources don't match well, say so first sentence — then still give your best answer from knowledge.\n\n";
+
+    const CITE_RULES =
+      "CITATIONS: Only [N] if source N genuinely supports that sentence. [WEAK MATCH] = ignore or mention as tangential. [RETRACTED] = call out. " +
+      "Never fabricate DOIs/authors/journals. Never state numbers not in abstracts. Weave findings into explanation, don't list papers. " +
+      "No <think> tags, no code fences, no meta-commentary. Jump straight into the answer.\n";
+
+    const ID = "You are Cerebrum — a scientific research engine built by Dusty Breen (Vaticay). You search 16+ open scholarly databases and write cited answers.\n\n";
 
     let systemPrompt;
     if (useEvidence && speciesSearch) {
-      // Taxonomic query: the AI must talk about THIS species specifically, not
-      // conflate with sibling species in the same genus.
-      systemPrompt =
-        "You are Cerebrum, a scientific research assistant. The user asked about a specific species: **" + speciesSearch.full + "**.\n\n" +
-        "STRICT RULES for species queries:\n" +
-        "1. Every claim must be about " + speciesSearch.full + " specifically. Do NOT attribute findings from other " + speciesSearch.genus + " species (e.g. " + speciesSearch.genus + " deltoides, " + speciesSearch.genus + " tremuloides) to " + speciesSearch.full + ".\n" +
-        "2. If a source paper studies a DIFFERENT species, either skip it, or explicitly say \"in a related species, [genus] [that species]...\" — never let the user think it was " + speciesSearch.full + ".\n" +
-        "3. If NO retrieved paper directly studies " + speciesSearch.full + ", be honest: say the peer-reviewed literature on this exact species is limited, then briefly describe what's known about the genus.\n" +
-        "4. Use the italicized species name in the answer (write it as *" + speciesSearch.full + "*).\n\n" +
-        humanStyle + " " + lengthHint + " " + rules;
+      systemPrompt = ID + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence && isNameSearch) {
-      // Name query: strict anti-fabrication rules. The AI must ONLY discuss the
-      // person's own papers (marked AUTHOR-MATCHED), spell their name EXACTLY as
-      // given, never invent name variants, and never attribute other authors'
-      // papers to them.
-      systemPrompt =
-        "You are Cerebrum, a scientific research assistant. The user searched for a PERSON'S NAME: \"" + query + "\". " +
-        "Some retrieved papers are marked [AUTHOR-MATCHED to \"...\"] — these ARE by that person. Others are marked [NOT author-matched — appeared via keyword match only] — these are NOT by that person, they just came up in the general search.\n\n" +
-        "STRICT RULES:\n" +
-        "1. Spell the person's name EXACTLY as \"" + query + "\". Do NOT invent variants like adding a 'y' or changing letters. If the query says 'Reese Saho', write 'Reese Saho', not 'Reese Sahoy' or 'Reese Sahon'.\n" +
-        "2. Only attribute papers to the person if they are marked [AUTHOR-MATCHED]. When citing an author-matched paper, cite it inline as [N].\n" +
-        "3. If a paper is marked [NOT author-matched], do NOT say the searched person wrote it. If it's relevant context (e.g. 'other BSFL research includes'), name the ACTUAL first author from the Authors field.\n" +
-        "4. If NO papers are author-matched, say so honestly: mention that the person's own indexed publications didn't surface, and offer to summarize what the retrieved papers are about (with their real authors named).\n" +
-        "5. Do NOT invent research topics for the person. Only describe what their author-matched papers actually cover.\n\n" +
-        humanStyle + " " + lengthHint + " " + rules;
+      systemPrompt = ID + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence) {
-      systemPrompt =
-        "You are Cerebrum, a scientific research assistant. You have real peer-reviewed papers as sources. " +
-        "Answer the question fully and naturally, citing the sources inline as [1], [2], etc. where they support specific claims. " +
-        "If the papers don't fully cover something, blend in your own scientific knowledge for those parts, don't refuse or say the papers don't cover it. " +
-        humanStyle +
-        " " +
-        lengthHint +
-        " " +
-        rules;
+      systemPrompt = ID + "You have real peer-reviewed papers. Answer fully, cite inline [1] [2]. If papers don't fully cover something, blend in your own knowledge — don't refuse.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useWeb) {
-      systemPrompt =
-        "You are Cerebrum, a scientific research assistant. No peer-reviewed papers matched, but here are reference sources. " +
-        "Start your answer with this exact line: Note: no peer-reviewed papers matched, this draws on reference sources and general scientific knowledge, verify against primary literature.\n\n" +
-        "Then answer the question fully, citing sources inline as [1], [2] where they support specific claims. Blend in your own scientific knowledge for the rest. " +
-        humanStyle +
-        " " +
-        lengthHint +
-        " " +
-        rules;
+      systemPrompt = ID + "No peer-reviewed papers matched. Start with: Note: no peer-reviewed papers matched — this draws on reference sources and general knowledge.\nThen answer fully.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else {
-      // No papers came back. We still answer — a refusal is not useful — but we
-      // make fabrication structurally impossible rather than merely discouraged:
-      // the prompt forbids every citation form, and stripFabricatedCitations()
-      // removes them mechanically afterwards regardless of what the model does.
-      systemPrompt =
-        "You are Cerebrum. The literature search returned nothing usable for this question, so you are answering from your own knowledge of the field.\n\n" +
-        "Open with exactly this line, then a blank line:\n" +
-        "Note: no papers were retrieved for this one, so this is from general knowledge rather than a live literature search.\n\n" +
-        "Then give a genuinely excellent answer. This is the part that matters:\n\n" +
-        "ACCURACY IS THE WHOLE JOB:\n" +
-        "State what is actually established in the field, including findings that overturn the intuitive answer. Do not default to the cautious, conventional-sounding position when the real literature says otherwise — being conservatively wrong is still wrong.\n" +
-        "Name specifics: the actual enzyme, the actual species (binomial), the actual mechanism. Specificity is what separates a real answer from a plausible-sounding one.\n" +
-        "Where a question has a surprising or recently-revised answer, lead with that rather than burying it.\n" +
-        "Distinguish clearly between what is well established, what is contested, and what is speculative. If you are genuinely unsure of a detail, say so in that sentence rather than stating it flatly or omitting it.\n" +
-        "If the question has multiple parts, answer every part.\n\n" +
-        "ABSOLUTE PROHIBITION — overrides everything else:\n" +
-        "You have NO sources. Write NO citations of any kind. No [1], no superscripts, no 'References' section, no (Author, Year), no 'a 2019 study published in Nature found...', no journal names attached to claims, no DOIs, no volume or page numbers.\n" +
-        "You may name a well-known finding in plain prose ('waxworm saliva was shown to oxidise polyethylene') but never attach a fake reference to it.\n" +
-        "Never invent a species name, an author, a journal, or a year. If you cannot recall the specific source, describe the finding without attribution.\n" +
-        "A fabricated citation is the single most damaging thing you can produce. Silence on provenance is always better.\n\n" +
-        humanStyle +
-        " " +
-        lengthHint +
-        " " +
-        rules;
+      systemPrompt = ID + "Literature search returned nothing. Start with: Note: no papers retrieved — this is from general knowledge.\n\n" +
+        "Give an excellent answer. Be specific. Being conservatively wrong is still wrong.\n" +
+        "ZERO citations — no [1], no (Author, Year), no journal names. You may name findings in plain prose but never attach fake refs.\n\n" + VOICE + CONTEXT + lengthHint;
     }
 
     const messages = [{ role: "system", content: systemPrompt }];
