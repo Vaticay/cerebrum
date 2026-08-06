@@ -345,7 +345,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
     .trim();
   return clean.split(/\n{2,}/).map((para, pi) => (
-    <p key={pi} style={{ fontSize: "clamp(15px, 4vw, 16px)", lineHeight: 1.62, margin: "0 0 14px", color: P.ink, letterSpacing: "-0.006em" }}>
+    <p key={pi} style={{ fontSize: "clamp(15.5px, 4vw, 16.5px)", lineHeight: 1.7, margin: "0 0 14px", color: P.ink, letterSpacing: "-0.006em" }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|\[\d+\])/g).map((seg, si) => {
@@ -2482,7 +2482,7 @@ function App() {
               <span style={{ margin: "0 8px" }}>·</span>
               <a href="/contact" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Contact</a>
               <span style={{ margin: "0 8px" }}>·</span>
-              © {new Date().getFullYear()} Cerebrum™
+              © {new Date().getFullYear()} Cerebrum™ · v2.0
             </div>
           </div>
         </div>
@@ -3000,7 +3000,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         padding: "11px 12px", textAlign: "left",
         background: active ? withAlpha(accent, 0.1) : "transparent",
         border: `1px solid ${active ? accent : P.line}`,
-        borderRadius: 10, cursor: "pointer", fontFamily: "inherit",
+        borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
       }}>
       <span style={{ fontSize: 12.5, fontWeight: 600, color: active ? accent : P.ink }}>{label}</span>
       <span style={{ fontSize: 10.5, color: P.faint, lineHeight: 1.3 }}>{sub}</span>
@@ -3221,7 +3221,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     gateKicker: { fontSize: 12, fontWeight: 600, letterSpacing: "0.16em", textTransform: "uppercase", color: accent, marginBottom: 14 },
     gateTitle: { fontSize: 46, fontWeight: 750, letterSpacing: "-0.03em", color: P.ink, marginBottom: 14, lineHeight: 1 },
     gateSub: { fontSize: 16, color: P.ink2, marginBottom: 32, lineHeight: 1.6, letterSpacing: "-0.01em" },
-    gateBtn: { display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 28px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: font, boxShadow: `0 4px 16px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em" },
+    gateBtn: { display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 28px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 12, cursor: "pointer", fontFamily: font, boxShadow: `0 4px 16px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em" },
     gateNote: { fontSize: 12.5, color: P.faint, marginTop: 18 },
     page: { minHeight: "100dvh", height: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
@@ -3264,12 +3264,12 @@ function makeStyles(P, accent, at, isMobile = false) {
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "48px 0 72px", position: "relative" },
     heroGlow: { position: "absolute", width: 620, height: 620, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.12 : 0.07)}, transparent 65%)`, top: "4%", filter: "blur(50px)", pointerEvents: "none" },
     heroMark: { marginBottom: 30, position: "relative" },
-    heroTitle: { fontSize: isMobile ? 44 : 72, fontWeight: 750, letterSpacing: "-0.045em", lineHeight: 0.95, color: P.ink, marginBottom: 14, position: "relative" },
+    heroTitle: { fontSize: isMobile ? 40 : 68, fontWeight: 750, letterSpacing: "-0.045em", lineHeight: 0.95, color: P.ink, marginBottom: 14, position: "relative" },
     heroSub: { fontSize: isMobile ? 15.5 : 18, color: P.ink2, maxWidth: 460, lineHeight: 1.5, marginBottom: 40, letterSpacing: "-0.012em", position: "relative", fontWeight: 400 },
     searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 640, backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: isMobile ? "7px 7px 7px 14px" : "8px 8px 8px 16px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", position: "relative" },
     searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 4px ${withAlpha(accent, 0.14)}` },
     searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
-    searchBtn: { fontSize: 14.5, fontWeight: 650, background: `linear-gradient(135deg, ${accent}, ${withAlpha(accent, 0.8)})`, color: at, border: "none", padding: isMobile ? "12px 16px" : "12px 22px", borderRadius: 10, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 10px ${withAlpha(accent, 0.32)}` },
+    searchBtn: { fontSize: 15, fontWeight: 700, background: `linear-gradient(135deg, ${accent}, ${withAlpha(accent, 0.8)})`, color: at, border: "none", padding: isMobile ? "12px 16px" : "12px 22px", borderRadius: 12, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 10px ${withAlpha(accent, 0.32)}` },
     chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 24, maxWidth: 620, position: "relative" },
     chip: { fontSize: 13.5, color: P.ink2, background: withAlpha(P.surface, 0.7), backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: `1px solid ${P.line}`, borderRadius: 22, padding: "9px 15px", cursor: "pointer", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
     chipHover: { borderColor: accent, color: accent, transform: "translate3d(0, -3px, 0) scale(1.03)", boxShadow: `0 4px 12px ${withAlpha(accent, 0.15)}` },
@@ -3350,11 +3350,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     segment: { display: "flex", gap: 4, background: P.bg, padding: 4, borderRadius: 11, marginBottom: 22, border: `1px solid ${P.line}` },
     segBtn: { flex: 1, padding: "9px", fontSize: 13, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", textTransform: "capitalize", fontFamily: font, fontWeight: 550, transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)" },
     segActive: { background: P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
-    toggle: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", fontSize: 13.5, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: font, fontWeight: 550, marginBottom: 8 },
+    toggle: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", fontSize: 13.5, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 12, cursor: "pointer", fontFamily: font, fontWeight: 550, marginBottom: 8 },
     toggleOn: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
     toggleKnob: { width: 34, height: 20, borderRadius: 12, position: "relative", transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", display: "inline-block", flexShrink: 0 },
     setNote: { fontSize: 12, color: P.faint, lineHeight: 1.5, marginBottom: 18, marginTop: 2 },
-    clearAll: { width: "100%", padding: "11px", fontSize: 13, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 10, cursor: "pointer", marginBottom: 12, marginTop: 8, fontFamily: font, fontWeight: 550 },
+    clearAll: { width: "100%", padding: "11px", fontSize: 13, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 12, cursor: "pointer", marginBottom: 12, marginTop: 8, fontFamily: font, fontWeight: 550 },
     modalClose: { width: "100%", padding: "13px", fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 11, cursor: "pointer", fontFamily: font, letterSpacing: "-0.01em" },
     shortcuts: { fontSize: 11, color: P.faint, textAlign: "center", marginTop: 16, letterSpacing: "0.02em" },
     soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4, transition: "opacity 0.15s" },
