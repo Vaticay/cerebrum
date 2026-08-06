@@ -106,11 +106,11 @@ function pick(n = 3) {
 }
 
 const PALETTES = {
-  Light: { dark: false, bg: "#f6f5f2", surface: "#ffffff", raised: "#ffffff", ink: "#1a1c1e", ink2: "#565a5f", faint: "#9a9ea3", line: "#eceae5", line2: "#dfdcd5", shadow: "0 1px 2px rgba(20,22,25,.04), 0 8px 24px rgba(20,22,25,.06)", shadowSm: "0 1px 2px rgba(20,22,25,.05), 0 2px 8px rgba(20,22,25,.04)", grain: 0.015, skel: "linear-gradient(90deg, #eceae5 25%, #f3f1ec 50%, #eceae5 75%)" },
-  Dark:  { dark: true, bg: "#0c0e10", surface: "#141719", raised: "#1a1e21", ink: "#eef1f3", ink2: "#a3abb2", faint: "#606970", line: "#20252a", line2: "#2b3237", shadow: "0 1px 2px rgba(0,0,0,.3), 0 12px 40px rgba(0,0,0,.4)", shadowSm: "0 1px 3px rgba(0,0,0,.3)", grain: 0.02, skel: "linear-gradient(90deg, #1a1e21 25%, #232a2f 50%, #1a1e21 75%)" },
-  Mid:   { dark: true, bg: "#16130f", surface: "#1e1a15", raised: "#252019", ink: "#f0ebe3", ink2: "#b0a695", faint: "#6e6455", line: "#282219", line2: "#352e22", shadow: "0 1px 2px rgba(0,0,0,.3), 0 12px 40px rgba(0,0,0,.45)", shadowSm: "0 1px 3px rgba(0,0,0,.3)", grain: 0.022, skel: "linear-gradient(90deg, #252019 25%, #2f2820 50%, #252019 75%)" },
+  Light: { dark: false, bg: "#f8fafc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#94a3b8", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.1)", shadow: "0 1px 3px rgba(0,0,0,0.04), 0 12px 40px rgba(0,0,0,0.06)", shadowSm: "0 1px 2px rgba(0,0,0,0.04)", grain: 0.012, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
+  Dark:  { dark: true, bg: "#06080d", surface: "#0d1117", raised: "#161b22", ink: "#f0f4f8", ink2: "#8b9cb8", faint: "#5a6a82", line: "rgba(148,163,184,0.08)", line2: "rgba(148,163,184,0.12)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.018, skel: "linear-gradient(90deg, #0d1117 25%, #161b22 50%, #0d1117 75%)" },
+  Mid:   { dark: true, bg: "#0f0d08", surface: "#1a1610", raised: "#23201a", ink: "#f0ebe3", ink2: "#b0a695", faint: "#6e6455", line: "rgba(176,166,149,0.08)", line2: "rgba(176,166,149,0.12)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.02, skel: "linear-gradient(90deg, #1a1610 25%, #23201a 50%, #1a1610 75%)" },
 };
-const ACCENTS = { Emerald: "#047857", Indigo: "#4338ca", Sky: "#0369a1", Amber: "#b45309", Rose: "#be123c", Violet: "#6d28d9", Teal: "#0f766e" };
+const ACCENTS = { Emerald: "#10b981", Indigo: "#6366f1", Sky: "#0ea5e9", Amber: "#f59e0b", Rose: "#f43f5e", Violet: "#8b5cf6", Teal: "#14b8a6" };
 
 // Pick readable text color for a given background. Uses a stricter luminance
 // threshold than the naive "> 128" split so mid-luminance colors like amber
@@ -2367,7 +2367,7 @@ function App() {
   );
 
   return (
-    <div style={S.page}>
+    <div style={{...S.page, "--cb-accent": accent}}>
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
       <div style={S.grain} />
       <header style={S.header}>
@@ -3223,7 +3223,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     gateSub: { fontSize: 16, color: P.ink2, marginBottom: 32, lineHeight: 1.6, letterSpacing: "-0.01em" },
     gateBtn: { display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 28px", fontSize: 15, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 12, cursor: "pointer", fontFamily: font, boxShadow: `0 4px 16px ${withAlpha(accent, 0.35)}`, letterSpacing: "-0.01em" },
     gateNote: { fontSize: 12.5, color: P.faint, marginTop: 18 },
-    page: { minHeight: "100dvh", height: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "relative" },
+    page: { minHeight: "100dvh", height: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "fixed", inset: 0, overflow: "hidden", touchAction: "pan-y", overscrollBehavior: "none" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
     header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 20 },
     headInner: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, height: 58, display: "flex", alignItems: "center", justifyContent: "space-between" },
@@ -3259,17 +3259,17 @@ function makeStyles(P, accent, at, isMobile = false) {
       top: isMobile ? 2 : undefined,
       right: isMobile ? 2 : undefined,
     },
-    scroll: { flex: 1, overflowY: "auto" , paddingBottom: isMobile ? 88 : 0},
+    scroll: { flex: 1, overflowY: "auto", overflowX: "hidden", paddingBottom: isMobile ? 88 : 0, WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" },
     container: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "48px 0 72px", position: "relative" },
-    heroGlow: { position: "absolute", width: 620, height: 620, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.12 : 0.07)}, transparent 65%)`, top: "4%", filter: "blur(50px)", pointerEvents: "none" },
+    heroGlow: { position: "absolute", width: 720, height: 720, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.12 : 0.07)}, transparent 65%)`, top: "4%", filter: "blur(70px)", pointerEvents: "none" },
     heroMark: { marginBottom: 30, position: "relative" },
     heroTitle: { fontSize: isMobile ? 40 : 68, fontWeight: 750, letterSpacing: "-0.045em", lineHeight: 0.95, color: P.ink, marginBottom: 14, position: "relative" },
     heroSub: { fontSize: isMobile ? 15.5 : 18, color: P.ink2, maxWidth: 460, lineHeight: 1.5, marginBottom: 40, letterSpacing: "-0.012em", position: "relative", fontWeight: 400 },
-    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 640, backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: isMobile ? "7px 7px 7px 14px" : "8px 8px 8px 16px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", position: "relative" },
+    searchShell: { display: "flex", alignItems: "center", gap: 12, width: "100%", maxWidth: 680, backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: isMobile ? "7px 7px 7px 14px" : "8px 8px 8px 16px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", position: "relative" },
     searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 4px ${withAlpha(accent, 0.14)}` },
     searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
-    searchBtn: { fontSize: 15, fontWeight: 700, background: `linear-gradient(135deg, ${accent}, ${withAlpha(accent, 0.8)})`, color: at, border: "none", padding: isMobile ? "12px 16px" : "12px 22px", borderRadius: 12, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 10px ${withAlpha(accent, 0.32)}` },
+    searchBtn: { fontSize: 15.5, fontWeight: 700, background: `linear-gradient(135deg, ${accent}, ${withAlpha(accent, 0.8)})`, color: at, border: "none", padding: isMobile ? "12px 16px" : "12px 22px", borderRadius: 12, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 10px ${withAlpha(accent, 0.32)}` },
     chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 24, maxWidth: 620, position: "relative" },
     chip: { fontSize: 13.5, color: P.ink2, background: withAlpha(P.surface, 0.7), backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: `1px solid ${P.line}`, borderRadius: 22, padding: "9px 15px", cursor: "pointer", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
     chipHover: { borderColor: accent, color: accent, transform: "translate3d(0, -3px, 0) scale(1.03)", boxShadow: `0 4px 12px ${withAlpha(accent, 0.15)}` },
@@ -3282,7 +3282,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
     qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
     headline: { fontWeight: 680, fontSize: isMobile ? 19 : 26, lineHeight: 1.25, marginBottom: isMobile ? 14 : 18, color: P.ink, letterSpacing: "-0.022em" },
-    answerCard: { background: withAlpha(P.surface, 0.85), backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: `1px solid ${P.line}`, borderLeft: `3px solid ${accent}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "16px 15px" : "22px 26px", boxShadow: P.shadow },
+    answerCard: { background: withAlpha(P.surface, 0.7), backdropFilter: "blur(16px) saturate(1.2)", WebkitBackdropFilter: "blur(16px) saturate(1.2)", border: `1px solid ${P.line}`, borderLeft: `3px solid ${accent}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "16px 15px" : "22px 26px", boxShadow: P.shadow },
     byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
@@ -3375,23 +3375,44 @@ if (typeof document !== "undefined") {
     st.id = "cb-anim";
     st.textContent = `
       /* ============================================================
-         CEREBRUM MOTION SYSTEM
-         Design tokens first, then keyframes, then utilities.
-         Every animation touches only transform / opacity / filter.
+         CEREBRUM v2.0 DESIGN SYSTEM
+         Premium visual layer. Every surface has depth, every
+         interaction has feedback, every transition has intention.
          ============================================================ */
       :root {
-        /* Durations */
         --cb-instant: 90ms;
         --cb-quick: 160ms;
         --cb-base: 280ms;
         --cb-slow: 460ms;
         --cb-ambient: 720ms;
-        /* Easings */
-        --cb-out: cubic-bezier(0.16, 1, 0.3, 1);        /* decisive ease-out */
-        --cb-inout: cubic-bezier(0.65, 0, 0.35, 1);      /* symmetric */
-        --cb-entrance: cubic-bezier(0.22, 1, 0.36, 1);   /* soft arrival */
-        --cb-exit: cubic-bezier(0.4, 0, 1, 1);           /* accelerate away */
+        --cb-out: cubic-bezier(0.16, 1, 0.3, 1);
+        --cb-inout: cubic-bezier(0.65, 0, 0.35, 1);
+        --cb-entrance: cubic-bezier(0.22, 1, 0.36, 1);
+        --cb-exit: cubic-bezier(0.4, 0, 1, 1);
       }
+
+      /* ---- Premium globals ---- */
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body {
+        margin: 0; overflow-x: hidden; max-width: 100%;
+        overscroll-behavior-y: contain;
+        min-height: 100vh; min-height: 100dvh;
+        /* Premium smooth scrolling */
+        scroll-behavior: smooth;
+      }
+      @supports (padding: max(0px)) {
+        body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+      }
+      input, textarea, select { font-size: 16px; }
+
+      /* Sleek scrollbar */
+      ::-webkit-scrollbar { width: 5px; height: 5px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.18); border-radius: 10px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.35); }
+
+      /* Selection color */
+      ::selection { background: rgba(99,102,241,0.25); }
 
       /* ---- Keyframes ---- */
       @keyframes cbspin { to { transform: rotate(360deg); } }
@@ -3557,9 +3578,43 @@ if (typeof document !== "undefined") {
                     border-color var(--cb-quick) var(--cb-out),
                     color var(--cb-quick) var(--cb-out);
       }
-      button:not(:disabled):hover  { transform: translate3d(0, -1.5px, 0); }
-      button:not(:disabled):active { transform: scale(0.975) translate3d(0, 0, 0); transition-duration: 60ms; }
-      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      /* ---- Premium interactive physics ---- */
+      button:not(:disabled) { transition: all var(--cb-quick) var(--cb-out); }
+      button:not(:disabled):hover  { transform: translate3d(0, -2px, 0); }
+      button:not(:disabled):active { transform: scale(0.97) translate3d(0, 0, 0); transition-duration: 60ms; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      /* Animated gradient border for the search bar — the signature visual */
+      @property --gradient-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+      @keyframes cbGradientSpin { to { --gradient-angle: 360deg; } }
+      .cb-search-glow {
+        position: relative;
+      }
+      .cb-search-glow::before {
+        content: '';
+        position: absolute; inset: -1.5px; border-radius: 18px;
+        background: conic-gradient(from var(--gradient-angle), transparent 40%, var(--cb-accent, #6366f1) 50%, transparent 60%);
+        animation: cbGradientSpin 3.5s linear infinite;
+        opacity: 0;
+        transition: opacity 0.4s ease;
+        z-index: -1;
+      }
+      .cb-search-glow:focus-within::before {
+        opacity: 1;
+      }
+      /* Fallback for browsers without @property */
+      @supports not (background: conic-gradient(red, blue)) {
+        .cb-search-glow:focus-within { box-shadow: 0 0 0 2px var(--cb-accent, #6366f1), 0 0 20px rgba(99,102,241,0.15); }
+      }
+
+      /* Glass card hover */
+      .cb-glass-card {
+        transition: transform 0.25s var(--cb-out), box-shadow 0.25s var(--cb-out), border-color 0.25s;
+      }
+      .cb-glass-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      }
 
       /* Header action buttons get a soft surface on hover. Inline React styles
          can't express :hover, so the affordance lives here. */
