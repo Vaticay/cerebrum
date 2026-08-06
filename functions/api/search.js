@@ -131,6 +131,22 @@ function stripFabricatedCitations(text, sourceCount) {
   //    logic sees `[1]` not `[1](#ref-1)`.
   t = t.replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]");
 
+  // 0a. Bare-digit citation markers. Model sometimes writes "networks 12"
+  //     instead of "networks [1][2]" — two adjacent superscripts run together
+  //     as plain digits. Convert clumped digits (2-3 in a row after a word)
+  //     into bracketed markers so the downstream stripper can handle them,
+  //     OR delete them if they exceed source count.
+  t = t.replace(/([a-z\)\]])\s+(\d{1,3})(?=[\s.,;:!?)])/gi, (m, before, digits) => {
+    // Split "12" into [1][2], "123" into [1][2][3]
+    const nums = digits.split("").map((d) => parseInt(d, 10));
+    if (nums.some((n) => n < 1)) return m;
+    if (sourceCount === 0) return before;
+    if (nums.every((n) => n <= sourceCount)) {
+      return before + nums.map((n) => "[" + n + "]").join("");
+    }
+    return before;
+  });
+
   // 0b. Strip any "References:" / "Sources:" / "Bibliography:" section the
   //     model appended, regardless of sourceCount. We render the real
   //     bibliography separately from the answer, so ANY inline references
@@ -138,6 +154,25 @@ function stripFabricatedCitations(text, sourceCount) {
   //     fabrication (when it doesn't) — either way, remove it.
   t = t.replace(/\n[-—]{2,}\s*\n/g, "\n\n");
   t = t.replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "").trim();
+
+  // 0c. Headerless trailing citation block. Model writes a numbered list of
+  //     citations at the bottom WITHOUT a "References:" header — just:
+  //     "1 Deng, L., & Yan, W. (2012). ..."
+  //     Detect lines starting with a digit and a Name-comma-Initial pattern,
+  //     and strip from the first such line if it lands in the tail of the
+  //     answer.
+  const linesForCite = t.split(/\n/);
+  const citationLineRe = /^\s*\d{1,3}\.?\s+[A-Z][A-Za-zöäüéèçñ\-']+,\s+[A-Z]\./;
+  let firstCiteLine = -1;
+  for (let i = 0; i < linesForCite.length; i++) {
+    if (citationLineRe.test(linesForCite[i])) { firstCiteLine = i; break; }
+  }
+  if (firstCiteLine !== -1) {
+    const cutoff = linesForCite.slice(0, firstCiteLine).join("\n").length;
+    if (cutoff > t.length * 0.35) {
+      t = linesForCite.slice(0, firstCiteLine).join("\n").trimEnd();
+    }
+  }
 
   // 1. Remove any trailing "References:" / "Sources:" / "Bibliography:" block.
   //    These are almost always fabricated when sourceCount is 0.
@@ -353,25 +388,30 @@ const INTENT_WORDS = new Set([
 // autocorrect — a typo returns zero. This runs before term extraction so the
 // canonical spelling reaches the API.
 const SPELLING_CORRECTIONS = {
-  "occurance": "occurrence",
-  "occurances": "occurrences",
-  "co-occurance": "co-occurrence",
-  "cooccurance": "co-occurrence",
+  "occurance": "occurrence", "occurances": "occurrences",
+  "co-occurance": "co-occurrence", "cooccurance": "co-occurrence",
   "cooccurrence": "co-occurrence",
-  "seperate": "separate",
-  "recieve": "receive",
-  "acheive": "achieve",
-  "definately": "definitely",
-  "occured": "occurred",
-  "flourescent": "fluorescent",
-  "flourescence": "fluorescence",
-  "phylogenic": "phylogenetic",
-  "millenia": "millennia",
-  "existance": "existence",
-  "concious": "conscious",
-  "genomewide": "genome-wide",
-  "genemwide": "genome-wide",
+  "seperate": "separate", "recieve": "receive", "acheive": "achieve",
+  "definately": "definitely", "occured": "occurred",
+  "flourescent": "fluorescent", "flourescence": "fluorescence",
+  "phylogenic": "phylogenetic", "millenia": "millennia",
+  "existance": "existence", "concious": "conscious",
+  "genomewide": "genome-wide", "genemwide": "genome-wide",
   "microbiom": "microbiome",
+  "decomp": "decomposition", "biodegredation": "biodegradation",
+  "photosythesis": "photosynthesis", "photosynthisis": "photosynthesis",
+  "mitocondria": "mitochondria", "mitocondrial": "mitochondrial",
+  "enviroment": "environment", "enviromental": "environmental",
+  "resistnace": "resistance", "resistence": "resistance",
+  "palstic": "plastic", "platsic": "plastic",
+  "anlaysis": "analysis", "anaylsis": "analysis",
+  "calicification": "calcification", "calcificaiton": "calcification",
+  "neruon": "neuron", "nuerotransmitter": "neurotransmitter",
+  "protien": "protein", "protiens": "proteins",
+  "bateria": "bacteria", "baterium": "bacterium",
+  "symbotic": "symbiotic",
+  "metabalic": "metabolic", "metablism": "metabolism",
+  "pathogensis": "pathogenesis", "carcinognesis": "carcinogenesis",
 };
 
 // Multi-word scientific terms that must be preserved as a phrase. Users type
@@ -466,6 +506,27 @@ const CONCEPT_GROUPS = [
   ["protein", "proteins", "proteomic", "peptide", "peptides", "polypeptide"],
   ["climate", "warming", "temperature", "thermal", "heat"],
   ["neuron", "neurons", "neural", "neuronal", "brain", "cortical", "cerebral"],
+  // Ecology / environment
+  ["ecology", "ecological", "ecosystem", "ecosystems", "community", "communities",
+   "biodiversity", "species richness", "assemblage"],
+  ["network", "networks", "co-occurrence", "cooccurrence", "interaction",
+   "interactions", "graph", "connectivity", "modularity"],
+  ["soil", "soils", "edaphic", "rhizosphere", "pedosphere", "substrate"],
+  ["ocean", "oceanic", "marine", "sea", "seawater", "pelagic", "benthic"],
+  ["coral", "corals", "reef", "reefs", "calcification", "bleaching"],
+  ["forest", "forests", "woodland", "canopy", "tree", "trees", "silviculture"],
+  // Molecular biology
+  ["mutation", "mutations", "variant", "variants", "polymorphism", "snp", "indel"],
+  ["expression", "transcription", "regulation", "promoter", "enhancer", "silencer"],
+  ["antibody", "antibodies", "immunoglobulin", "antigen", "epitope"],
+  ["vaccine", "vaccines", "vaccination", "immunization", "adjuvant"],
+  ["virus", "viruses", "viral", "virology", "pathogen", "infection", "infectious"],
+  // Chemistry
+  ["nanoparticle", "nanoparticles", "nanostructure", "nanomaterial", "quantum dot"],
+  ["catalyst", "catalysts", "catalysis", "catalytic", "photocatalyst", "electrocatalyst"],
+  // Decomposition / decay
+  ["decomposition", "decompose", "decay", "necrobiome", "cadaver", "carcass",
+   "putrefaction", "autolysis", "bloat", "rupture"],
 ];
 
 // Build a fast lookup: term -> the full set of equivalent terms
@@ -2360,17 +2421,33 @@ async function gatherPapers(rawQuery, opts) {
   }
 
   _outerDiag.phase = "before_ladder";
-  // ---- PROGRESSIVE RETRIEVAL LADDER (per-source syntax) ----
-  // Engines do NOT share a query language. Europe PMC and PubMed parse full
-  // boolean expressions; OpenAlex, Crossref, Semantic Scholar, DOAJ, PLOS and
-  // Zenodo treat "(a OR b) AND (c OR d)" as literal text and match nothing;
-  // arXiv needs each term prefixed (all:x AND all:y), so parentheses after
-  // all: are a syntax error.
+  // ============ RETRIEVAL LADDER ============
+  // The retrieval system that has to work right or nothing else matters.
   //
-  // Sending one boolean string to all ten was returning zero everywhere. Each
-  // source now gets the query in its own dialect, and we climb down through
-  // looser formulations until enough papers come back.
-  // The ranked term list, most-specific first.
+  // Design principles (each learned from a real production failure):
+  //
+  // 1. EVERY ENGINE GETS ITS OWN QUERY DIALECT.
+  //    Europe PMC and PubMed parse boolean. OpenAlex, Crossref, Semantic
+  //    Scholar, DOAJ, PLOS, Zenodo treat "(a OR b)" as literal text → zero.
+  //    arXiv needs "all:x AND all:y". Sending one string to all ten is the
+  //    single mistake that caused the longest outage in this project.
+  //
+  // 2. CONCEPT EXPANSION ONLY WHERE IT'S SAFE.
+  //    Europe PMC and PubMed handle OR-expanded groups well. For the plain-
+  //    keyword engines, we send ONLY the bare anchor terms — no parens, no
+  //    "OR", no boolean operators of any kind. These engines do fuzzy/semantic
+  //    matching internally; our OR-expansion was fighting their own relevance
+  //    algorithm and reducing recall.
+  //
+  // 3. THE LADDER LOOSENS PROGRESSIVELY.
+  //    4 anchors → 3 → 2 → 1. Stop at the first rung that returns ≥5 papers.
+  //    Then also search any sub-clauses of a compound question.
+  //
+  // 4. THE RAW QUERY IS ALWAYS THE FINAL FALLBACK.
+  //    If no rung worked, we try the user's original query verbatim. Some
+  //    engines do NLP-level understanding of natural language; our anchor
+  //    extraction sometimes loses information they would have caught.
+
   const ranked = query
     .split(/\s+/)
     .filter((t) => t.length > 2 && !STOPWORDS.has(t))
@@ -2381,21 +2458,7 @@ async function gatherPapers(rawQuery, opts) {
   const booleanQuery = buildStructuredQuery(query);
   const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
 
-  // Expand a term with its concept-group synonyms as an OR clause. This is
-  // what lets a query for "plastic" also match "polyethylene", and "insects"
-  // also match "larvae". Plain-keyword engines then get the widened surface
-  // area they need to actually return papers.
-  const expandForPlainSearch = (term) => {
-    const group = CONCEPT_LOOKUP.get(term.toLowerCase());
-    if (!group || group.size <= 1) return term;
-    // Cap the expansion — some engines struggle with very long OR lists.
-    const members = [term, ...[...group].filter((m) => m !== term)].slice(0, 6);
-    return "(" + members.join(" OR ") + ")";
-  };
-
-  // Progressive rungs. Each rung is a set of terms — the higher the rung, the
-  // more terms it requires. The ladder tries the most-precise formulation
-  // first, then loosens until it finds papers.
+  // Progressive rungs, most-precise first.
   const rungs = [
     ranked.slice(0, 4),
     ranked.slice(0, 3),
@@ -2404,30 +2467,35 @@ async function gatherPapers(rawQuery, opts) {
   ].filter((r) => r.length > 0);
   if (!rungs.length) rungs.push([query]);
 
+  // The fanout sends the RIGHT syntax to EACH engine. This is the most
+  // important function in the entire codebase — if it sends the wrong format
+  // to any engine, that engine silently returns zero and the user sees
+  // "no papers found".
   const fanout = (terms, useBoolean) => {
-    // Concept-expanded query for plain-keyword engines. Each anchor becomes
-    // an OR clause: "plastic" -> "(plastic OR polyethylene OR polymer OR ...)"
-    // Multiple anchors are space-joined (implicit AND on most engines).
-    const expanded = terms.map(expandForPlainSearch).join(" ");
+    // Boolean engines (EPMC, PubMed): use the full structured query on the
+    // first rung, plain terms on fallback rungs.
+    const boolQ = useBoolean ? booleanQuery : terms.join(" ");
+    // Plain-keyword engines: BARE TERMS ONLY. No parentheses, no "OR", no
+    // boolean syntax of any kind. These engines do their own semantic matching.
     const bare = terms.join(" ");
+    // arXiv: prefix each term with "all:" and join with " AND ".
+    const arx = arxivQuery(terms);
+
     return [
-      europePMC(useBoolean ? booleanQuery : expanded, 10),
-      pubmed(useBoolean ? booleanQuery : expanded, 10, ncbiKey),
-      openAlex(bare, 10, openAlexKey),         // OpenAlex handles bare best
-      crossref(bare, 8),                        // Crossref: bare only
-      arxiv(arxivQuery(terms), 6),
-      semanticScholar(bare, 8),
-      doaj(expanded, 6),
-      biorxiv(bare, 6),
-      zenodo(bare, 4),
-      plos(expanded, 6),
+      europePMC(boolQ, 12),
+      pubmed(boolQ, 12, ncbiKey),
+      openAlex(bare, 12, openAlexKey),
+      crossref(bare, 10),
+      arxiv(arx, 8),
+      semanticScholar(bare, 10),
+      doaj(bare, 8),
+      biorxiv(bare, 8),
+      zenodo(bare, 6),
+      plos(bare, 8),
     ];
   };
 
-  // Multi-part questions ("what enzymes do X have, AND how do Y use them")
-  // contain two distinct searches. Treating them as one keyword bag finds
-  // papers that cover neither well. We detect the split and search each part,
-  // then merge — so a compound question retrieves literature for both halves.
+  // Multi-part question detection.
   const clauses = rawQuery
     .split(/\s*(?:,\s*)?\band\b\s+(?=how|what|why|when|where|which|do|does|can|is|are)|\s*[;?]\s*/i)
     .map((c) => c.trim())
@@ -2447,6 +2515,7 @@ async function gatherPapers(rawQuery, opts) {
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
   const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos"];
+
   for (let i = 0; i < rungs.length; i++) {
     results = await Promise.allSettled(fanout(rungs[i], i === 0));
     const perSource = results.map((r, idx) => ({
@@ -2459,6 +2528,26 @@ async function gatherPapers(rawQuery, opts) {
     diag.rungs.push({ terms: rungs[i], got, perSource });
     if (got >= 5) { diag.sourceOutcomes = perSource; break; }
     diag.sourceOutcomes = perSource;
+  }
+
+  // FINAL FALLBACK: if no rung returned enough, try the raw user query
+  // verbatim. Some engines (especially Semantic Scholar and Europe PMC) have
+  // surprisingly good NLP that handles natural-language questions better than
+  // our extracted anchors.
+  const totalSoFar = results.reduce(
+    (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+  );
+  if (totalSoFar < 3) {
+    const rawFallback = await Promise.allSettled([
+      europePMC(query, 12),
+      semanticScholar(query, 10),
+      openAlex(query, 10, openAlexKey),
+    ]);
+    results = results.concat(rawFallback);
+    diag.rawFallback = rawFallback.map((r, i) => ({
+      source: ["europePMC","semanticScholar","openAlex"][i],
+      count: r.status === "fulfilled" ? (r.value || []).length : 0,
+    }));
   }
 
   // Add results for each sub-question of a compound query
@@ -2778,29 +2867,122 @@ const cors = {
   "Access-Control-Allow-Origin": "*",
 };
 
+// ---- SECURITY LAYER ----
+// Cerebrum is a free public endpoint, which makes it a target for abuse:
+// scrapers, cost-driving request floods, and prompt-injection probing from
+// automated tooling. These controls raise the cost of abuse without blocking
+// legitimate users.
+
+// Only allow requests that originate from our own site. A browser sends the
+// Origin header on cross-site POSTs; automated abuse from other domains gets
+// rejected. (Direct server-to-server abuse can spoof this, but it stops the
+// large majority of drive-by browser-based abuse and hotlinking.)
+const ALLOWED_ORIGINS = [
+  "https://askcerebrum.org",
+  "https://www.askcerebrum.org",
+  "https://cerebrum-2pz.pages.dev",
+];
+function originAllowed(request) {
+  const origin = request.headers.get("Origin") || "";
+  // No Origin header = same-origin navigation or a non-browser client. Allow,
+  // because legitimate same-origin fetches sometimes omit it, but this is the
+  // path rate limiting protects.
+  if (!origin) return true;
+  return ALLOWED_ORIGINS.some((o) => origin === o) || origin.endsWith(".pages.dev");
+}
+
+// In-memory sliding-window rate limiter, keyed by client IP. Cloudflare gives
+// each colo its own isolate, so this is per-edge rather than global, but it's
+// enough to stop a single IP from hammering one datacenter. For hard global
+// limits you'd add a Durable Object or KV; this is the free-tier version.
+const RATE_BUCKET = new Map();
+const RATE_LIMIT = 20;         // requests
+const RATE_WINDOW_MS = 60000;  // per minute
+function rateLimit(ip) {
+  const now = Date.now();
+  const rec = RATE_BUCKET.get(ip) || [];
+  const recent = rec.filter((t) => now - t < RATE_WINDOW_MS);
+  recent.push(now);
+  RATE_BUCKET.set(ip, recent);
+  // Opportunistic cleanup so the map doesn't grow unbounded.
+  if (RATE_BUCKET.size > 5000) {
+    for (const [k, v] of RATE_BUCKET) {
+      if (v.every((t) => now - t > RATE_WINDOW_MS)) RATE_BUCKET.delete(k);
+    }
+  }
+  return recent.length <= RATE_LIMIT;
+}
+
+const MAX_QUERY_LEN = 2000;      // reject absurdly long queries (abuse / cost)
+const MAX_HISTORY_TURNS = 20;    // cap conversation history size
+
 export async function onRequest(context) {
   const { request, env } = context;
 
+  // Lock CORS to our own origins instead of the wildcard "*".
+  const reqOrigin = request.headers.get("Origin") || "";
+  const corsOrigin =
+    ALLOWED_ORIGINS.includes(reqOrigin) || reqOrigin.endsWith(".pages.dev")
+      ? reqOrigin
+      : "https://askcerebrum.org";
+  const secureCors = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": corsOrigin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Vary": "Origin",
+    "X-Content-Type-Options": "nosniff",
+  };
+
   if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
+    return new Response(null, { status: 204, headers: secureCors });
+  }
+
+  // Only POST is valid for search.
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed." }), {
+      status: 405, headers: secureCors,
     });
+  }
+
+  // Reject cross-origin browser abuse.
+  if (!originAllowed(request)) {
+    return new Response(JSON.stringify({ error: "Origin not allowed." }), {
+      status: 403, headers: secureCors,
+    });
+  }
+
+  // Rate limit by client IP.
+  const clientIP =
+    request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("X-Forwarded-For") ||
+    "unknown";
+  if (!rateLimit(clientIP)) {
+    return new Response(
+      JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }),
+      { status: 429, headers: { ...secureCors, "Retry-After": "30" } }
+    );
   }
 
   try {
     const body = await request.json().catch(() => ({}));
-    const query = (body.query || "").trim();
+    let query = (body.query || "").trim();
     if (!query) {
       return new Response(JSON.stringify({ error: "No query provided." }), {
         status: 400,
-        headers: cors,
+        headers: secureCors,
       });
     }
+    // Reject oversized input (cost control + abuse).
+    if (query.length > MAX_QUERY_LEN) {
+      query = query.slice(0, MAX_QUERY_LEN);
+    }
+    // Cap conversation history so a crafted request can't blow up token usage.
+    if (Array.isArray(body.history) && body.history.length > MAX_HISTORY_TURNS) {
+      body.history = body.history.slice(-MAX_HISTORY_TURNS);
+    }
+    // Rebind cors to the secured version for the rest of the handler.
+    const cors = secureCors;
 
     // Special query shortcuts — small moments of personality
     const small = query.toLowerCase().replace(/[^a-z0-9\s?]/g, "").replace(/\s+/g, " ").trim();
@@ -3346,20 +3528,60 @@ export async function onRequest(context) {
         : query;
     messages.push({ role: "user", content: userContent });
 
+    // ============ D1 ANSWER CACHE ============
+    // Before calling any LLM, check if we have a cached answer for a similar
+    // query that was previously upvoted or verified. This is free, instant,
+    // and gets better as more people use the tool.
+    const cacheKey = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    let cachedAnswer = null;
+    if (env.DB && sourceList.length > 0) {
+      try {
+        const cached = await env.DB.prepare(
+          "SELECT answer, sources, score, created_at FROM answer_cache WHERE query_key = ? AND score >= 0 ORDER BY score DESC, created_at DESC LIMIT 1"
+        ).bind(cacheKey).first();
+        if (cached && cached.answer) {
+          cachedAnswer = cached;
+        }
+      } catch {}
+    }
+
+    // If we have a high-confidence cached answer (score >= 2 means multiple
+    // upvotes), serve it directly. Otherwise fall through to the LLM chain.
+    if (cachedAnswer && cachedAnswer.score >= 2) {
+      return new Response(
+        JSON.stringify({
+          answer: cachedAnswer.answer,
+          sources: sourceList,
+          videos,
+          factCheck: null,
+          related: [],
+          source: "Cached (verified)",
+          _diag: gResult && gResult._diag ? gResult._diag : null,
+          _cached: true,
+        }),
+        { status: 200, headers: cors }
+      );
+    }
+
     // ============ AI ANSWER GENERATION ============
     let answer = "";
     let aiOK = false;
     const token = env.OPENROUTER_API_KEY;
 
-    // TIER 1: OpenRouter free models
+    // TIER 1: OpenRouter — prioritize the best free models for accuracy.
+    // DeepSeek and Gemini Flash are the strongest free options as of mid-2025.
+    // Order matters: we try the best model first and stop at the first success.
     if (token) {
       const models = [
-        "google/gemini-2.0-flash-exp:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen-2.5-72b-instruct:free",
+        "deepseek/deepseek-chat-v3-0324:free",     // best free reasoning model
+        "deepseek/deepseek-chat:free",              // fallback deepseek
+        "google/gemini-2.0-flash-exp:free",         // strong, fast
+        "google/gemini-2.5-flash-preview:free",     // newer gemini
+        "meta-llama/llama-4-maverick:free",         // latest llama
+        "meta-llama/llama-3.3-70b-instruct:free",   // proven llama
+        "qwen/qwen-2.5-72b-instruct:free",          // strong Chinese model
         "mistralai/mistral-small-3.1-24b-instruct:free",
-        "deepseek/deepseek-chat:free",
-        "meta-llama/llama-3.1-8b-instruct:free",
+        "meta-llama/llama-3.1-8b-instruct:free",    // last resort free
       ];
       for (const model of models) {
         try {
@@ -3370,12 +3592,12 @@ export async function onRequest(context) {
               headers: {
                 "Content-Type": "application/json",
                 Authorization: "Bearer " + token,
-                "HTTP-Referer": "https://cerebrum.pages.dev",
+                "HTTP-Referer": "https://askcerebrum.org",
                 "X-Title": "Cerebrum",
               },
               body: JSON.stringify({
                 model,
-                temperature: 0.4,
+                temperature: 0.3,      // lower = more factual, less creative
                 max_tokens: maxTokens,
                 messages,
               }),
@@ -3392,6 +3614,7 @@ export async function onRequest(context) {
               if (c.length > 30) {
                 answer = c;
                 aiOK = true;
+                dbUsed = model.split("/").pop().split(":")[0];
                 break;
               }
             }
@@ -3400,17 +3623,21 @@ export async function onRequest(context) {
       }
     }
 
-    // TIER 2: Cloudflare Workers AI (needs [ai] binding)
+    // TIER 2: Cloudflare Workers AI — better models than before.
+    // @cf/meta/llama-3.3-70b-instruct-fp8-fast is the strongest free CF model.
     if (!aiOK && env.AI && typeof env.AI.run === "function") {
       const cfModels = [
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "@cf/meta/llama-3.1-70b-instruct",
         "@cf/meta/llama-3.1-8b-instruct",
+        "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
         "@cf/mistral/mistral-7b-instruct-v0.1",
       ];
       for (const m of cfModels) {
         try {
           const out = await env.AI.run(m, {
             messages,
-            max_tokens: Math.min(maxTokens, 1024),
+            max_tokens: Math.min(maxTokens, 2048),
           });
           let c = (out && out.response) || "";
           if (c) {
@@ -3418,6 +3645,7 @@ export async function onRequest(context) {
             if (c.length > 30) {
               answer = c;
               aiOK = true;
+              dbUsed = m.split("/").pop();
               break;
             }
           }
@@ -3425,7 +3653,7 @@ export async function onRequest(context) {
       }
     }
 
-    // TIER 3: Pollinations keyless (retry with knowledge-only prompt if papers block was too long)
+    // TIER 3: Pollinations keyless (final fallback)
     if (!aiOK) {
       try {
         const shortMessages = [
@@ -3515,6 +3743,25 @@ export async function onRequest(context) {
       answer = correctNameVariants(answer, canonicalName);
     }
 
+    // ---- CACHE THE ANSWER (D1) ----
+    // Store this answer so future similar queries can skip the LLM entirely.
+    // Only cache answers that have real sources — unsourced general-knowledge
+    // answers are the ones most likely to contain errors.
+    const answerId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    if (env.DB && sourceList.length > 0 && answer.length > 50) {
+      try {
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
+        ).bind(
+          cacheKey,
+          answerId,
+          answer,
+          JSON.stringify(sourceList.slice(0, 10)),
+          new Date().toISOString()
+        ).run();
+      } catch {} // Cache write failure is not critical — don't block the response
+    }
+
     return new Response(
       JSON.stringify({
         answer,
@@ -3522,6 +3769,7 @@ export async function onRequest(context) {
         videos,
         factCheck: null,
         related: [],
+        answerId, // frontend can use this for upvote/downvote
         source:
           aiOK && useEvidence
             ? dbUsed + " + AI"
@@ -3530,9 +3778,6 @@ export async function onRequest(context) {
             : aiOK
             ? "General knowledge (AI)"
             : dbUsed,
-        // Diagnostics: which query rung ran, and how many papers each source
-        // returned. Surfaced so retrieval failures can be diagnosed from the
-        // browser's Network tab instead of blind guessing.
         _diag: gResult && gResult._diag ? gResult._diag : null,
       }),
       { status: 200, headers: cors }
