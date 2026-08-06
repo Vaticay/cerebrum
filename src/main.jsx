@@ -765,7 +765,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
 
       <div style={{
         position: "relative", zIndex: 1,
-        maxWidth: 400, width: "100%",
+        maxWidth: 480, width: "100%",
         display: "flex", flexDirection: "column", alignItems: "center",
         transition: "opacity 0.9s cubic-bezier(0.4, 0, 0.2, 1), transform 0.9s cubic-bezier(0.4, 0, 0.2, 1)",
         opacity: phase === "forming" ? 0 : 1,
@@ -787,9 +787,9 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
           fontSize: "clamp(15px, 4.2vw, 17px)",
           color: P.ink2, margin: "0 0 clamp(28px, 7vw, 38px)",
           letterSpacing: "-0.012em", lineHeight: 1.5,
-          maxWidth: 330,
+          maxWidth: 420,
         }}>
-          Research questions in. Cited answers out.
+          Your research sidekick. Ask anything scientific — we dig through millions of real papers and come back with answers you can actually trace.
         </p>
 
         <button onClick={go} className="cb-btn" style={{
@@ -800,7 +800,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
           boxShadow: `0 8px 28px ${withAlpha(accent, 0.32)}`,
           letterSpacing: "-0.015em",
         }}>
-          Begin
+          Start exploring
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5" />
           </svg>
@@ -813,11 +813,11 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
           fontSize: 11.5, color: P.faint, letterSpacing: "0.005em",
         }}>
           <span style={{ width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.8, flexShrink: 0 }} />
-          <span>16 open indexes</span>
-          <span style={{ opacity: 0.35 }}>/</span>
-          <span>no account</span>
-          <span style={{ opacity: 0.35 }}>/</span>
-          <span>no ads</span>
+          <span>16 databases</span>
+          <span style={{ opacity: 0.35 }}>·</span>
+          <span>real citations</span>
+          <span style={{ opacity: 0.35 }}>·</span>
+          <span>always free</span>
         </div>
       </div>
     </div>
@@ -1414,6 +1414,12 @@ function MicButton({ onTranscript, accent, P }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
+  // Store callback in a ref so the useEffect doesn't re-run (and recreate
+  // the recognition instance) on every parent render. This was the one-word
+  // bug: parent re-renders → new onTranscript closure → effect re-runs →
+  // old recognition aborted → new one created → user lost their dictation.
+  const cbRef = useRef(onTranscript);
+  cbRef.current = onTranscript;
   // The user's intent: are they trying to keep dictating? Used to distinguish
   // "user tapped stop" from "browser cut us off after a pause".
   const wantListenRef = useRef(false);
@@ -1466,7 +1472,7 @@ function MicButton({ onTranscript, accent, P }) {
         }
       }
       const combined = (finalTextRef.current + (interim ? " " + interim : "")).replace(/\s+/g, " ").trim();
-      onTranscript(combined, false);
+      cbRef.current(combined, false);
     };
 
     rec.onerror = (e) => {
@@ -1500,7 +1506,7 @@ function MicButton({ onTranscript, accent, P }) {
       wantListenRef.current = false;
       try { rec.abort(); } catch {}
     };
-  }, [onTranscript]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!supported) return null;
 
@@ -1512,7 +1518,7 @@ function MicButton({ onTranscript, accent, P }) {
       wantListenRef.current = false;
       try { recRef.current.stop(); } catch {}
       setListening(false);
-      onTranscript(finalTextRef.current.trim(), true);
+      cbRef.current(finalTextRef.current.trim(), true);
       // Descending two-tone beep (stop)
       beep(660, 0.09);
       setTimeout(() => beep(440, 0.11), 90);
@@ -1551,6 +1557,14 @@ function MicButton({ onTranscript, accent, P }) {
         <path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M5 12a7 7 0 0014 0M12 19v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+      {listening && (
+        <span style={{
+          position: "absolute", inset: -4, borderRadius: 12,
+          border: `2px solid ${accent}`,
+          animation: "cbMicPulse 1.5s ease-in-out infinite",
+          pointerEvents: "none",
+        }} />
+      )}
       {listening && (
         <span style={{
           position: "absolute", inset: -3, borderRadius: 10,
@@ -1843,137 +1857,173 @@ function looksLikeFollowupText(q) {
 // detect the path here and render the info page inside React. This is
 // guaranteed to work regardless of Cloudflare routing config.
 function InfoPage({ page }) {
-  const pages = {
+  // Match the live app exactly: read the user's saved theme + accent so the
+  // info pages feel like part of the same product, not a separate site.
+  const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
+  const P = PALETTES[paletteName] || PALETTES.Dark;
+  const accentName = (() => { try { return getCookie("cb_accent") || "Amber"; } catch { return "Amber"; } })();
+  const customAccent = (() => { try { return getCookie("cb_accentCustom") || ""; } catch { return ""; } })();
+  const accent = customAccent || ACCENTS[accentName] || ACCENTS.Amber;
+  const at = accentText(accent);
+  const isMobile = useIsMobile();
+
+  const goHome = () => {
+    // Bypass the intro: set the "entered" flag the app checks, then navigate.
+    try { setCookie("cb_entered", "1", 365); } catch {}
+    window.location.href = "/";
+  };
+
+  const PAGES = {
     about: {
-      title: "About Cerebrum",
-      content: `
-        <p style="font-size:18px;color:#71717a;margin:0 0 28px">A free scientific literature search engine that returns cited answers from real peer-reviewed sources.</p>
-        <h2>What Cerebrum is</h2>
-        <p>Cerebrum is a research tool. You ask a scientific question and Cerebrum queries a group of open scholarly databases in parallel, then writes a summary with each claim linked to the paper it came from.</p>
-        <p>The goal is honesty and traceability. Every citation is a real DOI. If no papers are retrieved for a question, the answer says so plainly rather than inventing sources.</p>
-        <h2>How it works</h2>
-        <p>When you submit a question, Cerebrum queries these open, non-proprietary indexes in parallel:</p>
-        <ul>
-          <li>Europe PMC (43 million articles)</li>
-          <li>PubMed (36 million articles)</li>
-          <li>OpenAlex (250 million works)</li>
-          <li>Crossref (150 million works)</li>
-          <li>Semantic Scholar (220 million papers)</li>
-          <li>arXiv, bioRxiv, medRxiv (preprints)</li>
-          <li>DOAJ, PLOS, Zenodo (open access)</li>
-        </ul>
-        <p>Results are merged, scored for relevance against the question's specific terminology, and passed to a language model that writes a summary constrained by what's actually in the retrieved abstracts.</p>
-        <h2>What Cerebrum is not</h2>
-        <ul>
-          <li><strong>Not a substitute for reading the papers.</strong> Every summary is AI-generated. Verify anything you plan to rely on against the cited source.</li>
-          <li><strong>Not a medical, legal, or financial advisor.</strong></li>
-          <li><strong>Not tracked or monetized.</strong> No ads. No account. No analytics beyond basic uptime monitoring.</li>
-        </ul>
-      `,
+      eyebrow: "About",
+      title: "A research instrument, not a chatbot",
+      lede: "Cerebrum queries the open scientific literature and returns answers where every claim traces back to a real, verifiable paper.",
+      blocks: [
+        { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." },
+        { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access"] },
+        { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." },
+        { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no account, no selling data."] },
+      ],
     },
     privacy: {
-      title: "Privacy Policy",
-      content: `
-        <p style="font-size:14px;color:#71717a">Last updated: January 2026</p>
-        <p style="font-size:17px;color:#71717a;margin:0 0 24px">Cerebrum is designed to collect as little as possible.</p>
-        <h2>What we don't do</h2>
-        <ul>
-          <li>We do not use tracking pixels, third-party analytics, or advertising networks.</li>
-          <li>We do not require an account, email address, or personal information.</li>
-          <li>We do not sell, share, or profile user data.</li>
-          <li>We do not use cookies for tracking. Preferences are stored in your browser's local storage and never leave your device.</li>
-        </ul>
-        <h2>What is processed when you search</h2>
-        <ul>
-          <li>Your question is sent to Cerebrum's server to query scholarly databases and generate an answer.</li>
-          <li>The question is forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, etc.). They receive search terms only.</li>
-          <li>The question is sent to a language model provider (OpenRouter or Cloudflare Workers AI) to generate the summary.</li>
-          <li>Your IP address is visible to Cloudflare as part of standard web traffic for rate limiting and abuse prevention.</li>
-          <li>We do not permanently store your questions on our servers.</li>
-        </ul>
-        <h2>Local browser storage</h2>
-        <p>Cerebrum uses localStorage for saved articles, session history, and preferences. This data is stored only on your device.</p>
-        <h2>Children</h2>
-        <p>Cerebrum is not directed at children under 13.</p>
-      `,
+      eyebrow: "Privacy",
+      title: "We collect as little as physically possible",
+      lede: "No tracking pixels. No third-party analytics. No account. No selling data — there is nothing to sell.",
+      updated: "Last updated January 2026",
+      blocks: [
+        { h: "What we don't do", list: ["No tracking pixels, third-party analytics, or ad networks.", "No account, email, or personal information required.", "No selling, sharing, or profiling of user data.", "No tracking cookies. Preferences live in your browser's local storage and never leave your device."] },
+        { h: "What happens when you search", list: ["Your question is sent to Cerebrum's server to query databases and generate an answer.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others).", "The question is sent to a language-model provider (OpenRouter or Cloudflare Workers AI) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention.", "We do not permanently store your questions."] },
+        { h: "Local storage", p: "Saved articles, session history, and preferences (theme, motion, voice) are stored only in your browser via localStorage. Clearing your browser data removes them entirely." },
+        { h: "Children", p: "Cerebrum is not directed at children under 13." },
+      ],
     },
     terms: {
-      title: "Terms of Service",
-      content: `
-        <p style="font-size:14px;color:#71717a">Last updated: January 2026</p>
-        <h2>1. What Cerebrum is</h2>
-        <p>Cerebrum is a free scientific literature search tool. It returns AI-generated summaries of retrieved peer-reviewed papers. It is provided as-is, with no warranty.</p>
-        <h2>2. Accuracy is not guaranteed</h2>
-        <p>Answers are generated by a language model from retrieved abstracts. Language models can misread, misinterpret, or misattribute. Verify anything important against the cited sources.</p>
-        <h2>3. Acceptable use</h2>
-        <p>Do not use Cerebrum to disrupt the service, systematically scrape answers, generate harmful content, or violate the terms of upstream scholarly APIs.</p>
-        <h2>4. Third-party content</h2>
-        <p>Cerebrum links to papers hosted by third parties. We are not responsible for their content, availability, or licensing.</p>
-        <h2>5. Availability</h2>
-        <p>Cerebrum is free and comes with no availability guarantee. The service may change at any time.</p>
-        <h2>6. Liability</h2>
-        <p>To the maximum extent allowed by law, Cerebrum is not liable for any damages arising from your use of the service.</p>
-      `,
+      eyebrow: "Terms",
+      title: "The rules that keep this usable for everyone",
+      lede: "Cerebrum is a free tool provided as-is. Using it means agreeing to a few common-sense terms.",
+      updated: "Last updated January 2026",
+      blocks: [
+        { h: "What Cerebrum is", p: "A free scientific literature search tool that returns AI-generated summaries of retrieved peer-reviewed papers, provided as-is with no warranty." },
+        { h: "Accuracy is not guaranteed", p: "Answers are generated by a language model from retrieved abstracts. Models can misread or misattribute. Verify anything important against the cited sources. Cerebrum is not a substitute for a qualified professional." },
+        { h: "Acceptable use", list: ["Don't disrupt, degrade, or circumvent the service or its rate limits.", "Don't systematically scrape, mirror, or resell answers.", "Don't generate content meant to defraud, defame, harass, or endanger.", "Don't violate the terms of the upstream scholarly APIs."] },
+        { h: "Third-party content", p: "Cerebrum links to papers hosted by publishers and repositories. We aren't responsible for their content, availability, or licensing — follow each publisher's terms." },
+        { h: "Availability & liability", p: "Cerebrum is free and comes with no availability guarantee. To the maximum extent allowed by law, we aren't liable for damages arising from your use of the service." },
+      ],
     },
     contact: {
-      title: "Contact",
-      content: `
-        <p style="font-size:17px;color:#71717a;margin:0 0 24px">Get in touch for bug reports, feature requests, or questions.</p>
-        <div style="background:var(--surface,#f4f4f5);border:1px solid var(--line,#e4e4e7);border-radius:12px;padding:18px 22px;margin:18px 0">
-          <h2 style="margin-top:0">Email</h2>
-          <p style="font-family:monospace;font-size:15px"><a href="mailto:contact@askcerebrum.org" style="color:inherit">contact@askcerebrum.org</a></p>
-          <p style="font-size:13px;color:#71717a">Include as much detail as you can — a bug report is much easier to act on with the exact query and what you expected to see.</p>
-        </div>
-        <h2>Reporting a bad answer</h2>
-        <p>If you find a wrong species, invented citation, or misattributed finding — please email with the exact question and a short description. This is how the system improves.</p>
-        <h2>Reputation and categorization</h2>
-        <p>If your organization's web filter is blocking Cerebrum, email us and we can help get it recategorized correctly.</p>
-      `,
+      eyebrow: "Contact",
+      title: "Tell us what's broken or missing",
+      lede: "Bug reports, feature requests, feedback, security issues — all welcome.",
+      blocks: [
+        { h: "Email", email: "contact@askcerebrum.org", p: "Include as much detail as you can. A bug report is far easier to act on with the exact query, your browser, and what you expected to see." },
+        { h: "Reporting a bad answer", p: "Found a wrong species, an invented citation, a misattributed finding? Email the exact question and a short description. This is how the system improves." },
+        { h: "Security", p: "Discovered a vulnerability? Email us with details and please hold off on public disclosure until we've had a chance to respond." },
+        { h: "Blocked at work?", p: "If your organization's web filter is blocking Cerebrum, email us — we can help get it recategorized correctly as Reference / Educational." },
+      ],
     },
   };
-  const data = pages[page];
+
+  const data = PAGES[page];
   if (!data) return null;
+
+  const NAV = [["about", "About"], ["privacy", "Privacy"], ["terms", "Terms"], ["contact", "Contact"]];
+
   return (
-    <div style={{ minHeight: "100dvh", background: "#fafaf9", color: "#18181b", fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif", lineHeight: 1.6 }}>
+    <div style={{ minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif", position: "relative", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
       <style>{`
-        @media (prefers-color-scheme: dark) {
-          .cb-info-page { background: #0f0f10 !important; color: #e4e4e7 !important; }
-          .cb-info-page a { color: #f97316; }
-          .cb-info-header { border-color: rgba(128,128,128,0.2) !important; }
-          .cb-info-footer { border-color: rgba(128,128,128,0.2) !important; color: #71717a !important; }
-        }
-        .cb-info-page h2 { font-size: 19px; font-weight: 650; letter-spacing: -0.015em; margin: 32px 0 10px; }
-        .cb-info-page ul { padding-left: 22px; margin: 0 0 18px; }
-        .cb-info-page li { margin-bottom: 8px; }
-        .cb-info-page p { margin: 0 0 14px; }
+        .cb-info-scroll { -webkit-overflow-scrolling: touch; }
+        .cb-info-block h2 { font-size: 21px; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 12px; color: ${P.ink}; }
+        .cb-info-block p { font-size: 16px; line-height: 1.7; color: ${P.ink2}; margin: 0; letter-spacing: -0.005em; }
+        .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
+        .cb-info-block li { font-size: 15.5px; line-height: 1.6; color: ${P.ink2}; padding: 10px 0 10px 26px; position: relative; border-bottom: 1px solid ${P.line}; }
+        .cb-info-block li:last-child { border-bottom: none; }
+        .cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 18px; width: 6px; height: 6px; border-radius: 50%; background: ${accent}; }
+        .cb-info-navlink { transition: color .15s, background .15s; }
+        .cb-info-navlink:hover { color: ${accent} !important; background: ${withAlpha(accent, 0.08)}; }
+        .cb-info-card { transition: transform .2s cubic-bezier(0.16,1,0.3,1), box-shadow .2s cubic-bezier(0.16,1,0.3,1), border-color .2s; }
+        .cb-info-card:hover { transform: translateY(-2px); border-color: ${withAlpha(accent, 0.4)}; box-shadow: ${P.shadow}; }
+        .cb-info-back:hover { background: ${accent} !important; color: ${at} !important; border-color: ${accent} !important; }
+        .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16,1,0.3,1) both; }
+        @keyframes cbInfoFade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
       `}</style>
-      <div className="cb-info-page" style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
-        <header className="cb-info-header" style={{ padding: "20px 24px", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
-          <a href="/" style={{ display: "inline-flex", alignItems: "center", gap: 10, fontWeight: 700, color: "inherit", fontSize: 17, textDecoration: "none", letterSpacing: "-0.01em" }}>
-            <Mark size={22} accent="#b45309" />
-            Cerebrum
-          </a>
-        </header>
-        <main style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px 96px", flex: 1, width: "100%" }}>
-          <h1 style={{ fontSize: "clamp(30px, 5vw, 40px)", fontWeight: 750, letterSpacing: "-0.025em", margin: "0 0 16px", lineHeight: 1.1 }}>{data.title}</h1>
-          <div dangerouslySetInnerHTML={{ __html: data.content }} />
-        </main>
-        <footer className="cb-info-footer" style={{ borderTop: "1px solid rgba(128,128,128,0.15)", padding: "24px", textAlign: "center", fontSize: 13, color: "#71717a" }}>
-          <a href="/" style={{ color: "inherit", margin: "0 12px" }}>Home</a>·
-          <a href="/about" style={{ color: "inherit", margin: "0 12px" }}>About</a>·
-          <a href="/privacy" style={{ color: "inherit", margin: "0 12px" }}>Privacy</a>·
-          <a href="/terms" style={{ color: "inherit", margin: "0 12px" }}>Terms</a>·
-          <a href="/contact" style={{ color: "inherit", margin: "0 12px" }}>Contact</a>
-          <div style={{ marginTop: 12 }}>© 2026 Cerebrum</div>
-        </footer>
+
+      {/* Ambient background matching the app */}
+      <div style={{ position: "fixed", inset: 0, opacity: 0.5, pointerEvents: "none", zIndex: 0 }}>
+        <LivingBackground accent={accent} P={P} intensity="subtle" preset="aurora" density={0.7} speed={0.6} opacity={0.7} paused={false} />
       </div>
+
+      {/* Sticky header */}
+      <header style={{ position: "sticky", top: 0, zIndex: 10, background: withAlpha(P.bg, 0.82), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: `1px solid ${P.line}` }}>
+        <div style={{ maxWidth: 860, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 10, fontWeight: 700, color: P.ink, fontSize: 17, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", letterSpacing: "-0.01em", padding: 0 }}>
+            <Mark size={22} accent={accent} glow={P.dark} />
+            Cerebrum
+          </button>
+          <button onClick={goHome} className="cb-info-back" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 600, color: P.ink2, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 9, padding: isMobile ? "8px 12px" : "9px 16px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "-0.01em", transition: "all .15s" }}>
+            {!isMobile && <span>Back to Cerebrum</span>}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </header>
+
+      {/* Scrollable content */}
+      <main className="cb-info-scroll" style={{ position: "relative", zIndex: 1, flex: 1, overflowY: "auto", width: "100%" }}>
+        <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "40px 20px 80px" : "72px 28px 120px" }}>
+          <div className="cb-fadein">
+            <div style={{ display: "inline-block", fontSize: 12, fontWeight: 650, letterSpacing: "0.14em", textTransform: "uppercase", color: accent, marginBottom: 18 }}>{data.eyebrow}</div>
+            <h1 style={{ fontSize: isMobile ? 34 : 52, fontWeight: 750, letterSpacing: "-0.035em", lineHeight: 1.05, margin: "0 0 20px", color: P.ink }}>{data.title}</h1>
+            <p style={{ fontSize: isMobile ? 17 : 20, lineHeight: 1.55, color: P.ink2, margin: "0 0 12px", letterSpacing: "-0.01em", maxWidth: 640 }}>{data.lede}</p>
+            {data.updated && <p style={{ fontSize: 13, color: P.faint, margin: "0 0 8px" }}>{data.updated}</p>}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 44 }}>
+            {data.blocks.map((b, i) => (
+              <div key={i} className="cb-info-block cb-info-card cb-fadein" style={{ animationDelay: `${0.08 * (i + 1)}s`, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 16, padding: isMobile ? "22px 20px" : "28px 30px", boxShadow: P.shadowSm }}>
+                <h2>{b.h}</h2>
+                {b.p && <p style={{ marginTop: b.email ? 12 : 0 }}>{b.email ? null : b.p}</p>}
+                {b.email && (
+                  <div style={{ margin: "4px 0 14px" }}>
+                    <a href={`mailto:${b.email}`} style={{ fontFamily: "'SF Mono', Menlo, Consolas, monospace", fontSize: 16, fontWeight: 600, color: accent, textDecoration: "none" }}>{b.email}</a>
+                  </div>
+                )}
+                {b.email && b.p && <p>{b.p}</p>}
+                {b.list && <ul style={{ marginTop: 14 }}>{b.list.map((item, j) => <li key={j}>{item}</li>)}</ul>}
+              </div>
+            ))}
+          </div>
+
+          {/* Big CTA back to app */}
+          <div className="cb-fadein" style={{ animationDelay: "0.4s", marginTop: 48, textAlign: "center" }}>
+            <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 15.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 12, padding: "15px 32px", cursor: "pointer", fontFamily: "inherit", letterSpacing: "-0.015em", boxShadow: `0 8px 28px ${withAlpha(accent, 0.32)}` }}>
+              Start searching
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <footer style={{ borderTop: `1px solid ${P.line}`, padding: isMobile ? "28px 20px" : "36px 28px", background: withAlpha(P.surface, 0.5) }}>
+          <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", justifyContent: "space-between", gap: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 700, fontSize: 15, color: P.ink }}>
+              <Mark size={18} accent={accent} />
+              Cerebrum
+            </div>
+            <nav style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
+              {NAV.map(([slug, label]) => (
+                <a key={slug} href={`/${slug}`} className="cb-info-navlink" style={{ fontSize: 13.5, color: page === slug ? accent : P.ink2, textDecoration: "none", padding: "6px 12px", borderRadius: 8, fontWeight: page === slug ? 600 : 450 }}>{label}</a>
+              ))}
+            </nav>
+            <div style={{ fontSize: 12.5, color: P.faint }}>© 2026 Cerebrum</div>
+          </div>
+        </footer>
+      </main>
     </div>
   );
 }
 
 function App() {
   const isMobile = useIsMobile();
-  const [entered, setEntered] = useState(false);
+  const [entered, setEntered] = useState(() => { try { return getCookie("cb_entered") === "1"; } catch { return false; } });
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState([]);
   const [pinnedSources, setPinnedSources] = useState([]); // user-pinned sources persist across turns
@@ -2158,7 +2208,7 @@ function App() {
   const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
 
   if (!entered) {
-    return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} animationMode={animationMode} />;
+    return <Intro accent={accent} P={P} onEnter={() => { sfx(); try { setCookie("cb_entered", "1", 365); } catch {} setEntered(true); }} animationMode={animationMode} />;
   }
 
   const started = turns.length > 0 || busy;
@@ -2335,19 +2385,19 @@ function App() {
               <div style={S.heroGlow} />
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
               <h1 style={S.heroTitle}>Cerebrum</h1>
-              <p style={{ fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em" }}>AI-synthesized summaries of peer-reviewed literature.</p>
+              <p style={{ fontSize: 17, color: P.ink2, maxWidth: 480, lineHeight: 1.6, marginBottom: 36, letterSpacing: "-0.01em" }}>Dig into the science. Every answer cites real papers you can check.</p>
               <div style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="2" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="2" strokeLinecap="round" /></svg>
-                <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a question, or search a researcher by name" />
+                <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
                 <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
-                <button style={S.searchBtn} onClick={() => ask()}>Inquire</button>
+                <button style={S.searchBtn} onClick={() => ask()}>Search</button>
               </div>
               <div style={S.chips} className="cb-stagger">
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
               <div style={S.trustRow}>
-                {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "arXiv", "Semantic Scholar"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
-                <span style={{ ...S.trustItem, color: P.faint }}>+8 more</span>
+                {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={{...S.trustItem, opacity: 0.85}}>{d}</span>)}
+                <span style={{ ...S.trustItem, color: P.faint }}>+ 10 more</span>
               </div>
             </div>
           ) : (
@@ -2358,7 +2408,7 @@ function App() {
                 ))}
                 {busy && (
                   <div style={S.turn}>
-                    <div style={S.qLabel}><span style={S.qDot} />Searching</div>
+                    <div style={S.qLabel}><span style={S.qDot} />Digging through the literature</div>
                     <Skeleton P={P} />
                     <LoadingLine P={P} accent={accent} S={S} />
                   </div>
@@ -2366,7 +2416,7 @@ function App() {
                 {error && <div style={S.error}>{error}</div>}
                 {turns.length > 0 && !busy && (
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
-                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask a follow-up — it remembers the thread" />
+                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Follow up — I remember the whole thread" />
                     <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
                   </div>
@@ -2377,7 +2427,7 @@ function App() {
           )}
           <div style={S.foot}>
             <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 14px", textAlign: "center" }}>
-              AI-generated summaries from peer-reviewed literature. Always verify against the cited sources.
+              Answers are assembled from real papers by AI. Always check the cited sources before relying on anything.
             </div>
             <div style={{ fontSize: 10.5, color: P.faint, letterSpacing: "0.02em" }}>
               <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}`, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
@@ -2617,7 +2667,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
         {done && t.source && (
           <div style={S.byline}>
-            <span style={S.aiTag}>AI-generated · verify with sources</span>
+            <span style={S.aiTag}>AI-written · always check the sources</span>
           </div>
         )}
         {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
@@ -3174,23 +3224,23 @@ function makeStyles(P, accent, at, isMobile = false) {
     heroMark: { marginBottom: 30, position: "relative" },
     heroTitle: { fontSize: isMobile ? 50 : 76, fontWeight: 750, letterSpacing: "-0.045em", lineHeight: 0.95, color: P.ink, marginBottom: 14, position: "relative" },
     heroSub: { fontSize: isMobile ? 15.5 : 18, color: P.ink2, maxWidth: 460, lineHeight: 1.5, marginBottom: 40, letterSpacing: "-0.012em", position: "relative", fontWeight: 400 },
-    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 620, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: isMobile ? "7px 7px 7px 14px" : "8px 8px 8px 16px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", position: "relative" },
+    searchShell: { display: "flex", alignItems: "center", gap: 10, width: "100%", maxWidth: 620, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: isMobile ? "7px 7px 7px 14px" : "8px 8px 8px 16px", boxShadow: P.shadow, transition: "border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1)", position: "relative" },
     searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 4px ${withAlpha(accent, 0.14)}` },
     searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
     searchBtn: { fontSize: 14.5, fontWeight: 600, background: accent, color: at, border: "none", padding: isMobile ? "12px 16px" : "12px 22px", borderRadius: 10, cursor: "pointer", fontFamily: font, flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 10px ${withAlpha(accent, 0.32)}` },
     chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 24, maxWidth: 620, position: "relative" },
     chip: { fontSize: 13.5, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 22, padding: "9px 15px", cursor: "pointer", transition: "background 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
-    chipHover: { borderColor: accent, color: accent, transform: "translate3d(0, -2px, 0)", boxShadow: `0 4px 12px ${withAlpha(accent, 0.15)}` },
+    chipHover: { borderColor: accent, color: accent, transform: "translate3d(0, -3px, 0) scale(1.03)", boxShadow: `0 4px 12px ${withAlpha(accent, 0.15)}` },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 44, opacity: 0.7 },
     trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.015em" },
     workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
     workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
-    turn: { marginBottom: isMobile ? 30 : 40 },
+    turn: { marginBottom: isMobile ? 30 : 40, animation: "cbSlideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) both" },
     qLabel: { fontSize: 12, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
     qDot: { width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
     headline: { fontWeight: 680, fontSize: isMobile ? 19 : 26, lineHeight: 1.25, marginBottom: isMobile ? 14 : 18, color: P.ink, letterSpacing: "-0.022em" },
-    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "16px 15px" : "22px 26px", boxShadow: P.shadow },
+    answerCard: { background: P.surface, border: `1px solid ${P.line}`, borderLeft: `3px solid ${accent}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "16px 15px" : "22px 26px", boxShadow: P.shadow },
     byline: { fontSize: 12, color: P.faint, letterSpacing: "0.01em", borderTop: `1px solid ${P.line}`, paddingTop: 13, marginTop: 18, display: "flex" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
@@ -3332,6 +3382,14 @@ if (typeof document !== "undefined") {
       @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
       @keyframes cbPulse { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.35; } }
       /* Synapse loader: each node brightens and swells as the signal passes */
+      @keyframes cbSlideUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes cbMicPulse {
+        0%, 100% { opacity: 0.6; transform: scale(1); }
+        50% { opacity: 0; transform: scale(1.5); }
+      }
       @keyframes cbSynapse {
         0%, 100% { opacity: 0.25; transform: scale(0.75); }
         30%      { opacity: 1;    transform: scale(1.25); }
