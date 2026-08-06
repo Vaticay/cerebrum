@@ -11,4 +11,4 @@ binding = "AI"
 [[d1_databases]]
 binding = "DB"
 database_name = "cerebrum-cache"
-database_id = "PASTE_YOUR_DATABASE_ID_HERE"
+database_id = "dde9ab43-bb34-4c27-afc8-b79a53adbaaf"
