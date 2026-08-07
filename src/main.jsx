@@ -2029,42 +2029,14 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
           {tab === "answers" && (<>
             <Section title="Response">
               <Row label="Answer length" desc="How much detail to include." control={<Seg value={answerLength} options={[["short", "Short"], ["medium", "Med"], ["long", "Long"]]} onChange={setAnswerLength} />} />
-              <Row label="Verify claims" desc="A second pass checks each claim against cited abstracts." control={<Switch on={factCheck} onChange={setFactCheck} label="Verify claims" />} />
               <Row label="Animated reveal" desc="Type answers out progressively." control={<Switch on={typewriter} onChange={setTypewriter} label="Animated reveal" />} />
             </Section>
           </>)}
           {tab === "motion" && (<>
-            <Section title="Motion level" hint="Full runs every effect. Subtle thins them. Off is static.">
-              <Seg value={animationMode} options={[["cinematic", "Full"], ["subtle", "Subtle"], ["off", "Off"]]} onChange={setAnimationMode} />
+            <Section title="Effects">
+              <Row label="Background animation" desc="Ambient particle effects behind the interface." control={<Switch on={animationMode !== "off"} onChange={(v) => setAnimationMode(v ? "cinematic" : "off")} label="Background animation" />} />
+              <Row label="Reduced motion" desc="Minimizes all entrance animations." control={<Switch on={animationMode === "subtle"} onChange={(v) => setAnimationMode(v ? "subtle" : "cinematic")} label="Reduced motion" />} last />
             </Section>
-            {animationMode !== "off" && (<>
-              <Section title="Background">
-                <div style={{ fontSize: 10, color: P.faint, marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600, fontFamily: "var(--cb-mono)" }}>Ambient</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-                  <PresetCard id="aurora" label="Aurora" sub="Drifting colour wash" active={animPreset === "aurora"} />
-                  <PresetCard id="orbs" label="Soft orbs" sub="Slow glowing spheres" active={animPreset === "orbs"} />
-                  <PresetCard id="grid" label="Grid" sub="Static dot lattice" active={animPreset === "grid"} />
-                  <PresetCard id="none" label="Solid" sub="No motion" active={animPreset === "none"} />
-                </div>
-                <div style={{ fontSize: 10, color: P.faint, marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600, fontFamily: "var(--cb-mono)" }}>Scientific</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <PresetCard id="dna" label="Helix" sub="Double strand" active={animPreset === "dna"} />
-                  <PresetCard id="neurons" label="Neurons" sub="Synapse network" active={animPreset === "neurons"} />
-                  <PresetCard id="particles" label="Particles" sub="Point field" active={animPreset === "particles"} />
-                  <PresetCard id="waves" label="Waves" sub="Sine curves" active={animPreset === "waves"} />
-                  <PresetCard id="circuits" label="Circuits" sub="Signal traces" active={animPreset === "circuits"} />
-                  <PresetCard id="starfield" label="Starfield" sub="Radial streaks" active={animPreset === "starfield"} />
-                </div>
-              </Section>
-              <Section title="Fine tuning">
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <LocalSlider label="Density" value={animDensity} min={0.3} max={2.5} step={0.1} format={(v) => v.toFixed(1) + "×"} onCommit={setAnimDensity} accent={accent} P={P} />
-                  <LocalSlider label="Speed" value={animSpeed} min={0.2} max={3} step={0.1} format={(v) => v.toFixed(1) + "×"} onCommit={setAnimSpeed} accent={accent} P={P} />
-                  <LocalSlider label="Opacity" value={animOpacity} min={0.2} max={1.5} step={0.1} format={(v) => Math.round(v * 100) + "%"} onCommit={setAnimOpacity} accent={accent} P={P} />
-                  <button className="cb-btn" onClick={() => { sfx(); setAnimPreset("aurora"); setAnimDensity(1); setAnimSpeed(1); setAnimOpacity(1); }} style={{ fontSize: 11.5, padding: "7px 12px", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", alignSelf: "flex-start", fontWeight: 500 }}>Reset defaults</button>
-                </div>
-              </Section>
-            </>)}
           </>)}
           {tab === "audio" && (<>
             <Section title="Interface sound"><Row label="Sound effects" desc="Subtle tones on interaction." control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} /></Section>
@@ -2145,7 +2117,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "var(--cb-mono)", boxShadow: P.shadowSm, marginRight: 4 },
     kbd: { fontSize: 10, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 4, padding: "2px 6px", fontWeight: 500 },
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13.5, fontWeight: 500, fontFamily: font },
-    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-mono)", position: "relative", letterSpacing: "0.01em" },
+    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-body)", position: "relative" },
     iconBtnLabel: { lineHeight: 1 },
     countPill: { fontSize: 10, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 20, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
 
@@ -2158,7 +2130,7 @@ function makeStyles(P, accent, at, isMobile = false) {
       flex: 1, display: "flex", flexDirection: "column", 
       alignItems: "center", justifyContent: "center", 
       textAlign: "center",
-      padding: isMobile ? "40px 0 60px" : "60px 0 80px", 
+      padding: isMobile ? "32px 0 40px" : "40px 0 56px", 
       position: "relative",
     },
     heroGlow: { 
@@ -2199,7 +2171,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     },
     searchInput: { 
       flex: 1, border: "none", outline: "none", background: "transparent", 
-      fontFamily: "var(--cb-mono)", fontSize: 15, color: P.ink, 
+      fontFamily: "var(--cb-body)", fontSize: 15, color: P.ink, 
       minWidth: 0, letterSpacing: "-0.01em" 
     },
     searchBtn: { 
@@ -2320,7 +2292,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     chipMini: { fontSize: 10.5, padding: "4px 10px", border: "1px solid", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, background: "transparent", transition: "all 0.2s ease" },
 
     /* ── Footer ── */
-    foot: { marginTop: "auto", padding: "24px 0 32px" },
+    foot: { marginTop: "auto", padding: "20px 0 28px", textAlign: "center" },
     footDbs: { fontSize: 10, letterSpacing: "0.06em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
 
     /* ── Mobile sources FAB ── */
@@ -2378,7 +2350,7 @@ function App() {
   const [srcFilter, setSrcFilter] = useState("");
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
-  const [factCheck, setFactCheck] = useState(() => getCookie("cb_fc") === "1");
+  const [factCheck, setFactCheck] = useState(true);
   const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
@@ -2550,7 +2522,7 @@ function App() {
         <div style={S.headInner}>
           <div style={{ ...S.brandRow, position: "relative" }}>
             <Magnetic strength={0.2}>
-              <div onClick={(e) => { e.stopPropagation(); easterEgg.trigger(); }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <div onClick={(e) => { e.stopPropagation(); try { document.cookie = "cb_entered_v4=; path=/; max-age=0"; } catch {} window.location.reload(); }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                 <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
                 <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
               </div>
@@ -2574,14 +2546,12 @@ function App() {
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
               <h1 style={S.heroTitle}><KineticText text="Cerebrum" /></h1>
               <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can verify.</p>
-              <GlowBorder accent={accent} style={{ width: "100%", maxWidth: 700, borderRadius: 14 }}>
-                <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+              <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700, borderRadius: 14 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
                   <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Search the scientific literature..." />
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <Magnetic strength={0.15}><button style={S.searchBtn} onClick={() => ask()}>Search</button></Magnetic>
-                </div>
-              </GlowBorder>
+              </div>
               <div style={S.chips} className="cb-stagger">
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
@@ -2775,20 +2745,14 @@ button:not(:disabled):hover { transform: translateY(-1px); }
 button:not(:disabled):active { transform: scale(0.98) translateY(0); transition-duration: 60ms; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── Search glow ── */
-@property --gradient-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
-@keyframes cbGradientSpin { to { --gradient-angle: 360deg; } }
+/* ── Search focus glow — clean, no radar ── */
 .cb-search-glow { position: relative; }
-.cb-search-glow::before {
-  content: '';
-  position: absolute; inset: -1px; border-radius: 15px;
-  background: conic-gradient(from var(--gradient-angle), transparent 35%, var(--cb-accent, #38bdf8) 50%, transparent 65%);
-  animation: cbGradientSpin 4s linear infinite;
-  opacity: 0; transition: opacity 0.5s ease; z-index: -1;
+.cb-search-glow:focus-within {
+  border-color: var(--cb-accent, #34d399) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #34d399) 15%, transparent), 0 4px 20px rgba(0,0,0,0.1) !important;
 }
-.cb-search-glow:focus-within::before { opacity: 0.6; }
-@supports not (background: conic-gradient(red, blue)) {
-  .cb-search-glow:focus-within { box-shadow: 0 0 0 2px var(--cb-accent, #38bdf8), 0 0 24px rgba(56,189,248,0.1); }
+@supports not (background: color-mix(in srgb, red 50%, blue)) {
+  .cb-search-glow:focus-within { box-shadow: 0 0 0 3px rgba(52,211,153,0.15), 0 4px 20px rgba(0,0,0,0.1) !important; }
 }
 
 /* ── Header buttons ── */
