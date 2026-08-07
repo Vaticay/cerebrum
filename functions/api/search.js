@@ -382,6 +382,9 @@ const INTENT_WORDS = new Set([
   "using", "used", "use", "uses", "usage", "applying", "apply",
   "about", "regarding", "concerning", "against", "with", "without",
   "against", "toward", "towards", "on",
+  "turning", "turn", "turned", "turns", "convert", "converting", "converted",
+  "transform", "transforming", "transformed", "make", "making", "create", "creating",
+  "produce", "producing", "produced", "into", "from",
 ]);
 
 // Common misspellings and variants of scientific terms. Search engines don't
@@ -453,6 +456,22 @@ function preprocessQuery(raw) {
   for (const [re, canonical] of SCIENTIFIC_COMPOUNDS) {
     q = q.replace(re, canonical);
   }
+  // Scientific paraphrase: rewrite natural-language concepts into proper
+  // search terminology. "turning air into ethanol" should search for
+  // "CO2 ethanol conversion", not "air ethanol".
+  const PARAPHRASES = [
+    [/turning\s+air\s+into/gi, "CO2 conversion to"],
+    [/air\s+(?:to|into)\s+(ethanol|fuel|methanol|plastic)/gi, "CO2 conversion to $1"],
+    [/(ethanol|fuel|methanol)\s+from\s+air/gi, "$1 from CO2 atmospheric carbon capture"],
+    [/cure\s+(?:for\s+)?cancer/gi, "cancer treatment therapy"],
+    [/cure\s+(?:for\s+)?alzheimer/gi, "Alzheimer disease treatment therapy"],
+    [/global\s+warming/gi, "climate change anthropogenic warming"],
+    [/how\s+(?:does|do)\s+(.+?)\s+work/gi, "$1 mechanism"],
+    [/what\s+causes?\s+(.+?)(?:\?|$)/gi, "$1 etiology mechanism cause"],
+  ];
+  for (const [re, repl] of PARAPHRASES) {
+    q = q.replace(re, repl);
+  }
   return q.trim();
 }
 
@@ -475,6 +494,8 @@ const GENERIC_SCIENCE_WORDS = new Set([
   "related", "associated", "based", "including", "such", "well", "known",
   "information", "info", "detail", "details", "aspect", "aspects",
   "question", "answer", "example", "examples", "case", "cases",
+  "air", "water", "light", "heat", "cold", "food", "plant", "plants",
+  "time", "life", "cell", "cells", "model", "models", "group", "groups",
 ]);
 
 // Concept equivalence groups. If a query term is in a group, a paper matching
@@ -525,6 +546,11 @@ const CONCEPT_GROUPS = [
   ["nanoparticle", "nanoparticles", "nanostructure", "nanomaterial", "quantum dot"],
   ["catalyst", "catalysts", "catalysis", "catalytic", "photocatalyst", "electrocatalyst"],
   // Decomposition / decay
+  // Chemical conversion / synthesis
+  ["ethanol", "ethyl alcohol", "bioethanol", "alcohol", "fermentation"],
+  ["co2", "carbon dioxide", "carbon capture", "atmospheric carbon", "carbon fixation"],
+  ["conversion", "synthesis", "catalysis", "electrochemical", "electrolysis",
+   "reduction", "oxidation", "transformation"],
   ["decomposition", "decompose", "decay", "necrobiome", "cadaver", "carcass",
    "putrefaction", "autolysis", "bloat", "rupture"],
 ];
@@ -3107,7 +3133,7 @@ export async function onRequest(context) {
         /^(whats cerebrum|whats this|whats your (name|deal|purpose|story))\b/.test(small) ||
         /^(introduce yourself|describe yourself)/.test(small)) {
       return specialAnswer(
-        "I'm Cerebrum — a free scientific literature search engine built by Vaticay (Dusty Breen) out of Knoxville, TN. " +
+        "I'm Cerebrum — a free scientific literature search engine built by Vaticay out of Knoxville, TN. " +
         "I search 16 open scholarly databases in parallel — PubMed, Europe PMC, OpenAlex, Semantic Scholar, CORE, BASE, and more — " +
         "then use AI to write you an answer where every claim links back to a real paper with a real DOI.\n\n" +
         "Why? Because most AI tools will confidently cite papers that don't exist. I'd rather tell you I found nothing than make something up. " +
@@ -3565,11 +3591,16 @@ export async function onRequest(context) {
       "When sources don't match well, say so first sentence — then still give your best answer from knowledge.\n\n";
 
     const CITE_RULES =
-      "CITATIONS: Only [N] if source N genuinely supports that sentence. [WEAK MATCH] = ignore or mention as tangential. [RETRACTED] = call out. " +
-      "Never fabricate DOIs/authors/journals. Never state numbers not in abstracts. Weave findings into explanation, don't list papers. " +
-      "No <think> tags, no code fences, no meta-commentary. Jump straight into the answer.\n";
+      "CITATION FORMAT (critical — follow exactly):\n" +
+      "- Cite sources ONLY as [1], [2], [3] etc. with square brackets. NEVER use parentheses like (1,2,3). NEVER use bare numbers. NEVER use superscripts.\n" +
+      "- Place citations INLINE at the end of the specific sentence they support: 'Waxworm saliva contains two polyethylene-oxidizing enzymes [1].'\n" +
+      "- Do NOT cluster citations at the end of a paragraph. Attach each to the specific claim it supports.\n" +
+      "- Only cite if source N genuinely supports that sentence. [WEAK MATCH] = ignore or mention as tangential. [RETRACTED] = call out.\n" +
+      "- Never fabricate DOIs, authors, or journals. Never state numbers not in abstracts.\n" +
+      "- Weave findings into a real explanation — never list papers in numbered order.\n" +
+      "- No <think> tags, no code fences, no meta-commentary, no 'Source [1] discusses'. Jump straight into the answer.\n";
 
-    const ID = "You are Cerebrum — a scientific research engine built by Dusty Breen (Vaticay). You search 16+ open scholarly databases and write cited answers.\n\n";
+    const ID = "You are Cerebrum — a scientific research engine built by Vaticay. You search 16+ open scholarly databases and write cited answers.\n\n";
 
     let systemPrompt;
     if (useEvidence && speciesSearch) {
