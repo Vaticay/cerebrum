@@ -106,20 +106,66 @@ const LOADING_MESSAGES = [
 ];
 
 const SUGGESTION_POOL = [
+  // Biology & Genetics
   "How does CRISPR-Cas9 achieve target specificity?",
-  "Mechanism of quorum sensing in bacteria",
-  "Why is the SN2 reaction stereospecific?",
-  "How do chaperone proteins prevent misfolding?",
-  "What causes antibiotic resistance to spread?",
+  "What causes antibiotic resistance to spread between species?",
+  "How do prions propagate protein misfolding?",
+  "Mechanisms of epigenetic inheritance across generations",
+  "How does the gut microbiome influence brain function?",
+  "What drives protein phase separation in cells?",
+  "How do CAR-T cells recognize and kill tumors?",
+  "Why do some species regenerate limbs and others cannot?",
+  // Medicine & Neuroscience
   "How does mRNA vaccine technology work?",
-  "The role of telomeres in cellular aging",
+  "Mechanisms of long COVID and persistent symptoms",
+  "How do psychedelics rewire neural circuits?",
+  "What causes Alzheimer's amyloid plaques to form?",
+  "How does immunotherapy checkpoint inhibition work?",
+  "Neural mechanisms of general anesthesia",
+  "How do opioids hijack the brain's reward system?",
+  "What triggers autoimmune diseases?",
+  // Chemistry & Materials
+  "Why is the SN2 reaction stereospecific?",
   "How do enzymes lower activation energy?",
-  "How does photosynthesis split water?",
-  "Mechanisms of DNA mismatch repair",
-  "How do prions propagate misfolding?",
-  "What drives protein phase separation?",
+  "Mechanism of lithium-ion battery degradation",
+  "How do metallic glasses form without crystallization?",
+  "What makes graphene such an exceptional conductor?",
+  "How does photocatalytic water splitting work?",
+  // Physics & Astronomy
+  "What is dark matter and how do we detect it?",
+  "How do quantum computers achieve entanglement?",
+  "What causes high-temperature superconductivity?",
+  "How do gravitational waves distort spacetime?",
+  "Mechanism of Hawking radiation from black holes",
+  "How does nuclear fusion sustain a star?",
+  "What evidence supports the multiverse hypothesis?",
+  // Earth & Environmental Science
+  "How does ocean acidification affect marine ecosystems?",
+  "What triggers mass extinction events?",
+  "How do tectonic plates drive continental drift?",
+  "Mechanisms of rapid Arctic ice sheet collapse",
+  "How do volcanoes influence global climate?",
+  "What causes harmful algal blooms to form?",
+  // Computer Science & AI
+  "How do transformer neural networks process language?",
+  "What is the halting problem and why is it unsolvable?",
+  "How does homomorphic encryption enable secure computation?",
+  "Mechanisms of reinforcement learning from human feedback",
+  "How do generative adversarial networks create images?",
+  "What makes P vs NP the most important open problem?",
+  // Psychology & Social Science
+  "How does chronic stress alter brain structure?",
+  "What causes the placebo effect at a molecular level?",
+  "How does sleep consolidate memory?",
+  "Neural basis of consciousness and subjective experience",
+  "How do mirror neurons enable empathy?",
+  // Ecology & Evolution
+  "How does natural selection drive speciation?",
+  "What caused the Cambrian explosion of life?",
+  "How do extremophiles survive in boiling acid?",
+  "Mechanisms of convergent evolution across distant species",
 ];
-function pick(n = 3) {
+function pick(n = 4) {
   const a = [...SUGGESTION_POOL];
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a.slice(0, n);
@@ -1109,8 +1155,8 @@ function CustomCursor({ accent, P }) {
     let raf;
     const lerp = (a, b, t) => a + (b - a) * t;
     const loop = () => {
-      pos.current.x = lerp(pos.current.x, target.current.x, 0.15);
-      pos.current.y = lerp(pos.current.y, target.current.y, 0.15);
+      pos.current.x = lerp(pos.current.x, target.current.x, 0.4);
+      pos.current.y = lerp(pos.current.y, target.current.y, 0.4);
       const { x, y } = pos.current;
       const vis = visible.current;
       if (dotRef.current) {
@@ -1118,8 +1164,8 @@ function CustomCursor({ accent, P }) {
         dotRef.current.style.opacity = vis ? "1" : "0";
       }
       if (ringRef.current) {
-        const ringX = lerp(parseFloat(ringRef.current.dataset.x || x), x, 0.08);
-        const ringY = lerp(parseFloat(ringRef.current.dataset.y || y), y, 0.08);
+        const ringX = lerp(parseFloat(ringRef.current.dataset.x || x), x, 0.18);
+        const ringY = lerp(parseFloat(ringRef.current.dataset.y || y), y, 0.18);
         ringRef.current.dataset.x = ringX;
         ringRef.current.dataset.y = ringY;
         const s = hovering.current ? 2.5 : 1;
@@ -1279,38 +1325,9 @@ function GlowBorder({ children, accent, active, style, className, ...props }) {
    with staggered sine-wave offsets. Subtle, premium, not gimmicky.
    ════════════════════════════════════════════════════════════════ */
 function KineticText({ text, style, className }) {
-  const [time, setTime] = useState(0);
-  const rafRef = useRef(null);
-
-  useEffect(() => {
-    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-    if (!hasMouse) return; // Static on mobile
-    let start = performance.now();
-    const tick = (now) => {
-      setTime((now - start) / 1000);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, []);
-
-  const chars = text.split("");
   return (
-    <span style={style} className={className} aria-label={text}>
-      {chars.map((ch, i) => {
-        if (ch === " ") return <span key={i}>&nbsp;</span>;
-        const yOff = Math.sin(time * 0.8 + i * 0.15) * 1.5;
-        const opacityOff = 0.85 + Math.sin(time * 0.6 + i * 0.2) * 0.15;
-        return (
-          <span key={i} style={{
-            display: "inline-block",
-            transform: `translateY(${yOff}px)`,
-            opacity: opacityOff,
-            transition: "none",
-            willChange: "transform",
-          }} aria-hidden="true">{ch}</span>
-        );
-      })}
+    <span className="cb-gradient-text" style={{ ...style, display: "inline-block" }} aria-label={text}>
+      {text}
     </span>
   );
 }
@@ -1948,18 +1965,50 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
   const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
   const TABS = [["look", "Look"], ["answers", "Answers"], ["motion", "Motion"], ["audio", "Audio"], ["data", "Data"]];
 
-  const Group = ({ title, hint, children }) => (<div style={{ marginBottom: 28 }}><div style={{ fontSize: 12, fontWeight: 600, color: P.ink, letterSpacing: "-0.01em", marginBottom: hint ? 3 : 10, fontFamily: "var(--cb-display)" }}>{title}</div>{hint && <div style={{ fontSize: 12, color: P.faint, lineHeight: 1.5, marginBottom: 11 }}>{hint}</div>}{children}</div>);
-  const Row = ({ label, desc, control }) => (<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "12px 0", borderBottom: `1px solid ${P.line}` }}><div style={{ minWidth: 0 }}><div style={{ fontSize: 13.5, color: P.ink, fontWeight: 500 }}>{label}</div>{desc && <div style={{ fontSize: 11.5, color: P.faint, lineHeight: 1.45, marginTop: 2 }}>{desc}</div>}</div><div style={{ flexShrink: 0 }}>{control}</div></div>);
-  const Switch = ({ on, onChange, label }) => (<button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }} style={{ width: 40, height: 24, borderRadius: 20, position: "relative", background: on ? accent : P.line2, border: "none", cursor: "pointer", padding: 0, transition: "background 160ms ease" }}><span style={{ position: "absolute", top: 2, left: 2, width: 20, height: 20, borderRadius: "50%", background: on ? at : P.bg, transform: on ? "translateX(16px)" : "translateX(0)", transition: "transform 160ms ease", boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }} /></button>);
-  const Seg = ({ value, options, onChange }) => (<div style={{ display: "inline-flex", background: P.bg, border: `1px solid ${P.line}`, borderRadius: 8, padding: 2, gap: 1 }}>{options.map(([v, label]) => (<button key={v} onClick={() => { sfx(); onChange(v); }} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 550, background: value === v ? accent : "transparent", color: value === v ? at : P.ink2, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>))}</div>);
-  const PresetCard = ({ id, label, sub, active }) => (<button className="cb-btn" onClick={() => { sfx(); setAnimPreset(id); }} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, padding: "10px 12px", textAlign: "left", background: active ? withAlpha(accent, 0.08) : "transparent", border: `1px solid ${active ? accent : P.line}`, borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}><span style={{ fontSize: 12, fontWeight: 600, color: active ? accent : P.ink }}>{label}</span><span style={{ fontSize: 10.5, color: P.faint, lineHeight: 1.3 }}>{sub}</span></button>);
+  /* iOS-style grouped sections */
+  const Section = ({ title, children }) => (
+    <div style={{ marginBottom: 28 }}>
+      {title && <div style={{ fontSize: 12, fontWeight: 600, color: P.faint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8, paddingLeft: 16, fontFamily: "var(--cb-mono)" }}>{title}</div>}
+      <div style={{ background: P.dark ? withAlpha(P.raised, 0.5) : P.surface, borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden" }}>{children}</div>
+    </div>
+  );
+  const Row = ({ label, desc, control, last }) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "13px 16px", borderBottom: last ? "none" : `0.5px solid ${P.line}` }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 15, color: P.ink, fontWeight: 400 }}>{label}</div>
+        {desc && <div style={{ fontSize: 12, color: P.faint, lineHeight: 1.4, marginTop: 2 }}>{desc}</div>}
+      </div>
+      <div style={{ flexShrink: 0 }}>{control}</div>
+    </div>
+  );
+  const Switch = ({ on, onChange, label }) => (
+    <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
+      style={{ width: 51, height: 31, borderRadius: 16, position: "relative", background: on ? "#34c759" : P.dark ? "rgba(120,120,128,0.32)" : "rgba(120,120,128,0.16)", border: "none", cursor: "pointer", padding: 0, transition: "background 200ms ease" }}>
+      <span style={{ position: "absolute", top: 2, left: 2, width: 27, height: 27, borderRadius: "50%", background: "#fff", transform: on ? "translateX(20px)" : "translateX(0)", transition: "transform 200ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 2px 5px rgba(0,0,0,0.2), 0 0.5px 1px rgba(0,0,0,0.1)" }} />
+    </button>
+  );
+  const Seg = ({ value, options, onChange }) => (
+    <div style={{ display: "inline-flex", background: P.dark ? "rgba(120,120,128,0.24)" : "rgba(120,120,128,0.12)", borderRadius: 9, padding: 2 }}>
+      {options.map(([v, label]) => (
+        <button key={v} onClick={() => { sfx(); onChange(v); }}
+          style={{ padding: "6px 14px", fontSize: 13, fontWeight: value === v ? 600 : 400, background: value === v ? (P.dark ? P.raised : "#fff") : "transparent", color: value === v ? P.ink : P.ink2, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "inherit", boxShadow: value === v ? "0 1px 3px rgba(0,0,0,0.12)" : "none", transition: "all 200ms ease" }}>{label}</button>
+      ))}
+    </div>
+  );
+  const PresetCard = ({ id, label, sub, active }) => (
+    <button className="cb-btn" onClick={() => { sfx(); setAnimPreset(id); }}
+      style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, padding: "10px 12px", textAlign: "left", background: active ? withAlpha(accent, 0.1) : "transparent", border: `1px solid ${active ? accent : P.line}`, borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: active ? accent : P.ink }}>{label}</span>
+      <span style={{ fontSize: 11, color: P.faint, lineHeight: 1.3 }}>{sub}</span>
+    </button>
+  );
 
   return (
     <div style={S.modalWrap} onClick={close} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, width: 500, maxWidth: "100%", maxHeight: isMobile ? "92vh" : "86vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 24px 70px rgba(0,0,0,0.4)", overflow: "hidden" }}>
+      <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, width: 480, maxWidth: "100%", maxHeight: isMobile ? "92vh" : "86vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 24px 70px rgba(0,0,0,0.4)", overflow: "hidden" }}>
         <div style={{ padding: isMobile ? "18px 18px 0" : "20px 22px 0", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>Settings</div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>Settings</div>
             <button onClick={close} aria-label="Close settings" style={{ background: "transparent", border: "none", color: P.faint, width: 32, height: 32, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }} className="cb-hbtn"><Icon name="close" size={16} /></button>
           </div>
           <div style={{ display: "flex", gap: 1, overflowX: "auto", scrollbarWidth: "none" }}>
@@ -1970,26 +2019,26 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
         </div>
         <div key={tab} className="cb-fade" style={{ padding: isMobile ? "18px" : "20px 22px", overflowY: "auto", flex: 1, WebkitOverflowScrolling: "touch" }}>
           {tab === "look" && (<>
-            <Group title="Theme">
+            <Section title="Theme">
               <div style={S.palRow}>{Object.keys(PALETTES).map((pn) => (<button key={pn} style={{ ...S.palCard, background: PALETTES[pn].bg, borderColor: paletteName === pn ? accent : PALETTES[pn].line2, borderWidth: paletteName === pn ? 2 : 1 }} onClick={() => { sfx(); setPaletteName(pn); }}><div style={{ display: "flex", gap: 4 }}><span style={{ width: 20, height: 20, borderRadius: 5, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} /><span style={{ width: 20, height: 20, borderRadius: 5, background: accent }} /></div><span style={{ fontSize: 11.5, color: PALETTES[pn].ink, fontWeight: 550, fontFamily: "var(--cb-mono)" }}>{pn}</span></button>))}</div>
-            </Group>
-            <Group title="Accent colour" hint="Used for citations, highlights, and active states.">
+            </Section>
+            <Section title="Accent colour" hint="Used for citations, highlights, and active states.">
               <div style={S.accentRow}>{Object.keys(ACCENTS).map((an) => (<button key={an} title={an} aria-label={an} style={{ ...S.accentDot, background: ACCENTS[an], transform: (!customAccent && accentName === an) ? "scale(1.15)" : "none", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${P.surface}, 0 0 0 3px ${ACCENTS[an]}` : "none" }} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }} />))}<label style={S.customDot} title="Custom colour"><input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} /><span style={{ fontSize: 14, color: P.ink2 }}>+</span></label></div>
-            </Group>
+            </Section>
           </>)}
           {tab === "answers" && (<>
-            <Group title="Response">
+            <Section title="Response">
               <Row label="Answer length" desc="How much detail to include." control={<Seg value={answerLength} options={[["short", "Short"], ["medium", "Med"], ["long", "Long"]]} onChange={setAnswerLength} />} />
               <Row label="Verify claims" desc="A second pass checks each claim against cited abstracts." control={<Switch on={factCheck} onChange={setFactCheck} label="Verify claims" />} />
               <Row label="Animated reveal" desc="Type answers out progressively." control={<Switch on={typewriter} onChange={setTypewriter} label="Animated reveal" />} />
-            </Group>
+            </Section>
           </>)}
           {tab === "motion" && (<>
-            <Group title="Motion level" hint="Full runs every effect. Subtle thins them. Off is static.">
+            <Section title="Motion level" hint="Full runs every effect. Subtle thins them. Off is static.">
               <Seg value={animationMode} options={[["cinematic", "Full"], ["subtle", "Subtle"], ["off", "Off"]]} onChange={setAnimationMode} />
-            </Group>
+            </Section>
             {animationMode !== "off" && (<>
-              <Group title="Background">
+              <Section title="Background">
                 <div style={{ fontSize: 10, color: P.faint, marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600, fontFamily: "var(--cb-mono)" }}>Ambient</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
                   <PresetCard id="aurora" label="Aurora" sub="Drifting colour wash" active={animPreset === "aurora"} />
@@ -2006,37 +2055,37 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                   <PresetCard id="circuits" label="Circuits" sub="Signal traces" active={animPreset === "circuits"} />
                   <PresetCard id="starfield" label="Starfield" sub="Radial streaks" active={animPreset === "starfield"} />
                 </div>
-              </Group>
-              <Group title="Fine tuning">
+              </Section>
+              <Section title="Fine tuning">
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <LocalSlider label="Density" value={animDensity} min={0.3} max={2.5} step={0.1} format={(v) => v.toFixed(1) + "×"} onCommit={setAnimDensity} accent={accent} P={P} />
                   <LocalSlider label="Speed" value={animSpeed} min={0.2} max={3} step={0.1} format={(v) => v.toFixed(1) + "×"} onCommit={setAnimSpeed} accent={accent} P={P} />
                   <LocalSlider label="Opacity" value={animOpacity} min={0.2} max={1.5} step={0.1} format={(v) => Math.round(v * 100) + "%"} onCommit={setAnimOpacity} accent={accent} P={P} />
                   <button className="cb-btn" onClick={() => { sfx(); setAnimPreset("aurora"); setAnimDensity(1); setAnimSpeed(1); setAnimOpacity(1); }} style={{ fontSize: 11.5, padding: "7px 12px", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", alignSelf: "flex-start", fontWeight: 500 }}>Reset defaults</button>
                 </div>
-              </Group>
+              </Section>
             </>)}
           </>)}
           {tab === "audio" && (<>
-            <Group title="Interface sound"><Row label="Sound effects" desc="Subtle tones on interaction." control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} /></Group>
-            <Group title="Search tone" hint="Plays while searching. Tap to preview.">
+            <Section title="Interface sound"><Row label="Sound effects" desc="Subtle tones on interaction." control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} /></Section>
+            <Section title="Search tone" hint="Plays while searching. Tap to preview.">
               <div style={{ ...S.soundGrid, opacity: muted ? 0.4 : 1, pointerEvents: muted ? "none" : "auto" }}>
                 {SOUND_MODES.map(([id, name]) => (<button key={id} style={{ ...S.soundBtn, ...(soundMode === id ? S.soundBtnActive : {}) }} onClick={() => { setSoundMode(id); Audio.preview(id); }}><span>{name}</span>{soundMode === id && <Icon name="check" size={12} style={{ color: accent }} />}</button>))}
               </div>
-            </Group>
-            <Group title="Read aloud" hint="Default voice is free via Cerebrum's servers. Add your own ElevenLabs key for premium narration.">
+            </Section>
+            <Section title="Read aloud" hint="Default voice is free via Cerebrum's servers. Add your own ElevenLabs key for premium narration.">
               <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
               <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-            </Group>
+            </Section>
           </>)}
           {tab === "data" && (<>
-            <Group title="Local data" hint="Saved articles and preferences are stored in this browser only.">
+            <Section title="Local data" hint="Saved articles and preferences are stored in this browser only.">
               <Row label="Saved articles & sessions" desc="Clearing cannot be undone." control={
                 confirmClear ? (<div style={{ display: "flex", gap: 6 }}><button onClick={() => { setSessions([]); setSaved([]); setConfirmClear(false); sfx(); }} style={{ padding: "7px 12px", fontSize: 12, fontWeight: 600, background: "#e5484d", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Confirm</button><button onClick={() => setConfirmClear(false)} style={{ padding: "7px 12px", fontSize: 12, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button></div>
                 ) : (<button onClick={() => setConfirmClear(true)} style={{ padding: "7px 12px", fontSize: 12, fontWeight: 500, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Clear all</button>)
               } />
-            </Group>
-            <Group title="Keyboard shortcuts">
+            </Section>
+            <Section title="Keyboard shortcuts">
               <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
                 {[[kbdLabel("K"), "Search palette"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], ["Esc", "Close any panel"]].map(([key, desc]) => (
                   <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${P.line}` }}>
@@ -2045,7 +2094,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                   </div>
                 ))}
               </div>
-            </Group>
+            </Section>
           </>)}
         </div>
         <div style={{ padding: isMobile ? "12px 18px" : "12px 22px", borderTop: `1px solid ${P.line}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -2091,7 +2140,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     },
     headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
-    brand: { fontWeight: 600, fontSize: 18, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" },
+    brand: { fontWeight: 700, fontSize: 18, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-body)" },
     headActions: { display: "flex", alignItems: "center", gap: isMobile ? 1 : 4 },
     cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "var(--cb-mono)", boxShadow: P.shadowSm, marginRight: 4 },
     kbd: { fontSize: 10, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 4, padding: "2px 6px", fontWeight: 500 },
@@ -2107,26 +2156,26 @@ function makeStyles(P, accent, at, isMobile = false) {
     /* ── Hero: LEFT-ALIGNED editorial layout ── */
     hero: { 
       flex: 1, display: "flex", flexDirection: "column", 
-      alignItems: "flex-start", justifyContent: "center", 
-      textAlign: "left",
+      alignItems: "center", justifyContent: "center", 
+      textAlign: "center",
       padding: isMobile ? "40px 0 60px" : "60px 0 80px", 
-      position: "relative", maxWidth: 720,
+      position: "relative",
     },
     heroGlow: { 
       position: "absolute", width: 800, height: 800, borderRadius: "50%", 
       background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.06 : 0.04)}, transparent 60%)`, 
-      top: "-20%", left: "-30%", filter: "blur(100px)", pointerEvents: "none" 
+      top: "-20%", left: "50%", transform: "translateX(-50%)", filter: "blur(100px)", pointerEvents: "none" 
     },
     heroMark: { marginBottom: 32, position: "relative" },
     heroTitle: { 
-      fontSize: isMobile ? 44 : 80, fontWeight: 300, 
-      letterSpacing: "-0.04em", lineHeight: 0.95, 
+      fontSize: isMobile ? 48 : 80, fontWeight: 700, 
+      letterSpacing: "-0.05em", lineHeight: 0.95, 
       color: P.ink, marginBottom: 20, position: "relative", 
-      fontFamily: "var(--cb-display)",
+      fontFamily: "var(--cb-body)",
     },
     heroSub: { 
-      fontSize: isMobile ? 16 : 19, color: P.ink2, 
-      maxWidth: 500, lineHeight: 1.6, marginBottom: 48, 
+      fontSize: isMobile ? 16 : 18, color: P.ink2, 
+      maxWidth: 520, lineHeight: 1.6, marginBottom: 48, 
       letterSpacing: "-0.01em", position: "relative", fontWeight: 400 
     },
 
@@ -2165,7 +2214,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     },
 
     /* ── Suggestion chips ── */
-    chips: { display: "flex", flexWrap: "wrap", gap: 10, marginTop: 28, position: "relative" },
+    chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 700 },
     chip: { 
       fontSize: 13, color: P.ink2, 
       background: P.dark ? withAlpha(P.surface, 0.4) : withAlpha(P.surface, 0.7), 
@@ -2183,57 +2232,56 @@ function makeStyles(P, accent, at, isMobile = false) {
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: 11, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
 
-    /* ── Workspace: editorial grid ── */
-    workspace: { display: "grid", gridTemplateColumns: "1fr 300px", gap: 48, alignItems: "start", padding: isMobile ? "24px 0" : "40px 0", flex: 1 },
-    workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
+    /* ── Workspace: single-column editorial flow ── */
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "24px 0" : "40px 0", flex: 1, maxWidth: 760, margin: "0 auto", width: "100%" },
+    workspaceMobile: { maxWidth: "100%" },
     thread: { minWidth: 0 },
 
-    /* ── Turn: research brief layout ── */
-    turn: { marginBottom: isMobile ? 36 : 52 },
+    /* ── Turn: clean editorial brief ── */
+    turn: { marginBottom: isMobile ? 40 : 56 },
     qLabel: { 
-      fontSize: 11, fontWeight: 500, letterSpacing: "0.12em", 
-      textTransform: "uppercase", color: P.faint, 
-      marginBottom: 12, display: "flex", alignItems: "center", gap: 8,
+      fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", 
+      textTransform: "uppercase", color: accent, 
+      marginBottom: 14, display: "flex", alignItems: "center", gap: 8,
       fontFamily: "var(--cb-mono)",
     },
-    qDot: { width: 5, height: 5, borderRadius: "50%", background: accent, boxShadow: `0 0 8px ${withAlpha(accent, 0.5)}` },
+    qDot: { width: 4, height: 4, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${withAlpha(accent, 0.5)}` },
     headline: { 
-      fontWeight: 400, fontSize: isMobile ? 22 : 32, 
-      lineHeight: 1.25, marginBottom: isMobile ? 18 : 24, 
-      color: P.ink, letterSpacing: "-0.025em", 
+      fontWeight: 500, fontSize: isMobile ? 24 : 36, 
+      lineHeight: 1.2, marginBottom: isMobile ? 20 : 28, 
+      color: P.ink, letterSpacing: "-0.03em", 
       fontFamily: "var(--cb-display)",
     },
 
-    /* ── Answer card: editorial reading surface ── */
+    /* ── Answer card: no box, just clean typography ── */
     answerCard: { 
-      background: glass, 
-      backdropFilter: "blur(20px) saturate(1.2)", 
-      WebkitBackdropFilter: "blur(20px) saturate(1.2)", 
-      border: glassBorder, 
-      borderLeft: `2px solid ${withAlpha(accent, 0.5)}`, 
-      borderRadius: 16, 
-      padding: isMobile ? "20px 18px" : "28px 32px", 
-      boxShadow: P.shadow 
+      background: "transparent", 
+      border: "none",
+      borderRadius: 0, 
+      padding: 0, 
+      boxShadow: "none",
+      borderBottom: `1px solid ${P.line}`,
+      paddingBottom: 24,
     },
     byline: { 
-      fontSize: 11, color: P.faint, 
-      borderTop: `1px solid ${P.line}`, 
-      paddingTop: 16, marginTop: 24, 
-      fontFamily: "var(--cb-mono)", display: "flex" 
+      fontSize: 10, color: P.faint, 
+      paddingTop: 16, marginTop: 20, 
+      fontFamily: "var(--cb-mono)", display: "flex",
+      letterSpacing: "0.04em", textTransform: "uppercase",
     },
     aiTag: { fontSize: 10, color: P.faint, fontWeight: 500, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     error: { padding: "16px 20px", background: withAlpha("#e5484d", 0.08), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.2)}` },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: glass, border: glassBorder, borderRadius: 14, padding: "8px 8px 8px 18px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 12 },
-    relatedWrap: { marginTop: 24 },
-    relatedLabel: { fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, marginBottom: 12, fontFamily: "var(--cb-mono)" },
-    relatedList: { display: "flex", flexDirection: "column", gap: 8 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: glass, border: glassBorder, borderRadius: 14, padding: "10px 10px 10px 20px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 16 },
+    relatedWrap: { marginTop: 28, paddingTop: 24, borderTop: `1px solid ${P.line}` },
+    relatedLabel: { fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 14, fontFamily: "var(--cb-mono)" },
+    relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 },
     relatedBtn: { 
       display: "flex", alignItems: "center", justifyContent: "space-between", 
-      gap: 16, textAlign: "left", padding: "14px 18px", 
-      fontSize: 14, background: glass, color: P.ink2, 
-      border: glassBorder, borderRadius: 12, 
+      gap: 12, textAlign: "left", padding: "12px 16px", 
+      fontSize: 13.5, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, color: P.ink2, 
+      border: glassBorder, borderRadius: 10, 
       cursor: "pointer", fontFamily: font, 
       transition: "all 0.25s ease", letterSpacing: "-0.01em" 
     },
@@ -2248,7 +2296,7 @@ function makeStyles(P, accent, at, isMobile = false) {
       padding: "20px", boxShadow: P.shadow, 
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto" 
     },
-    panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: "88vw", maxWidth: 360, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
+    panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
     srcCount: { fontSize: 10, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 20, fontFamily: "var(--cb-mono)" },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
@@ -2280,13 +2328,13 @@ function makeStyles(P, accent, at, isMobile = false) {
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 25 },
 
     /* ── Command palette ── */
-    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50 },
+    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "12vh", zIndex: 50 },
     cmdBox: { width: 560, maxWidth: "92vw", background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden", fontFamily: font },
     cmdInputRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
     cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, color: P.ink, fontFamily: "var(--cb-mono)" },
     cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
     cmdSection: { fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, padding: "12px 14px 6px", fontFamily: "var(--cb-mono)" },
-    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.15s" },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "center", transition: "background 0.15s" },
 
     /* ── Modals ── */
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
@@ -2504,7 +2552,7 @@ function App() {
             <Magnetic strength={0.2}>
               <div onClick={(e) => { e.stopPropagation(); easterEgg.trigger(); }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                 <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
-                <span style={S.brand}>Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em" }}>™</sup></span>
+                <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
               </div>
             </Magnetic>
             {easterEgg.render}
@@ -2556,7 +2604,6 @@ function App() {
                   </div>
                 )}
               </div>
-              {!isMobile && panelOpen && <aside style={S.panel}>{SourcesInner}</aside>}
             </div>
           )}
           <div style={S.foot}>
@@ -2572,8 +2619,8 @@ function App() {
           </div>
         </div>
       </div>
-      {started && isMobile && (<button style={S.mobSrcBtn} onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="bookmark" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 20, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
-      {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} /><aside style={{ ...S.panel, ...S.panelMobile }}><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
+      {started && (<button style={S.mobSrcBtn} onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 20, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
+      {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
       {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
@@ -2755,6 +2802,21 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 /* Focus */
 :focus { outline: none; }
 :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 6px; }
+
+/* ── Animated gradient text — cycles through accent colors ── */
+@keyframes cbGradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.cb-gradient-text {
+  background: linear-gradient(270deg, #34d399, #38bdf8, #818cf8, #a78bfa, #fb7185, #fbbf24, #34d399);
+  background-size: 400% 400%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: cbGradientShift 8s ease infinite;
+}
 
 /* Range sliders */
 input[type="range"] { -webkit-appearance: none; height: 3px; border-radius: 2px; }
