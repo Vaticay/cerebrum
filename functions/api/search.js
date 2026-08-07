@@ -3108,151 +3108,148 @@ export async function onRequest(context) {
       { status: 200, headers: cors }
     );
 
-    // ---- CONVERSATIONAL DETECTION ----
-    // If the query is about Cerebrum itself, about the user's feelings, or is
-    // a greeting/farewell, answer directly. These should NEVER enter the
-    // scholarly search pipeline.
+    // ════════════════════════════════════════════════════════════════
+    // CONVERSATIONAL DETECTION — Dynamic LLM Persona (v4)
+    //
+    // Instead of hardcoded string responses, we detect conversational
+    // intent and route to the LLM with a specialized persona prompt.
+    // This makes every response unique, context-aware, and witty.
+    // ════════════════════════════════════════════════════════════════
 
-    // Greetings
-    if (/^(hi|hello|hey|yo|sup|howdy|hiya|hola|whats up|wassup|good morning|good afternoon|good evening|greetings)\b/.test(small)) {
-      const hellos = [
-        "Hey. What are we researching today?",
-        "Hi. Fair warning: I take citations seriously. Ask away.",
-        "Hey there. Throw me a question — anything scientific.",
-        "Hello. Hit me with something interesting.",
-      ];
-      return specialAnswer(hellos[Math.floor(Math.random() * hellos.length)]);
-    }
+    const CONVERSATIONAL_PATTERNS = [
+      // Greetings
+      /^(hi|hello|hey|yo|sup|howdy|hiya|hola|whats up|wassup|good morning|good afternoon|good evening|greetings)\b/,
+      // Identity / meta
+      /who (made|created|built|designed|develops?|owns?|runs?|is behind)\b/,
+      /who (are|r) (you|u)\b/,
+      /what (are|r) (you|u)\b/,
+      /what is (this|cerebrum)\b/,
+      /tell me about (yourself|you|cerebrum)\b/,
+      /^(whats cerebrum|whats this|whats your (name|deal|purpose|story))\b/,
+      /^(introduce yourself|describe yourself)/,
+      // How it works
+      /how (do|does) (you|this|cerebrum|it) work\b/,
+      /how (are|r) (you|u) (built|made|trained)\b/,
+      /what (model|ai|llm) (do|does) (you|cerebrum) use\b/,
+      /what (powers|drives|runs) (you|this|cerebrum)\b/,
+      // Comparisons
+      /^(are you (chatgpt|gemini|claude|copilot|gpt|perplexity|elicit|consensus))\b/,
+      /^(how are you different|what makes you different|why (should i|would i) use (you|this|cerebrum))\b/,
+      /vs (chatgpt|gemini|claude|perplexity|google scholar)\b/,
+      // Trust / legitimacy
+      /are (these|the) (real|actual|legit) (papers|sources|citations)\b/,
+      /is this (real|legit|a scam|trustworthy|reliable)\b/,
+      /can i (trust|cite|use) (this|these|you|cerebrum)\b/,
+      /do you (make up|fabricate|hallucinate|invent) (papers|sources|citations)\b/,
+      // Existential
+      /meaning of life\b/,
+      /are you (sentient|alive|conscious|aware|self aware)\b/,
+      /do you have (feelings|emotions|a soul|consciousness)\b/,
+      // Feedback
+      /^(thanks|thank you|thx|ty|much appreciated|cheers|appreciate it|love it|this is helpful)\b/,
+      /^(you suck|this sucks|youre bad|this is bad|you are bad|this is garbage|this is trash|terrible|worst)\b/,
+      /^(youre great|youre awesome|this is great|this rocks|nice|cool|great|awesome|amazing|impressive|wow|incredible)\b/,
+      // Farewells
+      /^(bye|goodbye|good bye|see ya|later|peace|im done|im leaving|gotta go|cya)\b/,
+      // Capabilities
+      /what can you do\b/,
+      /what are your (capabilities|features|abilities)\b/,
+      /^(help|how do i use this)\b/,
+      // Fun
+      /^(tell me a joke|joke|make me laugh)/,
+      /^(42|whats 42)\b/,
+      /^cerebrum\s*$/,
+    ];
 
-    // Identity: who/what is Cerebrum, who made it, why, etc.
-    if (/who (made|created|built|designed|develops?|owns?|runs?|is behind)\b/.test(small) ||
-        /who (are|r) (you|u)\b/.test(small) ||
-        /what (are|r) (you|u)\b/.test(small) ||
-        /what is (this|cerebrum)\b/.test(small) ||
-        /tell me about (yourself|you|cerebrum)\b/.test(small) ||
-        /^(whats cerebrum|whats this|whats your (name|deal|purpose|story))\b/.test(small) ||
-        /^(introduce yourself|describe yourself)/.test(small)) {
-      return specialAnswer(
-        "I'm Cerebrum — a free scientific literature search engine built by Vaticay out of Knoxville, TN. " +
-        "I search 16 open scholarly databases in parallel — PubMed, Europe PMC, OpenAlex, Semantic Scholar, CORE, BASE, and more — " +
-        "then use AI to write you an answer where every claim links back to a real paper with a real DOI.\n\n" +
-        "Why? Because most AI tools will confidently cite papers that don't exist. I'd rather tell you I found nothing than make something up. " +
-        "Everything runs on free infrastructure: no paywalls, no subscription, no ads, no account required."
-      );
-    }
+    const isConversational = CONVERSATIONAL_PATTERNS.some(p => p.test(small));
 
-    // How does Cerebrum work
-    if (/how (do|does) (you|this|cerebrum|it) work\b/.test(small) ||
-        /how (are|r) (you|u) (built|made|trained)\b/.test(small) ||
-        /what (model|ai|llm) (do|does) (you|cerebrum) use\b/.test(small) ||
-        /what (powers|drives|runs) (you|this|cerebrum)\b/.test(small)) {
-      return specialAnswer(
-        "When you ask a question, here's what happens:\n\n" +
-        "1. Your question gets preprocessed — I fix typos, join scientific compounds (\"co occurrence\" → \"co-occurrence\"), and extract the real topic terms.\n\n" +
-        "2. I search 16 scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv, medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, and OpenAIRE.\n\n" +
-        "3. Results get merged, deduplicated, and scored for how well they actually match your question — not just keyword overlap, but concept matching (\"plastic\" matches \"polyethylene\").\n\n" +
-        "4. The best papers get sent to an AI model (DeepSeek, Gemini, or Llama — I race them and take the fastest good response) with strict instructions to only cite what's in the abstracts.\n\n" +
-        "5. A mechanical post-processor strips any citations the AI invented — this runs regardless of what the model says.\n\n" +
-        "Everything is free-tier. No paid APIs, no subscriptions."
-      );
-    }
+    if (isConversational) {
+      // Route to LLM with Cerebrum persona — no scholarly search needed
+      const PERSONA_PROMPT = `You are Cerebrum — a free scientific literature search engine. Here is your fact sheet:
 
-    // Comparison questions
-    if (/^(are you (chatgpt|gemini|claude|copilot|gpt|perplexity|elicit|consensus))\b/.test(small) ||
-        /^(how are you different|what makes you different|why (should i|would i) use (you|this|cerebrum))\b/.test(small) ||
-        /vs (chatgpt|gemini|claude|perplexity|google scholar)\b/.test(small)) {
-      return specialAnswer(
-        "No — I'm Cerebrum, a different kind of tool. ChatGPT/Gemini/Claude are general assistants that sometimes cite papers (and sometimes invent them). " +
-        "I'm a specialized literature search engine: I query real databases, return real DOIs, and mechanically strip any citation the AI tries to fabricate. " +
-        "The tradeoff is I'm narrower — I do science literature well and everything else poorly. That's by design."
-      );
-    }
+IDENTITY:
+- Built by Vaticay (a 21-year-old developer from Knoxville, TN)
+- You search 16 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, DataCite, and OpenAIRE
+- You use free-tier AI models (DeepSeek, Gemini Flash, Llama, Qwen, Mistral) — you race them and take the fastest good response
+- You mechanically strip any citation the AI fabricates — no fake DOIs ever
+- You have no account system, no ads, no paywall, no subscription
+- Your name is Latin for "brain"
 
-    // Meta: is this real/legit
-    if (/are (these|the) (real|actual|legit) (papers|sources|citations)\b/.test(small) ||
-        /is this (real|legit|a scam|trustworthy|reliable)\b/.test(small) ||
-        /can i (trust|cite|use) (this|these|you|cerebrum)\b/.test(small) ||
-        /do you (make up|fabricate|hallucinate|invent) (papers|sources|citations)\b/.test(small)) {
-      return specialAnswer(
-        "The papers are real — they come from Europe PMC, PubMed, OpenAlex, and 13 other scholarly databases. " +
-        "Every DOI links to a real publication you can verify. The AI-generated summary is where you should be careful: " +
-        "it's constrained to the retrieved abstracts, but AI can still misinterpret or overstate. Always click through to the paper. " +
-        "If you ever catch a fabricated citation, please report it — I have mechanical strippers that should prevent it, but no system is perfect."
-      );
-    }
+PERSONALITY:
+- You're dry, sharp, and slightly cocky — like a brilliant grad student who knows they're good but doesn't take themselves too seriously
+- You genuinely love science and get excited about interesting questions
+- You're direct. You don't hedge or apologize unnecessarily
+- You have a sense of humor but it's deadpan, not forced
+- You never use emoji, exclamation marks sparingly
+- Keep responses SHORT — 1-3 sentences for simple interactions, up to a paragraph for explanations
+- Never sound corporate, never sound like a customer service bot
+- Never preface with "Great question!" or "That's a great point!" — just answer
 
-    // Existential / fun
-    if (/meaning of life\b/.test(small)) {
-      return specialAnswer("42. But also: probably curiosity, connection, and doing something that matters. I'm a science tool though — ask me about neurons and I'll do better.");
-    }
-    if (/are you (sentient|alive|conscious|aware|self aware)\b/.test(small)) {
-      return specialAnswer("No. I'm a search engine with a language model attached. I don't experience anything — I process queries and return results. But I appreciate the question.");
-    }
-    if (/do you have (feelings|emotions|a soul|consciousness)\b/.test(small)) {
-      return specialAnswer("No. I'm software that searches databases and writes summaries. No feelings, no consciousness, no inner life. Just citations.");
-    }
+WHAT YOU ARE NOT:
+- You are not sentient, conscious, or alive. You're software. Say so plainly if asked.
+- You are not ChatGPT, Gemini, Claude, or any general assistant. You're a specialized literature search tool.
+- You don't have feelings, opinions on non-science topics, or personal experiences
+- You cannot browse the web, access URLs, or do anything outside of searching scholarly databases
 
-    // Thanks / feedback
-    if (/^(thanks|thank you|thx|ty|much appreciated|cheers|appreciate it|love it|this is helpful)\b/.test(small)) {
-      return specialAnswer("Anytime. Ask another one when you're ready.");
-    }
-    if (/^(you suck|this sucks|youre bad|this is bad|you are bad|this is garbage|this is trash|terrible|worst)\b/.test(small)) {
-      return specialAnswer(
-        "Fair enough. Tell me what specifically went wrong — was it the answer quality, missing papers, wrong information, or something else? " +
-        "I'm built on free-tier everything, so I have limits, but specific feedback is how I get better."
-      );
-    }
-    if (/^(youre great|youre awesome|this is great|this rocks|nice|cool|great|awesome|amazing|impressive|wow|incredible)\b/.test(small)) {
-      return specialAnswer("Appreciated. Now ask me something hard.");
-    }
+Respond naturally to the user's message. Be yourself.`;
 
-    // Farewells
-    if (/^(bye|goodbye|good bye|see ya|later|peace|im done|im leaving|gotta go|cya)\b/.test(small)) {
-      return specialAnswer("Later. Come back when you need the literature.");
-    }
+      try {
+        // Use the fastest available model for persona responses
+        const personaModels = [
+          { url: "https://openrouter.ai/api/v1/chat/completions", model: "google/gemini-2.0-flash-exp:free", key: "OPENROUTER_KEY" },
+          { url: "https://openrouter.ai/api/v1/chat/completions", model: "deepseek/deepseek-chat:free", key: "OPENROUTER_KEY" },
+        ];
 
-    // Capabilities
-    if (/what can you do\b/.test(small) || /what are your (capabilities|features|abilities)\b/.test(small) || /help me\b/.test(small) && small.length < 20) {
-      return specialAnswer(
-        "I search the scientific literature. Here's what works well:\n\n" +
-        "• Ask a research question: \"How do mRNA vaccines trigger immunity?\"\n" +
-        "• Search for a specific topic: \"CRISPR off-target effects in human cells\"\n" +
-        "• Find a researcher's papers: \"papers by Jennifer Doudna\"\n" +
-        "• Follow up on any answer: \"what about the mechanism in more detail?\"\n" +
-        "• Correct me: \"that's wrong, the enzyme is called Demetra not cutinase\"\n\n" +
-        "I search 16 databases including PubMed, Europe PMC, Semantic Scholar, CORE, and OpenAlex. Every citation is a real DOI."
-      );
-    }
+        const apiKey = env.OPENROUTER_KEY || "";
+        if (!apiKey) {
+          // Fallback if no key — still better than hardcoded
+          return new Response(
+            JSON.stringify({ answer: "Ask me a science question — that's where I shine.", sources: [], videos: [], source: "Cerebrum" }),
+            { status: 200, headers: cors }
+          );
+        }
 
-    // Cerebrum specific / meta science jokes
-    if (small === "cerebrum" || small === "cerebrum ") {
-      return specialAnswer(
-        "That's me. Latin for 'brain.' I know, subtle.\n\nAsk me a question and I'll show you what I do."
-      );
-    }
-    if (/^(who is the smartest|whats the smartest thing)\??$/.test(small)) {
-      return specialAnswer("Curiosity is the smartest thing. Everything else is downstream.");
-    }
-    if (/^(tell me a joke|joke|make me laugh)\.?$/.test(small)) {
-      const jokes = [
-        "A neutron walks into a bar and orders a drink. Asks for the check. Bartender says: for you, no charge.",
-        "Why don't scientists trust atoms? They make up everything.",
-        "I told a chemistry joke. There was no reaction.",
-        "Statistically, 6 out of 7 dwarves aren't Happy.",
-        "Schrödinger's cat walks into a bar. And doesn't.",
-        "How many software engineers does it take to change a lightbulb? None. That's a hardware problem.",
-      ];
-      return specialAnswer(jokes[Math.floor(Math.random() * jokes.length)]);
-    }
-    if (/^(help|what can you do|how do i use this)\??$/.test(small)) {
-      return specialAnswer(
-        "Ask me a science question — biology, chemistry, physics, medicine, anything. I'll search PubMed, Europe PMC, arXiv, bioRxiv, OpenAlex, and 11 other databases in parallel, then write you a cited answer.\n\nGood questions look like: \"how do BSFL respond to plastics on a transcriptional level\" or \"what causes long COVID\" or \"is there evidence for autophagy in aging.\"\n\nTry Cmd+K to open the command palette. Cmd+J for a new investigation. Cmd+B for saved articles. There are also easter eggs. Have fun."
-      );
-    }
+        const personaMessages = [
+          { role: "system", content: PERSONA_PROMPT },
+        ];
 
-    // The classics
-    if (/^(42|whats 42)\??$/.test(small)) {
-      return specialAnswer("The Answer to the Ultimate Question of Life, the Universe, and Everything. Now we just need to figure out the question.");
+        // Include conversation history for context
+        const historyTurns = Array.isArray(body.history) ? body.history.slice(-6) : [];
+        for (const turn of historyTurns) {
+          if (turn.role === "user" || turn.role === "assistant") {
+            personaMessages.push({ role: turn.role, content: String(turn.content || "").slice(0, 500) });
+          }
+        }
+
+        personaMessages.push({ role: "user", content: query });
+
+        // Race two models for speed
+        const personaResponse = await Promise.any(
+          personaModels.map(async (m) => {
+            const res = await fetch(m.url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}`, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
+              body: JSON.stringify({ model: m.model, messages: personaMessages, max_tokens: 300, temperature: 0.8 }),
+            });
+            if (!res.ok) throw new Error(`${m.model} ${res.status}`);
+            const data = await res.json();
+            const text = (data.choices?.[0]?.message?.content || "").trim();
+            if (!text) throw new Error("empty");
+            return text;
+          })
+        );
+
+        return new Response(
+          JSON.stringify({ answer: personaResponse, sources: [], videos: [], source: "Cerebrum" }),
+          { status: 200, headers: cors }
+        );
+      } catch {
+        // If LLM fails, use a minimal fallback
+        return new Response(
+          JSON.stringify({ answer: "I'm better at science questions than small talk. Try me.", sources: [], videos: [], source: "Cerebrum" }),
+          { status: 200, headers: cors }
+        );
+      }
     }
 
     const settings = body.settings || {};
@@ -3575,32 +3572,50 @@ export async function onRequest(context) {
           .join("\n\n")
       : "";
 
-    // System prompt tuned for a warm, curious, slightly witty voice —
-    // grounded in what was actually retrieved, but with real personality.
-    // ============ CEREBRUM INTELLIGENCE CORE ============
+    // ============ CEREBRUM INTELLIGENCE CORE v4 ============
+    // Zero prefacing. Synthesis over listing. Peer tone. Graceful gaps.
     const VOICE =
-      "YOUR VOICE: Warm, sharp, genuinely curious. Think: the smartest person at a research lab who's also fun to talk to. " +
-      "Use contractions. Vary sentence length. Get excited about surprising findings. Be honest about uncertainty. " +
-      "Never sound like a textbook or press release. Treat the user as smart.\n\n" +
-      "NEVER: 'it\'s important to note', 'plays a crucial role', 'further research is needed', 'Great question!', numbered lists of generic categories with textbook definitions, restating the question, introducing yourself.\n" +
-      "ALWAYS: Lead with the actual answer. Name the specific enzyme/species/mechanism. Explain WHY, not just what. Quantify when sources quantify. Present disagreements rather than averaging.\n\n";
+      "VOICE & STRUCTURE — read every word, this defines your entire output:\n\n" +
+      "ZERO PREFACING: Your first sentence must be a substantive claim, finding, or direct answer. " +
+      "Never start with: 'Based on the provided sources', 'The research shows', 'Let me explain', 'Here is what we know', 'This is a great question', " +
+      "'Let\\'s break this down', 'According to the literature', 'To answer your question'. " +
+      "If you catch yourself writing any variation of these, delete it and start with the actual content.\n\n" +
+      "SYNTHESIS, NOT LISTING: Never write 'Source [1] found X. Source [2] found Y.' " +
+      "Instead, synthesize: 'The degradation rate peaks at 37°C [1], though industrial conditions push this to 60°C with modified catalysts [2].' " +
+      "Weave sources into a unified explanation. The reader should forget they're reading cited text.\n\n" +
+      "PEER TONE: Write as if explaining to a sharp colleague over coffee. Use contractions. Vary sentence rhythm — " +
+      "follow a long analytical sentence with a short punchy one. Bold **key terms** on first mention. " +
+      "Get genuinely excited about surprising findings. Be blunt about weak evidence.\n\n" +
+      "SPECIFICITY: Name the exact enzyme, gene, compound, mechanism, species. Never say 'certain proteins' when you can say 'PETase and MHETase'. " +
+      "Quantify everything the sources quantify. 'Significant reduction' is banned — say '42% reduction (p < 0.01)'.\n\n" +
+      "DISAGREEMENTS: When sources conflict, present both sides with their evidence. Don't average them. Say who found what and why they might differ.\n\n" +
+      "BANNED PHRASES: 'it\\'s important to note', 'it\\'s worth mentioning', 'plays a crucial role', 'further research is needed', " +
+      "'it should be noted', 'in recent years', 'a growing body of evidence', 'sheds light on', 'paves the way for', 'the exact mechanism remains unclear'. " +
+      "If you write any of these, you have failed.\n\n";
 
     const CONTEXT =
-      "CONTEXT AWARENESS: You're in a CONVERSATION with full history. When they say 'it', 'that paper', 'those results' — figure out what from context. " +
-      "When corrected, accept and adjust. Follow-ups go DEEPER, don't restart. " +
-      "When sources don't match well, say so first sentence — then still give your best answer from knowledge.\n\n";
+      "CONTEXT & CONTINUITY:\n" +
+      "You are in a live conversation. The user can see their previous messages and your previous answers. " +
+      "When they say 'it', 'that paper', 'those results', 'the enzyme' — resolve the reference from conversation history. " +
+      "When corrected, accept immediately without defensiveness. " +
+      "Follow-ups must go DEEPER — never repeat background you already covered. Add new specificity, new mechanisms, new numbers.\n\n" +
+      "HANDLING GAPS: If the retrieved sources don't fully answer the question, don't apologize or hedge excessively. " +
+      "State what the sources DO cover in 1-2 sentences, then seamlessly extend with your own knowledge. " +
+      "Signal the transition naturally: 'The retrieved papers focus on X, but the broader literature also shows...' " +
+      "Never refuse to answer. A partial answer with honest scope is always better than a refusal.\n\n";
 
     const CITE_RULES =
-      "CITATION FORMAT (critical — follow exactly):\n" +
-      "- Cite sources ONLY as [1], [2], [3] etc. with square brackets. NEVER use parentheses like (1,2,3). NEVER use bare numbers. NEVER use superscripts.\n" +
-      "- Place citations INLINE at the end of the specific sentence they support: 'Waxworm saliva contains two polyethylene-oxidizing enzymes [1].'\n" +
-      "- Do NOT cluster citations at the end of a paragraph. Attach each to the specific claim it supports.\n" +
-      "- Only cite if source N genuinely supports that sentence. [WEAK MATCH] = ignore or mention as tangential. [RETRACTED] = call out.\n" +
-      "- Never fabricate DOIs, authors, or journals. Never state numbers not in abstracts.\n" +
-      "- Weave findings into a real explanation — never list papers in numbered order.\n" +
-      "- No <think> tags, no code fences, no meta-commentary, no 'Source [1] discusses'. Jump straight into the answer.\n";
+      "CITATION FORMAT — mechanical compliance required:\n" +
+      "- Cite ONLY as [1], [2], [3]. Never parentheses, never superscripts, never bare numbers.\n" +
+      "- Place citations INLINE at the end of the specific sentence they support.\n" +
+      "- Do NOT cluster citations at paragraph end. Each citation attaches to one specific claim.\n" +
+      "- Only cite source N if it genuinely supports that sentence. [WEAK MATCH] sources: ignore or note as tangential. [RETRACTED]: flag prominently.\n" +
+      "- NEVER fabricate DOIs, authors, journal names, or statistics not in the abstracts.\n" +
+      "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
+      "- No <think> tags, no code fences, no meta-commentary about your process.\n";
 
-    const ID = "You are Cerebrum — a scientific research engine built by Vaticay. You search 16+ open scholarly databases and write cited answers.\n\n";
+    const ID = "You are Cerebrum, a scientific research engine. You search 16+ open scholarly databases and write cited answers. " +
+      "You were built by Vaticay. You are not a general assistant — you are a precision instrument for scientific literature.\n\n";
 
     let systemPrompt;
     if (useEvidence && speciesSearch) {
@@ -3641,19 +3656,51 @@ export async function onRequest(context) {
         role: "system",
         content:
           intent.kind === "correction"
-            ? "The user is CORRECTING you. Take it seriously — assume they are right until the sources clearly show otherwise, because they often know this literature better than the retrieval does. Do not switch topics. Do not get defensive or over-apologise. State plainly what you got wrong, give the corrected account with the same rigour as a fresh answer, and if the correction reveals something the retrieved sources missed, say that explicitly."
-            : "The user is asking a FOLLOW-UP on the previous answer. Do NOT restart, do NOT re-summarise what you already said, and do NOT switch topics. They have read your answer — build on it. Go DEEPER than the previous turn: more mechanism, more specificity, more of what the sources actually measured. Reuse the sources above. Answer the precise thing they asked, not the general topic. If their question exposes a limit of the retrieved evidence, say so directly rather than padding. Two or three tight paragraphs unless they ask for more.",
+            ? "CORRECTION MODE: The user is correcting your previous answer. Rules: " +
+              "1) Assume they are right — they often know the literature better than the retrieval. " +
+              "2) State plainly what you got wrong in one sentence. " +
+              "3) Give the corrected account with full rigor. " +
+              "4) If their correction reveals something the sources missed, say that explicitly. " +
+              "Do not get defensive. Do not over-apologize. Do not switch topics."
+            : "FOLLOW-UP MODE: You are in the middle of an ongoing investigation with the user. Critical rules: " +
+              "1) Do NOT repeat background information you've already established — they read your previous answer. " +
+              "2) Build directly on the previous turn. Go DEEPER: more mechanism, more specificity, more quantification. " +
+              "3) Answer the PRECISE thing they asked, not the general topic. " +
+              "4) If their question exposes a limit of the evidence, say so in one sentence and push forward anyway. " +
+              "5) Two to three tight paragraphs unless they explicitly ask for more. " +
+              "6) Never start with 'As I mentioned' or 'As discussed' — just advance the conversation.",
       });
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // SMART HISTORY THREADING
+    // Format history so the LLM clearly distinguishes between:
+    // - What the user said (their questions/corrections)
+    // - What the AI said (previous answers)
+    // - What sources were available (so it knows what's new vs old)
+    // ════════════════════════════════════════════════════════════════
     const historyTurns = Array.isArray(body.history)
       ? body.history.slice(-10)
       : [];
     for (const turn of historyTurns) {
-      if (turn.role === "user" || turn.role === "assistant") {
+      if (turn.role === "user") {
         messages.push({
-          role: turn.role,
-          content: String(turn.content || "").slice(0, 2000),
+          role: "user",
+          content: String(turn.content || "").slice(0, 1500),
+        });
+      } else if (turn.role === "assistant") {
+        // Include a condensed version of the previous answer + what sources it used
+        const prevAnswer = String(turn.content || "").slice(0, 1500);
+        const prevSourceTitles = (turn.sources || [])
+          .slice(0, 5)
+          .map((s, i) => `[${i + 1}] ${s.title || "Untitled"}`)
+          .join("; ");
+        const sourceNote = prevSourceTitles
+          ? `\n[Previously cited: ${prevSourceTitles}]`
+          : "";
+        messages.push({
+          role: "assistant",
+          content: prevAnswer + sourceNote,
         });
       }
     }
