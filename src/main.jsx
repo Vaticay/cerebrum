@@ -1,6 +1,32 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 
+/* ════════════════════════════════════════════════════════════════
+   CEREBRUM v4.0 — "DARKNODE"
+   
+   Design language: Deep space observatory. Not a chatbot — a 
+   research instrument that happens to understand language.
+   
+   Typography: Cormorant Garamond for display (editorial serif,
+   high contrast, reads as institutional authority), Inter for 
+   body (proven readability at small sizes), JetBrains Mono for 
+   data/metadata (instrument readout precision).
+   
+   Layout: Left-aligned editorial grid. Massive whitespace. The 
+   content breathes. Headlines run large. The search bar is a 
+   command line, not a friendly input. Results read like a premium 
+   research brief — you'd print this.
+   
+   Color: Deep navy foundation (#070b14). Surfaces are slightly 
+   lifted with blue-tinted glass. Accent is used only for 
+   citations, active states, and the search ring. Everything else
+   is monochrome with blue undertones.
+   
+   Motion: No bouncy springs, no particle clouds. Everything fades
+   in with slight upward drift and blur-to-focus. Smooth, slow, 
+   intentional — like instruments warming up.
+   ════════════════════════════════════════════════════════════════ */
+
 function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} }
 function getCookie(k) { try { const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : null; } catch { return null; } }
 
@@ -269,64 +295,69 @@ const Audio = (() => {
 })();
 
 
-/* ============================================================
-   ICON SYSTEM — Refined stroke icons, thinner weight (1.5)
-   for the Observatory aesthetic. Precision over friendliness.
-   ============================================================ */
+/* ════════════════════════════════════════════════════════════════
+   DESIGN SYSTEM v4 — "DARKNODE"
+   
+   Three palettes, all dark-first. Light exists but the app is 
+   designed dark. Deep navy foundations, blue-tinted glass, 
+   editorial serif headings.
+   ════════════════════════════════════════════════════════════════ */
+
+const PALETTES = {
+  Dark:  { dark: true,  bg: "#070b14", surface: "#0d1220", raised: "#141c2e", ink: "#e8edf5", ink2: "#8b95a8", faint: "#4a5568", line: "rgba(138,155,186,0.07)", line2: "rgba(138,155,186,0.12)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.5)", grain: 0.012, skel: "linear-gradient(90deg, #0d1220 25%, #141c2e 50%, #0d1220 75%)" },
+  Mid:   { dark: true,  bg: "#0a0d15", surface: "#111827", raised: "#1f2937", ink: "#f3f4f6", ink2: "#9ca3af", faint: "#4b5563", line: "rgba(156,163,175,0.08)", line2: "rgba(156,163,175,0.13)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.014, skel: "linear-gradient(90deg, #111827 25%, #1f2937 50%, #111827 75%)" },
+  Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#94a3b8", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.07)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
+};
+const ACCENTS = { Emerald: "#34d399", Indigo: "#818cf8", Sky: "#38bdf8", Amber: "#fbbf24", Rose: "#fb7185", Violet: "#a78bfa", Teal: "#2dd4bf", Cyan: "#22d3ee" };
+
+function accentText(hex) {
+  if (!hex || hex[0] !== "#" || hex.length < 7) return "#111";
+  const r = parseInt(hex.slice(1, 3), 16),
+        g = parseInt(hex.slice(3, 5), 16),
+        b = parseInt(hex.slice(5, 7), 16);
+  const L = (0.299 * r + 0.587 * g + 0.114 * b);
+  return L > 175 ? "#0f172a" : "#fff";
+}
+function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
+
+/* ════════════════════════════════════════════════════════════════
+   ICON SYSTEM — Thinner weight (1.4) for the dark aesthetic
+   ════════════════════════════════════════════════════════════════ */
 function Icon({ name, size = 17, className, style }) {
   const common = {
     width: size, height: size, viewBox: "0 0 24 24", fill: "none",
-    stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round",
+    stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round",
     strokeLinejoin: "round", className, style,
     "aria-hidden": true, focusable: false,
   };
   switch (name) {
-    case "plus":
-      return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
-    case "bookmark":
-      return <svg {...common}><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
-    case "bookmarkFilled":
-      return <svg {...common} fill="currentColor" stroke="none"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
-    case "settings":
-      return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg>;
-    case "volumeOn":
-      return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" /></svg>;
-    case "volumeOff":
-      return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M22 9l-6 6M16 9l6 6" /></svg>;
-    case "search":
-      return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.2-4.2" /></svg>;
-    case "close":
-      return <svg {...common}><path d="M18 6L6 18M6 6l12 12" /></svg>;
-    case "arrowRight":
-      return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
-    case "mic":
-      return <svg {...common}><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" /><path d="M5 12a7 7 0 0014 0M12 19v3" /></svg>;
-    case "check":
-      return <svg {...common}><path d="M20 6L9 17l-5-5" /></svg>;
-    case "external":
-      return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
-    case "chevronDown":
-      return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
-    case "sparkle":
-      return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
-    default:
-      return null;
+    case "plus": return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
+    case "bookmark": return <svg {...common}><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
+    case "bookmarkFilled": return <svg {...common} fill="currentColor" stroke="none"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
+    case "settings": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg>;
+    case "volumeOn": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" /></svg>;
+    case "volumeOff": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M22 9l-6 6M16 9l6 6" /></svg>;
+    case "search": return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.2-4.2" /></svg>;
+    case "close": return <svg {...common}><path d="M18 6L6 18M6 6l12 12" /></svg>;
+    case "arrowRight": return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
+    case "mic": return <svg {...common}><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" /><path d="M5 12a7 7 0 0014 0M12 19v3" /></svg>;
+    case "check": return <svg {...common}><path d="M20 6L9 17l-5-5" /></svg>;
+    case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
+    case "chevronDown": return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
+    case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
+    default: return null;
   }
 }
 
-/* Brain mark — the Cerebrum logo */
 function Mark({ size = 26, accent, glow }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 10px ${withAlpha(accent, 0.45)})` : "none" }}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 12px ${withAlpha(accent, 0.5)})` : "none" }}>
       <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
       <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
     </svg>
   );
 }
 
-/* ============================================================
-   TYPEWRITER + ANSWER RENDERING (logic preserved, styling upgraded)
-   ============================================================ */
 function useTypewriter(full, on) {
   const [out, setOut] = useState(on ? "" : full);
   useEffect(() => {
@@ -1068,10 +1099,494 @@ function BrainEasterEgg() {
 }
 
 
-/* ============================================================
-   MIC BUTTON — logic preserved, visual upgraded
-   ============================================================ */
-function MicButton({ onTranscript, accent, P }) {
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 1: CUSTOM BLEND-MODE CURSOR
+   
+   Hides the default cursor. Renders a glowing dot with a trailing 
+   ring that expands + inverts over actionable elements via 
+   mix-blend-mode: difference. Pure React, no dependencies.
+   ════════════════════════════════════════════════════════════════ */
+function CustomCursor({ accent, P }) {
+  const dotRef = useRef(null);
+  const ringRef = useRef(null);
+  const pos = useRef({ x: -100, y: -100 });
+  const target = useRef({ x: -100, y: -100 });
+  const hovering = useRef(false);
+  const clicking = useRef(false);
+  const visible = useRef(false);
+
+  useEffect(() => {
+    // Only on desktop with fine pointer
+    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!hasMouse) return;
+
+    document.documentElement.style.cursor = "none";
+    const actionables = "a, button, input, select, textarea, [role='button'], summary, label[for], .cb-card, .cb-btn, .cb-hbtn";
+
+    const onMove = (e) => {
+      target.current = { x: e.clientX, y: e.clientY };
+      if (!visible.current) { visible.current = true; pos.current = { ...target.current }; }
+    };
+    const onEnter = (e) => {
+      if (e.target.closest(actionables)) hovering.current = true;
+      else hovering.current = false;
+    };
+    const onLeave = () => { hovering.current = false; };
+    const onDown = () => { clicking.current = true; };
+    const onUp = () => { clicking.current = false; };
+    const onOut = () => { visible.current = false; };
+
+    window.addEventListener("mousemove", onMove, { passive: true });
+    document.addEventListener("mouseover", onEnter, { passive: true });
+    document.addEventListener("mouseout", onLeave, { passive: true });
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("mouseup", onUp);
+    document.addEventListener("mouseleave", onOut);
+
+    let raf;
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const loop = () => {
+      pos.current.x = lerp(pos.current.x, target.current.x, 0.15);
+      pos.current.y = lerp(pos.current.y, target.current.y, 0.15);
+      const { x, y } = pos.current;
+      const vis = visible.current;
+      if (dotRef.current) {
+        dotRef.current.style.transform = `translate3d(${x - 4}px, ${y - 4}px, 0) scale(${clicking.current ? 0.6 : 1})`;
+        dotRef.current.style.opacity = vis ? "1" : "0";
+      }
+      if (ringRef.current) {
+        const ringX = lerp(parseFloat(ringRef.current.dataset.x || x), x, 0.08);
+        const ringY = lerp(parseFloat(ringRef.current.dataset.y || y), y, 0.08);
+        ringRef.current.dataset.x = ringX;
+        ringRef.current.dataset.y = ringY;
+        const s = hovering.current ? 2.5 : 1;
+        ringRef.current.style.transform = `translate3d(${ringX - 20}px, ${ringY - 20}px, 0) scale(${s})`;
+        ringRef.current.style.opacity = vis ? (hovering.current ? "0.8" : "0.4") : "0";
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      document.documentElement.style.cursor = "";
+      window.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseover", onEnter);
+      document.removeEventListener("mouseout", onLeave);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mouseup", onUp);
+      document.removeEventListener("mouseleave", onOut);
+    };
+  }, []);
+
+  return (
+    <>
+      {/* Dot: solid, fast-tracking */}
+      <div ref={dotRef} style={{
+        position: "fixed", top: 0, left: 0, width: 8, height: 8,
+        borderRadius: "50%", background: accent,
+        boxShadow: `0 0 12px ${withAlpha(accent, 0.6)}`,
+        pointerEvents: "none", zIndex: 9999, opacity: 0,
+        transition: "transform 60ms ease, opacity 300ms",
+        willChange: "transform",
+      }} />
+      {/* Ring: slow-trailing, blend-mode */}
+      <div ref={ringRef} data-x="-100" data-y="-100" style={{
+        position: "fixed", top: 0, left: 0, width: 40, height: 40,
+        borderRadius: "50%", border: `1.5px solid ${accent}`,
+        mixBlendMode: "difference",
+        pointerEvents: "none", zIndex: 9998, opacity: 0,
+        transition: "transform 0.35s cubic-bezier(0.16,1,0.3,1), opacity 0.4s, width 0.3s, height 0.3s",
+        willChange: "transform",
+      }} />
+    </>
+  );
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 2: MAGNETIC BUTTON
+   
+   Wraps any element and makes it gently pull toward the cursor 
+   when hovered, using lerped offset translation. Resets on leave.
+   ════════════════════════════════════════════════════════════════ */
+function Magnetic({ children, strength = 0.3, style, className, ...props }) {
+  const ref = useRef(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const animRef = useRef(null);
+  const targetRef = useRef({ x: 0, y: 0 });
+  const currentRef = useRef({ x: 0, y: 0 });
+
+  const onMove = (e) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    targetRef.current = {
+      x: (e.clientX - cx) * strength,
+      y: (e.clientY - cy) * strength,
+    };
+  };
+  const onLeave = () => {
+    targetRef.current = { x: 0, y: 0 };
+  };
+
+  useEffect(() => {
+    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!hasMouse) return;
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const loop = () => {
+      currentRef.current.x = lerp(currentRef.current.x, targetRef.current.x, 0.12);
+      currentRef.current.y = lerp(currentRef.current.y, targetRef.current.y, 0.12);
+      if (Math.abs(currentRef.current.x) > 0.05 || Math.abs(currentRef.current.y) > 0.05 ||
+          Math.abs(targetRef.current.x) > 0.05 || Math.abs(targetRef.current.y) > 0.05) {
+        setOffset({ x: currentRef.current.x, y: currentRef.current.y });
+      }
+      animRef.current = requestAnimationFrame(loop);
+    };
+    animRef.current = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animRef.current);
+  }, []);
+
+  return (
+    <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave}
+      style={{ display: "inline-flex", transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`, transition: "transform 0.1s ease", ...style }}
+      className={className} {...props}>
+      {children}
+    </div>
+  );
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 3: MOUSE-TRACKING GLOW BORDER
+   
+   Wraps the search bar. Renders a radial glow that follows the 
+   mouse X/Y along the border. Creates a localized light source.
+   ════════════════════════════════════════════════════════════════ */
+function GlowBorder({ children, accent, active, style, className, ...props }) {
+  const ref = useRef(null);
+  const glowRef = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    const glow = glowRef.current;
+    if (!el || !glow) return;
+    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!hasMouse) return;
+
+    const onMove = (e) => {
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      glow.style.opacity = "1";
+      glow.style.background = `radial-gradient(180px circle at ${x}px ${y}px, ${withAlpha(accent, 0.25)}, transparent 70%)`;
+    };
+    const onLeave = () => { glow.style.opacity = "0"; };
+
+    el.addEventListener("mousemove", onMove, { passive: true });
+    el.addEventListener("mouseleave", onLeave, { passive: true });
+    return () => {
+      el.removeEventListener("mousemove", onMove);
+      el.removeEventListener("mouseleave", onLeave);
+    };
+  }, [accent]);
+
+  return (
+    <div ref={ref} style={{ position: "relative", ...style }} className={className} {...props}>
+      {/* Mouse-following glow layer */}
+      <div ref={glowRef} style={{
+        position: "absolute", inset: -1, borderRadius: "inherit",
+        opacity: 0, transition: "opacity 0.4s ease",
+        pointerEvents: "none", zIndex: 0,
+      }} />
+      {/* Content */}
+      <div style={{ position: "relative", zIndex: 1, display: "contents" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 4: KINETIC TEXT
+   
+   Splits text into individual characters that gently breathe/shift 
+   with staggered sine-wave offsets. Subtle, premium, not gimmicky.
+   ════════════════════════════════════════════════════════════════ */
+function KineticText({ text, style, className }) {
+  const [time, setTime] = useState(0);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!hasMouse) return; // Static on mobile
+    let start = performance.now();
+    const tick = (now) => {
+      setTime((now - start) / 1000);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []);
+
+  const chars = text.split("");
+  return (
+    <span style={style} className={className} aria-label={text}>
+      {chars.map((ch, i) => {
+        if (ch === " ") return <span key={i}>&nbsp;</span>;
+        const yOff = Math.sin(time * 0.8 + i * 0.15) * 1.5;
+        const opacityOff = 0.85 + Math.sin(time * 0.6 + i * 0.2) * 0.15;
+        return (
+          <span key={i} style={{
+            display: "inline-block",
+            transform: `translateY(${yOff}px)`,
+            opacity: opacityOff,
+            transition: "none",
+            willChange: "transform",
+          }} aria-hidden="true">{ch}</span>
+        );
+      })}
+    </span>
+  );
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 5: WEBGL PARTICLE FIELD
+   
+   Raw WebGL (no Three.js dependency). Renders a 3D particle field 
+   with mouse-reactive raycasting, bloom glow via multi-pass 
+   rendering, and depth-of-field blur. Particles scatter from 
+   cursor and reform magnetically. Replaces the 2D canvas 
+   LivingBackground on capable devices.
+   ════════════════════════════════════════════════════════════════ */
+function WebGLField({ accent, P, intensity = 1, paused = false }) {
+  const canvasRef = useRef(null);
+  const mouseRef = useRef({ x: 0.5, y: 0.5 });
+  const pausedRef = useRef(paused);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const gl = canvas.getContext("webgl", { alpha: true, antialias: false, premultipliedAlpha: false });
+    if (!gl) return; // Fallback handled by parent
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => {
+      canvas.width = Math.floor(canvas.offsetWidth * dpr);
+      canvas.height = Math.floor(canvas.offsetHeight * dpr);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    };
+    resize();
+    window.addEventListener("resize", resize, { passive: true });
+
+    // Parse accent color
+    const hex = accent.replace("#", "");
+    const cr = parseInt(hex.slice(0,2),16) / 255;
+    const cg = parseInt(hex.slice(2,4),16) / 255;
+    const cb = parseInt(hex.slice(4,6),16) / 255;
+
+    // ── Shaders ──
+    const vertSrc = `
+      attribute vec3 aPos;
+      attribute float aSize;
+      attribute float aPhase;
+      uniform float uTime;
+      uniform vec2 uMouse;
+      uniform vec2 uRes;
+      varying float vAlpha;
+      varying float vDist;
+      
+      void main() {
+        vec3 pos = aPos;
+        
+        // Breathing motion
+        float breath = sin(uTime * 0.4 + aPhase) * 0.02;
+        pos.x += breath;
+        pos.y += cos(uTime * 0.3 + aPhase * 1.3) * 0.015;
+        pos.z += sin(uTime * 0.2 + aPhase * 0.7) * 0.01;
+        
+        // Mouse repulsion
+        vec2 mouseNDC = uMouse * 2.0 - 1.0;
+        vec2 posNDC = pos.xy;
+        float mouseDist = distance(posNDC, mouseNDC);
+        float repulse = smoothstep(0.4, 0.0, mouseDist) * 0.15;
+        vec2 dir = normalize(posNDC - mouseNDC + 0.001);
+        pos.xy += dir * repulse;
+        
+        // Perspective projection
+        float fov = 1.2;
+        float z = pos.z + 1.5;
+        vec2 projected = pos.xy * fov / z;
+        float aspect = uRes.x / uRes.y;
+        projected.x /= aspect;
+        
+        gl_Position = vec4(projected, pos.z * 0.1, 1.0);
+        gl_PointSize = aSize * (300.0 / z) * (uRes.y / 800.0);
+        
+        // Alpha: distance from center + depth
+        vAlpha = smoothstep(1.8, 0.3, length(pos.xy)) * smoothstep(1.0, 0.0, abs(pos.z));
+        vDist = mouseDist;
+      }
+    `;
+    const fragSrc = `
+      precision mediump float;
+      uniform vec3 uColor;
+      uniform float uTime;
+      varying float vAlpha;
+      varying float vDist;
+      
+      void main() {
+        // Soft circle
+        vec2 cxy = gl_PointCoord * 2.0 - 1.0;
+        float r = dot(cxy, cxy);
+        if (r > 1.0) discard;
+        
+        // Glow falloff
+        float glow = exp(-r * 3.0) * 0.8 + exp(-r * 0.8) * 0.4;
+        
+        // Pulse near mouse
+        float mousePulse = smoothstep(0.5, 0.0, vDist) * 0.3;
+        float pulse = sin(uTime * 2.0 + vDist * 10.0) * 0.5 + 0.5;
+        
+        float alpha = glow * vAlpha * (0.6 + mousePulse * pulse);
+        gl_FragColor = vec4(uColor * (1.0 + mousePulse * 0.5), alpha * 0.7);
+      }
+    `;
+
+    function compileShader(src, type) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.warn("Shader error:", gl.getShaderInfoLog(s));
+        gl.deleteShader(s);
+        return null;
+      }
+      return s;
+    }
+
+    const vs = compileShader(vertSrc, gl.VERTEX_SHADER);
+    const fs = compileShader(fragSrc, gl.FRAGMENT_SHADER);
+    if (!vs || !fs) return;
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+    gl.useProgram(prog);
+
+    // ── Particle data ──
+    const N = Math.floor(400 * intensity);
+    const posData = new Float32Array(N * 3);
+    const sizeData = new Float32Array(N);
+    const phaseData = new Float32Array(N);
+
+    for (let i = 0; i < N; i++) {
+      // Distribute in a sphere-ish volume
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 0.3 + Math.random() * 1.2;
+      posData[i * 3]     = Math.sin(phi) * Math.cos(theta) * r;
+      posData[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * r * 0.7;
+      posData[i * 3 + 2] = (Math.cos(phi) * r * 0.5) - 0.2;
+      sizeData[i] = 1.5 + Math.random() * 3.5;
+      phaseData[i] = Math.random() * Math.PI * 2;
+    }
+
+    // ── Buffers ──
+    const posBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, posData, gl.STATIC_DRAW);
+    const aPosLoc = gl.getAttribLocation(prog, "aPos");
+    gl.enableVertexAttribArray(aPosLoc);
+    gl.vertexAttribPointer(aPosLoc, 3, gl.FLOAT, false, 0, 0);
+
+    const sizeBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, sizeData, gl.STATIC_DRAW);
+    const aSizeLoc = gl.getAttribLocation(prog, "aSize");
+    gl.enableVertexAttribArray(aSizeLoc);
+    gl.vertexAttribPointer(aSizeLoc, 1, gl.FLOAT, false, 0, 0);
+
+    const phaseBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, phaseBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, phaseData, gl.STATIC_DRAW);
+    const aPhaseLoc = gl.getAttribLocation(prog, "aPhase");
+    gl.enableVertexAttribArray(aPhaseLoc);
+    gl.vertexAttribPointer(aPhaseLoc, 1, gl.FLOAT, false, 0, 0);
+
+    // ── Uniforms ──
+    const uTime = gl.getUniformLocation(prog, "uTime");
+    const uMouse = gl.getUniformLocation(prog, "uMouse");
+    const uRes = gl.getUniformLocation(prog, "uRes");
+    const uColor = gl.getUniformLocation(prog, "uColor");
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // Additive blending for glow
+
+    const onMove = (e) => {
+      mouseRef.current = {
+        x: e.clientX / window.innerWidth,
+        y: 1.0 - e.clientY / window.innerHeight,
+      };
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+
+    const startTime = performance.now();
+    let raf;
+    function draw() {
+      if (pausedRef.current) { raf = requestAnimationFrame(draw); return; }
+      const t = (performance.now() - startTime) / 1000;
+
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      gl.useProgram(prog);
+      gl.uniform1f(uTime, t);
+      gl.uniform2f(uMouse, mouseRef.current.x, mouseRef.current.y);
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform3f(uColor, cr, cg, cb);
+
+      // Re-bind position buffer
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+      gl.vertexAttribPointer(aPosLoc, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
+      gl.vertexAttribPointer(aSizeLoc, 1, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, phaseBuf);
+      gl.vertexAttribPointer(aPhaseLoc, 1, gl.FLOAT, false, 0, 0);
+
+      gl.drawArrays(gl.POINTS, 0, N);
+      raf = requestAnimationFrame(draw);
+    }
+    raf = requestAnimationFrame(draw);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", onMove);
+      gl.deleteProgram(prog);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      gl.deleteBuffer(posBuf);
+      gl.deleteBuffer(sizeBuf);
+      gl.deleteBuffer(phaseBuf);
+    };
+  }, [accent, intensity]);
+
+  return (
+    <canvas ref={canvasRef} style={{
+      position: "fixed", inset: 0, width: "100%", height: "100%",
+      pointerEvents: "none", zIndex: 0, opacity: P.dark ? 0.6 : 0.25,
+    }} aria-hidden="true" />
+  );
+}
+
+
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
@@ -1180,11 +1695,6 @@ function looksLikeFollowupText(q) {
   return /^(but|and|also|what about|how about|explain|tell me more|more on|also,|actually|wait|no,)/i.test(s)
       || /\b(you (forgot|missed)|the (paper|study|source|answer)|that (paper|study|source|answer)|this (paper|study))\b/i.test(s);
 }
-
-
-/* ============================================================
-   INFO PAGES — same logic, upgraded typography
-   ============================================================ */
 function InfoPage({ page }) {
   const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
   const P = PALETTES[paletteName] || PALETTES.Dark;
@@ -1584,154 +2094,258 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
 /* ============================================================
    STYLE SYSTEM v3 — "Observatory" 
    Clean, precise, monospaced metadata, generous whitespace
-   ============================================================ */
+
+
+/* ════════════════════════════════════════════════════════════════
+   STYLE SYSTEM v4 — "DARKNODE"
+   
+   Left-aligned editorial layout. Serif display headings. Deep navy
+   glass surfaces. The search bar is a command line. Results read
+   like a premium brief.
+   ════════════════════════════════════════════════════════════════ */
 function makeStyles(P, accent, at, isMobile = false) {
   const font = "var(--cb-body)";
-  const pad = isMobile ? 16 : 24;
-  return {
-    gate: { minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: P.bg, padding: 20, fontFamily: font, position: "relative", overflow: "hidden" },
-    gateGlow: { position: "absolute", width: 600, height: 600, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.12 : 0.06)}, transparent 68%)`, top: "20%", filter: "blur(30px)", pointerEvents: "none" },
-    gateInner: { textAlign: "center", maxWidth: 440, position: "relative", zIndex: 1 },
-    gateKicker: { fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, marginBottom: 14, fontFamily: "var(--cb-mono)" },
-    gateTitle: { fontSize: 42, fontWeight: 700, letterSpacing: "-0.04em", color: P.ink, marginBottom: 14, lineHeight: 1, fontFamily: "var(--cb-display)" },
-    gateSub: { fontSize: 15.5, color: P.ink2, marginBottom: 32, lineHeight: 1.6, letterSpacing: "-0.01em" },
-    gateBtn: { display: "inline-flex", alignItems: "center", gap: 10, padding: "13px 28px", fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-display)", boxShadow: `0 4px 16px ${withAlpha(accent, 0.3)}`, letterSpacing: "-0.01em" },
-    gateNote: { fontSize: 12, color: P.faint, marginTop: 18, fontFamily: "var(--cb-mono)" },
+  const pad = isMobile ? 18 : 32;
+  const glass = P.dark 
+    ? `${withAlpha(P.surface, 0.6)}` 
+    : P.surface;
+  const glassBorder = P.dark 
+    ? `1px solid ${withAlpha("#8b95a8", 0.08)}`
+    : `1px solid ${P.line2}`;
 
+  return {
+    /* ── Page shell ── */
     page: { minHeight: "100dvh", height: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "fixed", inset: 0, overflow: "hidden", touchAction: "pan-y", overscrollBehavior: "none" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
-    /* ── Header: clean horizontal bar, no clutter ── */
-    header: { flexShrink: 0, borderBottom: `1px solid ${P.line}`, background: withAlpha(P.bg, 0.8), backdropFilter: "blur(14px) saturate(1.2)", WebkitBackdropFilter: "blur(14px) saturate(1.2)", position: "sticky", top: 0, zIndex: 20 },
-    headInner: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
-    brandRow: { display: "flex", alignItems: "center", gap: 8, cursor: "pointer" },
-    brand: { fontWeight: 700, fontSize: 17, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-display)" },
-    headActions: { display: "flex", alignItems: "center", gap: isMobile ? 1 : 3 },
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, color: P.ink2, padding: "6px 8px 6px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontFamily: "var(--cb-mono)", boxShadow: P.shadowSm, marginRight: 4 },
-    kbd: { fontSize: 10.5, fontFamily: "var(--cb-mono)", color: P.faint, background: P.bg, border: `1px solid ${P.line2}`, borderRadius: 4, padding: "1px 5px", fontWeight: 500 },
-    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px 8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: isMobile ? 13.5 : 13, fontWeight: 550, fontFamily: font },
-    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: 36, minWidth: isMobile ? 38 : 36, padding: isMobile ? "0 7px" : "0 10px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 550, fontFamily: "var(--cb-mono)", position: "relative" },
+    /* ── Header: dark glass bar, minimal ── */
+    header: { 
+      flexShrink: 0, 
+      borderBottom: glassBorder, 
+      background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85), 
+      backdropFilter: "blur(20px) saturate(1.3)", 
+      WebkitBackdropFilter: "blur(20px) saturate(1.3)", 
+      position: "sticky", top: 0, zIndex: 20 
+    },
+    headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
+    brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
+    brand: { fontWeight: 600, fontSize: 18, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" },
+    headActions: { display: "flex", alignItems: "center", gap: isMobile ? 1 : 4 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "var(--cb-mono)", boxShadow: P.shadowSm, marginRight: 4 },
+    kbd: { fontSize: 10, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 4, padding: "2px 6px", fontWeight: 500 },
+    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13.5, fontWeight: 500, fontFamily: font },
+    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-mono)", position: "relative", letterSpacing: "0.01em" },
     iconBtnLabel: { lineHeight: 1 },
-    countPill: { fontSize: 10, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 5px", borderRadius: 20, minWidth: 14, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
+    countPill: { fontSize: 10, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 20, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
 
-    /* ── Scroll area & content ── */
+    /* ── Scroll area ── */
     scroll: { flex: 1, overflowY: "auto", overflowX: "hidden", paddingBottom: isMobile ? 88 : 0, WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" },
-    container: { maxWidth: 1080, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
+    container: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
 
-    /* ── Hero (pre-search state) ── */
-    hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "48px 0 72px", position: "relative" },
-    heroGlow: { position: "absolute", width: 720, height: 720, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.12 : 0.07)}, transparent 65%)`, top: "4%", filter: "blur(70px)", pointerEvents: "none" },
-    heroMark: { marginBottom: 28, position: "relative" },
-    heroTitle: { fontSize: isMobile ? 36 : 60, fontWeight: 300, letterSpacing: "-0.05em", lineHeight: 0.92, color: P.ink, marginBottom: 14, position: "relative", fontFamily: "var(--cb-display)" },
-    heroSub: { fontSize: isMobile ? 16 : 18.5, color: P.ink2, maxWidth: 460, lineHeight: 1.5, marginBottom: 42, letterSpacing: "-0.012em", position: "relative", fontWeight: 400 },
+    /* ── Hero: LEFT-ALIGNED editorial layout ── */
+    hero: { 
+      flex: 1, display: "flex", flexDirection: "column", 
+      alignItems: "flex-start", justifyContent: "center", 
+      textAlign: "left",
+      padding: isMobile ? "40px 0 60px" : "60px 0 80px", 
+      position: "relative", maxWidth: 720,
+    },
+    heroGlow: { 
+      position: "absolute", width: 800, height: 800, borderRadius: "50%", 
+      background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.06 : 0.04)}, transparent 60%)`, 
+      top: "-20%", left: "-30%", filter: "blur(100px)", pointerEvents: "none" 
+    },
+    heroMark: { marginBottom: 32, position: "relative" },
+    heroTitle: { 
+      fontSize: isMobile ? 44 : 80, fontWeight: 300, 
+      letterSpacing: "-0.04em", lineHeight: 0.95, 
+      color: P.ink, marginBottom: 20, position: "relative", 
+      fontFamily: "var(--cb-display)",
+    },
+    heroSub: { 
+      fontSize: isMobile ? 16 : 19, color: P.ink2, 
+      maxWidth: 500, lineHeight: 1.6, marginBottom: 48, 
+      letterSpacing: "-0.01em", position: "relative", fontWeight: 400 
+    },
 
-    /* ── Search bar: the focal ring ── */
-    searchShell: { display: "flex", alignItems: "center", gap: 12, width: "100%", maxWidth: 680, backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: isMobile ? "7px 7px 7px 14px" : "8px 8px 8px 16px", boxShadow: P.shadow, transition: "border-color 0.15s var(--cb-out), box-shadow 0.15s var(--cb-out)", position: "relative" },
-    searchShellActive: { borderColor: accent, boxShadow: `${P.shadow}, 0 0 0 4px ${withAlpha(accent, 0.14)}` },
-    searchInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: font, fontSize: 16, color: P.ink, minWidth: 0, letterSpacing: "-0.01em" },
-    searchBtn: { fontSize: 15.5, fontWeight: 700, background: `linear-gradient(135deg, ${accent}, ${withAlpha(accent, 0.8)})`, color: at, border: "none", padding: isMobile ? "12px 16px" : "12px 22px", borderRadius: 12, cursor: "pointer", fontFamily: "var(--cb-display)", flexShrink: 0, letterSpacing: "-0.01em", boxShadow: `0 2px 10px ${withAlpha(accent, 0.32)}` },
+    /* ── Search bar: COMMAND CENTER ── */
+    searchShell: { 
+      display: "flex", alignItems: "center", gap: 12, 
+      width: "100%", maxWidth: 700, 
+      backdropFilter: "blur(24px) saturate(1.4)", 
+      WebkitBackdropFilter: "blur(24px) saturate(1.4)", 
+      background: glass, 
+      border: glassBorder, 
+      borderRadius: 14, 
+      padding: isMobile ? "8px 8px 8px 16px" : "10px 10px 10px 20px", 
+      boxShadow: P.shadow, 
+      transition: "border-color 0.3s ease, box-shadow 0.3s ease", 
+      position: "relative" 
+    },
+    searchShellActive: { 
+      borderColor: withAlpha(accent, 0.4), 
+      boxShadow: `${P.shadow}, 0 0 0 1px ${withAlpha(accent, 0.15)}, 0 0 40px ${withAlpha(accent, 0.06)}` 
+    },
+    searchInput: { 
+      flex: 1, border: "none", outline: "none", background: "transparent", 
+      fontFamily: "var(--cb-mono)", fontSize: 15, color: P.ink, 
+      minWidth: 0, letterSpacing: "-0.01em" 
+    },
+    searchBtn: { 
+      fontSize: 14, fontWeight: 600, 
+      background: accent, color: at, 
+      border: "none", 
+      padding: isMobile ? "12px 18px" : "12px 24px", 
+      borderRadius: 10, cursor: "pointer", 
+      fontFamily: "var(--cb-display)", flexShrink: 0, 
+      letterSpacing: "0.01em",
+      boxShadow: `0 2px 12px ${withAlpha(accent, 0.3)}` 
+    },
 
     /* ── Suggestion chips ── */
-    chips: { display: "flex", flexWrap: "wrap", gap: 9, justifyContent: "center", marginTop: 24, maxWidth: 620, position: "relative" },
-    chip: { fontSize: 13.5, color: P.ink2, background: withAlpha(P.surface, 0.7), backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: `1px solid ${P.line}`, borderRadius: 22, padding: "9px 16px", cursor: "pointer", transition: "all 0.15s var(--cb-out)", fontFamily: font, boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
-    chipHover: { borderColor: accent, color: accent, transform: "translate3d(0, -3px, 0) scale(1.03)", boxShadow: `0 4px 12px ${withAlpha(accent, 0.15)}` },
-    trustRow: { display: "flex", flexWrap: "wrap", gap: 18, justifyContent: "center", marginTop: 44, opacity: 0.7 },
-    trustItem: { fontSize: 12, fontWeight: 550, color: P.ink2, letterSpacing: "0.015em", fontFamily: "var(--cb-mono)" },
+    chips: { display: "flex", flexWrap: "wrap", gap: 10, marginTop: 28, position: "relative" },
+    chip: { 
+      fontSize: 13, color: P.ink2, 
+      background: P.dark ? withAlpha(P.surface, 0.4) : withAlpha(P.surface, 0.7), 
+      backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", 
+      border: glassBorder, 
+      borderRadius: 10, padding: "10px 16px", 
+      cursor: "pointer", transition: "all 0.25s ease", 
+      fontFamily: font, letterSpacing: "-0.01em" 
+    },
+    chipHover: { 
+      borderColor: withAlpha(accent, 0.3), color: accent, 
+      transform: "translateY(-2px)", 
+      boxShadow: `0 4px 20px ${withAlpha(accent, 0.1)}` 
+    },
+    trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
+    trustItem: { fontSize: 11, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
 
-    /* ── Workspace (search results layout) ── */
-    workspace: { display: "grid", gridTemplateColumns: "1fr 288px", gap: 40, alignItems: "start", padding: isMobile ? "22px 0 20px" : "36px 0 20px", flex: 1 },
+    /* ── Workspace: editorial grid ── */
+    workspace: { display: "grid", gridTemplateColumns: "1fr 300px", gap: 48, alignItems: "start", padding: isMobile ? "24px 0" : "40px 0", flex: 1 },
     workspaceMobile: { gridTemplateColumns: "1fr", gap: 0 },
     thread: { minWidth: 0 },
 
-    /* ── Turn (Q&A block) ── */
-    turn: { marginBottom: isMobile ? 32 : 44, animation: "cbSlideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) both" },
-    qLabel: { fontSize: 12, fontWeight: 600, color: accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 },
-    qDot: { width: 5, height: 5, borderRadius: "50%", background: accent, boxShadow: P.dark ? `0 0 8px ${accent}` : "none" },
-    headline: { fontWeight: 700, fontSize: isMobile ? 20 : 28, lineHeight: 1.2, marginBottom: isMobile ? 16 : 20, color: P.ink, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" },
+    /* ── Turn: research brief layout ── */
+    turn: { marginBottom: isMobile ? 36 : 52 },
+    qLabel: { 
+      fontSize: 11, fontWeight: 500, letterSpacing: "0.12em", 
+      textTransform: "uppercase", color: P.faint, 
+      marginBottom: 12, display: "flex", alignItems: "center", gap: 8,
+      fontFamily: "var(--cb-mono)",
+    },
+    qDot: { width: 5, height: 5, borderRadius: "50%", background: accent, boxShadow: `0 0 8px ${withAlpha(accent, 0.5)}` },
+    headline: { 
+      fontWeight: 400, fontSize: isMobile ? 22 : 32, 
+      lineHeight: 1.25, marginBottom: isMobile ? 18 : 24, 
+      color: P.ink, letterSpacing: "-0.025em", 
+      fontFamily: "var(--cb-display)",
+    },
 
-    /* ── Answer card: the signature element. 
-       Clean left accent border, generous padding, 
-       subtle glass backdrop ── */
-    answerCard: { background: withAlpha(P.surface, 0.7), backdropFilter: "blur(16px) saturate(1.2)", WebkitBackdropFilter: "blur(16px) saturate(1.2)", border: `1px solid ${P.line}`, borderTop: `2px solid ${withAlpha(accent, 0.4)}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "18px 16px" : "22px 26px", boxShadow: P.shadow },
-    byline: { fontSize: 11, color: P.faint, borderTop: `1px solid ${P.line}`, paddingTop: 14, marginTop: 20, fontFamily: "var(--cb-mono)", display: "flex" },
-    aiTag: { fontSize: 10.5, color: P.faint, fontWeight: 500, letterSpacing: "0.02em", fontFamily: "var(--cb-mono)" },
-
+    /* ── Answer card: editorial reading surface ── */
+    answerCard: { 
+      background: glass, 
+      backdropFilter: "blur(20px) saturate(1.2)", 
+      WebkitBackdropFilter: "blur(20px) saturate(1.2)", 
+      border: glassBorder, 
+      borderLeft: `2px solid ${withAlpha(accent, 0.5)}`, 
+      borderRadius: 16, 
+      padding: isMobile ? "20px 18px" : "28px 32px", 
+      boxShadow: P.shadow 
+    },
+    byline: { 
+      fontSize: 11, color: P.faint, 
+      borderTop: `1px solid ${P.line}`, 
+      paddingTop: 16, marginTop: 24, 
+      fontFamily: "var(--cb-mono)", display: "flex" 
+    },
+    aiTag: { fontSize: 10, color: P.faint, fontWeight: 500, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
-    error: { padding: "14px 16px", background: withAlpha("#e5484d", 0.08), color: "#e5484d", borderRadius: 10, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.2)}` },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, padding: "6px 6px 6px 16px", boxShadow: P.shadow, transition: "border-color 0.15s var(--cb-out), box-shadow 0.15s var(--cb-out)", marginTop: 8 },
-    relatedWrap: { marginTop: 22 },
-    relatedLabel: { fontSize: 10.5, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-mono)" },
-    relatedList: { display: "flex", flexDirection: "column", gap: 6 },
-    relatedBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", padding: "12px 16px", fontSize: 14, background: P.surface, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 11, cursor: "pointer", fontFamily: font, transition: "all 0.15s var(--cb-out)", boxShadow: P.shadowSm, letterSpacing: "-0.01em" },
+    error: { padding: "16px 20px", background: withAlpha("#e5484d", 0.08), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.2)}` },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: glass, border: glassBorder, borderRadius: 14, padding: "8px 8px 8px 18px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 12 },
+    relatedWrap: { marginTop: 24 },
+    relatedLabel: { fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, marginBottom: 12, fontFamily: "var(--cb-mono)" },
+    relatedList: { display: "flex", flexDirection: "column", gap: 8 },
+    relatedBtn: { 
+      display: "flex", alignItems: "center", justifyContent: "space-between", 
+      gap: 16, textAlign: "left", padding: "14px 18px", 
+      fontSize: 14, background: glass, color: P.ink2, 
+      border: glassBorder, borderRadius: 12, 
+      cursor: "pointer", fontFamily: font, 
+      transition: "all 0.25s ease", letterSpacing: "-0.01em" 
+    },
 
-    /* ── Sources panel ── */
-    panel: { position: "sticky", top: 24, background: withAlpha(P.surface, 0.7), backdropFilter: "blur(14px) saturate(1.15)", WebkitBackdropFilter: "blur(14px) saturate(1.15)", border: `1px solid ${P.line}`, borderRadius: 16, padding: "18px 18px", boxShadow: P.shadow, maxHeight: "calc(100dvh - 110px)", overflowY: "auto" },
-    panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: "88vw", maxWidth: 350, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" },
-    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, fontWeight: 600, color: P.ink, marginBottom: 14, letterSpacing: "0.02em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
-    srcCount: { fontSize: 10.5, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "2px 8px", borderRadius: 20, fontFamily: "var(--cb-mono)" },
-    srcActions: { display: "flex", gap: 6, marginBottom: 10 },
-    srcFilterInput: { width: "100%", padding: "7px 10px", fontSize: 12, border: `1px solid ${P.line2}`, background: P.bg, color: P.ink, borderRadius: 7, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 8 },
-    sortTabs: { display: "flex", gap: 2, background: P.bg, padding: 2, borderRadius: 8, marginBottom: 12, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "5px", fontSize: 11, background: "transparent", color: P.ink2, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, transition: "all 150ms ease" },
-    sortTabActive: { background: P.surface, color: P.ink, fontWeight: 600 },
-    srcGroupLabel: { fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, margin: "14px 0 8px", paddingBottom: 5, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" },
-    sBtn: { flex: 1, fontSize: 11.5, padding: "7px", background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550 },
-    sBtnP: { flex: 1, fontSize: 11.5, padding: "7px", background: accent, color: at, border: "none", borderRadius: 7, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-mono)" },
-    savedNote: { fontSize: 11, color: accent, marginBottom: 10, fontFamily: "var(--cb-mono)" },
-    zBox: { background: P.bg, border: `1px solid ${P.line}`, borderRadius: 8, padding: 10, marginBottom: 10, display: "flex", flexDirection: "column", gap: 6 },
-    zIn: { padding: "8px 10px", fontSize: 12, border: `1px solid ${P.line2}`, background: P.surface, color: P.ink, borderRadius: 6, outline: "none", fontFamily: "var(--cb-mono)" },
+    /* ── Sources panel: dark glass sidebar ── */
+    panel: { 
+      position: "sticky", top: 24, 
+      background: glass, 
+      backdropFilter: "blur(20px) saturate(1.15)", 
+      WebkitBackdropFilter: "blur(20px) saturate(1.15)", 
+      border: glassBorder, borderRadius: 16, 
+      padding: "20px", boxShadow: P.shadow, 
+      maxHeight: "calc(100dvh - 110px)", overflowY: "auto" 
+    },
+    panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: "88vw", maxWidth: 360, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
+    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
+    srcCount: { fontSize: 10, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 20, fontFamily: "var(--cb-mono)" },
+    srcActions: { display: "flex", gap: 6, marginBottom: 12 },
+    srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: 12, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 10 },
+    sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 10, marginBottom: 14, border: `1px solid ${P.line}` },
+    sortTab: { flex: 1, padding: "6px", fontSize: 11, background: "transparent", color: P.ink2, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, transition: "all 0.2s ease" },
+    sortTabActive: { background: P.dark ? P.raised : P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
+    srcGroupLabel: { fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" },
+    sBtn: { flex: 1, fontSize: 11.5, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550 },
+    sBtnP: { flex: 1, fontSize: 11.5, padding: "8px", background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-mono)" },
+    savedNote: { fontSize: 11, color: accent, marginBottom: 12, fontFamily: "var(--cb-mono)" },
+    zBox: { background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, border: glassBorder, borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
+    zIn: { padding: "9px 12px", fontSize: 12, border: glassBorder, background: P.dark ? withAlpha(P.surface, 0.4) : P.surface, color: P.ink, borderRadius: 8, outline: "none", fontFamily: "var(--cb-mono)" },
     zMsg: { fontSize: 11, color: accent, fontFamily: "var(--cb-mono)" },
     srcList: { display: "flex", flexDirection: "column", gap: 2 },
-    empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "8px 0" },
-    srcItem: { padding: "12px 10px", margin: "0 -10px", borderRadius: 10, transition: "background 200ms ease", borderBottom: `1px solid ${P.line}` },
-    srcTitle: { fontSize: 13, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 4, transition: "color 150ms ease", letterSpacing: "-0.01em" },
-    srcMeta: { fontSize: 11.5, color: P.ink2, lineHeight: 1.45, fontFamily: "var(--cb-mono)" },
-    srcRow: { display: "flex", gap: 6, marginTop: 8 },
-    chipMini: { fontSize: 11, padding: "4px 9px", border: "1px solid", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, background: "transparent", transition: "all 150ms ease" },
+    empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
+    srcItem: { padding: "14px 12px", margin: "0 -12px", borderRadius: 10, transition: "background 0.25s ease", borderBottom: `1px solid ${P.line}` },
+    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 4, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
+    srcMeta: { fontSize: 11, color: P.ink2, lineHeight: 1.45, fontFamily: "var(--cb-mono)" },
+    srcRow: { display: "flex", gap: 6, marginTop: 10 },
+    chipMini: { fontSize: 10.5, padding: "4px 10px", border: "1px solid", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, background: "transparent", transition: "all 0.2s ease" },
 
     /* ── Footer ── */
-    foot: { marginTop: "auto", padding: "20px 0 26px", textAlign: "center" },
-    disclaimer: { fontSize: 11, color: P.ink2, lineHeight: 1.55, maxWidth: 560, margin: "0 auto 16px", padding: "10px 16px", background: withAlpha(accent, 0.04), border: `1px solid ${P.line}`, borderRadius: 8 },
-    footDbs: { fontSize: 10.5, letterSpacing: "0.04em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-mono)" },
+    foot: { marginTop: "auto", padding: "24px 0 32px" },
+    footDbs: { fontSize: 10, letterSpacing: "0.06em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
 
     /* ── Mobile sources FAB ── */
-    mobSrcBtn: { position: "fixed", bottom: "calc(16px + env(safe-area-inset-bottom, 0px))", right: 16, background: accent, color: at, border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", boxShadow: `0 4px 16px ${withAlpha(accent, 0.3)}`, zIndex: 20, fontFamily: "var(--cb-mono)", letterSpacing: "0.01em", display: "inline-flex", alignItems: "center", gap: 7 },
-    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 25 },
+    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 12, padding: "12px 18px", fontSize: 12, fontWeight: 600, cursor: "pointer", boxShadow: `0 4px 20px ${withAlpha(accent, 0.35)}`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8 },
+    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 25 },
 
     /* ── Command palette ── */
-    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50 },
-    cmdBox: { width: 540, maxWidth: "92vw", background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, boxShadow: "0 24px 70px rgba(0,0,0,0.45)", overflow: "hidden", fontFamily: font },
-    cmdInputRow: { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: `1px solid ${P.line}` },
-    cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 15.5, color: P.ink, fontFamily: font },
-    cmdList: { maxHeight: 320, overflowY: "auto", padding: 6 },
-    cmdSection: { fontSize: 10, fontWeight: 650, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, padding: "10px 12px 6px", fontFamily: "var(--cb-mono)" },
-    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 120ms" },
+    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh", zIndex: 50 },
+    cmdBox: { width: 560, maxWidth: "92vw", background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden", fontFamily: font },
+    cmdInputRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
+    cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, color: P.ink, fontFamily: "var(--cb-mono)" },
+    cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
+    cmdSection: { fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, padding: "12px 14px 6px", fontFamily: "var(--cb-mono)" },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.15s" },
 
     /* ── Modals ── */
-    modalWrap: { position: "fixed", inset: 0, background: P.dark ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
-    modal: { background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 16, padding: 24, width: 440, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 70px rgba(0,0,0,0.4)" },
-    modalTitle: { fontSize: 20, fontWeight: 700, color: P.ink, marginBottom: 22, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" },
-    setLabel: { fontSize: 11, textTransform: "uppercase", letterSpacing: "0.1em", color: P.faint, marginBottom: 10, marginTop: 4, fontWeight: 600, fontFamily: "var(--cb-mono)" },
-    palRow: { display: "flex", gap: 10, marginBottom: 22 },
-    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 8, padding: "10px", borderRadius: 10, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
-    accentRow: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 22, alignItems: "center" },
-    accentDot: { width: 24, height: 24, borderRadius: "50%", border: "none", cursor: "pointer", transition: "transform 150ms" },
-    customDot: { width: 24, height: 24, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
-    modalClose: { width: "100%", padding: "12px", fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 9, cursor: "pointer", fontFamily: "var(--cb-display)" },
+    modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
+    modal: { background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 18, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
+    modalTitle: { fontSize: 24, fontWeight: 400, color: P.ink, marginBottom: 24, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" },
+    setLabel: { fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: P.faint, marginBottom: 10, marginTop: 4, fontWeight: 600, fontFamily: "var(--cb-mono)" },
+    palRow: { display: "flex", gap: 10, marginBottom: 24 },
+    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 8, padding: "12px", borderRadius: 12, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
+    accentRow: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 24, alignItems: "center" },
+    accentDot: { width: 26, height: 26, borderRadius: "50%", border: "none", cursor: "pointer", transition: "transform 0.2s" },
+    customDot: { width: 26, height: 26, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
+    modalClose: { width: "100%", padding: "13px", fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-display)" },
     soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 },
-    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", fontSize: 12.5, background: P.bg, color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550 },
-    soundBtnActive: { color: P.ink, borderColor: withAlpha(accent, 0.5), background: withAlpha(accent, 0.06) },
+    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", fontSize: 12.5, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550 },
+    soundBtnActive: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
   };
 }
 
-
-/* ============================================================
-   APP — all logic preserved verbatim
-   ============================================================ */
 function App() {
   const isMobile = useIsMobile();
-  const [entered, setEntered] = useState(() => { try { return getCookie("cb_entered_v3") === "1"; } catch { return false; } });
+  const [entered, setEntered] = useState(() => { try { return getCookie("cb_entered_v4") === "1"; } catch { return false; } });
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState([]);
   const [pinnedSources, setPinnedSources] = useState([]);
@@ -1859,7 +2473,7 @@ function App() {
   const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
 
   if (!entered) {
-    return <Intro accent={accent} P={P} onEnter={() => { sfx(); try { setCookie("cb_entered_v3", "1", 365); } catch {} setEntered(true); }} animationMode={animationMode} />;
+    return <Intro accent={accent} P={P} onEnter={() => { sfx(); try { setCookie("cb_entered_v4", "1", 365); } catch {} setEntered(true); }} animationMode={animationMode} />;
   }
 
   const started = turns.length > 0 || busy;
@@ -1918,23 +2532,27 @@ function App() {
 
   return (
     <div style={{...S.page, "--cb-accent": accent}}>
-      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
+      {animationMode !== "off" && P.dark && <WebGLField accent={accent} P={P} intensity={animDensity} paused={settingsOpen} />}
+      {animationMode !== "off" && !P.dark && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
+      <CustomCursor accent={accent} P={P} />
       <div style={S.grain} />
       <header style={S.header}>
         <div style={S.headInner}>
           <div style={{ ...S.brandRow, position: "relative" }}>
-            <div onClick={(e) => { e.stopPropagation(); easterEgg.trigger(); }} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-              <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
-              <span style={S.brand}>Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 500, marginLeft: 2, opacity: 0.6, letterSpacing: "0.02em" }}>™</sup></span>
-            </div>
+            <Magnetic strength={0.2}>
+              <div onClick={(e) => { e.stopPropagation(); easterEgg.trigger(); }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
+                <span style={S.brand}>Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em" }}>™</sup></span>
+              </div>
+            </Magnetic>
             {easterEgg.render}
           </div>
           <div style={S.headActions}>
-            {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button>
-            <button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button>
+            {!isMobile && (<Magnetic strength={0.15}><button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button></Magnetic>)}
+            <Magnetic strength={0.2}><button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button></Magnetic>
+            <Magnetic strength={0.2}><button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button></Magnetic>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}><Icon name={muted ? "volumeOff" : "volumeOn"} size={16} /></button>
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button>
+            <Magnetic strength={0.2}><button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button></Magnetic>
           </div>
         </div>
       </header>
@@ -1943,15 +2561,17 @@ function App() {
           {!started ? (
             <div style={S.hero} className="cb-hero">
               <div style={S.heroGlow} />
-              <div style={S.heroMark}><Mark size={40} accent={accent} glow={P.dark} /></div>
-              <h1 style={S.heroTitle}>Cerebrum</h1>
-              <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can check.</p>
-              <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg>
-                <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
-                <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
-                <button style={S.searchBtn} onClick={() => ask()}>Search</button>
-              </div>
+              <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
+              <h1 style={S.heroTitle}><KineticText text="Cerebrum" /></h1>
+              <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can verify.</p>
+              <GlowBorder accent={accent} style={{ width: "100%", maxWidth: 700, borderRadius: 14 }}>
+                <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Search the scientific literature..." />
+                  <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
+                  <Magnetic strength={0.15}><button style={S.searchBtn} onClick={() => ask()}>Search</button></Magnetic>
+                </div>
+              </GlowBorder>
               <div style={S.chips} className="cb-stagger">
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
@@ -1985,7 +2605,7 @@ function App() {
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/privacy" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/terms" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/contact" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Contact</a>
-              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>© {new Date().getFullYear()} Cerebrum™ · v3.0
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>© {new Date().getFullYear()} Cerebrum™ · v4.0
             </div>
           </div>
         </div>
@@ -2002,277 +2622,195 @@ function App() {
 
 
 /* ============================================================
-   CSS — Observatory design system keyframes, utilities, fonts
-   ============================================================ */
-const CSS = `
-/* ============================================================
-   CEREBRUM v3.0 — OBSERVATORY DESIGN SYSTEM
-   Three-font system. Blur-in depth. Instrument precision.
-   ============================================================ */
 
-/* ── Typography ── */
+
+/* ════════════════════════════════════════════════════════════════
+   CSS v4 — DARKNODE
+   Serif display. Blur-to-focus entrances. No bouncy springs.
+   Everything slow, intentional, premium.
+   ════════════════════════════════════════════════════════════════ */
+const CSS = `
 :root {
-  --cb-display: 'Instrument Serif', 'Georgia', 'Times New Roman', serif;
+  --cb-display: 'Cormorant Garamond', 'Georgia', 'Times New Roman', serif;
   --cb-body:    'Inter', system-ui, -apple-system, sans-serif;
-  --cb-mono:    'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --cb-instant: 90ms;
-  --cb-quick:   160ms;
-  --cb-base:    280ms;
-  --cb-slow:    460ms;
-  --cb-ambient: 720ms;
-  --cb-out:      cubic-bezier(0.16, 1, 0.3, 1);
-  --cb-inout:    cubic-bezier(0.65, 0, 0.35, 1);
-  --cb-entrance: cubic-bezier(0.22, 1, 0.36, 1);
-  --cb-exit:     cubic-bezier(0.4, 0, 1, 1);
+  --cb-mono:    'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
+  --cb-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --cb-ease-out: cubic-bezier(0, 0, 0.2, 1);
 }
 
-/* ── Premium globals ── */
 *, *::before, *::after {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-html, body {
-  margin: 0; overflow-x: hidden; max-width: 100%;
-  overscroll-behavior-y: contain;
-  min-height: 100vh; min-height: 100dvh;
-  scroll-behavior: smooth;
-}
+html, body { margin: 0; overflow-x: hidden; overscroll-behavior-y: contain; }
 @supports (padding: max(0px)) {
-  body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
-}
-@supports (padding-bottom: env(safe-area-inset-bottom)) {
-  body { padding-bottom: env(safe-area-inset-bottom); }
+  body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
 }
 input, textarea, select { font-size: 16px; }
-a, p, h1, h2, span { overflow-wrap: break-word; word-break: break-word; }
-a { color: inherit; }
-input::placeholder, textarea::placeholder { color: inherit; opacity: 0.4; }
+a { color: inherit; text-decoration: none; }
+input::placeholder, textarea::placeholder { color: inherit; opacity: 0.35; }
 summary::-webkit-details-marker { display: none; }
-::selection { background: rgba(16, 185, 129, 0.2); }
+::selection { background: rgba(56, 189, 248, 0.2); }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.2); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.35); }
-* { scrollbar-width: thin; scrollbar-color: rgba(128,128,128,0.2) transparent; }
+::-webkit-scrollbar-thumb { background: rgba(138,155,186,0.15); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(138,155,186,0.25); }
+* { scrollbar-width: thin; scrollbar-color: rgba(138,155,186,0.15) transparent; }
 
-/* ── Keyframes ── */
+/* ── Keyframes: all blur-to-focus, slow, intentional ── */
 @keyframes cbspin { to { transform: rotate(360deg); } }
 @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-@keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
 
-/* Blur-in entrances — the slight defocus reads as depth, not as a slide.
-   Blur is GPU-composited, same cost class as transform. */
+@keyframes cbEnter {
+  from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes cbFade {
+  from { opacity: 0; filter: blur(4px); }
+  to   { opacity: 1; filter: blur(0); }
+}
 @keyframes cbRise {
-  from { opacity: 0; transform: translate3d(0, 10px, 0); filter: blur(6px); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+  from { opacity: 0; transform: translateY(12px); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
 }
 @keyframes cbPop {
-  from { opacity: 0; transform: translate3d(0, 6px, 0);  filter: blur(4px); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+  from { opacity: 0; transform: scale(0.97); filter: blur(4px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
 }
 @keyframes cbHero {
-  from { opacity: 0; transform: translate3d(0, 14px, 0); filter: blur(8px); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+  from { opacity: 0; transform: translateY(20px); filter: blur(10px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
 }
 @keyframes cbGate {
-  from { opacity: 0; transform: translate3d(0, 12px, 0); filter: blur(6px); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+  from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
 }
 @keyframes cbModal {
-  from { opacity: 0; transform: translate3d(0, 14px, 0) scale(0.985); filter: blur(5px); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1);        filter: blur(0); }
+  from { opacity: 0; transform: translateY(16px) scale(0.98); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
 }
 @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
 @keyframes cbSlideUp {
-  from { opacity: 0; transform: translateY(20px); filter: blur(4px); }
+  from { opacity: 0; transform: translateY(24px); filter: blur(6px); }
   to   { opacity: 1; transform: none; filter: blur(0); }
 }
 @keyframes cbMicPulse {
-  0%, 100% { opacity: 0.6; transform: scale(1); }
+  0%, 100% { opacity: 0.5; transform: scale(1); }
   50%      { opacity: 0; transform: scale(1.5); }
 }
 @keyframes cbSynapse {
-  0%, 100% { opacity: 0.25; transform: scale(0.75); }
-  30%      { opacity: 1;    transform: scale(1.25); }
-  60%      { opacity: 0.4;  transform: scale(0.9); }
+  0%, 100% { opacity: 0.2; transform: scale(0.7); }
+  35%      { opacity: 1; transform: scale(1.2); }
+  65%      { opacity: 0.35; transform: scale(0.85); }
 }
 @keyframes cb-float {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50%      { transform: translate3d(0, -3px, 0); }
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
 }
 @keyframes cb-wiggle {
   0%, 100% { transform: rotate(0deg); }
-  30%      { transform: rotate(-5deg); }
-  70%      { transform: rotate(4deg); }
+  30%      { transform: rotate(-4deg); }
+  70%      { transform: rotate(3deg); }
 }
 @keyframes cbGlowPulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50%      { opacity: 1; transform: scale(1.15); }
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 0.8; transform: scale(1.1); }
 }
 @keyframes cbCaret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0.15; } }
-@keyframes cb-burst {
-  0%   { opacity: 0; transform: translate3d(0, 0, 0) scale(0.4); }
-  18%  { opacity: 1; }
-  100% { opacity: 0; transform: translate3d(var(--cb-dx, 0), var(--cb-dy, 60px), 0) scale(0.7) rotate(var(--cb-rot, 24deg)); }
-}
-@keyframes cb-egg-in {
-  from { opacity: 0; transform: translate3d(0, -6px, 0); filter: blur(4px); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
-}
 
-/* CTA button shimmer sweep */
+/* CTA shimmer */
 .cb-glow-btn { position: relative; overflow: hidden; }
 .cb-glow-btn::before {
   content: "";
   position: absolute; inset: 0;
-  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.18) 45%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0.18) 55%, transparent 65%);
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.12) 55%, transparent 65%);
   background-size: 250% 100%;
-  animation: cbBtnShimmer 3s ease-in-out infinite;
+  animation: cbBtnShimmer 4s ease-in-out infinite;
   border-radius: inherit;
 }
-@keyframes cbBtnShimmer {
-  0%   { background-position: 200% center; }
-  100% { background-position: -200% center; }
-}
+@keyframes cbBtnShimmer { 0% { background-position: 200% center; } 100% { background-position: -200% center; } }
 
-/* Hero entrance */
-.cb-hero { animation: cbHeroIn 0.8s var(--cb-out) both; }
-@keyframes cbHeroIn {
-  from { opacity: 0; transform: translateY(24px) scale(0.98); filter: blur(6px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
-}
+/* ── Entrance classes: all SLOW (500-800ms) ── */
+.cb-fade    { animation: cbFade  500ms var(--cb-ease) both; }
+.cb-rise    { animation: cbRise  600ms var(--cb-ease) both; }
+.cb-pop     { animation: cbPop   400ms var(--cb-ease) both; }
+.cb-gate    { animation: cbGate  800ms var(--cb-ease) both; }
+.cb-hero    { animation: cbHero  900ms var(--cb-ease) both; }
+.cb-modal   { animation: cbModal 400ms var(--cb-ease) both; will-change: transform, opacity, filter; }
+.cb-backdrop { animation: cbBackdrop 300ms ease both; }
+.cb-wiggle  { animation: cb-wiggle 400ms var(--cb-ease); }
+.cb-answer-enter { animation: cbEnter 700ms var(--cb-ease) both; }
 
-/* Answer card entrance */
-.cb-answer-enter { animation: cbAnswerIn 0.5s var(--cb-out) both; }
-@keyframes cbAnswerIn {
-  from { opacity: 0; transform: translateY(16px); filter: blur(4px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
-}
+/* ── Stagger cascade: slower delays ── */
+.cb-stagger > * { opacity: 0; animation: cbFade 500ms var(--cb-ease) both; }
+.cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.cb-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.cb-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.cb-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.cb-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.cb-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.cb-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.cb-stagger > *:nth-child(8) { animation-delay: 420ms; }
+.cb-stagger > *:nth-child(n+9) { animation-delay: 480ms; }
 
-/* ── Entrance utility classes ── */
-.cb-fade    { animation: cbFade   var(--cb-base) var(--cb-out) both; }
-.cb-rise    { animation: cbRise   var(--cb-slow) var(--cb-entrance) both; }
-.cb-pop     { animation: cbPop    var(--cb-base) var(--cb-entrance) both; }
-.cb-gate    { animation: cbGate   var(--cb-ambient) var(--cb-entrance) both; }
-.cb-modal   { animation: cbModal  var(--cb-base) var(--cb-entrance) both; will-change: transform, opacity, filter; }
-.cb-backdrop { animation: cbBackdrop var(--cb-quick) var(--cb-out) both; }
-.cb-wiggle  { animation: cb-wiggle 380ms var(--cb-out); }
-
-/* ── Stagger cascade ── */
-.cb-stagger > *:nth-child(1)  { animation-delay: 0ms; }
-.cb-stagger > *:nth-child(2)  { animation-delay: 45ms; }
-.cb-stagger > *:nth-child(3)  { animation-delay: 90ms; }
-.cb-stagger > *:nth-child(4)  { animation-delay: 135ms; }
-.cb-stagger > *:nth-child(5)  { animation-delay: 180ms; }
-.cb-stagger > *:nth-child(6)  { animation-delay: 225ms; }
-.cb-stagger > *:nth-child(7)  { animation-delay: 270ms; }
-.cb-stagger > *:nth-child(8)  { animation-delay: 315ms; }
-.cb-stagger > *:nth-child(9)  { animation-delay: 360ms; }
-.cb-stagger > *:nth-child(10) { animation-delay: 405ms; }
-.cb-stagger > *:nth-child(n+11) { animation-delay: 450ms; }
-
-/* ── Global button physics ── 
-   Applied to every <button> so the whole app feels consistent.
-   Transform-only — composites on GPU, never triggers layout. */
+/* ── Global button physics: subtle, no bounce ── */
 button {
-  transition: transform var(--cb-instant) var(--cb-out),
-              opacity   var(--cb-quick)   var(--cb-out),
-              box-shadow var(--cb-quick)  var(--cb-out),
-              background-color var(--cb-quick) var(--cb-out),
-              border-color var(--cb-quick) var(--cb-out),
-              color var(--cb-quick) var(--cb-out);
+  transition: transform 120ms ease, opacity 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
 }
-button:not(:disabled):hover  { transform: translate3d(0, -2px, 0); }
-button:not(:disabled):active { transform: scale(0.97) translate3d(0, 0, 0); transition-duration: 60ms; }
-button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:not(:disabled):hover { transform: translateY(-1px); }
+button:not(:disabled):active { transform: scale(0.98) translateY(0); transition-duration: 60ms; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── Animated conic-gradient border — the signature search glow ── */
+/* ── Search glow ── */
 @property --gradient-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
 @keyframes cbGradientSpin { to { --gradient-angle: 360deg; } }
 .cb-search-glow { position: relative; }
 .cb-search-glow::before {
   content: '';
-  position: absolute; inset: -1.5px; border-radius: 14px;
-  background: conic-gradient(from var(--gradient-angle), transparent 40%, var(--cb-accent, #10b981) 50%, transparent 60%);
-  animation: cbGradientSpin 3.5s linear infinite;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  z-index: -1;
+  position: absolute; inset: -1px; border-radius: 15px;
+  background: conic-gradient(from var(--gradient-angle), transparent 35%, var(--cb-accent, #38bdf8) 50%, transparent 65%);
+  animation: cbGradientSpin 4s linear infinite;
+  opacity: 0; transition: opacity 0.5s ease; z-index: -1;
 }
-.cb-search-glow:focus-within::before { opacity: 1; }
-/* Fallback for browsers without @property */
+.cb-search-glow:focus-within::before { opacity: 0.6; }
 @supports not (background: conic-gradient(red, blue)) {
-  .cb-search-glow:focus-within {
-    box-shadow: 0 0 0 2px var(--cb-accent, #10b981), 0 0 20px rgba(16,185,129,0.15);
-  }
+  .cb-search-glow:focus-within { box-shadow: 0 0 0 2px var(--cb-accent, #38bdf8), 0 0 24px rgba(56,189,248,0.1); }
 }
 
-/* ── Header action buttons ── */
-.cb-hbtn:hover:not(:disabled)  { background: var(--cb-hover-surface, rgba(128,128,128,0.10)) !important; }
-.cb-hbtn:active:not(:disabled) { background: var(--cb-hover-surface, rgba(128,128,128,0.16)) !important; }
+/* ── Header buttons ── */
+.cb-hbtn:hover:not(:disabled) { background: rgba(138,155,186,0.08) !important; }
+.cb-hbtn:active:not(:disabled) { background: rgba(138,155,186,0.14) !important; }
 
-/* ── Opt-in button class ── */
-.cb-btn {
-  transition: transform var(--cb-instant) var(--cb-out),
-              opacity   var(--cb-quick)   var(--cb-out),
-              box-shadow var(--cb-quick)  var(--cb-out);
-}
-.cb-btn:hover:not(:disabled)  { transform: translate3d(0, -1.5px, 0); }
-.cb-btn:active:not(:disabled) { transform: scale(0.975); transition-duration: 60ms; }
+/* ── Card hover ── */
+.cb-card { transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease; }
+.cb-card:hover { transform: translateY(-2px); }
 
-/* ── Cards ── */
-.cb-card {
-  transition: transform var(--cb-quick) var(--cb-out),
-              border-color var(--cb-quick) var(--cb-out),
-              box-shadow var(--cb-quick) var(--cb-out);
-}
-.cb-card:hover  { transform: translate3d(0, -2px, 0); }
-.cb-card:active { transform: translate3d(0, -1px, 0) scale(0.995); transition-duration: 60ms; }
-
-/* Source card hover lift */
-.cb-src-card {
-  transition: transform 0.2s var(--cb-out), box-shadow 0.2s, border-color 0.2s;
-}
-.cb-src-card:hover { transform: translateY(-2px); }
-
-/* Glass card hover */
-.cb-glass-card {
-  transition: transform 0.25s var(--cb-out), box-shadow 0.25s var(--cb-out), border-color 0.25s;
-}
-.cb-glass-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
-}
-
-/* Gradient text utility */
-.cb-grad-text {
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* ── Focus rings — keyboard only ── */
+/* Focus */
 :focus { outline: none; }
-:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
-  border-radius: 6px;
-}
+:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 6px; }
 
-/* ── Range slider styling ── */
-input[type="range"] { -webkit-appearance: none; height: 4px; border-radius: 2px; }
+/* Range sliders */
+input[type="range"] { -webkit-appearance: none; height: 3px; border-radius: 2px; }
 input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 16px; height: 16px; border-radius: 50%;
-  background: currentColor; cursor: pointer;
-  transition: transform var(--cb-instant) var(--cb-out);
+  -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: currentColor; cursor: pointer; transition: transform 120ms ease;
 }
-input[type="range"]::-webkit-slider-thumb:hover  { transform: scale(1.18); }
-input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.32); }
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
+
+/* Info page styles */
+.cb-info-block h2 { font-size: 22px; font-weight: 400; letter-spacing: -0.02em; margin: 0 0 14px; font-family: var(--cb-display); }
+.cb-info-block p { font-size: 15.5px; line-height: 1.7; margin: 0; }
+.cb-info-block ul { margin: 0; padding: 0; list-style: none; }
+.cb-info-block li { font-size: 15px; line-height: 1.65; padding: 12px 0 12px 24px; position: relative; }
+.cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 20px; width: 4px; height: 4px; border-radius: 50%; }
+.cb-info-navlink { transition: color .2s, background .2s; }
+.cb-fadein { animation: cbEnter .7s var(--cb-ease) both; }
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
@@ -2281,27 +2819,22 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.32); }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  .cb-rise, .cb-pop, .cb-hero, .cb-gate, .cb-modal { filter: none !important; }
 }
 `;
 
-/* ============================================================
-   FONT LOADING — DM Sans (display), Inter (body), JetBrains Mono
-   ============================================================ */
+/* Font loading */
 (function loadFonts() {
   if (typeof document === "undefined") return;
-  const id = "cb-fonts-v3";
+  const id = "cb-fonts-v4";
   if (document.getElementById(id)) return;
   const link = document.createElement("link");
   link.id = id;
   link.rel = "stylesheet";
-  link.href = "https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
+  link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
   document.head.appendChild(link);
 })();
 
-/* ============================================================
-   ROOT — inject CSS, mount React
-   ============================================================ */
+/* Root */
 function Root() {
   const p = typeof window !== "undefined"
     ? window.location.pathname.replace(/\.html$/, "").replace(/\/+$/, "")
@@ -2313,7 +2846,4 @@ function Root() {
   return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><App /></>;
 }
 
-const rootEl = document.getElementById("root");
-if (rootEl) {
-  createRoot(rootEl).render(<Root />);
-}
+createRoot(document.getElementById("root")).render(<Root />);
