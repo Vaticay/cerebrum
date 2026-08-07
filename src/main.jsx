@@ -1766,9 +1766,9 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
   ];
 
   /* ── iOS building blocks ── */
-  const bg = P.dark ? withAlpha(P.raised, 0.6) : "#fff";
-  const divider = P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
-  const sectionBg = P.dark ? withAlpha(P.bg, 0.4) : "#f2f2f7";
+  const bg = P.dark ? withAlpha(P.raised, 0.9) : "#fff";
+  const divider = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const sectionBg = P.dark ? P.surface : "#f2f2f7";
 
   const Section = ({ title, footer, children }) => (
     <div style={{ marginBottom: 24 }}>
@@ -2473,9 +2473,6 @@ function App() {
     </div>
   );
 }
-
-
-/* ============================================================
 
 
 /* ════════════════════════════════════════════════════════════════
