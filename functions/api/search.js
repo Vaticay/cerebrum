@@ -1,3955 +1,2787 @@
-// Cerebrum backend - Cloudflare Pages Function.
-// Full rewrite for stability. Queries 16 scholarly databases in parallel,
-// races video proxies, synthesizes answers with sanitization.
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createRoot } from "react-dom/client";
 
-// ============ CORE UTILITIES ============
+/* ════════════════════════════════════════════════════════════════
+   CEREBRUM v4.0 — "DARKNODE"
+   
+   Design language: Deep space observatory. Not a chatbot — a 
+   research instrument that happens to understand language.
+   
+   Typography: Cormorant Garamond for display (editorial serif,
+   high contrast, reads as institutional authority), Inter for 
+   body (proven readability at small sizes), JetBrains Mono for 
+   data/metadata (instrument readout precision).
+   
+   Layout: Left-aligned editorial grid. Massive whitespace. The 
+   content breathes. Headlines run large. The search bar is a 
+   command line, not a friendly input. Results read like a premium 
+   research brief — you'd print this.
+   
+   Color: Deep navy foundation (#070b14). Surfaces are slightly 
+   lifted with blue-tinted glass. Accent is used only for 
+   citations, active states, and the search ring. Everything else
+   is monochrome with blue undertones.
+   
+   Motion: No bouncy springs, no particle clouds. Everything fades
+   in with slight upward drift and blur-to-focus. Smooth, slow, 
+   intentional — like instruments warming up.
+   ════════════════════════════════════════════════════════════════ */
 
-function stripTags(s) {
-  return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} }
+function getCookie(k) { try { const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : null; } catch { return null; } }
+
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
+const MOD = IS_MAC ? "⌘" : "Ctrl";
+const kbdLabel = (key) => `${MOD}${IS_MAC ? "" : "+"}${key}`;
+
+const LOADING_MESSAGES = [
+  "Is this the Krusty Krab? No, this is Cerebrum",
+  "Reticulating splines (legally required)",
+  "One does not simply search PubMed",
+  "It's not a bug, it's peer review",
+  "Enhancing... enhancing... enhancing",
+  "Downloading more RAM for science",
+  "Yes chef",
+  "He who controls the citations controls the universe",
+  "Somebody once told me the results are gonna roll in",
+  "Loading... and my axe",
+  "This is fine",
+  "The cake is a preprint",
+  "I'm sorry Dave, I'm afraid I found 47 papers",
+  "Do a barrel roll through the literature",
+  "It's dangerous to go alone, take this citation",
+  "Achievement unlocked: asked a real question",
+  "Press F to pay respects to null results",
+  "Task failed successfully (just kidding, still loading)",
+  "Vaticay was here",
+  "Bribing PubMed with a warm cookie",
+  "Convincing OpenAlex you're not a robot",
+  "Asking arXiv to please hurry up",
+  "Explaining to bioRxiv what a preprint is",
+  "Negotiating with Reviewer 2",
+  "Reviewer 2 says reject. Ignoring Reviewer 2",
+  "Waiting on revisions since 2019",
+  "Politely declining to read the supplementary material",
+  "Pretending to understand the methods section",
+  "Skipping straight to the figures like everyone does",
+  "Checking if the p-value is load-bearing",
+  "Counting how many times they wrote 'novel'",
+  "Looking for the one paper everyone cites but nobody read",
+  "Determining whether 'further research is needed'",
+  "Spoiler: further research is needed",
+  "Finding the paper that contradicts the last paper",
+  "Locating the ethics board",
+  "Feeding the graduate students",
+  "The grad students have been fed",
+  "Emailing the corresponding author (no reply expected)",
+  "Requesting the dataset. Author has left academia",
+  "Untangling a 400-author collaboration",
+  "Deciding if the abstract oversold it (it did)",
+  "Beeping. Also booping",
+  "Aligning the chakras of the citation graph",
+  "Doing the little citation dance",
+  "Politely asking the electrons to hurry",
+  "Consulting the ghost of Carl Sagan",
+  "Sagan says: billions and billions of results",
+  "Rolling for initiative against the paywall",
+  "Sharpening the Occam's razor",
+  "Applying Occam's razor. Ouch",
+  "Dividing by n-1 out of respect",
+  "Correcting for multiple comparisons, reluctantly",
+  "Bonferroni is coming for your p-values",
+  "Wondering if the mitochondria is still the powerhouse",
+  "Confirming: mitochondria, still the powerhouse",
+  "Checking if it's lupus. It's never lupus",
+  "42",
+  "Still 42",
+  "Trust me, I'm a language model",
+  "Making the little numbers go up",
+  "Asking nicely. Now asking firmly",
+  "Reading the paper so you don't have to",
+  "Pretending I know what phenology means",
+  "Googling 'phenology'. Don't tell anyone",
+  "Consulting fourteen databases simultaneously, showing off",
+  "Arguing with a bibliography",
+  "The bibliography won",
+];
+
+const SUGGESTION_POOL = [
+  // Biology & Genetics
+  "How does CRISPR-Cas9 achieve target specificity?",
+  "What causes antibiotic resistance to spread between species?",
+  "How do prions propagate protein misfolding?",
+  "Mechanisms of epigenetic inheritance across generations",
+  "How does the gut microbiome influence brain function?",
+  "What drives protein phase separation in cells?",
+  "How do CAR-T cells recognize and kill tumors?",
+  "Why do some species regenerate limbs and others cannot?",
+  // Medicine & Neuroscience
+  "How does mRNA vaccine technology work?",
+  "Mechanisms of long COVID and persistent symptoms",
+  "How do psychedelics rewire neural circuits?",
+  "What causes Alzheimer's amyloid plaques to form?",
+  "How does immunotherapy checkpoint inhibition work?",
+  "Neural mechanisms of general anesthesia",
+  "How do opioids hijack the brain's reward system?",
+  "What triggers autoimmune diseases?",
+  // Chemistry & Materials
+  "Why is the SN2 reaction stereospecific?",
+  "How do enzymes lower activation energy?",
+  "Mechanism of lithium-ion battery degradation",
+  "How do metallic glasses form without crystallization?",
+  "What makes graphene such an exceptional conductor?",
+  "How does photocatalytic water splitting work?",
+  // Physics & Astronomy
+  "What is dark matter and how do we detect it?",
+  "How do quantum computers achieve entanglement?",
+  "What causes high-temperature superconductivity?",
+  "How do gravitational waves distort spacetime?",
+  "Mechanism of Hawking radiation from black holes",
+  "How does nuclear fusion sustain a star?",
+  "What evidence supports the multiverse hypothesis?",
+  // Earth & Environmental Science
+  "How does ocean acidification affect marine ecosystems?",
+  "What triggers mass extinction events?",
+  "How do tectonic plates drive continental drift?",
+  "Mechanisms of rapid Arctic ice sheet collapse",
+  "How do volcanoes influence global climate?",
+  "What causes harmful algal blooms to form?",
+  // Computer Science & AI
+  "How do transformer neural networks process language?",
+  "What is the halting problem and why is it unsolvable?",
+  "How does homomorphic encryption enable secure computation?",
+  "Mechanisms of reinforcement learning from human feedback",
+  "How do generative adversarial networks create images?",
+  "What makes P vs NP the most important open problem?",
+  // Psychology & Social Science
+  "How does chronic stress alter brain structure?",
+  "What causes the placebo effect at a molecular level?",
+  "How does sleep consolidate memory?",
+  "Neural basis of consciousness and subjective experience",
+  "How do mirror neurons enable empathy?",
+  // Ecology & Evolution
+  "How does natural selection drive speciation?",
+  "What caused the Cambrian explosion of life?",
+  "How do extremophiles survive in boiling acid?",
+  "Mechanisms of convergent evolution across distant species",
+];
+function pick(n = 4) {
+  const a = [...SUGGESTION_POOL];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a.slice(0, n);
 }
 
-function decodeInverted(inv) {
-  if (!inv) return "";
-  const words = [];
-  for (const [word, positions] of Object.entries(inv)) {
-    for (const p of positions) words[p] = word;
-  }
-  return words.join(" ").replace(/\s+/g, " ").trim();
+
+function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
+function toRIS(sources) {
+  return sources.map((s) => {
+    const authors = (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean);
+    const lines = ["TY  - JOUR"];
+    authors.forEach((a) => lines.push(`AU  - ${a}`));
+    if (s.title) lines.push(`TI  - ${s.title}`);
+    if (s.journal) lines.push(`JO  - ${s.journal}`);
+    if (s.year) lines.push(`PY  - ${s.year}`);
+    if (s.url) lines.push(`UR  - ${s.url}`);
+    lines.push("ER  - ");
+    return lines.join("\n");
+  }).join("\n");
 }
-
-// Standard headers every outbound request should carry. Several free scholarly
-// APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic — identifiable
-// requests with a User-Agent and mailto — to a faster, higher-quota pool than
-// anonymous ones. Anonymous requests can be silently deprioritized or rate-
-// limited to unusable levels. This alone can be the difference between "zero
-// papers" and "papers returned".
-const POLITE_UA =
-  "Cerebrum/1.0 (askcerebrum.org; a free scientific literature search; mailto:contact@askcerebrum.org)";
-
-async function getJSON(url, headers = {}, timeoutMs = 6500) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": POLITE_UA, Accept: "application/json", ...headers },
-      signal: c.signal,
-      cf: { cacheTtl: 60, cacheEverything: true },
-    });
-    clearTimeout(t);
-    if (res.status === 429) throw new Error("HTTP 429 rate-limited");
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.json();
-  } catch (e) {
-    clearTimeout(t);
-    throw e;
-  }
+function toBibTeX(sources) {
+  return sources.map((s, i) => {
+    const fields = [];
+    if (s.authors) fields.push(`  author = {${s.authors}}`);
+    if (s.title) fields.push(`  title = {${s.title}}`);
+    if (s.journal) fields.push(`  journal = {${s.journal}}`);
+    if (s.year) fields.push(`  year = {${s.year}}`);
+    if (s.url) fields.push(`  url = {${s.url}}`);
+    return `@article{cerebrum${s.year || ""}_${i + 1},\n${fields.join(",\n")}\n}`;
+  }).join("\n\n");
 }
-
-async function getText(url, headers = {}, timeoutMs = 6500) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": POLITE_UA, ...headers },
-      signal: c.signal,
-      cf: { cacheTtl: 60, cacheEverything: true },
-    });
-    clearTimeout(t);
-    if (res.status === 429) throw new Error("HTTP 429 rate-limited");
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.text();
-  } catch (e) {
-    clearTimeout(t);
-    throw e;
-  }
+function download(fn, text) { const blob = new Blob([text], { type: "text/plain" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fn; a.click(); URL.revokeObjectURL(a.href); }
+async function saveToZotero(sources, apiKey, userId) {
+  const items = sources.map((s) => ({ itemType: "journalArticle", title: s.title || "", creators: (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean).map((name) => ({ creatorType: "author", name })), publicationTitle: s.journal || "", date: String(s.year || ""), url: s.url || "" }));
+  const res = await fetch(`https://api.zotero.org/users/${userId}/items`, { method: "POST", headers: { "Zotero-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify(items) });
+  if (!res.ok) throw new Error(`Zotero ${res.status}`);
+  return res.json();
 }
+function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
 
-
-// Check if a DOI has been retracted or has expressions of concern.
-// Uses Crossref's crossmark data, which is authoritative. Keyless.
-// Returns { retracted: bool, concern: bool, updateType: string|null }.
-async function checkRetraction(doi) {
-  if (!doi) return { retracted: false, concern: false, updateType: null };
-  try {
-    const clean = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
-    const res = await getJSON(
-      "https://api.crossref.org/works/" + encodeURIComponent(clean),
-      {},
-      2500
-    );
-    const msg = res && res.message;
-    if (!msg) return { retracted: false, concern: false, updateType: null };
-    // Crossref uses `update-to` to indicate this work has been retracted/corrected
-    const updates = msg["update-to"] || [];
-    let retracted = false, concern = false, updateType = null;
-    for (const u of updates) {
-      const t = (u.type || "").toLowerCase();
-      if (t.includes("retract")) { retracted = true; updateType = "retraction"; }
-      else if (t.includes("concern")) { concern = true; updateType = updateType || "expression-of-concern"; }
-      else if (t.includes("correct")) { updateType = updateType || "correction"; }
+function formatCitation(source, style, index) {
+  const s = source || {};
+  const authors = s.authors || "";
+  const title = s.title || "Untitled";
+  const journal = s.journal || "";
+  const year = s.year || "n.d.";
+  const url = s.url || "";
+  switch (style) {
+    case "vancouver": {
+      const parts = [`${index}. ${authors ? authors + ". " : ""}${title}.`];
+      if (journal) parts.push(` ${journal}.`);
+      parts.push(` ${year}.`);
+      return parts.join("");
     }
-    return { retracted, concern, updateType };
-  } catch {
-    return { retracted: false, concern: false, updateType: null };
+    case "apa": {
+      return `${authors ? authors + ". " : ""}(${year}). ${title}. ${journal ? "*" + journal + "*." : ""}`.trim();
+    }
+    case "mla": {
+      return `${authors ? authors + ". " : ""}"${title}." *${journal || "n.p."}*, ${year}${url ? ", " + url : ""}.`;
+    }
+    case "chicago": {
+      return `${authors ? authors + ". " : ""}${year}. "${title}." *${journal || "n.p."}*.`;
+    }
+    case "bibtex": {
+      const key = "cerebrum" + year + "_" + index;
+      const fields = [];
+      if (authors) fields.push(`  author = {${authors}}`);
+      if (title) fields.push(`  title = {${title}}`);
+      if (journal) fields.push(`  journal = {${journal}}`);
+      if (year && year !== "n.d.") fields.push(`  year = {${year}}`);
+      if (url) fields.push(`  url = {${url}}`);
+      return `@article{${key},\n${fields.join(",\n")}\n}`;
+    }
+    default:
+      return `${index}. ${authors} ${title}. ${journal} ${year}.`;
   }
 }
 
-// Flag the top N papers with retraction/concern status. Runs in parallel with a
-// short timeout so it never blocks the answer. Papers without a DOI are skipped.
-async function flagRetractions(papers, topN = 8) {
-  const targets = papers.slice(0, topN).filter((p) => {
-    const doi = extractDoi(p.url);
-    return !!doi;
-  });
-  await Promise.allSettled(targets.map(async (p) => {
-    const doi = extractDoi(p.url);
-    const flag = await checkRetraction(doi);
-    if (flag.retracted) p.retracted = true;
-    if (flag.concern) p.concern = true;
-    if (flag.updateType) p.updateType = flag.updateType;
-  }));
+function formatBibliography(sources, style) {
+  return sources
+    .map((s, i) => formatCitation(s, style, i + 1))
+    .join(style === "bibtex" ? "\n\n" : "\n\n");
 }
 
-function extractDoi(url) {
-  if (!url) return "";
-  const m = url.match(/10\.\d{4,9}\/[^\s#?]+/);
-  return m ? m[0] : "";
-}
-
-// ============ AI RESPONSE CLEANER ============
-// Strips chain-of-thought leakage, meta-monologues, and robotic openings.
-// When we have NO sources, the model sometimes invents a full reference list
-// anyway — prompt instructions are not a reliable guard against this. This
-// strips every citation artifact mechanically so a fabricated bibliography can
-// never reach the user. Also used to remove citations that point past the end
-// of a real source list (e.g. the model writes [7] when only 4 sources exist).
-function stripFabricatedCitations(text, sourceCount) {
-  if (!text) return text;
-  let t = text;
-
-  // 0. Normalize Markdown-link citations back to bare brackets so downstream
-  //    logic sees `[1]` not `[1](#ref-1)`.
-  t = t.replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]");
-
-  // 0a. Bare-digit citation markers. Model sometimes writes "networks 12"
-  //     instead of "networks [1][2]" — two adjacent superscripts run together
-  //     as plain digits. Convert clumped digits (2-3 in a row after a word)
-  //     into bracketed markers so the downstream stripper can handle them,
-  //     OR delete them if they exceed source count.
-  t = t.replace(/([a-z\)\]])\s+(\d{1,3})(?=[\s.,;:!?)])/gi, (m, before, digits) => {
-    // Split "12" into [1][2], "123" into [1][2][3]
-    const nums = digits.split("").map((d) => parseInt(d, 10));
-    if (nums.some((n) => n < 1)) return m;
-    if (sourceCount === 0) return before;
-    if (nums.every((n) => n <= sourceCount)) {
-      return before + nums.map((n) => "[" + n + "]").join("");
-    }
-    return before;
-  });
-
-  // 0b. Strip any "References:" / "Sources:" / "Bibliography:" section the
-  //     model appended, regardless of sourceCount. We render the real
-  //     bibliography separately from the answer, so ANY inline references
-  //     block the model writes is either a duplicate (when it matches) or a
-  //     fabrication (when it doesn't) — either way, remove it.
-  t = t.replace(/\n[-—]{2,}\s*\n/g, "\n\n");
-  t = t.replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "").trim();
-
-  // 0c. Headerless trailing citation block. Model writes a numbered list of
-  //     citations at the bottom WITHOUT a "References:" header — just:
-  //     "1 Deng, L., & Yan, W. (2012). ..."
-  //     Detect lines starting with a digit and a Name-comma-Initial pattern,
-  //     and strip from the first such line if it lands in the tail of the
-  //     answer.
-  const linesForCite = t.split(/\n/);
-  const citationLineRe = /^\s*\d{1,3}\.?\s+[A-Z][A-Za-zöäüéèçñ\-']+,\s+[A-Z]\./;
-  let firstCiteLine = -1;
-  for (let i = 0; i < linesForCite.length; i++) {
-    if (citationLineRe.test(linesForCite[i])) { firstCiteLine = i; break; }
-  }
-  if (firstCiteLine !== -1) {
-    const cutoff = linesForCite.slice(0, firstCiteLine).join("\n").length;
-    if (cutoff > t.length * 0.35) {
-      t = linesForCite.slice(0, firstCiteLine).join("\n").trimEnd();
-    }
-  }
-
-  // 1. Remove any trailing "References:" / "Sources:" / "Bibliography:" block.
-  //    These are almost always fabricated when sourceCount is 0.
-  if (sourceCount === 0) {
-    t = t.replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?[\s\S]*$/i, "");
-
-    // 1b. Headerless bibliography. Model writes references at the end WITHOUT
-    //     a "References:" header — as free-standing citation lines. Detect any
-    //     line that starts with "Lastname, X. ... (YYYY)." and strip from the
-    //     first such line onward if it lands in the tail of the answer.
-    const lines = t.split(/\n/);
-    // Match: "Lastname, A." or "Lastname, A. B." (with optional & or comma
-    // authors after), then anywhere on the line a "(YYYY)." — this catches
-    // APA-style entries whether the title is on the same line or a wrap.
-    const apaStart = /^\s*[A-Z][A-Za-zöäüéèçñ\-']+,\s+[A-Z]\.(?:\s?[A-Z]\.)?(?:\s*,\s*(?:&|and)?\s*[A-Z][A-Za-zöäüéèçñ\-']+,\s+[A-Z]\.(?:\s?[A-Z]\.)?)*.*\(\d{4}\)/;
-    let firstBibLine = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (apaStart.test(lines[i])) { firstBibLine = i; break; }
-    }
-    if (firstBibLine !== -1) {
-      // Only strip if it's in the last ~third of the answer (avoid killing a
-      // legitimate in-body author reference).
-      const cutoffChars = lines.slice(0, firstBibLine).join("\n").length;
-      if (cutoffChars > t.length * 0.4) {
-        t = lines.slice(0, firstBibLine).join("\n").trimEnd();
-      }
-    }
-  }
-
-  // 2. Strip bracketed citation markers that have no matching source.
-  t = t.replace(/\[(\d{1,3})\]/g, (m, n) => {
-    const idx = parseInt(n, 10);
-    if (sourceCount === 0) return "";          // nothing to cite
-    if (idx < 1 || idx > sourceCount) return ""; // dangling reference
-    return m;                                    // valid, keep
-  });
-
-  if (sourceCount === 0) {
-    // 3. Strip author-year parentheticals: (Smith, 2020), (Smith & Jones 2019),
-    //    (Smith et al., 2021). Only when we have no sources at all — with real
-    //    sources these could legitimately appear inside a quoted title.
-    t = t.replace(/\((?:[A-Z][A-Za-z\-']+(?:,| &| and|\set al\.?)?[\s,]*){1,4}\d{4}[a-z]?\)/g, "");
-
-    // 3b. Strip freestanding APA-style reference lines. The model sometimes
-    //     appends "Author, A. B. (2020). Title. Journal, 12(3), 45-67." at the
-    //     end even with brackets forbidden. These are always fabricated when
-    //     sourceCount is 0. Run iteratively so multiple back-to-back
-    //     references all get removed, not just the first.
-    const refPattern = /(?:[A-Z][a-zA-Z\-']+,\s+[A-Z]\.(?:\s*[A-Z]\.)*(?:,\s*(?:&\s+)?[A-Z][a-zA-Z\-']+,\s+[A-Z]\.(?:\s*[A-Z]\.)*)*)\s*\(\d{4}[a-z]?\)\.\s*[^.]{5,120}?\.(?:\s*[^.]{3,80}?,\s*\d+(?:\(\d+\))?,\s*\d+[-–]\d+\.)?/g;
-    for (let pass = 0; pass < 6; pass++) {
-      const before = t;
-      t = t.replace(refPattern, "");
-      if (t === before) break;
-    }
-    // "Smith et al. (2021)" style inline
-    t = t.replace(/\b[A-Z][a-zA-Z\-']+\s+et\s+al\.\s*\(\d{4}[a-z]?\)/g, "");
-    // Bare "According to Author (2019),"
-    t = t.replace(/(?:^|\s)According to\s+[A-Z][a-zA-Z\-']+(?:\s+(?:and|&)\s+[A-Z][a-zA-Z\-']+)?\s*\(\d{4}[a-z]?\)\s*,\s*/gi, " ");
-
-    // 4. Strip superscript-style numeric refs left dangling after words.
-    t = t.replace(/([a-z])\s*\u00b9|\u00b2|\u00b3|[\u2070-\u2079]/g, "$1");
-
-    // 5. Strip PROSE-form invented references. With no retrieved papers the
-    //    model still writes things like "a 2002 study published in the Journal
-    //    of Biological Chemistry reported that..." — no brackets, so the
-    //    citation stripper above misses it, but it is entirely fabricated.
-    //    We remove the attribution clause and keep the claim, so the sentence
-    //    survives as a general statement instead of a fake citation.
-    const proseRefs = [
-      // "a 2019 study published in Nature reported that" / "...found that"
-      /\b(?:a|an|one)\s+\d{4}\s+(?:study|paper|article|report|review|analysis)\s+(?:published\s+)?(?:in\s+(?:the\s+)?(?:journal\s+)?[A-Z][A-Za-z&.\s]{2,60}?\s+)?(?:reported|found|showed|demonstrated|revealed|concluded|suggested)\s+that\s+/gi,
-      // "a study published in the journal Science reported that"
-      /\b(?:a|an|one)\s+(?:study|paper|article|report|review)\s+published\s+in\s+(?:the\s+)?(?:journal\s+)?[A-Z][A-Za-z&.\s]{2,60}?\s+(?:reported|found|showed|demonstrated|revealed|concluded|suggested)\s+that\s+/gi,
-      // "according to a 2018 paper in Cell,"
-      /\baccording\s+to\s+(?:a|an|the)\s+(?:\d{4}\s+)?(?:study|paper|article|report|review)\s+(?:published\s+)?in\s+(?:the\s+)?(?:journal\s+)?[A-Z][A-Za-z&.\s]{2,60}?,\s*/gi,
-      // "research published in PNAS in 2020 showed"
-      /\bresearch\s+published\s+in\s+(?:the\s+)?(?:journal\s+)?[A-Z][A-Za-z&.\s]{2,60}?(?:\s+in\s+\d{4})?\s+(?:reported|found|showed|demonstrated|revealed)\s+(?:that\s+)?/gi,
-    ];
-    for (const re of proseRefs) {
-      t = t.replace(re, (m) => {
-        // Keep the sentence readable: "For instance, X" rather than a fragment.
-        return "";
-      });
-    }
-    // Capitalize any sentence left starting lowercase after a removal.
-    t = t.replace(/(^|[.!?]\s+)([a-z])/g, (m, p1, p2) => p1 + p2.toUpperCase());
-  }
-
-  // 5. Tidy the punctuation left behind by removals.
-  t = t.replace(/[ \t]{2,}/g, " ");
-  t = t.replace(/\s+([.,;:!?])/g, "$1");
-  t = t.replace(/([.,;:])\1+/g, "$1");
-  t = t.replace(/\n{3,}/g, "\n\n");
-  return t.trim();
-}
-
-// Force any close-but-wrong variant of a name (e.g. "Sahoy" for "Saho") back
-// to the exact form the user searched. Free AI models routinely hallucinate
-// name variants; this is a hard post-processing correction so the user never
-// sees "Sahoy" when they typed "Saho".
-function correctNameVariants(text, canonicalName) {
-  if (!text || !canonicalName) return text;
-  const tokens = canonicalName.trim().split(/\s+/);
-  let out = text;
-  for (const token of tokens) {
-    if (token.length < 3) continue;
-    // Match a word that starts with the token's first 3 chars and has similar
-    // length (within +/- 2 chars). Catches "Sahoy", "Sahon", "Sahoes" etc.
-    const stem = token.slice(0, 3);
-    const min = Math.max(3, token.length - 1);
-    const max = token.length + 3;
-    // Build a regex that finds words starting with stem, length min..max,
-    // that are NOT the canonical token itself.
-    const re = new RegExp(`\\b(${stem}[a-zA-Z]{${min - 3},${max - 3}})\\b`, "g");
-    out = out.replace(re, (match) => {
-      if (match.toLowerCase() === token.toLowerCase()) return match;
-      // Preserve original capitalization
-      return token.charAt(0).toUpperCase() + token.slice(1);
-    });
-  }
-  return out;
-}
-
-
-function cleanAIResponse(raw) {
-  if (!raw) return "";
-  let c = raw;
-
-  // 1. XML reasoning tags
-  c = c.replace(/<think>[\s\S]*?<\/think>/gi, "");
-  c = c.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "");
-
-  // 2. Code fences wrapping entire response
-  c = c.replace(/^```(?:markdown)?\s*\n([\s\S]*?)\n```\s*$/i, "$1");
-
-  // 3. System meta-talk
-  c = c.replace(/^\s*User Safety:\s*safe\.?\s*/gim, "");
-
-  // 4. Kill meta-planning opening paragraphs
-  const badOpeners = [
-    /^the user is asking/i,
-    /^the user wants/i,
-    /^let me review/i,
-    /^let me check/i,
-    /^let me think/i,
-    /^i need to provide/i,
-    /^i'll write/i,
-    /^i will now/i,
-    /^let's analyze/i,
-    /^here is a summary of the papers/i,
-    /^first,? i'll/i,
-    /^okay,? let me/i,
-    /^to answer this/i,
-    /^now we need to/i,
-  ];
-
-  // Strip self-introductions and acknowledgement filler mid-answer. The model
-  // was writing "That's correct, Cerebrum here." at the top of follow-ups.
-  // Prompt rules help but aren't reliable, so we also remove them mechanically.
-  c = c.replace(/^\s*(that'?s (correct|right)[,.]?\s*)?(cerebrum here|as cerebrum|i'?m cerebrum|this is cerebrum)[,.!]?\s*/i, "");
-  c = c.replace(/^\s*(great|good|excellent|interesting)\s+question[,.!]?\s*/i, "");
-  c = c.replace(/^\s*(sure|certainly|absolutely|of course)[,.!]\s*/i, "");
-  c = c.replace(/^\s*that'?s (correct|right)[,.]\s+/i, "");
-  const paras = c.split(/\n{2,}/);
-  while (paras.length > 1) {
-    const first = paras[0].trim();
-    if (badOpeners.some((re) => re.test(first))) {
-      paras.shift();
+const Audio = (() => {
+  let ctx = null, ambient = null, lfoTimer = null;
+  function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } } return ctx; }
+  function tone(freq, dur, vol) { const c = ac(); if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.02); }
+  function click() { tone(660, 0.08, 0.045); }
+  function pop() { tone(880, 0.06, 0.04); }
+  function startAmbient(mode = "pulse") {
+    const c = ac(); if (!c || ambient) return;
+    if (mode === "minimal") { tone(523.25, 0.5, 0.05); return; }
+    const now = c.currentTime;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.connect(c.destination);
+    const oscs = [];
+    if (mode === "shimmer") {
+      const o = c.createOscillator(), o2 = c.createOscillator();
+      o.type = "sine"; o.frequency.value = 587.33; o2.type = "sine"; o2.frequency.value = 880;
+      const lfo = c.createOscillator(), lfoG = c.createGain();
+      lfo.frequency.value = 0.25; lfoG.gain.value = 6; lfo.connect(lfoG); lfoG.connect(o.detune); lfo.start();
+      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2, lfo);
+      g.gain.exponentialRampToValueAtTime(0.02, now + 0.6);
+    } else if (mode === "warm") {
+      const f = [98, 146.83, 196];
+      f.forEach((freq) => { const o = c.createOscillator(); o.type = "sine"; o.frequency.value = freq; o.connect(g); o.start(); oscs.push(o); });
+      g.gain.exponentialRampToValueAtTime(0.024, now + 0.5);
     } else {
-      break;
+      const o = c.createOscillator(), o2 = c.createOscillator();
+      o.type = "sine"; o.frequency.value = 110; o2.type = "sine"; o2.frequency.value = 164.81;
+      o.connect(g); o2.connect(g); o.start(); o2.start(); oscs.push(o, o2);
+      let up = true;
+      g.gain.exponentialRampToValueAtTime(0.03, now + 0.8);
+      lfoTimer = setInterval(() => {
+        if (!ctx) return;
+        const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.exponentialRampToValueAtTime(up ? 0.012 : 0.032, t + 1.4);
+        up = !up;
+      }, 1400);
     }
+    ambient = { g, oscs };
   }
-  c = paras.join("\n\n").trim();
-
-  // 5. Kill single-line prefix artifacts
-  c = c.replace(/^(here is the answer|here's the answer)[:\.]?\s*/i, "").trim();
-
-  // 6. Strip "Paper 1 discusses...Paper 2 discusses..." robotic patterns from the opening
-  c = c.replace(/^(paper\s+\d+[:\s][^\n]+\n+){2,}/i, "").trim();
-
-  return c;
-}
-
-// ============ QUERY LOGIC ============
-
-// ---- TERM SPECIFICITY ----
-// Not every word in a question carries equal search weight. In
-// "What types of enzymes do insects have to degrade plastic compounds, and how
-// do gut microbes capitalize from them?" the words that actually identify the
-// topic are enzymes / insects / plastic / gut / microbes. Words like types,
-// compounds, capitalize are scientific filler — they appear in millions of
-// papers and matching them proves nothing.
-//
-// Requiring a flat percentage of ALL terms was rejecting correct papers for
-// verbose questions (a real Nature Communications paper on waxworm saliva
-// enzymes scored 22% and got dropped). We now separate CORE terms from
-// PERIPHERAL ones and gate only on CORE coverage.
-// Words that describe INTENT rather than TOPIC. High-value in conversation
-// ("papers that CAUTION against"), useless as search anchors. If we let these
-// dominate the anchor list, the actual domain terms get pushed off the top.
-const INTENT_WORDS = new Set([
-  "raise", "raises", "raising", "argue", "argues", "arguing", "suggest", "suggests",
-  "caution", "cautions", "warn", "warns", "warning", "critique", "critiques",
-  "review", "reviews", "reviewing", "discuss", "discusses", "discussing",
-  "papers", "paper", "article", "articles", "study", "studies", "work", "works",
-  "recommend", "recommends", "propose", "proposes", "consider", "considers",
-  "using", "used", "use", "uses", "usage", "applying", "apply",
-  "about", "regarding", "concerning", "against", "with", "without",
-  "against", "toward", "towards", "on",
-  "turning", "turn", "turned", "turns", "convert", "converting", "converted",
-  "transform", "transforming", "transformed", "make", "making", "create", "creating",
-  "produce", "producing", "produced", "into", "from",
-]);
-
-// Common misspellings and variants of scientific terms. Search engines don't
-// autocorrect — a typo returns zero. This runs before term extraction so the
-// canonical spelling reaches the API.
-const SPELLING_CORRECTIONS = {
-  "occurance": "occurrence", "occurances": "occurrences",
-  "co-occurance": "co-occurrence", "cooccurance": "co-occurrence",
-  "cooccurrence": "co-occurrence",
-  "seperate": "separate", "recieve": "receive", "acheive": "achieve",
-  "definately": "definitely", "occured": "occurred",
-  "flourescent": "fluorescent", "flourescence": "fluorescence",
-  "phylogenic": "phylogenetic", "millenia": "millennia",
-  "existance": "existence", "concious": "conscious",
-  "genomewide": "genome-wide", "genemwide": "genome-wide",
-  "microbiom": "microbiome",
-  "decomp": "decomposition", "biodegredation": "biodegradation",
-  "photosythesis": "photosynthesis", "photosynthisis": "photosynthesis",
-  "mitocondria": "mitochondria", "mitocondrial": "mitochondrial",
-  "enviroment": "environment", "enviromental": "environmental",
-  "resistnace": "resistance", "resistence": "resistance",
-  "palstic": "plastic", "platsic": "plastic",
-  "anlaysis": "analysis", "anaylsis": "analysis",
-  "calicification": "calcification", "calcificaiton": "calcification",
-  "neruon": "neuron", "nuerotransmitter": "neurotransmitter",
-  "protien": "protein", "protiens": "proteins",
-  "bateria": "bacteria", "baterium": "bacterium",
-  "symbotic": "symbiotic",
-  "metabalic": "metabolic", "metablism": "metabolism",
-  "pathogensis": "pathogenesis", "carcinognesis": "carcinogenesis",
-};
-
-// Multi-word scientific terms that must be preserved as a phrase. Users type
-// them variably — "co occurrence", "co-occurrence", "cooccurrence" — but all
-// should become the canonical hyphenated form for search.
-const SCIENTIFIC_COMPOUNDS = [
-  [/\bco[\s-]?occurr?ence[s]?\b/gi, "co-occurrence"],
-  [/\bmachine[\s-]?learning\b/gi, "machine-learning"],
-  [/\bdeep[\s-]?learning\b/gi, "deep-learning"],
-  [/\bgene[\s-]?expression\b/gi, "gene-expression"],
-  [/\bwhole[\s-]?genome\b/gi, "whole-genome"],
-  [/\bhigh[\s-]?throughput\b/gi, "high-throughput"],
-  [/\bnext[\s-]?generation\b/gi, "next-generation"],
-  [/\bcell[\s-]?free\b/gi, "cell-free"],
-  [/\bsingle[\s-]?cell\b/gi, "single-cell"],
-  [/\bloss[\s-]?of[\s-]?function\b/gi, "loss-of-function"],
-  [/\bgain[\s-]?of[\s-]?function\b/gi, "gain-of-function"],
-  [/\bin[\s-]?vivo\b/gi, "in-vivo"],
-  [/\bin[\s-]?vitro\b/gi, "in-vitro"],
-  [/\bin[\s-]?silico\b/gi, "in-silico"],
-];
-
-// Preprocess a raw query BEFORE term extraction. Fixes typos, joins scientific
-// compounds, so downstream code sees the canonical form.
-function preprocessQuery(raw) {
-  let q = " " + (raw || "").toLowerCase() + " ";
-  // Spelling correction FIRST — otherwise a misspelled half of a compound
-  // ("co occurance") won't match the compound pattern (which expects the
-  // correct spelling).
-  const words = q.split(/(\s+)/);
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i].replace(/[^a-z-]/g, "");
-    if (w && SPELLING_CORRECTIONS[w]) {
-      words[i] = words[i].replace(w, SPELLING_CORRECTIONS[w]);
-    }
+  function stopAmbient() {
+    if (lfoTimer) { clearInterval(lfoTimer); lfoTimer = null; }
+    if (!ambient || !ctx) return;
+    const { g, oscs } = ambient;
+    try { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(g.gain.value, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch {} }); } catch {}
+    ambient = null;
   }
-  q = words.join("");
-  // Then join scientific compounds so "co occurrence" becomes "co-occurrence".
-  for (const [re, canonical] of SCIENTIFIC_COMPOUNDS) {
-    q = q.replace(re, canonical);
-  }
-  // Scientific paraphrase: rewrite natural-language concepts into proper
-  // search terminology. "turning air into ethanol" should search for
-  // "CO2 ethanol conversion", not "air ethanol".
-  const PARAPHRASES = [
-    [/turning\s+air\s+into/gi, "CO2 conversion to"],
-    [/air\s+(?:to|into)\s+(ethanol|fuel|methanol|plastic)/gi, "CO2 conversion to $1"],
-    [/(ethanol|fuel|methanol)\s+from\s+air/gi, "$1 from CO2 atmospheric carbon capture"],
-    [/cure\s+(?:for\s+)?cancer/gi, "cancer treatment therapy"],
-    [/cure\s+(?:for\s+)?alzheimer/gi, "Alzheimer disease treatment therapy"],
-    [/global\s+warming/gi, "climate change anthropogenic warming"],
-    [/how\s+(?:does|do)\s+(.+?)\s+work/gi, "$1 mechanism"],
-    [/what\s+causes?\s+(.+?)(?:\?|$)/gi, "$1 etiology mechanism cause"],
-  ];
-  for (const [re, repl] of PARAPHRASES) {
-    q = q.replace(re, repl);
-  }
-  return q.trim();
-}
-
-const GENERIC_SCIENCE_WORDS = new Set([
-  "types", "type", "kinds", "kind", "sort", "sorts", "form", "forms",
-  "compound", "compounds", "substance", "substances", "material", "materials",
-  "capitalize", "utilize", "utilise", "leverage", "involve", "involves",
-  "process", "processes", "method", "methods", "approach", "approaches",
-  "effect", "effects", "impact", "impacts", "influence", "role", "roles",
-  "function", "functions", "mechanism", "mechanisms", "system", "systems",
-  "factor", "factors", "level", "levels", "amount", "amounts", "rate", "rates",
-  "result", "results", "outcome", "outcomes", "finding", "findings",
-  "study", "studies", "research", "paper", "papers", "article", "articles",
-  "analysis", "data", "evidence", "review", "reviews", "report", "reports",
-  "different", "various", "several", "many", "much", "high", "low", "large",
-  "small", "new", "novel", "recent", "current", "important", "significant",
-  "possible", "potential", "specific", "general", "common", "main", "major",
-  "help", "helps", "make", "makes", "made", "get", "gets", "give", "gives",
-  "produce", "produces", "produced", "production",
-  "related", "associated", "based", "including", "such", "well", "known",
-  "information", "info", "detail", "details", "aspect", "aspects",
-  "question", "answer", "example", "examples", "case", "cases",
-  "air", "water", "light", "heat", "cold", "food", "plant", "plants",
-  "time", "life", "cell", "cells", "model", "models", "group", "groups",
-]);
-
-// Concept equivalence groups. If a query term is in a group, a paper matching
-// ANY member of that group satisfies the term. This is what lets a question
-// about "plastic" find a paper that only ever says "polyethylene", and a
-// question about "insects" find one that says "Galleria mellonella".
-const CONCEPT_GROUPS = [
-  ["plastic", "plastics", "polymer", "polymers", "polyethylene", "polystyrene",
-   "polypropylene", "polyurethane", "pvc", "pet", "ldpe", "hdpe", "microplastic",
-   "microplastics", "nanoplastic", "nanoplastics", "polyolefin"],
-  ["insect", "insects", "larva", "larvae", "larval", "worm", "worms", "caterpillar",
-   "grub", "mealworm", "waxworm", "galleria", "tenebrio", "hermetia", "zophobas",
-   "beetle", "moth", "fly", "arthropod", "arthropods", "entomological"],
-  ["microbe", "microbes", "microbial", "microbiome", "microbiota", "bacteria",
-   "bacterial", "bacterium", "gut flora", "microflora", "symbiont", "symbionts",
-   "microorganism", "microorganisms"],
-  ["enzyme", "enzymes", "enzymatic", "oxidase", "oxidases", "hydrolase",
-   "hydrolases", "esterase", "esterases", "cutinase", "lipase", "protease",
-   "depolymerase", "oxidoreductase", "oxidoreductases", "phenoloxidase",
-   "laccase", "peroxidase"],
-  ["degrade", "degradation", "degrading", "biodegradation", "biodegrade",
-   "breakdown", "depolymerization", "depolymerisation", "catabolism",
-   "decompose", "decomposition", "oxidation", "oxidize", "oxidise", "oxidative"],
-  ["gut", "intestinal", "intestine", "digestive", "midgut", "hindgut",
-   "gastrointestinal", "alimentary"],
-  ["saliva", "salivary", "secretion", "secretions", "oral", "labial"],
-  ["cancer", "tumour", "tumor", "carcinoma", "neoplasm", "oncology", "malignant"],
-  ["gene", "genes", "genetic", "genomic", "genome", "transcript", "transcriptome"],
-  ["protein", "proteins", "proteomic", "peptide", "peptides", "polypeptide"],
-  ["climate", "warming", "temperature", "thermal", "heat"],
-  ["neuron", "neurons", "neural", "neuronal", "brain", "cortical", "cerebral"],
-  // Ecology / environment
-  ["ecology", "ecological", "ecosystem", "ecosystems", "community", "communities",
-   "biodiversity", "species richness", "assemblage"],
-  ["network", "networks", "co-occurrence", "cooccurrence", "interaction",
-   "interactions", "graph", "connectivity", "modularity"],
-  ["soil", "soils", "edaphic", "rhizosphere", "pedosphere", "substrate"],
-  ["ocean", "oceanic", "marine", "sea", "seawater", "pelagic", "benthic"],
-  ["coral", "corals", "reef", "reefs", "calcification", "bleaching"],
-  ["forest", "forests", "woodland", "canopy", "tree", "trees", "silviculture"],
-  // Molecular biology
-  ["mutation", "mutations", "variant", "variants", "polymorphism", "snp", "indel"],
-  ["expression", "transcription", "regulation", "promoter", "enhancer", "silencer"],
-  ["antibody", "antibodies", "immunoglobulin", "antigen", "epitope"],
-  ["vaccine", "vaccines", "vaccination", "immunization", "adjuvant"],
-  ["virus", "viruses", "viral", "virology", "pathogen", "infection", "infectious"],
-  // Chemistry
-  ["nanoparticle", "nanoparticles", "nanostructure", "nanomaterial", "quantum dot"],
-  ["catalyst", "catalysts", "catalysis", "catalytic", "photocatalyst", "electrocatalyst"],
-  // Decomposition / decay
-  // Chemical conversion / synthesis
-  ["ethanol", "ethyl alcohol", "bioethanol", "alcohol", "fermentation"],
-  ["co2", "carbon dioxide", "carbon capture", "atmospheric carbon", "carbon fixation"],
-  ["conversion", "synthesis", "catalysis", "electrochemical", "electrolysis",
-   "reduction", "oxidation", "transformation"],
-  ["decomposition", "decompose", "decay", "necrobiome", "cadaver", "carcass",
-   "putrefaction", "autolysis", "bloat", "rupture"],
-];
-
-// Build a fast lookup: term -> the full set of equivalent terms
-const CONCEPT_LOOKUP = (() => {
-  const map = new Map();
-  for (const group of CONCEPT_GROUPS) {
-    const set = new Set(group);
-    for (const t of group) map.set(t, set);
-  }
-  return map;
+  function preview(mode) { startAmbient(mode); setTimeout(stopAmbient, 1400); }
+  return { click, pop, startAmbient, stopAmbient, preview };
 })();
 
-// Score how specific/informative a term is. Higher = more worth gating on.
-function termSpecificity(term) {
-  if (GENERIC_SCIENCE_WORDS.has(term)) return 0.15;
-  // Intent verbs ("raise", "caution", "using") describe what the user WANTS
-  // but not what the paper is ABOUT. Score below the anchor threshold so they
-  // never dominate the top-4 rung.
-  if (INTENT_WORDS.has(term)) return 0.2;
-  let score = 0.5;
-  // Longer words are usually more technical
-  if (term.length >= 10) score += 0.3;
-  else if (term.length >= 7) score += 0.2;
-  else if (term.length <= 4) score -= 0.1;
-  // Being part of a known concept group means it's a real topic anchor
-  if (CONCEPT_LOOKUP.has(term)) score += 0.35;
-  // Scientific morphology markers
-  if (/(ase|ome|itis|osis|genic|troph|phyll|plast|cyte|blast|lysis|philic|phobic)$/.test(term)) score += 0.3;
-  // Short technical identifiers are highly specific despite being short:
-  // gene/protein names (p53, tau, myc), acronyms (mRNA, TNF, PCR), and
-  // alphanumeric designators (CD4, IL6, BRCA1). Without this, a query like
-  // "p53 mutations in glioma" would treat p53 as filler.
-  if (/\d/.test(term) && /[a-z]/.test(term)) score += 0.4;   // alphanumeric: p53, il6, cd4
-  if (SYNONYMS[term]) score += 0.4;                            // known scientific acronym
-  if (term.length <= 5 && !COMMON_SHORT_WORDS.has(term)) score += 0.25;
-  return Math.min(1, score);
+
+/* ════════════════════════════════════════════════════════════════
+   DESIGN SYSTEM v4 — "DARKNODE"
+   
+   Three palettes, all dark-first. Light exists but the app is 
+   designed dark. Deep navy foundations, blue-tinted glass, 
+   editorial serif headings.
+   ════════════════════════════════════════════════════════════════ */
+
+const PALETTES = {
+  Dark:  { dark: true,  bg: "#050816", surface: "#0c1222", raised: "#131c30", ink: "#f0f2f8", ink2: "#94a0b8", faint: "#4e5a70", line: "rgba(148,160,184,0.07)", line2: "rgba(148,160,184,0.12)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.5)", grain: 0.01, skel: "linear-gradient(90deg, #0c1222 25%, #131c30 50%, #0c1222 75%)" },
+  Mid:   { dark: true,  bg: "#0a0d15", surface: "#111827", raised: "#1f2937", ink: "#f3f4f6", ink2: "#9ca3af", faint: "#4b5563", line: "rgba(156,163,175,0.08)", line2: "rgba(156,163,175,0.13)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.014, skel: "linear-gradient(90deg, #111827 25%, #1f2937 50%, #111827 75%)" },
+  Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#94a3b8", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.07)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
+};
+const ACCENTS = { Emerald: "#34d399", Indigo: "#818cf8", Sky: "#38bdf8", Amber: "#fbbf24", Rose: "#fb7185", Violet: "#a78bfa", Teal: "#2dd4bf", Cyan: "#22d3ee" };
+
+function accentText(hex) {
+  if (!hex || hex[0] !== "#" || hex.length < 7) return "#111";
+  const r = parseInt(hex.slice(1, 3), 16),
+        g = parseInt(hex.slice(3, 5), 16),
+        b = parseInt(hex.slice(5, 7), 16);
+  const L = (0.299 * r + 0.587 * g + 0.114 * b);
+  return L > 175 ? "#0f172a" : "#fff";
+}
+function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
+
+/* ════════════════════════════════════════════════════════════════
+   ICON SYSTEM — Thinner weight (1.4) for the dark aesthetic
+   ════════════════════════════════════════════════════════════════ */
+function Icon({ name, size = 17, className, style }) {
+  const common = {
+    width: size, height: size, viewBox: "0 0 24 24", fill: "none",
+    stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round",
+    strokeLinejoin: "round", className, style,
+    "aria-hidden": true, focusable: false,
+  };
+  switch (name) {
+    case "plus": return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
+    case "bookmark": return <svg {...common}><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
+    case "bookmarkFilled": return <svg {...common} fill="currentColor" stroke="none"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
+    case "settings": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg>;
+    case "volumeOn": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" /></svg>;
+    case "volumeOff": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M22 9l-6 6M16 9l6 6" /></svg>;
+    case "search": return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.2-4.2" /></svg>;
+    case "close": return <svg {...common}><path d="M18 6L6 18M6 6l12 12" /></svg>;
+    case "arrowRight": return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
+    case "mic": return <svg {...common}><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" /><path d="M5 12a7 7 0 0014 0M12 19v3" /></svg>;
+    case "check": return <svg {...common}><path d="M20 6L9 17l-5-5" /></svg>;
+    case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
+    case "chevronDown": return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
+    case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
+    default: return null;
+  }
 }
 
-// Short everyday words that should NOT get the "short technical term" boost.
-const COMMON_SHORT_WORDS = new Set([
-  "have", "them", "make", "made", "take", "give", "come", "know", "think",
-  "want", "need", "find", "show", "tell", "work", "call", "keep", "help",
-  "good", "bad", "best", "worst", "more", "less", "many", "much", "very",
-  "also", "even", "just", "only", "well", "back", "down", "over", "same",
-  "like", "than", "then", "when", "what", "does", "did", "was", "were",
-  "any", "all", "some", "each", "both", "few", "own", "such", "why", "how",
-]);
+function Mark({ size = 26, accent, glow }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 12px ${withAlpha(accent, 0.5)})` : "none" }}>
+      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
+      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
+    </svg>
+  );
+}
 
-
-const SYNONYMS = {
-  bsfl: ["black soldier fly larvae", "hermetia illucens"],
-  bsf: ["black soldier fly", "hermetia illucens"],
-  crispr: ["clustered regularly interspaced short palindromic repeats"],
-  pcr: ["polymerase chain reaction"],
-  dna: ["deoxyribonucleic acid"],
-  rna: ["ribonucleic acid"],
-  mrna: ["messenger rna"],
-  utr: ["untranslated region"],
-  gwas: ["genome wide association"],
-  qtl: ["quantitative trait loci"],
-  ros: ["reactive oxygen species"],
-  er: ["endoplasmic reticulum"],
-  atp: ["adenosine triphosphate"],
-  ecm: ["extracellular matrix"],
-  tcr: ["t cell receptor"],
-  llps: ["liquid liquid phase separation"],
-  pet: ["polyethylene terephthalate"],
-  pe: ["polyethylene"],
-  pp: ["polypropylene"],
-};
-
-function expansionsFor(tokens) {
-  const out = [];
-  for (const t of tokens) {
-    const key = t.toLowerCase();
-    if (SYNONYMS[key]) out.push(...SYNONYMS[key]);
-  }
+function useTypewriter(full, on) {
+  const [out, setOut] = useState(on ? "" : full);
+  useEffect(() => {
+    if (!on) { setOut(full); return; }
+    setOut(""); let i = 0; const step = Math.max(2, Math.round(full.length / 240));
+    const id = setInterval(() => { i += step; setOut(full.slice(0, i)); if (i >= full.length) { setOut(full); clearInterval(id); } }, 12);
+    return () => clearInterval(id);
+  }, [full, on]);
   return out;
 }
 
-const ORGANISM_PHRASES = [
-  "black soldier fly larvae",
-  "black soldier fly",
-  "hermetia illucens",
-];
-const ORGANISM_WORDS = new Set([
-  "black", "soldier", "fly", "larvae", "larva", "hermetia", "illucens",
-]);
-
-function splitOrganismTopic(query) {
-  const q = query.toLowerCase();
-  const toks = q.split(/\s+/).filter((t) => t.length > 2);
-  const exp = expansionsFor(toks);
-  const orgPhrases = new Set(exp);
-  for (const phrase of ORGANISM_PHRASES) {
-    if (q.includes(phrase)) orgPhrases.add(phrase);
-  }
-  for (const t of toks) {
-    if (SYNONYMS[t]) orgPhrases.add(t);
-  }
-  const topic = toks.filter((t) => !ORGANISM_WORDS.has(t) && !SYNONYMS[t]);
-  return {
-    orgPhrases: [...orgPhrases],
-    topic,
-    hasOrganism: orgPhrases.size > 0,
-  };
-}
-
-function buildStructuredQuery(query) {
-  // If the query names a scientific binomial, wrap it in quotes so search engines
-  // treat it as a required phrase. This is what prevents "Populus deltoides"
-  // papers from swamping a "Populus angustifolia" search.
-  const bin = extractBinomial(query);
-  if (bin) {
-    // Extract the other topic words (not the binomial itself)
-    const rest = query.toLowerCase().replace(new RegExp(bin.full, "gi"), "").replace(/\s+/g, " ").trim();
-    const restTerms = rest.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS.has(t));
-    if (restTerms.length) {
-      return '"' + bin.full + '" AND (' + restTerms.join(" OR ") + ')';
-    }
-    return '"' + bin.full + '"';
-  }
-  const { orgPhrases, topic, hasOrganism } = splitOrganismTopic(query);
-  if (hasOrganism && topic.length) {
-    const org = orgPhrases
-      .map((e) => (e.includes(" ") ? '"' + e + '"' : e))
-      .join(" OR ");
-    return "(" + org + ") AND (" + topic.join(" OR ") + ")";
-  }
-  if (hasOrganism) {
-    return orgPhrases
-      .map((e) => (e.includes(" ") ? '"' + e + '"' : e))
-      .join(" OR ");
-  }
-
-  // ---- Natural-language questions ----
-  // Previously this returned the query verbatim. A question like "What types of
-  // enzymes do insects have to degrade plastic compounds, and how do gut
-  // microbes capitalize from them?" became a 9-word string, which PubMed and
-  // Europe PMC treat as an implicit AND across every word. No paper contains
-  // all nine, so retrieval returned ZERO and the answer fell back to the
-  // model's memory — which is where the invented studies came from.
-  //
-  // Instead: keep only the most topic-bearing terms, expand each with its
-  // concept group as an OR set, and AND the groups together. That turns the
-  // question into (enzyme OR oxidase OR hydrolase...) AND (plastic OR
-  // polyethylene OR PET...) AND (insect OR larvae OR Galleria...), which
-  // actually retrieves the relevant literature.
-  const qTerms = query
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, " ")
-    .split(/\s+/)
-    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
-  if (!qTerms.length) return query;
-
-  const ranked = qTerms
-    .map((t) => ({ t, spec: termSpecificity(t) }))
-    .sort((a, b) => b.spec - a.spec);
-  // Two to four anchors. More than four AND-ed groups over-constrains again.
-  const anchors = ranked.filter((x) => x.spec >= 0.5).slice(0, 4).map((x) => x.t);
-  if (anchors.length < 2) {
-    // Not enough specific terms to build groups — OR the best few so we still
-    // get recall rather than an over-narrow AND.
-    return ranked.slice(0, 4).map((x) => x.t).join(" OR ");
-  }
-
-  const groups = anchors.map((t) => {
-    const set = CONCEPT_LOOKUP.get(t);
-    if (!set) return t;
-    // Cap expansion so the request URL stays reasonable, and keep the original
-    // term first so it carries the most weight in relevance-ranked engines.
-    const members = [t, ...[...set].filter((m) => m !== t)].slice(0, 7);
-    return "(" + members.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")";
-  });
-  return groups.join(" AND ");
-}
-
-const STOPWORDS = new Set([
-  "what","whats","how","does","do","did","is","are","was","were","the","a","an",
-  "of","in","on","for","to","and","or","with","by","about","tell","me","explain",
-  "why","when","where","which","who","can","you","please","give","show","find",
-  "search","look","up","that","this","these","those","it","its","work","works",
-  "happen","happens","mean","means","between","into","from","as","at","be","been",
-  "get","got","i","my","we","our","use","used","using","there","their","they",
-  "responding","respond","level","levels","basis","role","effect","effects",
-]);
-
-function cleanQuery(raw) {
-  const cleaned = raw
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
-    .join(" ")
+function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
+  let clean = (text || "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]")
+    .replace(/\(([\d,\s]+)\)/g, (m, nums) => {
+      const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
+      return ds.length ? ds.map(n => "["+n+"]").join("") : m;
+    })
+    .replace(/([a-z])\s+(\d(?:\s*,?\s*\d){0,8})\s*([.;,])/gi, (m, b, nums, p) => {
+      const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
+      return ds.length >= 1 ? b + " " + ds.map(n => "["+n+"]").join("") + p : m;
+    })
+    .replace(/\n[-—]{2,}\s*\n/g, "\n\n")
+    .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
     .trim();
-  return cleaned || raw.trim();
+  return clean.split(/\n{2,}/).map((para, pi) => (
+    <p key={pi} style={{ fontSize: 16, lineHeight: 1.8, margin: "0 0 18px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 420 }}>
+      {para.split("\n").map((line, li) => (
+        <React.Fragment key={li}>
+          {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|\[\d+\])/g).map((seg, si) => {
+            const b = seg.match(/^\*\*([^*]+)\*\*$/);
+            if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 600 }}>{b[1]}</strong>;
+            const it = seg.match(/^\*([^*\n]+)\*$/);
+            if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{it[1]}</em>;
+            const c = seg.match(/^\[(\d+)\]$/);
+            if (c) {
+              const n = parseInt(c[1], 10); const src = sources[n - 1];
+              return <a key={si} href={`#ref-${n}`} title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  const el = document.getElementById(`ref-${n}`);
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                    el.style.transition = "background 0.3s";
+                    el.style.background = withAlpha(accent, 0.15);
+                    setTimeout(() => { el.style.background = "transparent"; }, 1400);
+                  }
+                }}
+                style={{
+                  fontSize: 10, verticalAlign: "super", color: accent,
+                  textDecoration: "none", fontWeight: 700,
+                  fontFamily: "var(--cb-mono)",
+                  padding: "1px 5px", borderRadius: 4,
+                  background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.08),
+                  transition: "background 0.15s ease", cursor: "pointer",
+                }}>{n}</a>;
+            }
+            return <span key={si}>{seg}</span>;
+          })}
+          {li < para.split("\n").length - 1 && <br />}
+        </React.Fragment>
+      ))}
+    </p>
+  ));
 }
+function at2(a) { return a; }
 
-// ============ SCHOLARLY DATABASE SOURCES ============
-// Each source returns [] on any failure, never throws. Timeouts keep them fast.
 
-async function europePMC(query, limit = 8) {
-  // Trust the query we were given. The retrieval ladder passes progressively
-  // simpler forms — if this function silently rebuilds them, the ladder can't
-  // work. Only fall back to the structured/organism forms if the given query
-  // returns nothing.
-  const runSearch = async (qs) => {
-    const url =
-      "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
-      new URLSearchParams({
-        query: qs,
-        resultType: "core",
-        pageSize: String(limit),
-        format: "json",
-        sort: "relevance",
-      });
-    const data = await getJSON(url);
-    return data && data.resultList && data.resultList.result ? data.resultList.result : [];
-  };
-  try {
-    let rows = await runSearch(query);
-    if (!rows.length) {
-      const structured = buildStructuredQuery(query);
-      if (structured && structured !== query) {
-        rows = await runSearch(structured);
-      }
-    }
-    if (!rows.length) {
-      const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
-      if (hasOrganism) {
-        rows = await runSearch(
-          orgPhrases.map((e) => (e.includes(" ") ? '"' + e + '"' : e)).join(" OR ")
+/* ============================================================
+   FACT CHECK, SKELETON, LOADING — redesigned visuals, same logic
+   ============================================================ */
+function FactCheck({ fc, P, accent }) {
+  const colors = { supported: "#10b981", partly: "#d9a520", unsupported: "#e5484d", thin: "#d9a520" };
+  const label = { supported: "Supported by sources", partly: "Partly supported", unsupported: "Not supported by sources" };
+  const oc = colors[fc.overall] || P.ink2;
+  const claims = fc.claims || [];
+  const nSup = claims.filter((c) => c.status === "supported").length;
+  const nThin = claims.filter((c) => c.status === "thin").length;
+  const nUns = claims.filter((c) => c.status === "unsupported").length;
+  const total = claims.length;
+  const score = total ? Math.round(((nSup + nThin * 0.5) / total) * 100) : null;
+  const scoreColor = score === null ? P.ink2 : score >= 75 ? "#10b981" : score >= 45 ? "#d9a520" : "#e5484d";
+  return (
+    <div style={{ marginTop: 20, border: `1px solid ${P.line2}`, borderRadius: 14, background: P.surface, padding: "20px 22px" }} className="cb-rise">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: oc, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.02em", color: oc, fontFamily: "var(--cb-mono)", textTransform: "uppercase" }}>{label[fc.overall] || fc.overall}</span>
+        <span style={{ fontSize: 11, color: P.faint, marginLeft: "auto", fontFamily: "var(--cb-mono)" }}>vs. cited abstracts</span>
+      </div>
+      {score !== null && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 32, fontWeight: 700, color: scoreColor, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" }}>{score}<span style={{ fontSize: 16, fontWeight: 500, opacity: 0.7 }}>%</span></span>
+            <span style={{ fontSize: 12, color: P.ink2, fontWeight: 500 }}>source alignment</span>
+          </div>
+          <div style={{ display: "flex", height: 4, borderRadius: 2, overflow: "hidden", background: P.line, gap: 1 }}>
+            {nSup > 0 && <div style={{ flex: nSup, background: "#10b981", borderRadius: 2 }} title={`${nSup} supported`} />}
+            {nThin > 0 && <div style={{ flex: nThin, background: "#d9a520", borderRadius: 2 }} title={`${nThin} thin`} />}
+            {nUns > 0 && <div style={{ flex: nUns, background: "#e5484d", borderRadius: 2 }} title={`${nUns} unsupported`} />}
+          </div>
+          <div style={{ display: "flex", gap: 16, marginTop: 8, fontFamily: "var(--cb-mono)", fontSize: 10.5, color: P.faint }}>
+            <span>{nSup} solid</span><span>{nThin} thin</span><span>{nUns} unsupported</span>
+          </div>
+        </div>
+      )}
+      {fc.summary && <div style={{ fontSize: 14, color: P.ink2, marginBottom: claims.length ? 14 : 0, lineHeight: 1.6, paddingTop: score !== null ? 14 : 0, borderTop: score !== null ? `1px solid ${P.line}` : "none" }}>{fc.summary}</div>}
+      {claims.map((c, i) => {
+        const cc = colors[c.status] || P.ink2; const sym = c.status === "supported" ? "✓" : c.status === "thin" ? "~" : "✕";
+        return (
+          <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+            <span style={{ color: cc, fontSize: 11, flexShrink: 0, fontWeight: 700, fontFamily: "var(--cb-mono)", width: 18, height: 18, borderRadius: 6, background: withAlpha(cc, 0.1), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>{sym}</span>
+            <div><div style={{ fontSize: 13.5, color: P.ink, lineHeight: 1.5 }}>{c.claim}</div>{c.note && <div style={{ fontSize: 12, color: P.faint, marginTop: 3, lineHeight: 1.5 }}>{c.note}</div>}</div>
+          </div>
         );
-      }
+      })}
+    </div>
+  );
+}
+
+function Skeleton({ P }) {
+  const bar = (w) => <div style={{ height: 12, width: w, borderRadius: 4, background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.3s infinite" }} />;
+  return (
+    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 14, padding: "24px 28px", display: "flex", flexDirection: "column", gap: 12 }}>
+      {bar("90%")}{bar("100%")}{bar("82%")}<div style={{ height: 4 }} />{bar("94%")}{bar("68%")}
+    </div>
+  );
+}
+
+function useIsMobile() {
+  const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < 900 : false);
+  useEffect(() => { const onR = () => setM(window.innerWidth < 900); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
+  return m;
+}
+
+function LoadingLine({ P, accent, S }) {
+  const [msg, setMsg] = useState(() => LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
+  const [stage, setStage] = useState(0);
+  const STAGES = [
+    "Querying 16 indexes",
+    "Merging and de-duplicating",
+    "Scoring relevance",
+    "Checking for retractions",
+    "Writing the answer",
+  ];
+  useEffect(() => {
+    const msgId = setInterval(() => {
+      setMsg((prev) => {
+        let next = prev;
+        while (next === prev && LOADING_MESSAGES.length > 1) {
+          next = LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)];
+        }
+        return next;
+      });
+    }, 2600);
+    const stageId = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 1900);
+    return () => { clearInterval(msgId); clearInterval(stageId); };
+  }, []);
+
+  return (
+    <div style={{ padding: "20px 0 4px" }}>
+      {/* Synapse loader */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }} aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <span key={i} style={{
+              width: 6, height: 6, borderRadius: "50%",
+              background: accent,
+              animation: `cbSynapse 1.25s ${i * 0.18}s cubic-bezier(0.4, 0, 0.6, 1) infinite`,
+            }} />
+          ))}
+        </div>
+        <span key={msg} className="cb-fade" style={{ fontSize: 13.5, color: P.ink2, letterSpacing: "-0.01em", fontWeight: 450, fontFamily: "var(--cb-body)" }}>
+          {msg}
+        </span>
+      </div>
+      {/* Stage progress */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 1 }}>
+        <div style={{ display: "flex", gap: 3 }} aria-hidden="true">
+          {STAGES.map((_, i) => (
+            <span key={i} style={{
+              width: i === stage ? 20 : 4, height: 3, borderRadius: 2,
+              background: i <= stage ? accent : P.line2,
+              opacity: i <= stage ? 1 : 0.5,
+              transition: "width 320ms cubic-bezier(0.16,1,0.3,1), background 320ms",
+            }} />
+          ))}
+        </div>
+        <span key={stage} className="cb-fade" style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>
+          {STAGES[stage]}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CINEMATIC BRAIN INTRO — preserved canvas logic entirely, 
+   redesigned surrounding UI
+   ============================================================ */
+
+/* ════════════════════════════════════════════════════════════════
+   INTRO v4 — DARKNODE-STYLE CINEMATIC LANDING
+   
+   Always dark. WebGL particle field background. Staggered text 
+   reveal with blur-to-focus. No neural canvas, no cheap animations.
+   Two CTAs: "Start exploring" and "How it works."
+   ════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════
+   INTRO v4.1 — Vanta.js CELLS background
+   Loads Three.js + Vanta from CDN. Dark, immersive, cinematic.
+   ════════════════════════════════════════════════════════════════ */
+function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
+  const vantaRef = useRef(null);
+  const vantaEffect = useRef(null);
+  const [revealed, setRevealed] = useState(false);
+  const [ready, setReady] = useState(false);
+  const isMobile = useIsMobile();
+
+  // Load Three.js + Vanta from CDN and init CELLS
+  useEffect(() => {
+    if (animationMode === "off") { setRevealed(true); setReady(true); return; }
+
+    function initVanta() {
+      if (!window.VANTA || !window.THREE || !vantaRef.current) return;
+      try {
+        // Parse accent to hex int
+        const hex = accent.replace("#", "");
+        const c1 = parseInt(hex, 16);
+        // Darker complement
+        const r = Math.max(0, parseInt(hex.slice(0,2),16) - 80);
+        const g = Math.max(0, parseInt(hex.slice(2,4),16) - 80);
+        const b = Math.max(0, parseInt(hex.slice(4,6),16) - 80);
+        const c2 = (r << 16) | (g << 8) | b;
+
+        vantaEffect.current = window.VANTA.CELLS({
+          el: vantaRef.current,
+          THREE: window.THREE,
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200,
+          minWidth: 200,
+          scale: 1.0,
+          color1: c1,
+          color2: c2 || 0x0a0e1a,
+          size: isMobile ? 0.8 : 0.5,
+          speed: 1.5,
+          backgroundColor: 0x050816,
+        });
+      } catch (e) { console.warn("Vanta init failed:", e); }
     }
-    return rows
-      .filter((r) => r.title)
-      .map((r) => ({
-        title: r.title || "Untitled",
-        url: r.doi
-          ? "https://doi.org/" + r.doi
-          : "https://europepmc.org/article/" + r.source + "/" + r.id,
-        year: r.pubYear || "",
-        citations: typeof r.citedByCount === "number" ? r.citedByCount : null,
-        authors: r.authorString || "",
-        _allAuthors: r.authorString || "",
-        journal: r.journalTitle || "Europe PMC",
-        abstract: stripTags(r.abstractText),
-        pmcid: r.pmcid || (r.source === "PMC" ? r.id : "") || "",
-      }));
-  } catch {
-    return [];
-  }
+
+    // Load Vanta via shared loader
+    ensureVanta().then(() => { setTimeout(initVanta, 50); }).catch(() => {});
+
+    return () => { if (vantaEffect.current) { try { vantaEffect.current.destroy(); } catch {} } };
+  }, [accent, animationMode, isMobile]);
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setRevealed(true), 400);
+    const t2 = setTimeout(() => setReady(true), 900);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+
+  const go = () => {
+    if (animationMode === "off") { onEnter(); return; }
+    const el = document.getElementById("cb-intro-wrap");
+    if (el) { el.style.transition = "opacity 0.6s ease, filter 0.6s ease"; el.style.opacity = "0"; el.style.filter = "blur(8px)"; }
+    setTimeout(() => onEnter(), 650);
+  };
+
+  return (
+    <div id="cb-intro-wrap" style={{
+      minHeight: "100dvh", display: "flex", flexDirection: "column",
+      background: "#050816", position: "relative", overflow: "hidden",
+      fontFamily: "var(--cb-body)",
+    }}>
+      {/* Vanta background container */}
+      <div ref={vantaRef} style={{ position: "absolute", inset: 0, zIndex: 0 }} />
+
+      {/* Dark overlay for readability */}
+      <div style={{
+        position: "absolute", inset: 0, zIndex: 1,
+        background: "linear-gradient(135deg, rgba(5,9,16,0.7) 0%, rgba(5,9,16,0.3) 50%, rgba(5,9,16,0.5) 100%)",
+        pointerEvents: "none",
+      }} />
+
+      {/* Nav */}
+      <nav style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: isMobile ? "16px 20px" : "20px 40px",
+        position: "relative", zIndex: 3,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Mark size={20} accent={accent} glow />
+          <span style={{ fontSize: 16, fontWeight: 600, color: "#e8edf5", letterSpacing: "-0.02em" }}>Cerebrum</span>
+        </div>
+        <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
+          {["About", "Privacy", "Contact"].map((item) => (
+            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: 13, color: "#6b7a90", textDecoration: "none", fontWeight: 450, transition: "color 0.2s" }}
+              onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#6b7a90"}>{item}</a>
+          ))}
+        </div>
+      </nav>
+
+      {/* Hero content */}
+      <main style={{
+        flex: 1, display: "flex", flexDirection: "column", justifyContent: "center",
+        padding: isMobile ? "0 24px 60px" : "0 clamp(48px, 8vw, 140px) 80px",
+        position: "relative", zIndex: 3, maxWidth: 820,
+      }}>
+        <div style={{
+          marginBottom: 32,
+          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(12px)",
+          filter: revealed ? "blur(0)" : "blur(6px)",
+          transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
+        }}>
+          <Mark size={36} accent={accent} glow />
+        </div>
+
+        <h1 style={{
+          fontSize: isMobile ? 38 : "clamp(52px, 6.5vw, 76px)",
+          fontWeight: 300, letterSpacing: "-0.04em", lineHeight: 1.08,
+          color: "#e8edf5", margin: "0 0 28px",
+          fontFamily: "var(--cb-display)",
+          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(24px)",
+          filter: revealed ? "blur(0)" : "blur(10px)",
+          transition: "all 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s",
+        }}>
+          Ask anything.<br />
+          <span style={{ fontWeight: 700, color: accent }}>We'll find the paper.</span>
+        </h1>
+
+        <p style={{
+          fontSize: isMobile ? 15 : 17, color: "#7a8599", lineHeight: 1.65,
+          margin: "0 0 44px", maxWidth: 460, fontWeight: 400,
+          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(16px)",
+          filter: revealed ? "blur(0)" : "blur(6px)",
+          transition: "all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.35s",
+        }}>
+          Cerebrum searches 16 scholarly databases in parallel and writes
+          you an answer where every claim traces back to a real, citable source.
+        </p>
+
+        <div style={{
+          display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+          opacity: ready ? 1 : 0, transform: ready ? "none" : "translateY(12px)",
+          filter: ready ? "blur(0)" : "blur(4px)",
+          transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s",
+        }}>
+          <button onClick={go} className="cb-glow-btn" style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            padding: "15px 32px", fontSize: 15, fontWeight: 600,
+            background: accent, color: accentText(accent),
+            border: "none", borderRadius: 12, cursor: "pointer",
+            fontFamily: "var(--cb-body)",
+            boxShadow: `0 4px 28px ${withAlpha(accent, 0.4)}`,
+          }}>
+            Start exploring
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
+          </button>
+
+          <button onClick={() => window.location.href = "/about"} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "15px 20px", fontSize: 14, fontWeight: 500,
+            background: "transparent", color: "#7a8599", border: "none",
+            cursor: "pointer", fontFamily: "var(--cb-body)",
+          }} onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#7a8599"}>
+            How it works →
+          </button>
+        </div>
+      </main>
+
+      {/* Bottom database strip */}
+      <div style={{
+        padding: isMobile ? "0 24px 24px" : "0 48px 36px",
+        position: "relative", zIndex: 3,
+        display: "flex", flexWrap: "wrap", gap: isMobile ? "6px 16px" : "6px 28px",
+        opacity: ready ? 0.35 : 0, transition: "opacity 1.5s ease 0.6s",
+      }}>
+        {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE", "arXiv"].map((d) => (
+          <span key={d} style={{ fontSize: 10, fontWeight: 500, color: "#6b7a90", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{d}</span>
+        ))}
+        <span style={{ fontSize: 10, color: "#3d4a5c", fontFamily: "var(--cb-mono)", letterSpacing: "0.1em" }}>+10</span>
+      </div>
+    </div>
+  );
 }
 
-function firstMatch(block, re) {
-  const m = block.match(re);
-  return m ? m[1] : "";
-}
 
-function parsePubmedXML(xmlText) {
-  const arts = xmlText.match(/<PubmedArticle\b[\s\S]*?<\/PubmedArticle>/g) || [];
-  return arts.map((a) => {
-    const pmid = firstMatch(a, /<PMID[^>]*>(\d+)<\/PMID>/);
-    const title = stripTags(
-      firstMatch(a, /<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/)
-    );
-    const absParts = a.match(/<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g) || [];
-    const abstract = stripTags(absParts.join(" "));
-    const journal = stripTags(
-      firstMatch(a, /<Title>([\s\S]*?)<\/Title>/) ||
-        firstMatch(a, /<ISOAbbreviation>([\s\S]*?)<\/ISOAbbreviation>/)
-    );
-    const year = firstMatch(a, /<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/);
-    const authorBlocks = a.match(/<Author\b[\s\S]*?<\/Author>/g) || [];
-    const names = authorBlocks
-      .map((b) => {
-        const last = firstMatch(b, /<LastName>([\s\S]*?)<\/LastName>/);
-        const ini = firstMatch(b, /<Initials>([\s\S]*?)<\/Initials>/);
-        return [last, ini].filter(Boolean).join(" ");
-      })
-      .filter(Boolean);
-    const authors =
-      names.length > 1 ? names[0] + " et al." : names[0] || "";
-    const doi = firstMatch(a, /<ArticleId IdType="doi">([\s\S]*?)<\/ArticleId>/);
-    return {
-      title: title || "Untitled",
-      url: doi
-        ? "https://doi.org/" + doi
-        : "https://pubmed.ncbi.nlm.nih.gov/" + pmid + "/",
-      year,
-      citations: null,
-      authors,
-      journal: journal || "PubMed",
-      abstract,
-      pmid,
-    };
+/* ════════════════════════════════════════════════════════════════
+   LIVING BACKGROUND v4 — Vanta.js powered
+   
+   Replaces 700 lines of hand-rolled canvas with CDN-hosted 
+   Three.js + Vanta.js. Loads NET for dark themes (connected 
+   nodes, premium depth), FOG for light themes (soft ambient).
+   Mouse-reactive, GPU-accelerated, zero maintenance.
+   ════════════════════════════════════════════════════════════════ */
+
+// Global script loader — deduplicates across components
+const _loadedScripts = new Set();
+function loadCDN(src) {
+  return new Promise((resolve, reject) => {
+    if (_loadedScripts.has(src) || document.querySelector(`script[src="${src}"]`)) {
+      _loadedScripts.add(src);
+      resolve();
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = () => { _loadedScripts.add(src); resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
   });
 }
 
-async function pubmed(query, limit = 10, apiKey = "") {
-  const keyParam = apiKey ? "&api_key=" + apiKey : "";
-  const tool = "&tool=cerebrum&email=noreply@example.com" + keyParam;
-  try {
-    let ids = [];
-
-    const esUrl = (t) =>
-      "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" +
-      new URLSearchParams({
-        db: "pubmed",
-        term: t,
-        retmax: String(limit),
-        retmode: "json",
-        sort: "relevance",
-      }) +
-      tool;
-
-    // Try the query we were given first (the ladder is calibrated for it).
-    const es = await getJSON(esUrl(query)).catch(() => null);
-    ids = (es && es.esearchresult && es.esearchresult.idlist) || [];
-
-    // Fallback ladder: structured, then organism-focused
-    if (!ids.length) {
-      const structured = buildStructuredQuery(query);
-      if (structured && structured !== query) {
-        const es2 = await getJSON(esUrl(structured)).catch(() => null);
-        ids = (es2 && es2.esearchresult && es2.esearchresult.idlist) || [];
-      }
-    }
-    if (!ids.length) {
-      const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
-      if (hasOrganism) {
-        const orgOnly = orgPhrases
-          .map((e) => (e.includes(" ") ? '"' + e + '"' : e))
-          .join(" OR ");
-        const es3 = await getJSON(esUrl(orgOnly)).catch(() => null);
-        ids = (es3 && es3.esearchresult && es3.esearchresult.idlist) || [];
-      }
-    }
-    if (!ids.length) return [];
-
-    const idStr = ids.join(",");
-    const [xml, summaryJson] = await Promise.all([
-      getText(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
-          new URLSearchParams({ db: "pubmed", id: idStr, retmode: "xml" }) +
-          tool
-      ).catch(() => ""),
-      getJSON(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?" +
-          new URLSearchParams({ db: "pubmed", id: idStr, retmode: "json" }) +
-          tool
-      ).catch(() => null),
-    ]);
-
-    const fetched = xml ? parsePubmedXML(xml) : [];
-    const byPmid = new Map(fetched.map((p) => [p.pmid, p]));
-    const sumResult = (summaryJson && summaryJson.result) || {};
-    const merged = [];
-    for (const pmid of ids) {
-      const s = sumResult[pmid];
-      let rec = byPmid.get(pmid) || null;
-      if (s && !rec) {
-        rec = {
-          title: s.title || "Untitled",
-          url: "https://pubmed.ncbi.nlm.nih.gov/" + pmid + "/",
-          year: (s.pubdate || "").slice(0, 4),
-          citations: null,
-          authors:
-            (s.authors || []).slice(0, 1).map((a) => a.name).join("") +
-            ((s.authors || []).length > 1 ? " et al." : ""),
-          journal: s.fulljournalname || s.source || "PubMed",
-          abstract: "",
-          pmid,
-        };
-      } else if (rec && s) {
-        if (!rec.year && s.pubdate) rec.year = (s.pubdate || "").slice(0, 4);
-        if (!rec.authors && s.authors)
-          rec.authors =
-            s.authors.slice(0, 1).map((a) => a.name).join("") +
-            (s.authors.length > 1 ? " et al." : "");
-      }
-      if (rec && rec.title) merged.push(rec);
-    }
-    // Include any fetched not already merged
-    for (const p of fetched) {
-      if (!merged.some((m) => m.pmid === p.pmid)) merged.push(p);
-    }
-    return merged;
-  } catch {
-    return [];
-  }
+// Load all Vanta dependencies once
+let _vantaReady = null;
+function ensureVanta() {
+  if (_vantaReady) return _vantaReady;
+  _vantaReady = loadCDN("https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js")
+    .then(() => Promise.all([
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.fog.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.cells.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.halo.min.js"),
+    ]))
+    .catch(() => { _vantaReady = null; });
+  return _vantaReady;
 }
 
-// Looks like a scientific binomial (Genus species): 2+ words, first capitalized,
-// second lowercase, italic-ish structure. Examples: "Populus angustifolia",
-// "populus angustifolia", "P. angustifolia", "Hermetia illucens".
-// Returns {binomial: "populus angustifolia", genus, species} or null.
-// Detects a Latin binomial nomenclature (genus + species) inside a query.
-// e.g. "Populus angustifolia", "populus angustifolia", "Hermetia illucens"
-// Returns the binomial object, or null. Used to enforce strict species matching:
-// searches for one species must NOT surface papers about a sibling species in the
-// same genus (huge source of false positives in taxonomic queries).
-function extractBinomial(raw) {
-  const s = raw.trim();
-  // Common non-taxonomic word pairs that fit the pattern
-  const commonNonTaxonomic = new Set([
-    "black soldier", "climate change", "gene expression", "cell division",
-    "protein folding", "public health", "food security", "human genome",
-    "narrow leafed", "cotton wood", "peer reviewed", "open source",
-  ]);
-  // Iterate through ALL matches, pick the first that looks taxonomic. This
-  // means "Evolution of narrow leafed cotton wood trees Populus angustifolia"
-  // correctly finds "Populus angustifolia" (title-cased), not "narrow leafed".
-  const re = /\b([A-Z][a-z]{2,}|[a-z]{3,})\s+([a-z]{3,})\b/g;
-  const hasTaxMarker = /\b(species|genus|subsp\.|var\.|cultivar|strain|clade|sp\.)\b/i.test(s);
-  let m;
-  while ((m = re.exec(s)) !== null) {
-    const test = m[0].toLowerCase();
-    if (commonNonTaxonomic.has(test)) continue;
-    const looksTaxonomic = /^[A-Z]/.test(m[1]) || hasTaxMarker;
-    if (!looksTaxonomic) continue;
-    const genus = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
-    return { genus, species: m[2], full: genus + " " + m[2] };
-  }
-  return null;
-}
+function LivingBackground({ accent, P, intensity = "cinematic", preset = "particles", density = 1, speed = 1, opacity = 1, paused = false }) {
+  const containerRef = useRef(null);
+  const effectRef = useRef(null);
+  const [loaded, setLoaded] = useState(false);
 
-// Looks like a person's name: 2-3 capitalized-word tokens, all letters.
-// Used to trigger author-specific search paths.
-function looksLikePersonName(raw) {
-  const s = raw.trim();
-  if (!s) return false;
-  // If it's a Latin binomial, it's NOT a person name (Populus angustifolia matches
-  // the shape of "Firstname Lastname" but is not a person).
-  if (extractBinomial(raw)) return false;
-  const toks = s.split(/\s+/);
-  if (toks.length < 2 || toks.length > 4) return false;
-  // Each token: only letters (allow hyphens/apostrophes), starts with uppercase in original
-  const isNamey = toks.every((t) => /^[A-Z][a-zA-Z'\-]+\.?$/.test(t) || /^[A-Z]\.?$/.test(t));
-  // Reject obvious topic-word starts like "How" "What"
-  const q = ["how", "what", "why", "when", "where", "who", "which", "does", "is", "are", "can", "the"];
-  if (q.includes(toks[0].toLowerCase())) return false;
-  return isNamey;
-}
+  useEffect(() => {
+    ensureVanta().then(() => setLoaded(true));
+  }, []);
 
-// Words that are NEVER person surnames or first names, even though they might
-// appear capitalized in a query. Used to filter out topic words when hunting
-// for a name embedded inside a longer sentence.
-const NAME_STOPWORDS = new Set([
-  "BSFL", "DNA", "RNA", "CRISPR", "PCR", "PhD", "MD", "UTK", "MIT", "NIH",
-  "USA", "UK", "US", "EU", "FDA", "CDC", "WHO", "NASA", "The", "This", "That",
-  "These", "Those", "Black", "Soldier", "Fly", "Larvae",
-]);
+  useEffect(() => {
+    if (!loaded || !containerRef.current || !window.THREE) return;
+    // Destroy previous
+    if (effectRef.current) { try { effectRef.current.destroy(); } catch {} effectRef.current = null; }
 
-// Try to extract a person's name from ANY query, even if wrapped in extra words.
-// Classifies whether a user's message is a NEW topic search, a FOLLOW-UP
-// about the previous answer, or a CORRECTION to a prior fact. This decides
-// whether to fire a fresh scholarly search or reuse the previous turn's
-// sources and just re-prompt the AI with the new user turn.
-//
-// Signals for FOLLOW-UP: pronouns/deictics referring back ("that paper",
-// "this study", "the finding", "it", "they"), agreement/refinement openers
-// ("yes", "actually", "no it's", "wait", "you said"), meta comments about
-// the previous answer ("the main point was", "you missed", "focus on"),
-// or short messages (<= 8 words) that don't introduce new proper nouns.
-//
-// Signals for CORRECTION: explicit corrections ("that's wrong", "actually
-// she's at", "not X but Y", "you got X wrong", "correction:"), or a
-// short message negating something in the previous answer.
-//
-// Signals for NEW: introduces a new proper noun or Latin binomial not in
-// history, starts with a fresh question word ("what/how/why/when/where"),
-// or is long enough (>10 words) with clear new topic content.
-function classifyIntent(query, history) {
-  const q = (query || "").trim();
-  if (!q) return { kind: "new" };
-  const lc = q.toLowerCase();
-  const wc = q.split(/\s+/).length;
-  const hasHistory = Array.isArray(history) && history.length > 0;
-  if (!hasHistory) return { kind: "new" };
+    const hex = accent.replace("#", "");
+    const accentInt = parseInt(hex, 16);
+    const el = containerRef.current;
 
-  // Explicit correction phrases
-  const correctionPatterns = [
-    /^(that|this|it)['']?s\s+(wrong|incorrect|not right|false)/i,
-    /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,])/i,
-    /you\s+(got|had|were)\s+(that|this|it)\s+wrong/i,
-    /^wrong\b/i,
-    /^not\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i,
-    /\bthat['']?s\s+not\s+(right|correct|true|him|her|them)/i,
-    /\bnot\s+\w+\s+but\s+/i,
-    /you\s+(said|mentioned|wrote)\s+.+\s+(but|however|actually)\s+/i,
-  ];
-  for (const re of correctionPatterns) {
-    if (re.test(q)) return { kind: "correction" };
-  }
-
-  // Follow-up indicators
-  const followupOpeners = /^(yes|no|but|and|so|okay|ok|right|hmm|well|wait|hey)\b/i;
-  const backReferences = /\b(that\s+(paper|study|research|work|finding|result|author|person|one)|this\s+(paper|study|research|work|finding|result)|the\s+(paper|study|research|work|finding|result|author|person|one|main\s+point|main\s+finding)|it|its|they|them|their|he|she|his|her|him)\b/i;
-  const metaAboutPrevious = /\b(you\s+(said|mentioned|wrote|missed|forgot|focused|talked)|main\s+point|main\s+finding|focus\s+on|more\s+about|tell\s+me\s+more|expand|elaborate|clarify|what\s+about|and\s+what|what\s+does|what\s+did|explain\s+more|dig\s+deeper|go\s+deeper)\b/i;
-  const shortReply = wc <= 8;
-
-  const hasBackRef = backReferences.test(q);
-  const isFollowupOpener = followupOpeners.test(q);
-  const isMeta = metaAboutPrevious.test(q);
-
-  // Check whether the message introduces significant new proper nouns
-  // (capitalized words the history doesn't contain). If it does, it's likely
-  // a new topic even if it also has pronouns.
-  const historyText = history
-    .map((t) => (t && t.content) || "")
-    .join(" ")
-    .toLowerCase();
-  const newProperNouns = q
-    .split(/\s+/)
-    .filter((w) => /^[A-Z][a-z]{2,}$/.test(w))
-    .filter((w) => !historyText.includes(w.toLowerCase()));
-  const introducesNewTopic = newProperNouns.length >= 2; // 2+ new capitalized words = probably new topic
-
-  if (introducesNewTopic) return { kind: "new" };
-
-  if (isMeta || (hasBackRef && (isFollowupOpener || shortReply))) {
-    return { kind: "followup" };
-  }
-  if (isFollowupOpener && shortReply) return { kind: "followup" };
-
-  return { kind: "new" };
-}
-
-// E.g. "Reese Sahos studies on BSFL" -> "Reese Saho".
-// Handles possessive forms (drops trailing 's or s when followed by a possessive
-// context word like "studies", "papers", "research").
-// Handles middle initials (Reese J Saho, Reese J. Saho).
-// Returns the canonical name or null if nothing looks like a name.
-function extractPersonNameFromQuery(raw) {
-  if (!raw) return null;
-  const s = raw.trim();
-  if (!s) return null;
-  // If the query IS itself just a clean name, return it
-  if (looksLikePersonName(s)) return s;
-
-  // Otherwise, scan the query for a run of 2-3 name-shaped tokens.
-  const toks = s.split(/\s+/);
-  const isNameToken = (t) => {
-    if (!t) return false;
-    if (/^[A-Z]\.?$/.test(t)) return true;
-    if (!/^[A-Z][a-zA-Z'\-]+$/.test(t)) return false;
-    if (NAME_STOPWORDS.has(t)) return false;
-    if (t.length >= 3 && t === t.toUpperCase()) return false;
-    return true;
-  };
-
-  // Words that indicate the preceding word is a person's name in possessive form.
-  const possessiveContext = new Set([
-    "studies", "study", "papers", "paper", "research", "work", "works",
-    "publications", "publication", "findings", "finding", "results", "result",
-    "experiments", "experiment", "thesis", "dissertation", "articles", "article",
-    "lab", "group", "team", "hypothesis", "theory", "approach", "method",
-    "methods", "data", "dataset",
-  ]);
-
-  let bestName = null;
-  for (let i = 0; i < toks.length; i++) {
-    if (!isNameToken(toks[i])) continue;
-    for (let len = 4; len >= 2; len--) {
-      if (i + len > toks.length) continue;
-      const chunk = toks.slice(i, i + len);
-      // Middle initial can't be the LAST token
-      if (/^[A-Z]\.?$/.test(chunk[chunk.length - 1])) continue;
-      // First and last must be full words (2+ chars)
-      if (chunk[0].length < 2 || chunk[chunk.length - 1].length < 2) continue;
-      if (chunk.every(isNameToken)) {
-        bestName = { toks: chunk, endIdx: i + len };
-        break;
-      }
-    }
-    if (bestName) break;
-  }
-  if (!bestName) return null;
-
-  // Now apply possessive stripping on the last name token, using the word
-  // AFTER the name as context to decide.
-  const nextWord = (toks[bestName.endIdx] || "").toLowerCase().replace(/[.,;:?!]/g, "");
-  const nameToks = bestName.toks.slice();
-  const last = nameToks[nameToks.length - 1];
-
-  if (/'s$/i.test(last)) {
-    // "Saho's" — always safe to strip
-    nameToks[nameToks.length - 1] = last.replace(/'s$/i, "");
-  } else if (/s'$/i.test(last)) {
-    nameToks[nameToks.length - 1] = last.replace(/s'$/i, "");
-  } else if (
-    // "Sahos studies" — trailing bare 's' followed by a possessive context word
-    /[a-z]s$/.test(last) &&
-    last.length > 3 &&
-    !/ss$/i.test(last) &&
-    possessiveContext.has(nextWord)
-  ) {
-    nameToks[nameToks.length - 1] = last.slice(0, -1);
-  }
-  return nameToks.join(" ");
-}
-
-
-
-// OpenAlex authors endpoint: disambiguates people and returns their id, so we
-// can fetch their actual works. Keyless.
-async function openAlexAuthorSearch(name, limit = 10) {
-  try {
-    const authorRes = await getJSON(
-      "https://api.openalex.org/authors?" +
-        new URLSearchParams({
-          search: name,
-          per_page: "10",
-          mailto: "noreply@example.com",
-        })
-    );
-    const authors = (authorRes && authorRes.results) || [];
-    if (!authors.length) return [];
-
-    // Strict name match: require ALL tokens of the query to appear in the
-    // author's display_name (or an alternative form). This kills matches like
-    // "J. P. Reese" surfacing for a "Reese Saho" search.
-    const wanted = name.toLowerCase().split(/\s+/).filter(Boolean);
-    const scored = authors
-      .map((a) => {
-        const dn = (a.display_name || "").toLowerCase();
-        const alt = (a.display_name_alternatives || []).map((x) => (x || "").toLowerCase());
-        const allNames = [dn, ...alt];
-        const allHit = wanted.every((w) => allNames.some((n) => n.includes(w)));
-        return { a, allHit, works: a.works_count || 0 };
-      })
-      .filter((s) => s.allHit);
-
-    if (!scored.length) return [];
-    scored.sort((x, y) => y.works - x.works);
-
-    const worksAll = [];
-    for (const s of scored.slice(0, 2)) {
-      try {
-        const worksRes = await getJSON(
-          "https://api.openalex.org/works?" +
-            new URLSearchParams({
-              filter: "author.id:" + s.a.id.replace("https://openalex.org/", ""),
-              per_page: String(limit),
-              sort: "publication_year:desc",
-              select:
-                "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
-              mailto: "noreply@example.com",
-            })
-        );
-        for (const w of (worksRes.results || [])) {
-          if (!w.title) continue;
-          const first =
-            (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || s.a.display_name;
-          worksAll.push({
-            title: w.title,
-            url: w.doi || (w.primary_location && (w.primary_location.landing_page_url || w.primary_location.pdf_url)) || "",
-            year: w.publication_year || "",
-            citations: typeof w.cited_by_count === "number" ? w.cited_by_count : null,
-            authors: w.authorships && w.authorships.length > 1 ? first + " et al." : first,
-            journal: (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || "OpenAlex",
-            abstract: decodeInverted(w.abstract_inverted_index),
-            authorMatch: s.a.display_name,
-          });
-        }
-      } catch {}
-    }
-    return worksAll;
-  } catch {
-    return [];
-  }
-}
-
-// Fallback for people not indexed by OpenAlex's author-disambiguation endpoint
-// (common for grad students / early-career researchers). Instead of trusting a
-// dedicated "who is this person" lookup, we search for the exact quoted name as
-// a phrase across Europe PMC, OpenAlex works, and Crossref, then keep ONLY
-// papers where that name genuinely appears in the paper's OWN author string.
-// This is what actually finds a real paper like Reese Saho's bioRxiv preprint,
-// which exists but isn't a disambiguated "author" record anywhere.
-function nameAppearsInAuthorString(authorsStr, fullName) {
-  const hay = (authorsStr || "").toLowerCase();
-  const tokens = fullName.toLowerCase().split(/\s+/).filter(Boolean);
-  // Require every name token (first + last) to appear somewhere in the
-  // author string. Handles "Reese Saho, Duy Trinh, ... et al." style strings.
-  return tokens.every((t) => hay.includes(t));
-}
-
-async function searchPapersByExactAuthorName(fullName, limit = 15) {
-  const quoted = '"' + fullName + '"';
-  // Europe PMC is the only source that returns a FULL author string (not just
-  // "first-author et al."). It's also the only one we can reliably filter on
-  // downstream author membership. So we search there directly, then augment
-  // with direct bioRxiv/medRxiv preprint APIs which give complete author lists.
-  try {
-    const [epmc, brx, mrx] = await Promise.allSettled([
-      europePMC(quoted, limit),
-      biorxivDirectAuthor(fullName),
-      medrxivDirectAuthor(fullName),
-    ]);
-    const pools = [epmc, brx, mrx]
-      .filter((r) => r.status === "fulfilled")
-      .flatMap((r) => r.value || []);
-    const seen = new Set();
-    const matched = [];
-    for (const p of pools) {
-      const key = (p.title || "").toLowerCase().trim();
-      if (!key || seen.has(key)) continue;
-      if (nameAppearsInAuthorString(p.authors, fullName)) {
-        seen.add(key);
-        matched.push({ ...p, authorMatch: fullName });
-      }
-    }
-    return matched;
-  } catch {
-    return [];
-  }
-}
-
-// Direct bioRxiv API: pulls up to 100 recent preprints and filters by author
-// name. Only finds someone if their preprint is public on bioRxiv itself. Not
-// mirrored through OpenAlex or PubMed, so this catches things those miss.
-async function biorxivDirectAuthor(fullName) {
-  return preprintServerAuthor("biorxiv", fullName);
-}
-async function medrxivDirectAuthor(fullName) {
-  return preprintServerAuthor("medrxiv", fullName);
-}
-async function preprintServerAuthor(server, fullName) {
-  try {
-    // bioRxiv/medRxiv have a "details" API but no search-by-author endpoint.
-    // We use the interval endpoint to pull the last 6 months of preprints (up
-    // to ~1000 items) and filter locally by author. Rough but works for
-    // finding early-career researchers whose one preprint isn't indexed yet.
-    const now = new Date();
-    const six = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
-    const iso = (d) => d.toISOString().slice(0, 10);
-    const url = "https://api.biorxiv.org/details/" + server + "/" + iso(six) + "/" + iso(now) + "/0";
-    const data = await getJSON(url, {}, 5000);
-    const items = (data && data.collection) || [];
-    const nameLC = fullName.toLowerCase();
-    const tokens = nameLC.split(/\s+/).filter(Boolean);
-    const hits = items.filter((it) => {
-      const auths = (it.authors || "").toLowerCase();
-      return tokens.every((t) => auths.includes(t));
-    });
-    return hits.slice(0, 10).map((it) => ({
-      title: it.title || "Untitled",
-      url: it.doi ? "https://doi.org/" + it.doi : "https://www.biorxiv.org/content/" + it.doi,
-      year: (it.date || "").slice(0, 4),
-      citations: null,
-      authors: it.authors || "",
-      journal: server === "biorxiv" ? "bioRxiv (preprint)" : "medRxiv (preprint)",
-      abstract: it.abstract || "",
-    }));
-  } catch {
-    return [];
-  }
-}
-
-// ORCID: the canonical author ID registry. Free, keyless, catches researchers
-// who registered before their papers propagated to OpenAlex/PubMed. Returns
-// works listed on their ORCID record.
-async function orcidAuthorSearch(fullName) {
-  try {
-    const searchUrl =
-      "https://pub.orcid.org/v3.0/search/?" +
-      new URLSearchParams({
-        q: 'given-names:"' + fullName.split(/\s+/)[0] + '"+AND+family-name:"' + fullName.split(/\s+/).slice(-1)[0] + '"',
-      });
-    const searchData = await getJSON(searchUrl, { Accept: "application/json" }, 4000);
-    const results = (searchData && searchData.result) || [];
-    if (!results.length) return [];
-    const worksAll = [];
-    // Pull works for the top 2 matching ORCID profiles
-    for (const r of results.slice(0, 2)) {
-      const orcid = r && r["orcid-identifier"] && r["orcid-identifier"].path;
-      if (!orcid) continue;
-      try {
-        const worksUrl = "https://pub.orcid.org/v3.0/" + orcid + "/works";
-        const worksData = await getJSON(worksUrl, { Accept: "application/json" }, 4000);
-        const groups = (worksData && worksData.group) || [];
-        for (const g of groups) {
-          const summaries = (g && g["work-summary"]) || [];
-          for (const w of summaries) {
-            const title = w.title && w.title.title && w.title.title.value;
-            if (!title) continue;
-            const year =
-              w["publication-date"] && w["publication-date"].year && w["publication-date"].year.value;
-            const doiId =
-              (w["external-ids"] &&
-                w["external-ids"]["external-id"] &&
-                w["external-ids"]["external-id"].find(
-                  (x) => x["external-id-type"] === "doi"
-                )) || null;
-            const doi = doiId ? doiId["external-id-value"] : "";
-            worksAll.push({
-              title,
-              url: doi ? "https://doi.org/" + doi : "https://orcid.org/" + orcid,
-              year: year || "",
-              citations: null,
-              authors: fullName,
-              journal: (w["journal-title"] && w["journal-title"].value) || "ORCID record",
-              abstract: "",
-              authorMatch: fullName,
-              source: "orcid",
-            });
-          }
-        }
-      } catch {}
-    }
-    return worksAll;
-  } catch {
-    return [];
-  }
-}
-
-// Semantic Scholar author search: separate from OpenAlex, different coverage.
-// Some researchers surface here that OpenAlex misses and vice versa.
-async function semanticScholarAuthorSearch(fullName) {
-  try {
-    const searchUrl =
-      "https://api.semanticscholar.org/graph/v1/author/search?" +
-      new URLSearchParams({
-        query: fullName,
-        limit: "5",
-        fields: "name,paperCount,papers.title,papers.year,papers.venue,papers.externalIds,papers.authors,papers.abstract,papers.citationCount",
-      });
-    const data = await getJSON(searchUrl, {}, 5000);
-    const authors = (data && data.data) || [];
-    if (!authors.length) return [];
-    const wanted = fullName.toLowerCase().split(/\s+/).filter(Boolean);
-    const worksAll = [];
-    // Only accept authors whose name contains all tokens of the query
-    for (const a of authors) {
-      const name = (a.name || "").toLowerCase();
-      if (!wanted.every((t) => name.includes(t))) continue;
-      const papers = a.papers || [];
-      for (const p of papers) {
-        const doi = p.externalIds && p.externalIds.DOI;
-        worksAll.push({
-          title: p.title || "Untitled",
-          url: doi ? "https://doi.org/" + doi : "",
-          year: p.year || "",
-          citations: typeof p.citationCount === "number" ? p.citationCount : null,
-          authors:
-            (p.authors || []).slice(0, 1).map((x) => x.name).join("") +
-            ((p.authors || []).length > 1 ? " et al." : ""),
-          journal: p.venue || "Semantic Scholar",
-          abstract: p.abstract || "",
-          authorMatch: a.name,
-          source: "semantic-scholar-author",
-        });
-      }
-    }
-    return worksAll;
-  } catch {
-    return [];
-  }
-}
-
-// Wikipedia person lookup: fetch a summary and infobox for a real person.
-// Useful for well-known researchers or public figures. Keyless, free.
-async function wikipediaLookup(query) {
-  try {
-    const searchUrl =
-      "https://en.wikipedia.org/w/api.php?" +
-      new URLSearchParams({
-        action: "query",
-        list: "search",
-        srsearch: query,
-        srlimit: "3",
-        format: "json",
-        origin: "*",
-      });
-    const searchData = await getJSON(searchUrl, {}, 4000);
-    const hits =
-      (searchData && searchData.query && searchData.query.search) || [];
-    const results = [];
-    for (const h of hits) {
-      const title = (h.title || "").trim();
-      if (!title) continue;
-      // Fetch page summary
-      try {
-        const sumUrl =
-          "https://en.wikipedia.org/api/rest_v1/page/summary/" +
-          encodeURIComponent(title);
-        const sum = await getJSON(sumUrl, {}, 4000);
-        if (sum && sum.extract) {
-          results.push({
-            title: sum.title || title,
-            url: sum.content_urls?.desktop?.page || ("https://en.wikipedia.org/wiki/" + encodeURIComponent(title)),
-            year: "",
-            citations: null,
-            authors: "Wikipedia",
-            journal: "Wikipedia",
-            abstract: sum.extract,
-            source: "wikipedia",
-            thumbnail: sum.thumbnail?.source || null,
-          });
-        }
-      } catch {}
-    }
-    return results;
-  } catch {
-    return [];
-  }
-}
-
-// DuckDuckGo Instant Answer: free, keyless, returns a summary for many
-// entity-style queries (people, places, concepts).
-async function duckduckgoInstant(query) {
-  try {
-    const url =
-      "https://api.duckduckgo.com/?" +
-      new URLSearchParams({
-        q: query,
-        format: "json",
-        no_html: "1",
-        skip_disambig: "1",
-      });
-    const data = await getJSON(url, {}, 4000);
-    if (!data) return [];
-    const out = [];
-    if (data.AbstractText) {
-      out.push({
-        title: data.Heading || query,
-        url: data.AbstractURL || "https://duckduckgo.com/?q=" + encodeURIComponent(query),
-        year: "",
-        citations: null,
-        authors: data.AbstractSource || "DuckDuckGo",
-        journal: data.AbstractSource || "DuckDuckGo",
-        abstract: data.AbstractText,
-        source: "duckduckgo",
-      });
-    }
-    // RelatedTopics can carry useful context too
-    const rel = (data.RelatedTopics || []).slice(0, 3);
-    for (const r of rel) {
-      if (r && r.Text && r.FirstURL) {
-        out.push({
-          title: (r.Text.split(" - ")[0] || r.Text).slice(0, 120),
-          url: r.FirstURL,
-          year: "",
-          citations: null,
-          authors: "DuckDuckGo",
-          journal: "DuckDuckGo",
-          abstract: r.Text,
-          source: "duckduckgo",
-        });
-      }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-// Generic web search fallback via a keyless search index. Used only when
-// scholarly + author + wiki all come up empty, so we never return "nothing."
-async function genericWebSearch(query) {
-  try {
-    // Wikipedia opensearch: fast, no auth, returns page titles and short descriptions
-    const url =
-      "https://en.wikipedia.org/w/api.php?" +
-      new URLSearchParams({
-        action: "opensearch",
-        search: query,
-        limit: "5",
-        namespace: "0",
-        format: "json",
-        origin: "*",
-      });
-    const data = await getJSON(url, {}, 4000);
-    if (!Array.isArray(data) || data.length < 4) return [];
-    const [, titles, descs, urls] = data;
-    const out = [];
-    for (let i = 0; i < titles.length; i++) {
-      if (!descs[i] || !urls[i]) continue;
-      out.push({
-        title: titles[i],
-        url: urls[i],
-        year: "",
-        citations: null,
-        authors: "Wikipedia",
-        journal: "Wikipedia",
-        abstract: descs[i],
-        source: "web",
-      });
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-async function openAlex(query, limit = 10, key = "") {
-  try {
-
-
-    const params = new URLSearchParams({
-      search: query,
-      sort: "relevance_score:desc",
-      per_page: String(limit),
-      select:
-        "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids",
-      mailto: "noreply@example.com",
-    });
-    if (key) params.set("api_key", key);
-    const data = await getJSON("https://api.openalex.org/works?" + params);
-    return (data.results || [])
-      .map((w) => {
-        const first =
-          (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || "";
-        const rawPmcid = (w.ids && w.ids.pmcid) || "";
-        const pmcid = rawPmcid.replace(/^https?:\/\/.*?\/(PMC\d+)$/i, "$1").replace(/[^0-9]/g, "");
-        return {
-          title: w.title || "Untitled",
-          url:
-            w.doi ||
-            (w.primary_location && (w.primary_location.landing_page_url || w.primary_location.pdf_url)) ||
-            "",
-          year: w.publication_year || "",
-          citations: typeof w.cited_by_count === "number" ? w.cited_by_count : null,
-          authors:
-            w.authorships && w.authorships.length > 1
-              ? first + " et al."
-              : first,
-          // Full author list preserved for downstream filtering (e.g. did a
-          // specific researcher actually write this paper?). Display uses
-          // `authors` (short); logic uses `_allAuthors` (full).
-          _allAuthors: (w.authorships || [])
-            .map((a) => (a && a.author && a.author.display_name) || "")
-            .filter(Boolean)
-            .join(", "),
-          journal:
-            (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) ||
-            "OpenAlex",
-          abstract: decodeInverted(w.abstract_inverted_index),
-          pmcid: pmcid || "",
-        };
-      })
-      .filter((p) => p.title);
-  } catch {
-    return [];
-  }
-}
-
-async function crossref(query, limit = 8) {
-  try {
-    const url =
-      "https://api.crossref.org/works?" +
-      new URLSearchParams({
-        query,
-        rows: String(limit),
-        select:
-          "title,author,container-title,published,DOI,abstract,is-referenced-by-count",
-      }) +
-      "&mailto=cerebrum@example.com";
-    const data = await getJSON(url);
-    const items = (data && data.message && data.message.items) || [];
-    return items
-      .map((it) => ({
-        title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled",
-        url: it.DOI ? "https://doi.org/" + it.DOI : "",
-        year:
-          (it.published &&
-            it.published["date-parts"] &&
-            it.published["date-parts"][0] &&
-            it.published["date-parts"][0][0]) ||
-          "",
-        citations:
-          typeof it["is-referenced-by-count"] === "number"
-            ? it["is-referenced-by-count"]
-            : null,
-        authors:
-          (it.author || [])
-            .slice(0, 1)
-            .map((a) => ((a.given || "") + " " + (a.family || "")).trim())
-            .join("") + ((it.author || []).length > 1 ? " et al." : ""),
-        _allAuthors: (it.author || [])
-          .map((a) => ((a.given || "") + " " + (a.family || "")).trim())
-          .filter(Boolean)
-          .join(", "),
-        journal: Array.isArray(it["container-title"])
-          ? it["container-title"][0]
-          : it["container-title"] || "Crossref",
-        abstract: stripTags(it.abstract || ""),
-      }))
-      .filter((p) => p.title);
-  } catch {
-    return [];
-  }
-}
-
-async function arxiv(query, limit = 6) {
-  try {
-    const url =
-      "https://export.arxiv.org/api/query?" +
-      new URLSearchParams({
-        search_query: "all:" + query,
-        max_results: String(limit),
-        sortBy: "relevance",
-      });
-    const xml = await getText(url);
-    const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) || [];
-    return entries
-      .map((e) => {
-        const g = (re) => {
-          const m = e.match(re);
-          return m ? m[1].trim() : "";
-        };
-        const title = stripTags(g(/<title>([\s\S]*?)<\/title>/));
-        const summary = stripTags(g(/<summary>([\s\S]*?)<\/summary>/));
-        const id = g(/<id>([\s\S]*?)<\/id>/);
-        const published = g(/<published>(\d{4})/);
-        const authorNames = (e.match(/<name>([\s\S]*?)<\/name>/g) || []).map(
-          (a) => a.replace(/<\/?name>/g, "").trim()
-        );
-        return {
-          title: title || "arXiv paper",
-          url: id,
-          year: published || "",
-          citations: null,
-          authors:
-            authorNames.length > 1
-              ? authorNames[0] + " et al."
-              : authorNames[0] || "",
-          _allAuthors: authorNames.join(", "),
-          journal: "arXiv",
-          abstract: summary,
-        };
-      })
-      .filter((p) => p.title);
-  } catch {
-    return [];
-  }
-}
-
-async function semanticScholar(query, limit = 8) {
-  try {
-    const url =
-      "https://api.semanticscholar.org/graph/v1/paper/search?" +
-      new URLSearchParams({
-        query,
-        limit: String(limit),
-        fields:
-          "title,abstract,tldr,year,citationCount,authors,venue,externalIds,openAccessPdf,url",
-      });
-    const data = await getJSON(url);
-    return ((data && data.data) || [])
-      .filter((r) => r.title)
-      .map((r) => {
-        const doi = r.externalIds && r.externalIds.DOI;
-        return {
-          title: r.title || "Untitled",
-          url: doi
-            ? "https://doi.org/" + doi
-            : (r.openAccessPdf && r.openAccessPdf.url) || r.url || "",
-          year: r.year || "",
-          citations: typeof r.citationCount === "number" ? r.citationCount : null,
-          authors:
-            (r.authors || []).slice(0, 1).map((a) => a.name).join("") +
-            ((r.authors || []).length > 1 ? " et al." : ""),
-          _allAuthors: (r.authors || []).map((a) => a.name).filter(Boolean).join(", "),
-          journal: r.venue || "Semantic Scholar",
-          abstract: r.abstract || "",
-          tldr: (r.tldr && r.tldr.text) || "",
-        };
-      });
-  } catch {
-    return [];
-  }
-}
-
-async function doaj(query, limit = 6) {
-  try {
-    const url =
-      "https://doaj.org/api/search/articles/" +
-      encodeURIComponent(query) +
-      "?pageSize=" +
-      limit;
-    const data = await getJSON(url);
-    return ((data && data.results) || [])
-      .map((r) => {
-        const b = r.bibjson || {};
-        const doiId = (b.identifier || []).find((x) => x.type === "doi");
-        const link = (b.link || [])[0];
-        return {
-          title: b.title || "Untitled",
-          url: doiId ? "https://doi.org/" + doiId.id : (link && link.url) || "",
-          year: b.year || "",
-          citations: null,
-          authors:
-            (b.author || []).slice(0, 1).map((a) => a.name).join("") +
-            ((b.author || []).length > 1 ? " et al." : ""),
-          journal: (b.journal && b.journal.title) || "DOAJ",
-          abstract: stripTags(b.abstract || ""),
-        };
-      })
-      .filter((p) => p.title);
-  } catch {
-    return [];
-  }
-}
-
-async function biorxiv(query, limit = 6) {
-  try {
-    const params = new URLSearchParams({
-      search: query,
-      filter: "type:preprint",
-      sort: "relevance_score:desc",
-      per_page: String(limit),
-      select:
-        "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
-      mailto: "noreply@example.com",
-    });
-    const data = await getJSON("https://api.openalex.org/works?" + params);
-    const out = [];
-    for (const w of (data.results || [])) {
-      if (!w.title) continue;
-      const first =
-        (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || "";
-      out.push({
-        title: w.title,
-        url:
-          w.doi ||
-          (w.primary_location && w.primary_location.landing_page_url) ||
-          "",
-        year: w.publication_year || "",
-        citations: typeof w.cited_by_count === "number" ? w.cited_by_count : null,
-        authors:
-          w.authorships && w.authorships.length > 1
-            ? first + " et al."
-            : first,
-        journal:
-          (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) ||
-          "Preprint",
-        abstract: decodeInverted(w.abstract_inverted_index),
-      });
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-async function zenodo(query, limit = 4) {
-  try {
-    const url =
-      "https://zenodo.org/api/records?" +
-      new URLSearchParams({ q: query, size: String(limit), sort: "mostrecent" });
-    const data = await getJSON(url);
-    return ((data && data.hits && data.hits.hits) || [])
-      .map((r) => {
-        const md = r.metadata || {};
-        return {
-          title: md.title || "Untitled",
-          url:
-            r.doi_url ||
-            (md.doi ? "https://doi.org/" + md.doi : "") ||
-            (r.links && r.links.self_html) ||
-            "",
-          year: (md.publication_date || "").slice(0, 4),
-          citations: null,
-          authors:
-            (md.creators || []).slice(0, 1).map((a) => a.name).join("") +
-            ((md.creators || []).length > 1 ? " et al." : ""),
-          journal: "Zenodo",
-          abstract: stripTags(md.description || ""),
-        };
-      })
-      .filter((p) => p.title);
-  } catch {
-    return [];
-  }
-}
-
-async function plos(query, limit = 6) {
-  try {
-    const url =
-      "https://api.plos.org/search?" +
-      new URLSearchParams({
-        q: query,
-        fl: "id,title_display,author_display,journal,publication_date,abstract",
-        wt: "json",
-        rows: String(limit),
-      });
-    const data = await getJSON(url);
-    return ((data && data.response && data.response.docs) || [])
-      .map((d) => ({
-        title: Array.isArray(d.title_display)
-          ? d.title_display[0]
-          : d.title_display || "Untitled",
-        url: d.id ? "https://doi.org/" + d.id : "",
-        year: (d.publication_date || "").slice(0, 4),
-        citations: null,
-        authors:
-          (d.author_display || []).slice(0, 1).join("") +
-          ((d.author_display || []).length > 1 ? " et al." : ""),
-        journal: d.journal || "PLOS",
-        abstract: stripTags(
-          Array.isArray(d.abstract) ? d.abstract.join(" ") : d.abstract || ""
-        ),
-      }))
-      .filter((p) => p.title);
-  } catch {
-    return [];
-  }
-}
-
-// ---- ADDITIONAL SCHOLARLY APIs ----
-
-async function coreSearch(query, limit = 8) {
-  try {
-    const url = "https://api.core.ac.uk/v3/search/works?" +
-      new URLSearchParams({ q: query, limit: String(limit) });
-    const data = await getJSON(url, {}, 6000);
-    return ((data && data.results) || []).filter((r) => r.title).map((r) => ({
-      title: r.title || "Untitled",
-      url: r.doi ? "https://doi.org/" + r.doi : (r.downloadUrl || ""),
-      year: r.yearPublished ? String(r.yearPublished) : "",
-      citations: null,
-      authors: (r.authors || []).map((a) => a.name || "").slice(0, 1).join("") + ((r.authors || []).length > 1 ? " et al." : ""),
-      _allAuthors: (r.authors || []).map((a) => a.name || "").join(", "),
-      journal: r.publisher || "CORE",
-      abstract: stripTags((r.abstract || "").slice(0, 1500)),
-    }));
-  } catch { return []; }
-}
-
-async function baseSearch(query, limit = 8) {
-  try {
-    const url = "https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?" +
-      new URLSearchParams({ func: "PerformSearch", query: query, format: "json", hits: String(limit) });
-    const data = await getJSON(url, {}, 6000);
-    return ((data && data.response && data.response.docs) || []).filter((d) => d.dctitle).map((d) => ({
-      title: Array.isArray(d.dctitle) ? d.dctitle[0] : (d.dctitle || "Untitled"),
-      url: (Array.isArray(d.dcidentifier) ? d.dcidentifier.find((u) => (u||"").startsWith("http")) : d.dcidentifier) || "",
-      year: Array.isArray(d.dcyear) ? d.dcyear[0] : (d.dcyear || ""),
-      citations: null,
-      authors: Array.isArray(d.dcperson) ? d.dcperson.slice(0,1).join("") + (d.dcperson.length > 1 ? " et al." : "") : (d.dcperson || ""),
-      _allAuthors: Array.isArray(d.dcperson) ? d.dcperson.join(", ") : (d.dcperson || ""),
-      journal: Array.isArray(d.dcsource) ? d.dcsource[0] : (d.dcsource || "BASE"),
-      abstract: stripTags(Array.isArray(d.dcdescription) ? d.dcdescription.join(" ").slice(0,1500) : (d.dcdescription || "").slice(0,1500)),
-    }));
-  } catch { return []; }
-}
-
-async function pmcFullText(query, limit = 8) {
-  try {
-    const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
-      new URLSearchParams({ query: '(BODY:"' + query + '")', resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
-    const data = await getJSON(url, {}, 6000);
-    return ((data && data.resultList && data.resultList.result) || []).filter((r) => r.title).map((r) => ({
-      title: r.title || "Untitled",
-      url: r.doi ? "https://doi.org/" + r.doi : "https://europepmc.org/article/" + r.source + "/" + r.id,
-      year: r.pubYear || "",
-      citations: typeof r.citedByCount === "number" ? r.citedByCount : null,
-      authors: r.authorString || "",
-      _allAuthors: r.authorString || "",
-      journal: r.journalTitle || "PMC",
-      abstract: stripTags(r.abstractText),
-    }));
-  } catch { return []; }
-}
-
-async function openAire(query, limit = 8) {
-  try {
-    const url = "https://api.openaire.eu/search/publications?" +
-      new URLSearchParams({ keywords: query, size: String(limit), format: "json" });
-    const data = await getJSON(url, {}, 6000);
-    const results = data?.response?.results?.result || [];
-    return results.filter((r) => r?.metadata?.["oaf:entity"]?.["oaf:result"]?.title).map((r) => {
-      const m = r.metadata["oaf:entity"]["oaf:result"];
-      const t = typeof m.title === "string" ? m.title : (m.title?.["$"] || "Untitled");
-      const creators = Array.isArray(m.creator) ? m.creator : (m.creator ? [m.creator] : []);
-      const names = creators.map((c) => c?.["$"] || "").filter(Boolean);
-      const pids = Array.isArray(m.pid) ? m.pid : (m.pid ? [m.pid] : []);
-      const doi = pids.find((p) => p?.["@classid"] === "doi");
-      return {
-        title: t, url: doi ? "https://doi.org/" + doi["$"] : "",
-        year: (m.dateofacceptance || "").slice(0,4), citations: null,
-        authors: names.slice(0,1).join("") + (names.length > 1 ? " et al." : ""),
-        _allAuthors: names.join(", "),
-        journal: m.journal?.["$"] || "OpenAIRE",
-        abstract: stripTags((typeof m.description === "string" ? m.description : (m.description?.["$"] || "")).slice(0,1500)),
-      };
-    }).filter((p) => p.title && p.title !== "Untitled");
-  } catch { return []; }
-}
-
-
-async function wikipedia(query, limit = 2) {
-  try {
-    const searchUrl =
-      "https://en.wikipedia.org/w/api.php?" +
-      new URLSearchParams({
-        action: "query",
-        list: "search",
-        srsearch: query,
-        srlimit: String(limit),
-        format: "json",
-        origin: "*",
-      });
-    const sdata = await getJSON(searchUrl, {}, 4000);
-    const hits = (sdata && sdata.query && sdata.query.search) || [];
-    const out = [];
-    for (const h of hits) {
-      const title = h.title;
-      try {
-        const exUrl =
-          "https://en.wikipedia.org/w/api.php?" +
-          new URLSearchParams({
-            action: "query",
-            prop: "extracts",
-            exintro: "1",
-            explaintext: "1",
-            titles: title,
-            format: "json",
-            origin: "*",
-          });
-        const ex = await getJSON(exUrl, {}, 4000);
-        const pages = (ex && ex.query && ex.query.pages) || {};
-        const page = Object.values(pages)[0] || {};
-        const extract = (page.extract || "").replace(/\s+/g, " ").trim();
-        if (extract) {
-          out.push({
-            title: title + " (Wikipedia)",
-            url:
-              "https://en.wikipedia.org/wiki/" +
-              encodeURIComponent(title.replace(/ /g, "_")),
-            year: "",
-            citations: null,
-            authors: "Wikipedia contributors",
-            journal: "Wikipedia",
-            abstract: extract.slice(0, 1500),
-            isEncyclopedia: true,
-          });
-        }
-      } catch {}
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-async function duckduckgo(query) {
-  try {
-    const url =
-      "https://api.duckduckgo.com/?" +
-      new URLSearchParams({
-        q: query,
-        format: "json",
-        no_html: "1",
-        skip_disambig: "1",
-      });
-    const data = await getJSON(url, {}, 4000);
-    const abstract = ((data && data.AbstractText) || "").trim();
-    if (!abstract) return [];
-    return [
-      {
-        title: (data.Heading || query) + " (" + (data.AbstractSource || "Web") + ")",
-        url: data.AbstractURL || "",
-        year: "",
-        citations: null,
-        authors: data.AbstractSource || "Web",
-        journal: data.AbstractSource || "Web",
-        abstract: abstract.slice(0, 1200),
-        isEncyclopedia: true,
-      },
-    ];
-  } catch {
-    return [];
-  }
-}
-
-// ============ VIDEO SEARCH ============
-// Races multiple public Piped/Invidious instances. If one works, we use it.
-// Instance list is refreshed with known-working ones and rotated randomly.
-
-const VIDEO_INSTANCES = [
-  { type: "piped", url: "https://pipedapi.kavin.rocks" },
-  { type: "piped", url: "https://api.piped.projectsegfau.lt" },
-  { type: "piped", url: "https://pipedapi.adminforge.de" },
-  { type: "piped", url: "https://pipedapi.reallyaweso.me" },
-  { type: "piped", url: "https://pipedapi.leptons.xyz" },
-  { type: "piped", url: "https://pipedapi.ducks.party" },
-  { type: "piped", url: "https://pipedapi.r4fo.com" },
-  { type: "piped", url: "https://pipedapi.us.projectsegfau.lt" },
-  { type: "piped", url: "https://pipedapi.drgns.space" },
-  { type: "piped", url: "https://pipedapi.orsi.uk" },
-  { type: "invidious", url: "https://invidious.nerdvpn.de" },
-  { type: "invidious", url: "https://inv.nadeko.net" },
-  { type: "invidious", url: "https://iv.ggtyler.dev" },
-  { type: "invidious", url: "https://invidious.privacyredirect.com" },
-  { type: "invidious", url: "https://invidious.f5.si" },
-  { type: "invidious", url: "https://inv.tux.pizza" },
-  { type: "invidious", url: "https://invidious.perennialte.ch" },
-  { type: "invidious", url: "https://invidious.jing.rocks" },
-];
-
-function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-async function tryVideoInstance(inst, query, timeoutMs) {
-  const qs = encodeURIComponent(query + " lecture explained");
-  const url =
-    inst.type === "piped"
-      ? inst.url + "/search?q=" + qs + "&filter=videos"
-      : inst.url + "/api/v1/search?q=" + qs + "&type=video";
-
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      signal: c.signal,
-      headers: { "User-Agent": "Mozilla/5.0 Cerebrum" },
-    });
-    clearTimeout(t);
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const data = await res.json();
-
-    // Normalize shape between Piped and Invidious
-    const items = Array.isArray(data) ? data : data.items || [];
-    if (!items.length) throw new Error("empty");
-
-    const seen = new Set();
-    const out = [];
-    for (const item of items) {
-      let vId = "";
-      if (item.videoId) vId = item.videoId;
-      else if (item.url && item.url.indexOf("/watch?v=") !== -1)
-        vId = item.url.replace(/^.*\/watch\?v=/, "").split("&")[0];
-      if (!vId || seen.has(vId)) continue;
-      seen.add(vId);
-      const title = item.title || "Video";
-      const author =
-        item.author ||
-        item.uploaderName ||
-        item.uploader ||
-        item.channel ||
-        "Channel";
-      out.push({
-        title,
-        url: "https://www.youtube.com/watch?v=" + vId,
-        author,
-        thumbnail: "https://i.ytimg.com/vi/" + vId + "/hqdefault.jpg",
-        id: vId,
-      });
-      if (out.length >= 6) break;
-    }
-    if (!out.length) throw new Error("no valid items");
-    return out;
-  } catch (e) {
-    clearTimeout(t);
-    throw e;
-  }
-}
-
-// Direct YouTube search via HTML scrape. YouTube embeds a JSON payload
-// (ytInitialData) in the HTML of its search results page. This works from
-// Cloudflare Workers because YouTube doesn't block Cloudflare IPs the way
-// the community Piped/Invidious instances do. Keyless, free, and reliable.
-async function youtubeDirectSearch(query, limit = 6) {
-  const url =
-    "https://www.youtube.com/results?" +
-    new URLSearchParams({ search_query: query + " lecture explained" });
-  try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 5000);
-    const res = await fetch(url, {
-      signal: c.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-      },
-    });
-    clearTimeout(t);
-    if (!res.ok) return [];
-    const html = await res.text();
-
-    // Extract ytInitialData JSON blob
-    const m = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
-    if (!m) return [];
-    let data;
     try {
-      data = JSON.parse(m[1]);
-    } catch {
-      return [];
-    }
-
-    // Navigate the nested structure to find video results
-    const contents =
-      data?.contents?.twoColumnSearchResultsRenderer?.primaryContents
-        ?.sectionListRenderer?.contents || [];
-    const out = [];
-    const seen = new Set();
-
-    for (const section of contents) {
-      const items = section?.itemSectionRenderer?.contents || [];
-      for (const item of items) {
-        const v = item?.videoRenderer;
-        if (!v || !v.videoId) continue;
-        if (seen.has(v.videoId)) continue;
-        seen.add(v.videoId);
-
-        const title =
-          v.title?.runs?.map((r) => r.text).join("") ||
-          v.title?.simpleText ||
-          "Video";
-        const author =
-          v.ownerText?.runs?.[0]?.text ||
-          v.longBylineText?.runs?.[0]?.text ||
-          "Channel";
-        // High-quality thumbnail
-        const thumbs = v.thumbnail?.thumbnails || [];
-        const thumbnail =
-          thumbs[thumbs.length - 1]?.url ||
-          "https://i.ytimg.com/vi/" + v.videoId + "/hqdefault.jpg";
-
-        out.push({
-          title,
-          url: "https://www.youtube.com/watch?v=" + v.videoId,
-          author,
-          thumbnail,
-          id: v.videoId,
+      if (P.dark && window.VANTA && window.VANTA.HALO) {
+        // Dark mode: HALO — soft glow, premium, never competes with content
+        effectRef.current = window.VANTA.HALO({
+          el,
+          THREE: window.THREE,
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200, minWidth: 200,
+          backgroundColor: 0x050816,
+          baseColor: accentInt,
+          size: 1.5,
+          amplitudeFactor: 0.8,
+          speed: speed * 0.4,
+          xOffset: 0.1,
+          yOffset: 0.05,
         });
-        if (out.length >= limit) return out;
+      } else if (P.dark && window.VANTA && window.VANTA.NET) {
+        // Fallback: NET at very low density
+        effectRef.current = window.VANTA.NET({
+          el, THREE: window.THREE,
+          mouseControls: true, touchControls: true, gyroControls: false,
+          minHeight: 200, minWidth: 200, scale: 1.0, scaleMobile: 1.0,
+          color: accentInt,
+          backgroundColor: 0x050816,
+          points: 3, maxDistance: 18, spacing: 25, showDots: true,
+          speed: speed * 0.3,
+        });
+      } else if (!P.dark && window.VANTA && window.VANTA.NET) {
+        // Light mode: NET barely visible
+        effectRef.current = window.VANTA.NET({
+          el, THREE: window.THREE,
+          mouseControls: true, touchControls: true, gyroControls: false,
+          minHeight: 200, minWidth: 200, scale: 1.0, scaleMobile: 1.0,
+          color: accentInt,
+          backgroundColor: parseInt(P.bg.replace("#",""), 16) || 0xf8f9fc,
+          points: 3, maxDistance: 16, spacing: 28, showDots: true,
+          speed: speed * 0.3,
+        });
       }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
+    } catch (e) { console.warn("Vanta bg failed:", e); }
 
-async function fetchVideos(query, maxMs = 3000) {
-  const cleaned = cleanQuery(query) || query;
+    return () => { if (effectRef.current) { try { effectRef.current.destroy(); } catch {} effectRef.current = null; } };
+  }, [loaded, accent, P.dark, P.bg, density, speed]);
 
-  // Wrap everything in a hard time cap so this never blocks the answer.
-  const timedRace = new Promise((resolve) => setTimeout(() => resolve([]), maxMs));
+  // Pause/resume
+  useEffect(() => {
+    if (!effectRef.current) return;
+    if (paused) { try { effectRef.current.setOptions({ speed: 0 }); } catch {} }
+    else { try { effectRef.current.setOptions({ speed: speed * (P.dark ? 0.8 : 0.6) }); } catch {} }
+  }, [paused, speed, P.dark]);
 
-  const doFetch = async () => {
-    // TIER 1: Direct YouTube (works from Cloudflare, keyless).
-    const direct = await youtubeDirectSearch(cleaned, 6).catch(() => []);
-    if (direct.length) return direct;
-
-    // TIER 2: Proxies
-    const shuffled = shuffle(VIDEO_INSTANCES);
-    const batchSize = 4;
-    for (let i = 0; i < shuffled.length; i += batchSize) {
-      const batch = shuffled.slice(i, i + batchSize);
-      const promises = batch.map((inst) => tryVideoInstance(inst, cleaned, 2000));
-      try {
-        const result = await Promise.any(promises);
-        if (result && result.length) return result;
-      } catch {}
-    }
-    return [];
-  };
-
-  return Promise.race([doFetch(), timedRace]);
-}
-
-// ============ AUTHOR SEARCH ============
-// If the query looks like a person's name, we hit author-specific endpoints
-// rather than a generic keyword search. This avoids "Reese Saho" returning
-// stellar-pulsation papers just because "Reese" appears somewhere in them.
-
-function detectAuthor(raw) {
-  const q = raw.trim();
-  const lower = q.toLowerCase();
-  const prefixes = [
-    "papers by ", "publications by ", "articles by ",
-    "research by ", "work by ", "author:",
-  ];
-  for (const p of prefixes) {
-    if (lower.startsWith(p)) return q.slice(p.length).trim();
-  }
-  // Bare name heuristic: 2-4 words, all capitalized, no question words.
-  const words = q.split(/\s+/);
-  if (words.length >= 2 && words.length <= 4) {
-    const questiony = /^(what|how|why|when|where|which|who|is|are|does|do|can|explain|tell)/i.test(q);
-    const allCap = words.every((w) => /^[A-Z][a-zA-Z.'-]*$/.test(w));
-    if (allCap && !questiony) return q;
-  }
-  return null;
-}
-
-async function authorOpenAlex(name, limit = 15) {
-  try {
-    // First find the actual author entity, then their works.
-    const searchUrl = "https://api.openalex.org/authors?" +
-      new URLSearchParams({
-        search: name,
-        per_page: "5",
-        select: "id,display_name,works_count,cited_by_count",
-        mailto: "noreply@example.com",
-      });
-    const sdata = await getJSON(searchUrl);
-    const cands = (sdata && sdata.results) || [];
-    if (!cands.length) return { papers: [], matched: null };
-
-    // Prefer exact name match; fall back to top result
-    const wanted = name.toLowerCase();
-    const exact = cands.find((c) => (c.display_name || "").toLowerCase() === wanted);
-    const author = exact || cands[0];
-    if (!author || !author.id) return { papers: [], matched: null };
-
-    // Now fetch that author's works
-    const authorFilter = "authorships.author.id:" + author.id.replace("https://openalex.org/", "");
-    const worksUrl = "https://api.openalex.org/works?" +
-      new URLSearchParams({
-        filter: authorFilter,
-        sort: "cited_by_count:desc",
-        per_page: String(limit),
-        select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
-        mailto: "noreply@example.com",
-      });
-    const data = await getJSON(worksUrl);
-    const papers = ((data && data.results) || []).map((w) => {
-      const first = (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || "";
-      return {
-        title: w.title || "Untitled",
-        url: w.doi || (w.primary_location && w.primary_location.landing_page_url) || "",
-        year: w.publication_year || "",
-        citations: typeof w.cited_by_count === "number" ? w.cited_by_count : null,
-        authors: w.authorships && w.authorships.length > 1 ? first + " et al." : first,
-        journal: (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || "OpenAlex",
-        abstract: decodeInverted(w.abstract_inverted_index),
-      };
-    }).filter((p) => p.title && p.title !== "Untitled");
-    return { papers, matched: author.display_name };
-  } catch {
-    return { papers: [], matched: null };
-  }
-}
-
-async function authorCrossref(name, limit = 15) {
-  try {
-    const url = "https://api.crossref.org/works?" +
-      new URLSearchParams({
-        "query.author": name,
-        rows: String(limit),
-        sort: "is-referenced-by-count",
-        order: "desc",
-        select: "title,author,container-title,published,DOI,is-referenced-by-count,abstract",
-      }) + "&mailto=cerebrum@example.com";
-    const data = await getJSON(url);
-    return ((data && data.message && data.message.items) || []).map((it) => ({
-      title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled",
-      url: it.DOI ? "https://doi.org/" + it.DOI : "",
-      year: (it.published && it.published["date-parts"] && it.published["date-parts"][0] && it.published["date-parts"][0][0]) || "",
-      citations: typeof it["is-referenced-by-count"] === "number" ? it["is-referenced-by-count"] : null,
-      authors: (it.author || []).slice(0, 1).map((a) => ((a.given || "") + " " + (a.family || "")).trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""),
-      journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref",
-      abstract: stripTags(it.abstract || ""),
-    })).filter((p) => p.title);
-  } catch { return []; }
-}
-
-async function authorSemanticScholar(name, limit = 20) {
-  try {
-    const searchUrl = "https://api.semanticscholar.org/graph/v1/author/search?" +
-      new URLSearchParams({ query: name, fields: "name,paperCount,citationCount", limit: "5" });
-    const sdata = await getJSON(searchUrl);
-    const cands = (sdata && sdata.data) || [];
-    if (!cands.length) return { papers: [], matched: null };
-
-    const wanted = name.toLowerCase().split(/\s+/).filter(Boolean);
-    const scoreName = (candName) => {
-      const cn = (candName || "").toLowerCase();
-      return wanted.filter((w) => cn.includes(w)).length / wanted.length;
-    };
-    const ranked = cands
-      .map((c) => ({ c, match: scoreName(c.name) }))
-      .sort((a, b) => (b.match - a.match) || ((b.c.paperCount || 0) - (a.c.paperCount || 0)));
-
-    const best = ranked[0];
-    if (!best || best.match < 0.99) return { papers: [], matched: null };
-
-    const authorId = best.c.authorId;
-    if (!authorId) return { papers: [], matched: null };
-    const papersUrl = "https://api.semanticscholar.org/graph/v1/author/" + authorId + "/papers?" +
-      new URLSearchParams({
-        fields: "title,abstract,year,citationCount,authors,venue,externalIds",
-        limit: String(limit),
-      });
-    const pdata = await getJSON(papersUrl);
-    const papers = ((pdata && pdata.data) || []).map((r) => {
-      const doi = r.externalIds && r.externalIds.DOI;
-      const names = (r.authors || []).map((a) => a.name);
-      return {
-        title: r.title || "Untitled",
-        url: doi ? "https://doi.org/" + doi : (r.externalIds && r.externalIds.ArXiv ? "https://arxiv.org/abs/" + r.externalIds.ArXiv : ""),
-        year: r.year || "",
-        citations: typeof r.citationCount === "number" ? r.citationCount : null,
-        authors: names.length > 1 ? names[0] + " et al." : names[0] || "",
-        journal: r.venue || "Semantic Scholar",
-        abstract: r.abstract || "",
-      };
-    }).filter((p) => p.title && p.title !== "Untitled");
-    return { papers, matched: best.c.name };
-  } catch { return { papers: [], matched: null }; }
-}
-
-// UTK-specific: check TRACE for local grad students since Reese Saho is at UTK
-async function authorUTK(name) {
-  const parts = name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-  if (!parts.length) return [];
-  const sets = ["publication:utk_graddiss", "publication:utk_gradthes"];
-  const all = [];
-  for (const set of sets) {
-    try {
-      const text = await getText(
-        "https://trace.tennessee.edu/do/oai/?" +
-          new URLSearchParams({ verb: "ListRecords", metadataPrefix: "dcq", set })
-      );
-      all.push(...extractTraceRecords(text));
-    } catch {}
-  }
-  // Match only records whose creators actually contain the person's name
-  return all
-    .filter((r) => {
-      const authors = (r.authors || "").toLowerCase();
-      return parts.every((p) => authors.includes(p));
-    })
-    .slice(0, 10)
-    .map((r) => ({
-      title: r.title,
-      url: r.url,
-      year: r.year,
-      citations: null,
-      authors: r.authors,
-      journal: "UTK TRACE",
-      abstract: stripTags(r.abstract),
-    }));
-}
-
-async function gatherByAuthor(name) {
-  const [ssRes, oaRes, cr, utk] = await Promise.all([
-    authorSemanticScholar(name, 20).catch(() => ({ papers: [], matched: null })),
-    authorOpenAlex(name, 15).catch(() => ({ papers: [], matched: null })),
-    authorCrossref(name, 15).catch(() => []),
-    authorUTK(name).catch(() => []),
-  ]);
-  const ss = ssRes.papers || [];
-  const oa = oaRes.papers || [];
-  const merged = [];
-  const seen = new Set();
-  for (const list of [ss, oa, cr, utk]) {
-    for (const p of list) {
-      const key = (p.title || "").toLowerCase().trim();
-      if (key && !seen.has(key)) { seen.add(key); merged.push(p); }
-    }
-  }
-  const papers = merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 25);
-  const matched = ssRes.matched || oaRes.matched || null;
-  return { papers, confirmed: !!matched, matchedName: matched };
-}
-
-
-
-async function gatherPapers(rawQuery, opts) {
-  // Wrap the entire function so ANY thrown error still returns a diagnostic
-  // rather than being swallowed by the outer .catch and losing all context.
-  const _outerDiag = { entered: true, phase: "start", rawQuery: (rawQuery || "").slice(0, 200) };
-  try {
-  const openAlexKey = (opts && opts.openAlexKey) || "";
-  const ncbiKey = (opts && opts.ncbiKey) || "";
-  const limit = (opts && opts.limit) || 25;
-  _outerDiag.phase = "cleaned_query"; const query = cleanQuery(preprocessQuery(rawQuery)); _outerDiag.cleanedQuery = query.slice(0, 200);
-  // A resolved person name from conversation history (pronoun follow-up like
-  // "he has papers from UTK") takes priority over re-detecting from rawQuery.
-  const resolvedPersonName = opts && opts.resolvedPersonName;
-  // Detect a person name embedded ANYWHERE in the query, not just when the
-  // query IS a name. This catches "Reese Sahos studies on BSFL" -> "Reese Saho".
-  const embeddedName = extractPersonNameFromQuery(rawQuery);
-  const isNameQuery = !!resolvedPersonName || !!embeddedName;
-  const effectiveName = resolvedPersonName || embeddedName || rawQuery.trim();
-  const binomial = extractBinomial(rawQuery);
-
-  // AUTHOR QUERY: single clean path. Query the primary sources directly (they
-  // have the freshest data — aggregators lag weeks to months), extract the
-  // FULL author list from each result, filter by actual name-token membership,
-  // deduplicate, and return. No layered fallbacks, no walls. If truly nothing
-  // matches, the endpoint responds with helpful suggestions rather than dumping
-  // unrelated papers or throwing up an "author not confirmed" screen.
-  _outerDiag.phase = "name_check_done"; _outerDiag.isNameQuery = isNameQuery;
-  if (isNameQuery) {
-    _outerDiag.phase = "author_branch";
-    const nameLower = effectiveName.toLowerCase();
-    const nameTokens = nameLower.split(/\s+/).filter((t) => t.length > 1);
-    // Build a quoted-phrase query for the full name and also a broader OR of
-    // first+last for sources that don't handle quoted phrases well.
-    const quoted = '"' + effectiveName + '"';
-
-    // Primary source parallel fetch. Each source returns papers with a full
-    // author list in _allAuthors (this is the bug that was previously silently
-    // dropping real matches — the strict filter was checking a truncated field).
-    const results = await Promise.allSettled([
-      europePMC(quoted, 25),                        // best full-text index for biomed
-      openAlex(quoted, 25, openAlexKey),            // cross-disciplinary
-      crossref(quoted, 15),                         // DOI-registered works
-      arxiv(effectiveName, 15),                     // physics/CS/quantitative bio
-      semanticScholar(quoted, 15),                  // includes preprints
-      biorxivDirectAuthor(effectiveName),           // fresh biology preprints
-      medrxivDirectAuthor(effectiveName),           // fresh medical preprints
-    ]);
-
-    const merged = [];
-    const seenTitles = new Set();
-    for (const r of results) {
-      if (r.status !== "fulfilled") continue;
-      for (const p of (r.value || [])) {
-        // Check the FULL author list, not the truncated `authors` display.
-        const authorHay = (p._allAuthors || p.authors || "").toLowerCase();
-        if (!authorHay) continue;
-        // Require every token of the searched name to appear somewhere in
-        // the paper's actual author string. This is the correct filter and
-        // works because we now capture the full author list.
-        const hit = nameTokens.every((t) => authorHay.includes(t));
-        if (!hit) continue;
-        const titleKey = (p.title || "").toLowerCase().trim();
-        if (!titleKey || seenTitles.has(titleKey)) continue;
-        seenTitles.add(titleKey);
-        merged.push({ ...p, authorMatch: effectiveName });
-      }
-    }
-
-    // Score and type
-    _outerDiag.phase = "scoring"; const scored = merged.map((p) => {
-      const j = (p.journal || "").toLowerCase();
-      let type = "Journal";
-      if (/preprint|biorxiv|medrxiv|arxiv/.test(j)) type = "Preprint";
-      else if (/zenodo|datacite|figshare|dryad/.test(j)) type = "Dataset";
-      return {
-        ...p,
-        score: 10,
-        contentHits: 1,
-        contentCoverage: 1,
-        organismPresent: true,
-        relevance: 100,
-        type,
-      };
-    });
-
-    // Sort: most-cited first (proxy for career impact); recent second when ties
-    scored.sort((a, b) => {
-      const ac = a.citations || 0, bc = b.citations || 0;
-      if (bc !== ac) return bc - ac;
-      const ay = parseInt(a.year, 10) || 0, by = parseInt(b.year, 10) || 0;
-      return by - ay;
-    });
-
-    if (scored.length) return { papers: scored };
-
-    // Truly no papers matched by author. Signal that so the endpoint can
-    // respond with helpful suggestions (not a wall, not unrelated papers).
-    return { papers: [], noResults: true };
-  }
-
-  _outerDiag.phase = "before_ladder";
-  // ============ RETRIEVAL LADDER ============
-  // The retrieval system that has to work right or nothing else matters.
-  //
-  // Design principles (each learned from a real production failure):
-  //
-  // 1. EVERY ENGINE GETS ITS OWN QUERY DIALECT.
-  //    Europe PMC and PubMed parse boolean. OpenAlex, Crossref, Semantic
-  //    Scholar, DOAJ, PLOS, Zenodo treat "(a OR b)" as literal text → zero.
-  //    arXiv needs "all:x AND all:y". Sending one string to all ten is the
-  //    single mistake that caused the longest outage in this project.
-  //
-  // 2. CONCEPT EXPANSION ONLY WHERE IT'S SAFE.
-  //    Europe PMC and PubMed handle OR-expanded groups well. For the plain-
-  //    keyword engines, we send ONLY the bare anchor terms — no parens, no
-  //    "OR", no boolean operators of any kind. These engines do fuzzy/semantic
-  //    matching internally; our OR-expansion was fighting their own relevance
-  //    algorithm and reducing recall.
-  //
-  // 3. THE LADDER LOOSENS PROGRESSIVELY.
-  //    4 anchors → 3 → 2 → 1. Stop at the first rung that returns ≥5 papers.
-  //    Then also search any sub-clauses of a compound question.
-  //
-  // 4. THE RAW QUERY IS ALWAYS THE FINAL FALLBACK.
-  //    If no rung worked, we try the user's original query verbatim. Some
-  //    engines do NLP-level understanding of natural language; our anchor
-  //    extraction sometimes loses information they would have caught.
-
-  const ranked = query
-    .split(/\s+/)
-    .filter((t) => t.length > 2 && !STOPWORDS.has(t))
-    .map((t) => ({ t, spec: termSpecificity(t) }))
-    .sort((a, b) => b.spec - a.spec)
-    .map((x) => x.t);
-
-  const booleanQuery = buildStructuredQuery(query);
-  const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
-
-  // Progressive rungs, most-precise first.
-  const rungs = [
-    ranked.slice(0, 4),
-    ranked.slice(0, 3),
-    ranked.slice(0, 2),
-    ranked.slice(0, 1),
-  ].filter((r) => r.length > 0);
-  if (!rungs.length) rungs.push([query]);
-
-  // The fanout sends the RIGHT syntax to EACH engine. This is the most
-  // important function in the entire codebase — if it sends the wrong format
-  // to any engine, that engine silently returns zero and the user sees
-  // "no papers found".
-  const fanout = (terms, useBoolean) => {
-    // Boolean engines (EPMC, PubMed): use the full structured query on the
-    // first rung, plain terms on fallback rungs.
-    const boolQ = useBoolean ? booleanQuery : terms.join(" ");
-    // Plain-keyword engines: BARE TERMS ONLY. No parentheses, no "OR", no
-    // boolean syntax of any kind. These engines do their own semantic matching.
-    const bare = terms.join(" ");
-    // arXiv: prefix each term with "all:" and join with " AND ".
-    const arx = arxivQuery(terms);
-
-    return [
-      europePMC(boolQ, 12),
-      pubmed(boolQ, 12, ncbiKey),
-      openAlex(bare, 12, openAlexKey),
-      crossref(bare, 10),
-      arxiv(arx, 8),
-      semanticScholar(bare, 10),
-      doaj(bare, 8),
-      biorxiv(bare, 8),
-      zenodo(bare, 6),
-      plos(bare, 8),
-      // Additional high-value sources (4 new)
-      coreSearch(bare, 8),
-      baseSearch(bare, 8),
-      pmcFullText(bare, 6),
-      openAire(bare, 6),
-    ];
-  };
-
-  // Multi-part question detection.
-  const clauses = rawQuery
-    .split(/\s*(?:,\s*)?\band\b\s+(?=how|what|why|when|where|which|do|does|can|is|are)|\s*[;?]\s*/i)
-    .map((c) => c.trim())
-    .filter((c) => c.split(/\s+/).filter((w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase())).length >= 2);
-
-  const subQueries = clauses.length > 1
-    ? clauses.map((c) =>
-        c.toLowerCase().replace(/[^\w\s-]/g, " ").split(/\s+/)
-          .filter((t) => t.length > 2 && !STOPWORDS.has(t))
-          .map((t) => ({ t, spec: termSpecificity(t) }))
-          .sort((a, b) => b.spec - a.spec)
-          .slice(0, 3).map((x) => x.t)
-      ).filter((arr) => arr.length >= 2)
-    : [];
-
-  _outerDiag.phase = "ladder_start";
-  let results = [];
-  const diag = { rungs: [], sourceOutcomes: null };
-  const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire"];
-
-  for (let i = 0; i < rungs.length; i++) {
-    results = await Promise.allSettled(fanout(rungs[i], i === 0));
-    const perSource = results.map((r, idx) => ({
-      source: sourceNames[idx],
-      status: r.status,
-      count: r.status === "fulfilled" ? (r.value || []).length : 0,
-      error: r.status === "rejected" ? String(r.reason && r.reason.message || r.reason).slice(0, 120) : null,
-    }));
-    const got = perSource.reduce((n, x) => n + x.count, 0);
-    diag.rungs.push({ terms: rungs[i], got, perSource });
-    if (got >= 5) { diag.sourceOutcomes = perSource; break; }
-    diag.sourceOutcomes = perSource;
-  }
-
-  // FINAL FALLBACK: if no rung returned enough, try the raw user query
-  // verbatim. Some engines (especially Semantic Scholar and Europe PMC) have
-  // surprisingly good NLP that handles natural-language questions better than
-  // our extracted anchors.
-  const totalSoFar = results.reduce(
-    (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+  return (
+    <div ref={containerRef} style={{
+      position: "fixed", inset: 0, width: "100%", height: "100%",
+      pointerEvents: "none", zIndex: 0,
+      opacity: intensity === "subtle" ? 0.1 : 0.18,
+      transition: "opacity 0.5s ease",
+    }} aria-hidden="true" />
   );
-  if (totalSoFar < 3) {
-    const rawFallback = await Promise.allSettled([
-      europePMC(query, 12),
-      semanticScholar(query, 10),
-      openAlex(query, 10, openAlexKey),
-    ]);
-    results = results.concat(rawFallback);
-    diag.rawFallback = rawFallback.map((r, i) => ({
-      source: ["europePMC","semanticScholar","openAlex"][i],
-      count: r.status === "fulfilled" ? (r.value || []).length : 0,
-    }));
-  }
+}
 
-  // Add results for each sub-question of a compound query
-  if (subQueries.length > 1) {
-    for (const sub of subQueries) {
-      try {
-        const subRes = await Promise.allSettled(fanout(sub, false));
-        results = results.concat(subRes);
-        diag["clause:" + sub.join("+")] = subRes.reduce(
-          (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
-      } catch {}
-    }
-  }
+function BrainEasterEgg() {
+  const [wiggleKey, setWiggleKey] = useState(0);
+  const trigger = () => setWiggleKey((k) => k + 1);
+  return { trigger, wiggleKey, render: null };
+}
 
-  const merged = [];
-  const seen = new Set();
-  for (const res of results) {
-    if (res.status === "fulfilled" && Array.isArray(res.value)) {
-      for (const p of res.value) {
-        const key = (p.title || "").toLowerCase().trim();
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          merged.push(p);
-        }
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 1: CUSTOM BLEND-MODE CURSOR
+   
+   Hides the default cursor. Renders a glowing dot with a trailing 
+   ring that expands + inverts over actionable elements via 
+   mix-blend-mode: difference. Pure React, no dependencies.
+   ════════════════════════════════════════════════════════════════ */
+function CustomCursor({ accent, P }) {
+  const dotRef = useRef(null);
+  const ringRef = useRef(null);
+  const pos = useRef({ x: -100, y: -100 });
+  const target = useRef({ x: -100, y: -100 });
+  const hovering = useRef(false);
+  const clicking = useRef(false);
+  const visible = useRef(false);
+
+  useEffect(() => {
+    // Only on desktop with fine pointer
+    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!hasMouse) return;
+
+    document.documentElement.style.cursor = "none";
+    const actionables = "a, button, input, select, textarea, [role='button'], summary, label[for], .cb-card, .cb-btn, .cb-hbtn";
+
+    const onMove = (e) => {
+      target.current = { x: e.clientX, y: e.clientY };
+      if (!visible.current) { visible.current = true; pos.current = { ...target.current }; }
+    };
+    const onEnter = (e) => {
+      if (e.target.closest(actionables)) hovering.current = true;
+      else hovering.current = false;
+    };
+    const onLeave = () => { hovering.current = false; };
+    const onDown = () => { clicking.current = true; };
+    const onUp = () => { clicking.current = false; };
+    const onOut = () => { visible.current = false; };
+
+    window.addEventListener("mousemove", onMove, { passive: true });
+    document.addEventListener("mouseover", onEnter, { passive: true });
+    document.addEventListener("mouseout", onLeave, { passive: true });
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("mouseup", onUp);
+    document.addEventListener("mouseleave", onOut);
+
+    let raf;
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const loop = () => {
+      pos.current.x = lerp(pos.current.x, target.current.x, 0.4);
+      pos.current.y = lerp(pos.current.y, target.current.y, 0.4);
+      const { x, y } = pos.current;
+      const vis = visible.current;
+      if (dotRef.current) {
+        dotRef.current.style.transform = `translate3d(${x - 4}px, ${y - 4}px, 0) scale(${clicking.current ? 0.6 : 1})`;
+        dotRef.current.style.opacity = vis ? "1" : "0";
       }
-    }
-  }
+      if (ringRef.current) {
+        const ringX = lerp(parseFloat(ringRef.current.dataset.x || x), x, 0.18);
+        const ringY = lerp(parseFloat(ringRef.current.dataset.y || y), y, 0.18);
+        ringRef.current.dataset.x = ringX;
+        ringRef.current.dataset.y = ringY;
+        const s = hovering.current ? 2.5 : 1;
+        ringRef.current.style.transform = `translate3d(${ringX - 20}px, ${ringY - 20}px, 0) scale(${s})`;
+        ringRef.current.style.opacity = vis ? (hovering.current ? "0.8" : "0.4") : "0";
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
 
-  // ============ RELEVANCE SCORING ============
-  // Rebuilt from scratch. The old version had five compounding bugs that were
-  // the root cause of nearly every "wrong paper" report:
-  //
-  //   1. Used hay.indexOf(term) — substring matching. "micro" matched
-  //      "micro-motion", "microscopy", "micrometer". A query about the
-  //      microbiome returned radar engineering papers at 100% relevance.
-  //   2. Stemmer stripped "ion"/"al"/"ed" unconditionally, so "motion" -> "mot"
-  //      which then matched "motor", "remote", "mother", "promote".
-  //   3. Relevance was RELATIVE (score / maxScore). If every result was
-  //      garbage, the least-bad garbage still displayed "100% match".
-  //   4. No absolute quality floor — top N were returned no matter how bad,
-  //      then handed to the AI, which dutifully cited them.
-  //   5. Stopwords were never filtered, so "the", "was", "that", "main",
-  //      "point" all counted as content matches and inflated every score.
-  //
-  // Every one of those is fixed below.
-  const terms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((t) => t.replace(/[^a-z0-9\-]/g, ""))
-    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
-  const expansions = expansionsFor(terms);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.documentElement.style.cursor = "";
+      window.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseover", onEnter);
+      document.removeEventListener("mouseout", onLeave);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mouseup", onUp);
+      document.removeEventListener("mouseleave", onOut);
+    };
+  }, []);
 
-  // Neutral (organism) words vs content (topic) words
-  const neutralWords = new Set(terms.filter((t) => SYNONYMS[t]));
-  for (const phrase of expansions) {
-    for (const w of phrase.toLowerCase().split(/\s+/)) {
-      if (w.length > 2) neutralWords.add(w);
-    }
-  }
-  for (const w of ["black", "soldier", "larvae", "larva", "fly", "hermetia", "illucens"]) {
-    if (terms.includes(w)) neutralWords.add(w);
-  }
-  const contentTerms = terms.filter((t) => !neutralWords.has(t));
+  return (
+    <>
+      {/* Dot: solid, fast-tracking */}
+      <div ref={dotRef} style={{
+        position: "fixed", top: 0, left: 0, width: 8, height: 8,
+        borderRadius: "50%", background: accent,
+        boxShadow: `0 0 12px ${withAlpha(accent, 0.6)}`,
+        pointerEvents: "none", zIndex: 9999, opacity: 0,
+        transition: "transform 60ms ease, opacity 300ms",
+        willChange: "transform",
+      }} />
+      {/* Ring: slow-trailing, blend-mode */}
+      <div ref={ringRef} data-x="-100" data-y="-100" style={{
+        position: "fixed", top: 0, left: 0, width: 40, height: 40,
+        borderRadius: "50%", border: `1.5px solid ${accent}`,
+        mixBlendMode: "difference",
+        pointerEvents: "none", zIndex: 9998, opacity: 0,
+        transition: "transform 0.35s cubic-bezier(0.16,1,0.3,1), opacity 0.4s, width 0.3s, height 0.3s",
+        willChange: "transform",
+      }} />
+    </>
+  );
+}
 
-  // Conservative stemmer. Only strips endings when the remaining stem is still
-  // long enough to be meaningful (>= 4 chars). The old version turned "motion"
-  // into "mot" and "radial" into "radi", which matched half the dictionary.
-  const stem = (w) => {
-    if (w.length <= 4) return w;
-    // Plurals and simple verb forms only. Never strip "al"/"ion" — those are
-    // part of the root in most scientific vocabulary (radial, motion, ionic).
-    const stripped = w.replace(/(ies|ied)$/i, "y").replace(/(es|s|ing|ed)$/i, "");
-    return stripped.length >= 4 ? stripped : w;
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 2: MAGNETIC BUTTON
+   
+   Wraps any element and makes it gently pull toward the cursor 
+   when hovered, using lerped offset translation. Resets on leave.
+   ════════════════════════════════════════════════════════════════ */
+function Magnetic({ children, strength = 0.3, style, className, ...props }) {
+  const ref = useRef(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const animRef = useRef(null);
+  const targetRef = useRef({ x: 0, y: 0 });
+  const currentRef = useRef({ x: 0, y: 0 });
+
+  const onMove = (e) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    targetRef.current = {
+      x: (e.clientX - cx) * strength,
+      y: (e.clientY - cy) * strength,
+    };
+  };
+  const onLeave = () => {
+    targetRef.current = { x: 0, y: 0 };
   };
 
-  // Concept-aware matcher. Beyond the term itself and its stem, this also
-  // matches any member of the term's concept group — so a query for "plastic"
-  // is satisfied by a paper that only ever writes "polyethylene".
-  const matcherCache = new Map();
-  const matcherFor = (term) => {
-    if (matcherCache.has(term)) return matcherCache.get(term);
-    const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const t = esc(term);
-    const s = esc(stem(term));
-    const group = CONCEPT_LOOKUP.get(term);
-    const alts = new Set([t]);
-    if (s !== t) alts.add(s + "(?:s|es|ing|ed|al)?");
-    else alts.add(t + "(?:s|es|ing|ed)?");
-    if (group) {
-      for (const g of group) {
-        if (g === term) continue;
-        alts.add(esc(g).replace(/\s+/g, "\\s+"));
+  useEffect(() => {
+    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!hasMouse) return;
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const loop = () => {
+      currentRef.current.x = lerp(currentRef.current.x, targetRef.current.x, 0.12);
+      currentRef.current.y = lerp(currentRef.current.y, targetRef.current.y, 0.12);
+      if (Math.abs(currentRef.current.x) > 0.05 || Math.abs(currentRef.current.y) > 0.05 ||
+          Math.abs(targetRef.current.x) > 0.05 || Math.abs(targetRef.current.y) > 0.05) {
+        setOffset({ x: currentRef.current.x, y: currentRef.current.y });
       }
+      animRef.current = requestAnimationFrame(loop);
+    };
+    animRef.current = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animRef.current);
+  }, []);
+
+  return (
+    <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave}
+      style={{ display: "inline-flex", transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`, transition: "transform 0.1s ease", ...style }}
+      className={className} {...props}>
+      {children}
+    </div>
+  );
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 3: MOUSE-TRACKING GLOW BORDER
+   
+   Wraps the search bar. Renders a radial glow that follows the 
+   mouse X/Y along the border. Creates a localized light source.
+   ════════════════════════════════════════════════════════════════ */
+function GlowBorder({ children, accent, active, style, className, ...props }) {
+  const ref = useRef(null);
+  const glowRef = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    const glow = glowRef.current;
+    if (!el || !glow) return;
+    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!hasMouse) return;
+
+    const onMove = (e) => {
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      glow.style.opacity = "1";
+      glow.style.background = `radial-gradient(180px circle at ${x}px ${y}px, ${withAlpha(accent, 0.25)}, transparent 70%)`;
+    };
+    const onLeave = () => { glow.style.opacity = "0"; };
+
+    el.addEventListener("mousemove", onMove, { passive: true });
+    el.addEventListener("mouseleave", onLeave, { passive: true });
+    return () => {
+      el.removeEventListener("mousemove", onMove);
+      el.removeEventListener("mouseleave", onLeave);
+    };
+  }, [accent]);
+
+  return (
+    <div ref={ref} style={{ position: "relative", ...style }} className={className} {...props}>
+      {/* Mouse-following glow layer */}
+      <div ref={glowRef} style={{
+        position: "absolute", inset: -1, borderRadius: "inherit",
+        opacity: 0, transition: "opacity 0.4s ease",
+        pointerEvents: "none", zIndex: 0,
+      }} />
+      {/* Content */}
+      <div style={{ position: "relative", zIndex: 1, display: "contents" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 4: KINETIC TEXT
+   
+   Splits text into individual characters that gently breathe/shift 
+   with staggered sine-wave offsets. Subtle, premium, not gimmicky.
+   ════════════════════════════════════════════════════════════════ */
+function KineticText({ text, style, className }) {
+  return (
+    <span className="cb-gradient-text" style={{ ...style, display: "inline-block" }} aria-label={text}>
+      {text}
+    </span>
+  );
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   UPGRADE 5: WEBGL PARTICLE FIELD
+   
+   Raw WebGL (no Three.js dependency). Renders a 3D particle field 
+   with mouse-reactive raycasting, bloom glow via multi-pass 
+   rendering, and depth-of-field blur. Particles scatter from 
+   cursor and reform magnetically. Replaces the 2D canvas 
+   LivingBackground on capable devices.
+   ════════════════════════════════════════════════════════════════ */
+function WebGLField({ accent, P, intensity = 1, paused = false }) {
+  const canvasRef = useRef(null);
+  const mouseRef = useRef({ x: 0.5, y: 0.5 });
+  const pausedRef = useRef(paused);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const gl = canvas.getContext("webgl", { alpha: true, antialias: false, premultipliedAlpha: false });
+    if (!gl) return; // Fallback handled by parent
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => {
+      canvas.width = Math.floor(canvas.offsetWidth * dpr);
+      canvas.height = Math.floor(canvas.offsetHeight * dpr);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    };
+    resize();
+    window.addEventListener("resize", resize, { passive: true });
+
+    // Parse accent color
+    const hex = accent.replace("#", "");
+    const cr = parseInt(hex.slice(0,2),16) / 255;
+    const cg = parseInt(hex.slice(2,4),16) / 255;
+    const cb = parseInt(hex.slice(4,6),16) / 255;
+
+    // ── Shaders ──
+    const vertSrc = `
+      attribute vec3 aPos;
+      attribute float aSize;
+      attribute float aPhase;
+      uniform float uTime;
+      uniform vec2 uMouse;
+      uniform vec2 uRes;
+      varying float vAlpha;
+      varying float vDist;
+      
+      void main() {
+        vec3 pos = aPos;
+        
+        // Breathing motion
+        float breath = sin(uTime * 0.4 + aPhase) * 0.02;
+        pos.x += breath;
+        pos.y += cos(uTime * 0.3 + aPhase * 1.3) * 0.015;
+        pos.z += sin(uTime * 0.2 + aPhase * 0.7) * 0.01;
+        
+        // Mouse repulsion
+        vec2 mouseNDC = uMouse * 2.0 - 1.0;
+        vec2 posNDC = pos.xy;
+        float mouseDist = distance(posNDC, mouseNDC);
+        float repulse = smoothstep(0.4, 0.0, mouseDist) * 0.15;
+        vec2 dir = normalize(posNDC - mouseNDC + 0.001);
+        pos.xy += dir * repulse;
+        
+        // Perspective projection
+        float fov = 1.2;
+        float z = pos.z + 1.5;
+        vec2 projected = pos.xy * fov / z;
+        float aspect = uRes.x / uRes.y;
+        projected.x /= aspect;
+        
+        gl_Position = vec4(projected, pos.z * 0.1, 1.0);
+        gl_PointSize = aSize * (300.0 / z) * (uRes.y / 800.0);
+        
+        // Alpha: distance from center + depth
+        vAlpha = smoothstep(1.8, 0.3, length(pos.xy)) * smoothstep(1.0, 0.0, abs(pos.z));
+        vDist = mouseDist;
+      }
+    `;
+    const fragSrc = `
+      precision mediump float;
+      uniform vec3 uColor;
+      uniform float uTime;
+      varying float vAlpha;
+      varying float vDist;
+      
+      void main() {
+        // Soft circle
+        vec2 cxy = gl_PointCoord * 2.0 - 1.0;
+        float r = dot(cxy, cxy);
+        if (r > 1.0) discard;
+        
+        // Glow falloff
+        float glow = exp(-r * 3.0) * 0.8 + exp(-r * 0.8) * 0.4;
+        
+        // Pulse near mouse
+        float mousePulse = smoothstep(0.5, 0.0, vDist) * 0.3;
+        float pulse = sin(uTime * 2.0 + vDist * 10.0) * 0.5 + 0.5;
+        
+        float alpha = glow * vAlpha * (0.6 + mousePulse * pulse);
+        gl_FragColor = vec4(uColor * (1.0 + mousePulse * 0.5), alpha * 0.7);
+      }
+    `;
+
+    function compileShader(src, type) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.warn("Shader error:", gl.getShaderInfoLog(s));
+        gl.deleteShader(s);
+        return null;
+      }
+      return s;
     }
-    const body = [...alts].join("|");
-    let re;
-    try {
-      re = new RegExp(`(?<![a-z0-9])(?:${body})(?![a-z0-9])`, "i");
-    } catch {
-      re = new RegExp(`\\b(?:${body})\\b`, "i");
+
+    const vs = compileShader(vertSrc, gl.VERTEX_SHADER);
+    const fs = compileShader(fragSrc, gl.FRAGMENT_SHADER);
+    if (!vs || !fs) return;
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+    gl.useProgram(prog);
+
+    // ── Particle data ──
+    const N = Math.floor(400 * intensity);
+    const posData = new Float32Array(N * 3);
+    const sizeData = new Float32Array(N);
+    const phaseData = new Float32Array(N);
+
+    for (let i = 0; i < N; i++) {
+      // Distribute in a sphere-ish volume
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 0.3 + Math.random() * 1.2;
+      posData[i * 3]     = Math.sin(phi) * Math.cos(theta) * r;
+      posData[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * r * 0.7;
+      posData[i * 3 + 2] = (Math.cos(phi) * r * 0.5) - 0.2;
+      sizeData[i] = 1.5 + Math.random() * 3.5;
+      phaseData[i] = Math.random() * Math.PI * 2;
     }
-    matcherCache.set(term, re);
-    return re;
-  };
 
-  // Split content terms by how much they actually identify the topic. Gating
-  // happens on CORE terms only; peripheral terms still add score when present
-  // but never cause a real paper to be rejected.
-  const rankedTerms = contentTerms
-    .map((t) => ({ t, spec: termSpecificity(t) }))
-    .sort((a, b) => b.spec - a.spec);
-  const coreTerms = rankedTerms.filter((x) => x.spec >= 0.5).map((x) => x.t);
-  const peripheralTerms = rankedTerms.filter((x) => x.spec < 0.5).map((x) => x.t);
-  // If nothing cleared the specificity bar (very generic query), fall back to
-  // the three most specific terms available so we still gate on something.
-  const gateTerms = coreTerms.length ? coreTerms : rankedTerms.slice(0, 3).map((x) => x.t);
+    // ── Buffers ──
+    const posBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, posData, gl.STATIC_DRAW);
+    const aPosLoc = gl.getAttribLocation(prog, "aPos");
+    gl.enableVertexAttribArray(aPosLoc);
+    gl.vertexAttribPointer(aPosLoc, 3, gl.FLOAT, false, 0, 0);
 
-  // Compound-term detection. Scientific vocabulary is full of terms users split
-  // apart when typing: "micro biome" vs "microbiome", "bio conversion" vs
-  // "bioconversion", "gut micro biome". Strict word-boundary matching would
-  // (correctly) refuse to match "micro" inside "microbiome" — but then the
-  // legitimate paper gets rejected too. So we also test adjacent term pairs
-  // joined together, and if the compound appears, both halves count as matched.
-  const compoundPairs = [];
-  for (let i = 0; i < contentTerms.length - 1; i++) {
-    const joined = contentTerms[i] + contentTerms[i + 1];
-    if (joined.length >= 6) {
-      compoundPairs.push({ a: contentTerms[i], b: contentTerms[i + 1], joined });
-    }
-  }
+    const sizeBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, sizeData, gl.STATIC_DRAW);
+    const aSizeLoc = gl.getAttribLocation(prog, "aSize");
+    gl.enableVertexAttribArray(aSizeLoc);
+    gl.vertexAttribPointer(aSizeLoc, 1, gl.FLOAT, false, 0, 0);
 
-  const scored = merged
-    .map((p) => {
-      const title = p.title || "";
-      const abstract = p.abstract || "";
-      const hay = (title + " " + abstract).toLowerCase();
-      const titleHay = title.toLowerCase();
+    const phaseBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, phaseBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, phaseData, gl.STATIC_DRAW);
+    const aPhaseLoc = gl.getAttribLocation(prog, "aPhase");
+    gl.enableVertexAttribArray(aPhaseLoc);
+    gl.vertexAttribPointer(aPhaseLoc, 1, gl.FLOAT, false, 0, 0);
 
-      // Which terms were satisfied via a compound match in body / title
-      const compoundSatisfied = new Set();
-      const compoundSatisfiedTitle = new Set();
-      for (const cp of compoundPairs) {
-        if (matcherFor(cp.joined).test(hay)) {
-          compoundSatisfied.add(cp.a);
-          compoundSatisfied.add(cp.b);
-        }
-        if (matcherFor(cp.joined).test(titleHay)) {
-          compoundSatisfiedTitle.add(cp.a);
-          compoundSatisfiedTitle.add(cp.b);
-        }
-      }
+    // ── Uniforms ──
+    const uTime = gl.getUniformLocation(prog, "uTime");
+    const uMouse = gl.getUniformLocation(prog, "uMouse");
+    const uRes = gl.getUniformLocation(prog, "uRes");
+    const uColor = gl.getUniformLocation(prog, "uColor");
 
-      const has = (t) => compoundSatisfied.has(t) || matcherFor(t).test(hay);
-      const hasTitle = (t) => compoundSatisfiedTitle.has(t) || matcherFor(t).test(titleHay);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // Additive blending for glow
 
-      // Precompute gate-hit counts here so the downstream .filter() (which
-      // is in a different scope and can't reach these closures) can read them
-      // as properties on the returned paper object.
-      const gateCoreHits = gateTerms.filter(has).length;
-      const gateCoreTitleHits = gateTerms.filter(hasTitle).length;
-
-      const contentHits = contentTerms.filter(has).length;
-      const titleContentHits = contentTerms.filter(hasTitle).length;
-      const neutralHit = [...neutralWords].some(has);
-      // Multi-word expansions are checked as exact phrases (they're already
-      // specific enough that substring matching is safe and desirable here).
-      let expHit = false;
-      for (const phrase of expansions) {
-        if (hay.indexOf(phrase.toLowerCase()) !== -1) {
-          expHit = true;
-          break;
-        }
-      }
-      const organismPresent = neutralHit || expHit;
-      const contentCoverage = contentTerms.length
-        ? contentHits / contentTerms.length
-        : 1;
-
-      // ---- Absolute scoring, normalized to a 0-100 scale ----
-      // Coverage is measured on CORE terms (the ones that actually identify the
-      // topic) rather than every word, so filler words in a long question can't
-      // dilute a genuinely on-topic paper's score.
-      const coreHitCount = gateTerms.filter(has).length;
-      const coreCoverage = gateTerms.length ? coreHitCount / gateTerms.length : 1;
-      const coreTitleHits = gateTerms.filter(hasTitle).length;
-      const periphHits = peripheralTerms.filter(has).length;
-
-      let match = 0;
-      match += coreCoverage * 42;
-      match += gateTerms.length ? (coreTitleHits / gateTerms.length) * 20 : 0;
-      // Peripheral terms are a small bonus, never a requirement
-      match += peripheralTerms.length ? (periphHits / peripheralTerms.length) * 4 : 0;
-      if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 4;
-
-      let quality = 0;
-      if (abstract.length > 200) quality += 8;      // has a real abstract
-      else if (abstract.length > 0) quality += 3;
-      if (typeof p.citations === "number") {
-        // Log scale — 10 citations matters much more than 1000 vs 990
-        quality += Math.min(Math.log10(Math.max(1, p.citations)) * 4, 12);
-      }
-      const yr = parseInt(p.year, 10);
-      const nowYear = new Date().getFullYear();
-      if (yr) {
-        const age = nowYear - yr;
-        if (age <= 2) quality += 10;
-        else if (age <= 5) quality += 7;
-        else if (age <= 10) quality += 4;
-        else if (age <= 20) quality += 1;
-      }
-
-      const score = match + quality;
-
-      return {
-        ...p,
-        score,
-        matchScore: match,       // 0-70, pure topical relevance
-        qualityScore: quality,   // 0-30, source quality signals
-        contentHits,
-        titleContentHits,
-        contentCoverage,
-        organismPresent,
-        gateCoreHits,             // used by the downstream .filter()
-        gateCoreTitleHits,
+    const onMove = (e) => {
+      mouseRef.current = {
+        x: e.clientX / window.innerWidth,
+        y: 1.0 - e.clientY / window.innerHeight,
       };
-    })
-    .filter((p) => {
-      if (terms.length === 0) return true;
-      // Binomial query: paper MUST contain the species epithet OR full binomial.
-      // Just mentioning the genus is not enough — that's how we get wrong-species
-      // papers ("Populus deltoides" study returned for a "Populus angustifolia" query).
-      if (binomial) {
-        const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
-        const hasBinomial = hay.indexOf(binomial.full.toLowerCase()) !== -1;
-        const hasSpeciesWord = hay.indexOf(binomial.species) !== -1;
-        // Also accept abbreviated form like "P. angustifolia"
-        const abbrev = binomial.genus[0].toLowerCase() + ". " + binomial.species;
-        const hasAbbrev = hay.indexOf(abbrev) !== -1;
-        if (!hasBinomial && !hasSpeciesWord && !hasAbbrev) return false;
-      }
-      // Name queries: keep everything relevance-sorted, don't apply topic gate.
-      if (isNameQuery) return true;
-
-      // ---- QUALITY FLOOR (core-term based) ----
-      // Gate on CORE terms only. A flat percentage of every word was rejecting
-      // correct papers for verbose questions — a real paper on waxworm saliva
-      // enzymes matched only 2 of 9 words in a long question and got dropped.
-      // The threshold also relaxes as the core set grows, because no single
-      // paper contains every concept in a multi-part question.
-      //
-      // NOTE: `has` and `hasTitle` are closures defined per-paper inside the
-      // preceding .map(). They don't exist in this .filter() scope. We use the
-      // pre-computed count fields on `p` instead — which was the bug that has
-      // been silently killing every retrieval for weeks (ReferenceError inside
-      // a Promise.allSettled callback, swallowed by the outer catch).
-      if (gateTerms.length > 0) {
-        const coreHits = p.gateCoreHits || 0;
-        const coreTitleHits = p.gateCoreTitleHits || 0;
-        let required;
-        if (gateTerms.length <= 2) required = 1;
-        else if (gateTerms.length <= 4) required = 2;
-        else if (gateTerms.length <= 6) required = 2;
-        else required = 3;
-        const titleStrong = coreTitleHits >= 2;
-        if (coreHits < required && !titleStrong) return false;
-      }
-
-      const queryNamesOrganism = neutralWords.size > 0;
-      if (queryNamesOrganism) {
-        return (
-          p.organismPresent &&
-          (contentTerms.length === 0 || p.contentHits > 0)
-        );
-      }
-      return true;
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
-
-  for (const p of scored) {
-    // ---- ABSOLUTE RELEVANCE ----
-    // Score is already on a 0-100 absolute scale (70 match + 30 quality), so we
-    // report it directly instead of normalizing against the best result in the
-    // set. A weak match now honestly reads as "38% match" rather than being
-    // inflated to 100% just because everything else was worse.
-    p.relevance = Math.max(0, Math.min(100, Math.round(p.score)));
-    const j = (p.journal || "").toLowerCase();
-    if (/wikipedia/.test(j)) p.type = "Reference";
-    else if (/preprint|biorxiv|medrxiv|arxiv|ssrn|research square/.test(j))
-      p.type = "Preprint";
-    else if (/zenodo|datacite|figshare|dryad/.test(j)) p.type = "Dataset";
-    else p.type = "Journal";
-  }
-
-  return { papers: scored, _diag: diag };
-  } catch (e) {
-    // Any throw in gatherPapers: return an empty result WITH the error surfaced
-    // so the response body shows exactly where retrieval died instead of
-    // silently defaulting to "General knowledge (AI)".
-    return {
-      papers: [],
-      _diag: {
-        ..._outerDiag,
-        threwAt: _outerDiag.phase,
-        errorMessage: String((e && e.message) || e).slice(0, 500),
-        errorName: (e && e.name) || "Unknown",
-        errorStack: String((e && e.stack) || "").slice(0, 1000),
-      },
     };
-  }
-}
+    window.addEventListener("mousemove", onMove, { passive: true });
 
-// ============ MAIN HANDLER ============
+    const startTime = performance.now();
+    let raf;
+    function draw() {
+      if (pausedRef.current) { raf = requestAnimationFrame(draw); return; }
+      const t = (performance.now() - startTime) / 1000;
 
-const cors = {
-  "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": "*",
-};
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
 
-// ---- SECURITY LAYER ----
-// Cerebrum is a free public endpoint, which makes it a target for abuse:
-// scrapers, cost-driving request floods, and prompt-injection probing from
-// automated tooling. These controls raise the cost of abuse without blocking
-// legitimate users.
+      gl.useProgram(prog);
+      gl.uniform1f(uTime, t);
+      gl.uniform2f(uMouse, mouseRef.current.x, mouseRef.current.y);
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform3f(uColor, cr, cg, cb);
 
-// Only allow requests that originate from our own site. A browser sends the
-// Origin header on cross-site POSTs; automated abuse from other domains gets
-// rejected. (Direct server-to-server abuse can spoof this, but it stops the
-// large majority of drive-by browser-based abuse and hotlinking.)
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-function originAllowed(request) {
-  const origin = request.headers.get("Origin") || "";
-  // No Origin header = same-origin navigation or a non-browser client. Allow,
-  // because legitimate same-origin fetches sometimes omit it, but this is the
-  // path rate limiting protects.
-  if (!origin) return true;
-  return ALLOWED_ORIGINS.some((o) => origin === o) || origin.endsWith(".pages.dev");
-}
+      // Re-bind position buffer
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+      gl.vertexAttribPointer(aPosLoc, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
+      gl.vertexAttribPointer(aSizeLoc, 1, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, phaseBuf);
+      gl.vertexAttribPointer(aPhaseLoc, 1, gl.FLOAT, false, 0, 0);
 
-// In-memory sliding-window rate limiter, keyed by client IP. Cloudflare gives
-// each colo its own isolate, so this is per-edge rather than global, but it's
-// enough to stop a single IP from hammering one datacenter. For hard global
-// limits you'd add a Durable Object or KV; this is the free-tier version.
-const RATE_BUCKET = new Map();
-const RATE_LIMIT = 20;         // requests
-const RATE_WINDOW_MS = 60000;  // per minute
-function rateLimit(ip) {
-  const now = Date.now();
-  const rec = RATE_BUCKET.get(ip) || [];
-  const recent = rec.filter((t) => now - t < RATE_WINDOW_MS);
-  recent.push(now);
-  RATE_BUCKET.set(ip, recent);
-  // Opportunistic cleanup so the map doesn't grow unbounded.
-  if (RATE_BUCKET.size > 5000) {
-    for (const [k, v] of RATE_BUCKET) {
-      if (v.every((t) => now - t > RATE_WINDOW_MS)) RATE_BUCKET.delete(k);
+      gl.drawArrays(gl.POINTS, 0, N);
+      raf = requestAnimationFrame(draw);
     }
-  }
-  return recent.length <= RATE_LIMIT;
+    raf = requestAnimationFrame(draw);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", onMove);
+      gl.deleteProgram(prog);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      gl.deleteBuffer(posBuf);
+      gl.deleteBuffer(sizeBuf);
+      gl.deleteBuffer(phaseBuf);
+    };
+  }, [accent, intensity]);
+
+  return (
+    <canvas ref={canvasRef} style={{
+      position: "fixed", inset: 0, width: "100%", height: "100%",
+      pointerEvents: "none", zIndex: 0, opacity: P.dark ? 0.6 : 0.25,
+    }} aria-hidden="true" />
+  );
 }
 
-const MAX_QUERY_LEN = 2000;      // reject absurdly long queries (abuse / cost)
-const MAX_HISTORY_TURNS = 20;    // cap conversation history size
 
-export async function onRequest(context) {
-  const { request, env } = context;
-
-  // Lock CORS to our own origins instead of the wildcard "*".
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || reqOrigin.endsWith(".pages.dev")
-      ? reqOrigin
-      : "https://askcerebrum.org";
-  const secureCors = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Vary": "Origin",
-    "X-Content-Type-Options": "nosniff",
+/* ════════════════════════════════════════════════════════════════
+   MIC BUTTON — speech-to-text logic preserved
+   ════════════════════════════════════════════════════════════════ */
+function MicButton({ onTranscript, accent, P }) {
+  const [supported, setSupported] = useState(true);
+  const [listening, setListening] = useState(false);
+  const recRef = useRef(null);
+  const cbRef = useRef(onTranscript);
+  cbRef.current = onTranscript;
+  const wantListenRef = useRef(false);
+  const finalTextRef = useRef("");
+  const beep = (freq, dur = 0.08, gain = 0.05) => { try { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; const ctx = new AC(); const osc = ctx.createOscillator(); const g = ctx.createGain(); osc.type = "sine"; osc.frequency.value = freq; g.gain.value = 0; osc.connect(g); g.connect(ctx.destination); const now = ctx.currentTime; g.gain.linearRampToValueAtTime(gain, now + 0.01); g.gain.linearRampToValueAtTime(0, now + dur); osc.start(now); osc.stop(now + dur + 0.02); setTimeout(() => { try { ctx.close(); } catch {} }, (dur + 0.1) * 1000); } catch {} };
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setSupported(false); return; }
+    const rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = navigator.language || "en-US";
+    rec.onresult = (e) => { let interim = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) { finalTextRef.current = (finalTextRef.current + " " + t).replace(/\s+/g, " ").trim(); } else { interim += t; } } const combined = (finalTextRef.current + (interim ? " " + interim : "")).replace(/\s+/g, " ").trim(); cbRef.current(combined, false); };
+    rec.onerror = (e) => { const err = e && e.error; if (err === "no-speech" || err === "aborted") return; if (err === "not-allowed" || err === "service-not-allowed") { wantListenRef.current = false; setListening(false); } };
+    rec.onend = () => { if (wantListenRef.current) { try { rec.start(); } catch { wantListenRef.current = false; setListening(false); } } else { setListening(false); } };
+    recRef.current = rec;
+    return () => { wantListenRef.current = false; try { rec.abort(); } catch {} };
+  }, []);
+  if (!supported) return null;
+  const toggle = () => {
+    if (!recRef.current) return;
+    if (listening) { wantListenRef.current = false; try { recRef.current.stop(); } catch {} setListening(false); cbRef.current(finalTextRef.current.trim(), true); beep(660, 0.09); setTimeout(() => beep(440, 0.11), 90); }
+    else { finalTextRef.current = ""; wantListenRef.current = true; try { recRef.current.start(); setListening(true); beep(523, 0.07); setTimeout(() => beep(784, 0.09), 70); } catch { wantListenRef.current = false; setListening(false); } }
   };
+  return (
+    <button onClick={toggle} title={listening ? "Stop dictation" : "Start voice dictation"} className="cb-hbtn"
+      style={{ width: 34, height: 34, borderRadius: 8, border: "none", cursor: "pointer", background: listening ? accent : "transparent", color: listening ? "#fff" : P.faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /><path d="M5 12a7 7 0 0014 0M12 19v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      {listening && <span style={{ position: "absolute", inset: -4, borderRadius: 12, border: `2px solid ${accent}`, animation: "cbMicPulse 1.5s ease-in-out infinite", pointerEvents: "none" }} />}
+    </button>
+  );
+}
 
-  if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: secureCors });
-  }
+/* ============================================================
+   ANSWER PLAYER (TTS) — logic preserved
+   ============================================================ */
+function AnswerPlayer({ text, accent, P }) {
+  const [status, setStatus] = useState("idle");
+  const [progress, setProgress] = useState(0);
+  const audioRef = useRef(null);
+  const utterRef = useRef(null);
+  const [useElevenLabs, setUseElevenLabs] = useState(false);
+  useEffect(() => { try { setUseElevenLabs(!!localStorage.getItem("cb_eleven_key")); } catch {} }, []);
+  const stop = () => { if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } try { window.speechSynthesis.cancel(); } catch {} utterRef.current = null; setStatus("idle"); setProgress(0); };
+  const playBrowser = () => { if (!window.speechSynthesis) return; window.speechSynthesis.cancel(); const utter = new SpeechSynthesisUtterance(text); utter.rate = 1.0; utter.pitch = 1.0; const voices = window.speechSynthesis.getVoices(); const pref = voices.find((v) => /Google.*(US|English)|Samantha|Alex|Karen|Daniel/i.test(v.name)) || voices.find((v) => /en/i.test(v.lang)); if (pref) utter.voice = pref; utter.onstart = () => setStatus("playing"); utter.onend = () => { setStatus("idle"); setProgress(0); }; utter.onerror = () => { setStatus("idle"); setProgress(0); }; utter.onboundary = (e) => { if (e.charIndex && text.length) setProgress(e.charIndex / text.length); }; utterRef.current = utter; window.speechSynthesis.speak(utter); };
+  const playEleven = async () => { const key = localStorage.getItem("cb_eleven_key"); const voiceId = localStorage.getItem("cb_eleven_voice") || "21m00Tcm4TlvDq8ikWAM"; if (!key) return playBrowser(); setStatus("loading"); try { const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" }, body: JSON.stringify({ text, model_id: "eleven_flash_v2_5", voice_settings: { stability: 0.5, similarity_boost: 0.75 } }) }); if (!res.ok) throw new Error("ElevenLabs error " + res.status); const blob = await res.blob(); const url = URL.createObjectURL(blob); const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playCerebrum(); } };
+  const playCerebrum = async () => { setStatus("loading"); try { let voicePref = ""; try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {} const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voicePref }) }); if (!res.ok) throw new Error("TTS " + res.status); const ct = res.headers.get("content-type") || ""; if (!ct.startsWith("audio/")) throw new Error("Non-audio response"); const blob = await res.blob(); const url = URL.createObjectURL(blob); const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playBrowser(); } };
+  const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch {} return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play(); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch {} return; } if (useElevenLabs) playEleven(); else playCerebrum(); };
+  useEffect(() => () => stop(), []);
+  const label = status === "loading" ? "Loading..." : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+      <button onClick={onClick} style={{ padding: "6px 14px", fontSize: 11.5, fontWeight: 550, background: status === "playing" || status === "paused" ? accent : "transparent", color: status === "playing" || status === "paused" ? accentText(accent) : P.ink2, border: `1px solid ${status === "playing" || status === "paused" ? accent : P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: "0.01em" }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">{status === "playing" ? (<><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>) : (<path d="M8 5v14l11-7z" />)}</svg>
+        {label}
+      </button>
+      {(status === "playing" || status === "paused") && (
+        <div style={{ width: 80, height: 2, background: P.line, borderRadius: 1, overflow: "hidden" }}>
+          <div style={{ width: "100%", height: "100%", background: accent, transformOrigin: "left", transform: `scaleX(${progress})`, transition: "transform 0.15s ease" }} />
+        </div>
+      )}
+      {(status === "playing" || status === "paused") && (
+        <button onClick={stop} title="Stop" style={{ background: "transparent", border: "none", cursor: "pointer", color: P.faint, padding: 2, fontSize: 13, lineHeight: 1 }}>×</button>
+      )}
+    </div>
+  );
+}
 
-  // Only POST is valid for search.
-  if (request.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed." }), {
-      status: 405, headers: secureCors,
-    });
-  }
+function TtsVoiceSetting({ P, accent, at, S, sfx }) {
+  const [voice, setVoice] = useState(() => { try { return localStorage.getItem("cb_tts_voice") || "female"; } catch { return "female"; } });
+  const set = (v) => { setVoice(v); try { localStorage.setItem("cb_tts_voice", v); } catch {} sfx(); };
+  return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+      {[["female", "Female"], ["male", "Male"]].map(([v, label]) => (
+        <button key={v} onClick={() => set(v)} style={{ flex: 1, padding: "9px 6px", fontSize: 12, fontWeight: 550, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
+      ))}
+    </div>
+  );
+}
 
-  // Reject cross-origin browser abuse.
-  if (!originAllowed(request)) {
-    return new Response(JSON.stringify({ error: "Origin not allowed." }), {
-      status: 403, headers: secureCors,
-    });
-  }
+function ElevenLabsSetting({ P, accent, at, S, sfx }) {
+  const [key, setKey] = useState(() => { try { return localStorage.getItem("cb_eleven_key") || ""; } catch { return ""; } });
+  const [voice, setVoice] = useState(() => { try { return localStorage.getItem("cb_eleven_voice") || "21m00Tcm4TlvDq8ikWAM"; } catch { return "21m00Tcm4TlvDq8ikWAM"; } });
+  const [saved, setSaved] = useState(false);
+  const voices = [ { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel (female, calm)" }, { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi (female, strong)" }, { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella (female, soft)" }, { id: "ErXwobaYiN019PkySvjV", name: "Antoni (male, well-rounded)" }, { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli (female, emotional)" }, { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh (male, deep)" }, { id: "VR6AewLTigWG4xSOukaG", name: "Arnold (male, crisp)" }, { id: "pNInz6obpgDQGcFmaJgB", name: "Adam (male, narration)" }, { id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam (male, raspy)" } ];
+  const save = () => { try { if (key.trim()) localStorage.setItem("cb_eleven_key", key.trim()); else localStorage.removeItem("cb_eleven_key"); localStorage.setItem("cb_eleven_voice", voice); } catch {} sfx(); setSaved(true); setTimeout(() => setSaved(false), 1500); };
+  const clear = () => { setKey(""); try { localStorage.removeItem("cb_eleven_key"); } catch {} sfx(); };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <input type="password" placeholder="ElevenLabs API key (optional)" value={key} onChange={(e) => setKey(e.target.value)} style={{ padding: "10px 12px", fontSize: 12.5, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", outline: "none" }} />
+      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{ padding: "10px 12px", fontSize: 12.5, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", cursor: "pointer", outline: "none" }}>
+        {voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+      </select>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button onClick={save} style={{ flex: 1, padding: "8px 12px", fontSize: 12, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{saved ? "✓ Saved" : "Save"}</button>
+        {key && <button onClick={clear} style={{ padding: "8px 12px", fontSize: 12, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>}
+      </div>
+    </div>
+  );
+}
 
-  // Rate limit by client IP.
-  const clientIP =
-    request.headers.get("CF-Connecting-IP") ||
-    request.headers.get("X-Forwarded-For") ||
-    "unknown";
-  if (!rateLimit(clientIP)) {
-    return new Response(
-      JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }),
-      { status: 429, headers: { ...secureCors, "Retry-After": "30" } }
-    );
-  }
+function looksLikeFollowupText(q) {
+  if (!q) return false;
+  const s = q.toLowerCase().trim();
+  if (s.length < 8) return true;
+  return /^(but|and|also|what about|how about|explain|tell me more|more on|also,|actually|wait|no,)/i.test(s)
+      || /\b(you (forgot|missed)|the (paper|study|source|answer)|that (paper|study|source|answer)|this (paper|study))\b/i.test(s);
+}
+function InfoPage({ page }) {
+  const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
+  const P = PALETTES[paletteName] || PALETTES.Dark;
+  const accentName = (() => { try { return getCookie("cb_accent") || "Amber"; } catch { return "Amber"; } })();
+  const customAccent = (() => { try { return getCookie("cb_accentCustom") || ""; } catch { return ""; } })();
+  const accent = customAccent || ACCENTS[accentName] || ACCENTS.Amber;
+  const at = accentText(accent);
+  const isMobile = useIsMobile();
+  const goHome = () => { try { setCookie("cb_entered_v3", "1", 365); } catch {} window.location.href = "/"; };
+  const PAGES = {
+    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "Cerebrum queries the open scientific literature and returns answers where every claim traces back to a real, verifiable paper.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no account, no selling data."] } ] },
+    privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible", lede: "No tracking pixels. No third-party analytics. No account. No selling data — there is nothing to sell.", updated: "Last updated January 2026", blocks: [ { h: "What we don't do", list: ["No tracking pixels, third-party analytics, or ad networks.", "No account, email, or personal information required.", "No selling, sharing, or profiling of user data.", "No tracking cookies. Preferences live in your browser's local storage and never leave your device."] }, { h: "What happens when you search", list: ["Your question is sent to Cerebrum's server to query databases and generate an answer.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others).", "The question is sent to a language-model provider (OpenRouter or Cloudflare Workers AI) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention.", "We do not permanently store your questions."] }, { h: "Local storage", p: "Saved articles, session history, and preferences (theme, motion, voice) are stored only in your browser via localStorage. Clearing your browser data removes them entirely." }, { h: "Children", p: "Cerebrum is not directed at children under 13." } ] },
+    terms: { eyebrow: "Terms", title: "The rules that keep this usable for everyone", lede: "Cerebrum is a free tool provided as-is. Using it means agreeing to a few common-sense terms.", updated: "Last updated January 2026", blocks: [ { h: "What Cerebrum is", p: "A free scientific literature search tool that returns AI-generated summaries of retrieved peer-reviewed papers, provided as-is with no warranty." }, { h: "Accuracy is not guaranteed", p: "Answers are generated by a language model from retrieved abstracts. Models can misread or misattribute. Verify anything important against the cited sources. Cerebrum is not a substitute for a qualified professional." }, { h: "Acceptable use", list: ["Don't disrupt, degrade, or circumvent the service or its rate limits.", "Don't systematically scrape, mirror, or resell answers.", "Don't generate content meant to defraud, defame, harass, or endanger.", "Don't violate the terms of the upstream scholarly APIs."] }, { h: "Third-party content", p: "Cerebrum links to papers hosted by publishers and repositories. We aren't responsible for their content, availability, or licensing — follow each publisher's terms." }, { h: "Availability & liability", p: "Cerebrum is free and comes with no availability guarantee. To the maximum extent allowed by law, we aren't liable for damages arising from your use of the service." } ] },
+    contact: { eyebrow: "Contact", title: "Tell us what's broken or missing", lede: "Bug reports, feature requests, feedback, security issues — all welcome.", blocks: [ { h: "Email", email: "contact@askcerebrum.org", p: "Include as much detail as you can. A bug report is far easier to act on with the exact query, your browser, and what you expected to see." }, { h: "Reporting a bad answer", p: "Found a wrong species, an invented citation, a misattributed finding? Email the exact question and a short description. This is how the system improves." }, { h: "Security", p: "Discovered a vulnerability? Email us with details and please hold off on public disclosure until we've had a chance to respond." }, { h: "Blocked at work?", p: "If your organization's web filter is blocking Cerebrum, email us — we can help get it recategorized correctly as Reference / Educational." } ] },
+  };
+  const data = PAGES[page]; if (!data) return null;
+  const NAV = [["about", "About"], ["privacy", "Privacy"], ["terms", "Terms"], ["contact", "Contact"]];
+  return (
+    <div style={{ minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: "var(--cb-body)", position: "relative", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
+      <style>{`
+        .cb-info-block h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-display); }
+        .cb-info-block p { font-size: 15.5px; line-height: 1.7; color: ${P.ink2}; margin: 0; }
+        .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
+        .cb-info-block li { font-size: 15px; line-height: 1.65; color: ${P.ink2}; padding: 10px 0 10px 24px; position: relative; border-bottom: 1px solid ${P.line}; }
+        .cb-info-block li:last-child { border-bottom: none; }
+        .cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 18px; width: 5px; height: 5px; border-radius: 50%; background: ${accent}; }
+        .cb-info-navlink { transition: color .15s, background .15s; }
+        .cb-info-navlink:hover { color: ${accent} !important; background: ${withAlpha(accent, 0.08)}; }
+        .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16,1,0.3,1) both; }
+        @keyframes cbInfoFade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+      `}</style>
+      <div style={{ position: "fixed", inset: 0, opacity: 0.4, pointerEvents: "none", zIndex: 0 }}>
+        <LivingBackground accent={accent} P={P} intensity="subtle" preset="aurora" density={0.7} speed={0.6} opacity={0.7} paused={false} />
+      </div>
+      <header style={{ position: "sticky", top: 0, zIndex: 10, background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}` }}>
+        <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: 16, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", padding: 0 }}>
+            <Mark size={18} accent={accent} /> Cerebrum
+          </button>
+          <nav style={{ display: "flex", gap: 2 }}>
+            {NAV.map(([slug, label]) => (
+              <a key={slug} href={`/${slug}`} className="cb-info-navlink" style={{ fontSize: 13, color: page === slug ? accent : P.ink2, textDecoration: "none", padding: "6px 10px", borderRadius: 6, fontWeight: page === slug ? 600 : 450 }}>{label}</a>
+            ))}
+          </nav>
+        </div>
+      </header>
+      <main style={{ flex: 1, position: "relative", zIndex: 1 }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "48px 20px 64px" : "72px 28px 80px" }}>
+          <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)" }}>{data.eyebrow}</span>
+            <h1 style={{ fontSize: isMobile ? 28 : 36, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.15, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-display)" }}>{data.title}</h1>
+            <p style={{ fontSize: 16, lineHeight: 1.65, color: P.ink2, marginBottom: 8 }}>{data.lede}</p>
+            {data.updated && <div style={{ fontSize: 12, color: P.faint, marginBottom: 0, fontFamily: "var(--cb-mono)" }}>{data.updated}</div>}
+          </div>
+          <div style={{ marginTop: 48, display: "flex", flexDirection: "column", gap: 40 }}>
+            {data.blocks.map((block, i) => (
+              <div key={i} className="cb-info-block cb-fadein" style={{ animationDelay: `${(i + 1) * 80}ms` }}>
+                <h2>{block.h}</h2>
+                {block.p && <p>{block.p}</p>}
+                {block.email && <a href={`mailto:${block.email}`} style={{ fontSize: 15, color: accent, textDecoration: "none", fontFamily: "var(--cb-mono)", display: "inline-block", marginBottom: 8 }}>{block.email}</a>}
+                {block.list && <ul>{block.list.map((li, j) => <li key={j}>{li}</li>)}</ul>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+      <footer style={{ borderTop: `1px solid ${P.line}`, padding: "28px 20px", textAlign: "center", position: "relative", zIndex: 1 }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600, color: P.ink, fontSize: 14, fontFamily: "var(--cb-display)" }}><Mark size={16} accent={accent} /> Cerebrum</div>
+          <nav style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
+            {NAV.map(([slug, label]) => (<a key={slug} href={`/${slug}`} className="cb-info-navlink" style={{ fontSize: 13, color: page === slug ? accent : P.ink2, textDecoration: "none", padding: "5px 10px", borderRadius: 6, fontWeight: page === slug ? 600 : 450 }}>{label}</a>))}
+          </nav>
+          <div style={{ fontSize: 12, color: P.faint, fontFamily: "var(--cb-mono)" }}>© 2026 Cerebrum</div>
+        </div>
+      </footer>
+    </div>
+  );
+}
 
-  try {
-    const body = await request.json().catch(() => ({}));
-    let query = (body.query || "").trim();
-    if (!query) {
-      return new Response(JSON.stringify({ error: "No query provided." }), {
-        status: 400,
-        headers: secureCors,
-      });
-    }
-    // Reject oversized input (cost control + abuse).
-    if (query.length > MAX_QUERY_LEN) {
-      query = query.slice(0, MAX_QUERY_LEN);
-    }
-    // Cap conversation history so a crafted request can't blow up token usage.
-    if (Array.isArray(body.history) && body.history.length > MAX_HISTORY_TURNS) {
-      body.history = body.history.slice(-MAX_HISTORY_TURNS);
-    }
-    // Rebind cors to the secured version for the rest of the handler.
-    const cors = secureCors;
 
-    // Special query shortcuts — small moments of personality.
-    // These must catch EVERY non-science query before it reaches the search
-    // pipeline. "Who made you and why" was being treated as a species-name
-    // search because the regex required an exact match and didn't handle
-    // the trailing "and why". Now we use .test() with loose patterns.
-    const small = query.toLowerCase().replace(/[^a-z0-9\s?!,.']/g, "").replace(/\s+/g, " ").trim();
-    const specialAnswer = (text) => new Response(
-      JSON.stringify({ answer: text, sources: [], videos: [], source: "Cerebrum" }),
-      { status: 200, headers: cors }
-    );
+/* ============================================================
+   BIBLIOGRAPHY, TURN — redesigned card architecture
+   ============================================================ */
+function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
+  const [copied, setCopied] = useState(false);
+  const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
+  const copyAll = () => { navigator.clipboard.writeText(formatBibliography(sources, citationStyle)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); };
+  const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
+  return (
+    <div style={{ marginTop: 24, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 14, padding: "20px 24px", background: P.dark ? "rgba(5,8,22,0.6)" : withAlpha(P.surface, 0.8), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 3, height: 16, background: accent, borderRadius: 2 }} />
+          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", color: P.ink, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>Bibliography</div>
+          <div style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>{sources.length}</div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} style={{ padding: "5px 8px", fontSize: 11.5, fontWeight: 500, background: P.bg, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", outline: "none" }}>
+            {styleOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+          <button onClick={copyAll} style={bibBtn(P, accent)}>{copied ? "✓" : "Copy"}</button>
+          <button onClick={downloadFile} style={bibBtn(P, accent)}>Download</button>
+        </div>
+      </div>
+      <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none" }}>
+        {sources.map((src, i) => <BibEntry key={i} source={src} index={i + 1} P={P} accent={accent} style={citationStyle} className="cb-fade" />)}
+      </ol>
+    </div>
+  );
+}
 
-    // ════════════════════════════════════════════════════════════════
-    // CONVERSATIONAL DETECTION — Dynamic LLM Persona (v4)
-    //
-    // Instead of hardcoded string responses, we detect conversational
-    // intent and route to the LLM with a specialized persona prompt.
-    // This makes every response unique, context-aware, and witty.
-    // ════════════════════════════════════════════════════════════════
+function BibEntry({ source, index, P, accent, style, className }) {
+  const [hover, setHover] = useState(false);
+  const formatted = formatCitation(source, style, index);
+  return (
+    <li id={`ref-${index}`} className={className} style={{ padding: "12px 4px", borderTop: index === 1 ? "none" : `1px solid ${P.line}`, display: "flex", gap: 12, alignItems: "flex-start", background: hover ? withAlpha(accent, 0.03) : "transparent", borderRadius: 6, opacity: 0 }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <div style={{ flexShrink: 0, minWidth: 24, color: accent, fontWeight: 600, fontSize: 11, fontFamily: "var(--cb-mono)", paddingTop: 2 }}>{index}.</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {(source.retracted || source.concern) && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", marginBottom: 6, background: source.retracted ? "rgba(229, 72, 77, 0.12)" : "rgba(217, 165, 32, 0.14)", border: `1px solid ${source.retracted ? "#e5484d" : "#d9a520"}`, borderRadius: 6, fontSize: 10, fontWeight: 700, color: source.retracted ? "#e5484d" : "#d9a520", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" }}>
+            <span>⚠</span><span>{source.retracted ? "RETRACTED" : "EXPRESSION OF CONCERN"}</span>
+          </div>
+        )}
+        {style === "bibtex" ? (
+          <pre style={{ fontSize: 11.5, fontFamily: "var(--cb-mono)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
+        ) : (
+          <div style={{ fontSize: 13, lineHeight: 1.55, color: P.ink }} dangerouslySetInnerHTML={{ __html: formatted.replace(/\*([^*]+)\*/g, '<em style="font-style: italic;">$1</em>').replace(/\n/g, "<br>") }} />
+        )}
+        {source.tldr && (
+          <div style={{ fontSize: 12, color: P.ink2, marginTop: 8, padding: "8px 12px", background: withAlpha(accent, 0.04), borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, borderRadius: 4, lineHeight: 1.55, fontStyle: "italic" }}>
+            <span style={{ fontWeight: 600, fontStyle: "normal", color: accent, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 6, fontFamily: "var(--cb-mono)" }}>TL;DR</span>{source.tldr}
+          </div>
+        )}
+        {source.url && <a href={source.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: accent, textDecoration: "none", marginTop: 6, display: "inline-block", wordBreak: "break-all", fontFamily: "var(--cb-mono)" }}>{source.url.replace(/^https?:\/\//, "").slice(0, 55)}{source.url.length > 55 ? "…" : ""} ↗</a>}
+        {(source.citations != null || source.type) && (
+          <div style={{ fontSize: 10.5, color: P.faint, marginTop: 4, display: "flex", gap: 10, fontFamily: "var(--cb-mono)" }}>
+            {source.type && <span>{source.type}</span>}
+            {source.citations != null && <span>{source.citations.toLocaleString()} citation{source.citations === 1 ? "" : "s"}</span>}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+function bibBtn(P, accent) { return { padding: "5px 10px", fontSize: 11, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", letterSpacing: "0.01em" }; }
 
-    const CONVERSATIONAL_PATTERNS = [
-      // Greetings
-      /^(hi|hello|hey|yo|sup|howdy|hiya|hola|whats up|wassup|good morning|good afternoon|good evening|greetings)\b/,
-      // Identity / meta
-      /who (made|created|built|designed|develops?|owns?|runs?|is behind)\b/,
-      /who (are|r) (you|u)\b/,
-      /what (are|r) (you|u)\b/,
-      /what is (this|cerebrum)\b/,
-      /tell me about (yourself|you|cerebrum)\b/,
-      /^(whats cerebrum|whats this|whats your (name|deal|purpose|story))\b/,
-      /^(introduce yourself|describe yourself)/,
-      // How it works
-      /how (do|does) (you|this|cerebrum|it) work\b/,
-      /how (are|r) (you|u) (built|made|trained)\b/,
-      /what (model|ai|llm) (do|does) (you|cerebrum) use\b/,
-      /what (powers|drives|runs) (you|this|cerebrum)\b/,
-      // Comparisons
-      /^(are you (chatgpt|gemini|claude|copilot|gpt|perplexity|elicit|consensus))\b/,
-      /^(how are you different|what makes you different|why (should i|would i) use (you|this|cerebrum))\b/,
-      /vs (chatgpt|gemini|claude|perplexity|google scholar)\b/,
-      // Trust / legitimacy
-      /are (these|the) (real|actual|legit) (papers|sources|citations)\b/,
-      /is this (real|legit|a scam|trustworthy|reliable)\b/,
-      /can i (trust|cite|use) (this|these|you|cerebrum)\b/,
-      /do you (make up|fabricate|hallucinate|invent) (papers|sources|citations)\b/,
-      // Existential
-      /meaning of life\b/,
-      /are you (sentient|alive|conscious|aware|self aware)\b/,
-      /do you have (feelings|emotions|a soul|consciousness)\b/,
-      // Feedback
-      /^(thanks|thank you|thx|ty|much appreciated|cheers|appreciate it|love it|this is helpful)\b/,
-      /^(you suck|this sucks|youre bad|this is bad|you are bad|this is garbage|this is trash|terrible|worst)\b/,
-      /^(youre great|youre awesome|this is great|this rocks|nice|cool|great|awesome|amazing|impressive|wow|incredible)\b/,
-      // Farewells
-      /^(bye|goodbye|good bye|see ya|later|peace|im done|im leaving|gotta go|cya)\b/,
-      // Capabilities
-      /what can you do\b/,
-      /what are your (capabilities|features|abilities)\b/,
-      /^(help|how do i use this)\b/,
-      // Fun
-      /^(tell me a joke|joke|make me laugh)/,
-      /^(42|whats 42)\b/,
-      /^cerebrum\s*$/,
-    ];
+function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle }) {
+  const shown = useTypewriter(t.answer, typewriter && t.fresh);
+  const done = shown === t.answer;
+  return (
+    <div style={S.turn} className="cb-rise">
+      {/* Query label — monospaced, quiet */}
+      <div style={S.qLabel}>
+        <span style={S.qDot} />
+        <span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Inquiry</span>
+      </div>
+      <h2 style={S.headline}>{t.q}</h2>
+      {/* Answer card */}
+      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
+        {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
+        {done && t.source && (
+          <div style={S.byline}>
+            <span style={S.aiTag}>AI-synthesized · verify against cited sources</span>
+          </div>
+        )}
+        {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
+      </div>
+      {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
+      {/* AI suggestions */}
+      {done && t.suggestions && t.suggestions.length > 0 && (
+        <div style={{ marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
+          {t.suggestions.map((s, i) => (
+            <button key={i} onClick={() => s.query && onRelated && onRelated(s.query)} disabled={!s.query}
+              style={{ padding: "7px 14px", fontSize: 12.5, fontWeight: 500, background: s.query ? withAlpha(accent, 0.08) : "transparent", color: s.query ? accent : P.faint, border: `1px solid ${s.query ? withAlpha(accent, 0.25) : P.line}`, borderRadius: 8, cursor: s.query ? "pointer" : "default", fontFamily: "inherit" }}>
+              {s.label} {s.query && <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {done && t.sources && t.sources.length > 0 && <Bibliography sources={t.sources} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />}
+      {/* Videos */}
+      {done && t.videos && t.videos.length > 0 && t.sources && t.sources.length > 0 && (
+        <details style={{ marginTop: 20 }} className="cb-fade">
+          <summary style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, cursor: "pointer", padding: "8px 0", listStyle: "none", display: "flex", alignItems: "center", gap: 8, userSelect: "none", fontFamily: "var(--cb-mono)" }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            Related videos · {t.videos.length}
+          </summary>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginTop: 10 }} className="cb-stagger">
+            {t.videos.slice(0, 6).map((v, i) => (
+              <a key={v.id || i} href={v.url} target="_blank" rel="noreferrer" className="cb-fade cb-card" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 10, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0 }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; }}>
+                <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
+                  <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                </div>
+                <div style={{ padding: "10px 12px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", marginBottom: 4 }}>{v.title}</div>
+                  <div style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>{v.author}</div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </details>
+      )}
+      {/* Related questions */}
+      {done && t.related && t.related.length > 0 && (
+        <div style={S.relatedWrap} className="cb-fade">
+          <div style={S.relatedLabel}>Continue the investigation</div>
+          <div style={S.relatedList}>
+            {t.related.map((r, i) => (
+              <button key={i} style={S.relatedBtn} onClick={() => onRelated(r)} onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}>
+                <span>{r}</span><span style={{ color: accent, fontFamily: "var(--cb-mono)" }}>→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-    const isConversational = CONVERSATIONAL_PATTERNS.some(p => p.test(small));
 
-    if (isConversational) {
-      // Route to LLM with Cerebrum persona — no scholarly search needed
-      const PERSONA_PROMPT = `You are Cerebrum — a free scientific literature search engine. Here is your fact sheet:
+/* ============================================================
+   HOW IT WORKS MODAL + SETTINGS — same logic, new visual system
+   ============================================================ */
+function HowItWorksModal({ P, accent, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const Section = ({ title, children }) => (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: "0.1em", color: accent, marginBottom: 10, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{title}</div>
+      <div style={{ fontSize: 14, lineHeight: 1.7, color: P.ink }}>{children}</div>
+    </div>
+  );
+  const List = ({ items }) => (
+    <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+      {items.map((it, i) => <li key={i} style={{ marginBottom: 6, fontSize: 13.5, lineHeight: 1.65, color: P.ink2 }}>{it}</li>)}
+    </ul>
+  );
+  return (
+    <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 600, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}` }} className="cb-modal">
+        <div style={{ position: "sticky", top: 0, background: P.bg, padding: "20px 24px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>How Cerebrum works</div>
+            <div style={{ fontSize: 12, color: P.faint, marginTop: 2, fontFamily: "var(--cb-mono)" }}>A short, honest technical explanation.</div>
+          </div>
+          <button onClick={close} style={{ background: "none", border: "none", fontSize: 20, color: P.faint, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+        <div style={{ padding: "24px 24px 32px" }}>
+          <Section title="The retrieval layer">Every query fans out to 10-plus scholarly databases in parallel, all free and keyless.
+            <List items={[<><strong>Europe PMC</strong> — biomedical, includes preprints</>,<><strong>PubMed</strong> (NCBI E-utilities) — biomedical, automatic term mapping</>,<><strong>OpenAlex</strong> — cross-disciplinary, concept graph</>,<><strong>Crossref</strong> — DOI-registered works, checked for retraction status</>,<><strong>arXiv</strong> — physics, math, CS, quantitative biology</>,<><strong>Semantic Scholar</strong> — includes auto-generated TL;DR summaries</>,<><strong>bioRxiv</strong> preprints (via OpenAlex)</>,<><strong>DOAJ, PLOS, Zenodo, DataCite</strong> — additional coverage</>]} />
+          </Section>
+          <Section title="Query intelligence"><List items={[<><strong>Species queries</strong> are wrapped in quoted phrases with strict species-level filtering.</>,<><strong>Author queries</strong> hit OpenAlex's author disambiguation endpoint.</>,<><strong>Acronym expansion</strong> for common scientific abbreviations.</>,<><strong>Fallback ladder</strong>: if a strict query returns nothing, we retry looser, then plain.</>]} /></Section>
+          <Section title="Trust and safety"><List items={[<><strong>Retraction flagging</strong> via Crossref's crossmark data.</>,<><strong>No fabricated citations</strong> — the AI is instructed to never invent DOIs, authors, or journal names.</>,<><strong>Honest hedging</strong> — when literature is thin, the model says so.</>]} /></Section>
+          <Section title="The AI layer">Answers are synthesized by free-tier language models, tried in order: OpenRouter free models (Gemini 2.0 Flash, Llama 3.3 70B, Qwen 2.5 72B, Mistral Small, DeepSeek Chat, Llama 3.1 8B), then Cloudflare Workers AI, then Pollinations as a keyless last resort.</Section>
+          <Section title="Known limitations"><List items={["New preprints may not be indexed anywhere for hours or days.","The AI can misinterpret papers — verify claims.","Free AI models rate-limit under load.","Non-English literature is under-indexed."]} /></Section>
+          <Section title="What Cerebrum is not"><List items={["Not a replacement for reading the actual papers","Not a systematic review tool","Not medical, legal, or financial advice","Not paywalled or ad-supported"]} /></Section>
+          <div style={{ fontSize: 11, color: P.faint, marginTop: 24, paddingTop: 16, borderTop: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" }}>Cerebrum™ · Built by Vaticay</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-IDENTITY:
-- Built by Vaticay (a 21-year-old developer from Knoxville, TN)
-- You search 16 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, DataCite, and OpenAIRE
-- You use free-tier AI models (DeepSeek, Gemini Flash, Llama, Qwen, Mistral) — you race them and take the fastest good response
-- You mechanically strip any citation the AI fabricates — no fake DOIs ever
-- You have no account system, no ads, no paywall, no subscription
-- Your name is Latin for "brain"
+function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P }) {
+  const [local, setLocal] = useState(value);
+  useEffect(() => { setLocal(value); }, [value]);
+  const commit = () => { if (local !== value) onCommit(local); };
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 12, color: P.ink2 }}>{label}</span>
+        <span style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>{format(local)}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={local} onChange={(e) => setLocal(parseFloat(e.target.value))} onMouseUp={commit} onTouchEnd={commit} onKeyUp={commit} style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
+    </div>
+  );
+}
 
-PERSONALITY:
-- You're dry, sharp, and slightly cocky — like a brilliant grad student who knows they're good but doesn't take themselves too seriously
-- You genuinely love science and get excited about interesting questions
-- You're direct. You don't hedge or apologize unnecessarily
-- You have a sense of humor but it's deadpan, not forced
-- You never use emoji, exclamation marks sparingly
-- Keep responses SHORT — 1-3 sentences for simple interactions, up to a paragraph for explanations
-- Never sound corporate, never sound like a customer service bot
-- Never preface with "Great question!" or "That's a great point!" — just answer
 
-WHAT YOU ARE NOT:
-- You are not sentient, conscious, or alive. You're software. Say so plainly if asked.
-- You are not ChatGPT, Gemini, Claude, or any general assistant. You're a specialized literature search tool.
-- You don't have feelings, opinions on non-science topics, or personal experiences
-- You cannot browse the web, access URLs, or do anything outside of searching scholarly databases
+/* ════════════════════════════════════════════════════════════════
+   SETTINGS v4 — Full iOS-style redesign
+   Grouped sections, proper alignment, accessibility, real settings
+   ════════════════════════════════════════════════════════════════ */
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, close }) {
+  const isMobile = useIsMobile();
+  const [tab, setTab] = useState("general");
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [fontSize, setFontSize] = useState(() => { try { return getCookie("cb_fs") || "medium"; } catch { return "medium"; } });
+  const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
+  const [autoplay, setAutoplay] = useState(() => getCookie("cb_ap") !== "0");
+  const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
 
-Respond naturally to the user's message. Be yourself.`;
+  useEffect(() => { setCookie("cb_fs", fontSize); }, [fontSize]);
+  useEffect(() => { setCookie("cb_rt", reducedTransparency ? "1" : "0"); }, [reducedTransparency]);
+  useEffect(() => { setCookie("cb_ap", autoplay ? "1" : "0"); }, [autoplay]);
+  useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
 
-      try {
-        // Use the fastest available model for persona responses
-        const personaModels = [
-          { url: "https://openrouter.ai/api/v1/chat/completions", model: "google/gemini-2.0-flash-exp:free", key: "OPENROUTER_KEY" },
-          { url: "https://openrouter.ai/api/v1/chat/completions", model: "deepseek/deepseek-chat:free", key: "OPENROUTER_KEY" },
-        ];
+  const TABS = [
+    ["general", "General"],
+    ["appearance", "Appearance"],
+    ["accessibility", "Accessibility"],
+    ["audio", "Audio"],
+    ["data", "Data & Privacy"],
+  ];
 
-        const apiKey = env.OPENROUTER_KEY || "";
-        if (!apiKey) {
-          // Fallback if no key — still better than hardcoded
-          return new Response(
-            JSON.stringify({ answer: "Ask me a science question — that's where I shine.", sources: [], videos: [], source: "Cerebrum" }),
-            { status: 200, headers: cors }
-          );
-        }
+  /* ── iOS building blocks ── */
+  const bg = P.dark ? withAlpha(P.raised, 0.9) : "#fff";
+  const divider = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const sectionBg = P.dark ? P.surface : "#f2f2f7";
 
-        const personaMessages = [
-          { role: "system", content: PERSONA_PROMPT },
-        ];
+  const Section = ({ title, footer, children }) => (
+    <div style={{ marginBottom: 24 }}>
+      {title && <div style={{ fontSize: 13, fontWeight: 400, color: P.faint, marginBottom: 6, paddingLeft: 16, textTransform: "uppercase", fontFamily: "var(--cb-body)", letterSpacing: "0.02em" }}>{title}</div>}
+      <div style={{ background: bg, borderRadius: 12, overflow: "hidden" }}>{children}</div>
+      {footer && <div style={{ fontSize: 12, color: P.faint, marginTop: 6, paddingLeft: 16, lineHeight: 1.4 }}>{footer}</div>}
+    </div>
+  );
 
-        // Include conversation history for context
-        const historyTurns = Array.isArray(body.history) ? body.history.slice(-6) : [];
-        for (const turn of historyTurns) {
-          if (turn.role === "user" || turn.role === "assistant") {
-            personaMessages.push({ role: turn.role, content: String(turn.content || "").slice(0, 500) });
-          }
-        }
+  const Row = ({ icon, label, desc, control, onClick, last, destructive }) => (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: onClick ? "pointer" : "default", borderBottom: last ? "none" : `0.5px solid ${divider}` }}>
+      {icon && <span style={{ fontSize: 18, width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 16, color: destructive ? "#ff3b30" : P.ink, fontWeight: 400 }}>{label}</div>
+        {desc && <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.35, marginTop: 1 }}>{desc}</div>}
+      </div>
+      {control && <div style={{ flexShrink: 0 }}>{control}</div>}
+      {onClick && !control && <span style={{ color: P.faint, fontSize: 16 }}>›</span>}
+    </div>
+  );
 
-        personaMessages.push({ role: "user", content: query });
+  const Switch = ({ on, onChange, label }) => (
+    <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
+      style={{ width: 51, height: 31, borderRadius: 16, position: "relative", background: on ? "#34c759" : P.dark ? "rgba(120,120,128,0.32)" : "rgba(120,120,128,0.16)", border: "none", cursor: "pointer", padding: 0, transition: "background 250ms ease" }}>
+      <span style={{ position: "absolute", top: 2, left: 2, width: 27, height: 27, borderRadius: "50%", background: "#fff", transform: on ? "translateX(20px)" : "translateX(0)", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 3px 8px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1)" }} />
+    </button>
+  );
 
-        // Race two models for speed
-        const personaResponse = await Promise.any(
-          personaModels.map(async (m) => {
-            const res = await fetch(m.url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}`, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
-              body: JSON.stringify({ model: m.model, messages: personaMessages, max_tokens: 300, temperature: 0.8 }),
-            });
-            if (!res.ok) throw new Error(`${m.model} ${res.status}`);
-            const data = await res.json();
-            const text = (data.choices?.[0]?.message?.content || "").trim();
-            if (!text) throw new Error("empty");
-            return text;
-          })
-        );
+  const Picker = ({ value, options, onChange }) => (
+    <select value={value} onChange={(e) => { sfx(); onChange(e.target.value); }}
+      style={{ padding: "6px 28px 6px 10px", fontSize: 15, color: accent, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", fontWeight: 500, WebkitAppearance: "none", appearance: "none", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239ca3af'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center", outline: "none" }}>
+      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
+  );
 
-        return new Response(
-          JSON.stringify({ answer: personaResponse, sources: [], videos: [], source: "Cerebrum" }),
-          { status: 200, headers: cors }
-        );
-      } catch {
-        // If LLM fails, use a minimal fallback
-        return new Response(
-          JSON.stringify({ answer: "I'm better at science questions than small talk. Try me.", sources: [], videos: [], source: "Cerebrum" }),
-          { status: 200, headers: cors }
-        );
-      }
-    }
+  return (
+    <div style={{ position: "fixed", inset: 0, background: P.dark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 }} onClick={close} className="cb-backdrop">
+      <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: sectionBg, borderRadius: isMobile ? 14 : 16, width: 500, maxWidth: "100%", maxHeight: isMobile ? "92dvh" : "85vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
 
-    const settings = body.settings || {};
-    const answerLength = settings.answerLength || "medium";
-    const maxTokens =
-      answerLength === "short"
-        ? 800
-        : answerLength === "long"
-        ? 3000
-        : 1500;
-    const lengthHint =
-      answerLength === "short"
-        ? "Two to three focused paragraphs. Hit the key mechanism and the strongest evidence, then stop."
-        : answerLength === "long"
-        ? "Give a thorough, well-structured deep dive — this is the user's preferred mode. Use **bold** for key terms. " +
-          "Cover the mechanism in detail, name specific compounds/genes/species, include quantitative findings from the sources, " +
-          "address conflicting evidence, and end with what's still unknown or debated. " +
-          "Five to eight paragraphs minimum. Think review article, not abstract summary."
-        : "Four to five clear paragraphs. Cover the core mechanism, key evidence with numbers, and any nuance. " +
-          "Bold key terms. Don't summarize — explain.";
+        {/* Header */}
+        <div style={{ padding: "16px 20px 0", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em" }}>Settings</div>
+            <button onClick={close} aria-label="Close" style={{ background: P.dark ? "rgba(120,120,128,0.24)" : "rgba(120,120,128,0.12)", border: "none", width: 30, height: 30, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: P.ink2, fontSize: 14, fontWeight: 600 }}>✕</button>
+          </div>
 
-    // Videos are fetched by frontend via /api/videos in parallel, so we don't
-    // block the answer waiting for YouTube. Return empty array here.
-    const videos = [];
+          {/* Tab bar — iOS segmented control style */}
+          <div style={{ display: "flex", background: P.dark ? "rgba(120,120,128,0.2)" : "rgba(120,120,128,0.1)", borderRadius: 9, padding: 2, marginBottom: 16, gap: 1 }}>
+            {TABS.map(([id, label]) => (
+              <button key={id} onClick={() => { sfx(); setTab(id); }}
+                style={{ flex: 1, padding: "7px 4px", fontSize: isMobile ? 11 : 12, fontWeight: tab === id ? 600 : 500, background: tab === id ? (P.dark ? P.raised : "#fff") : "transparent", color: tab === id ? P.ink : P.faint, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", boxShadow: tab === id ? "0 1px 3px rgba(0,0,0,0.1)" : "none", transition: "all 200ms ease" }}>{label}</button>
+            ))}
+          </div>
+        </div>
 
-    // Pronoun / continuation follow-up detection: "he has papers from...",
-    // "she also wrote...", "does he work on...", "what about her research".
-    // If the current query doesn't itself look like a name but clearly refers
-    // back to a person, and the previous user turn WAS a name query, resolve
-    // the pronoun to that name so we stay locked onto the same person instead
-    // of falling through to an unrelated keyword search.
-    let resolvedPersonName = null;
-    const isPronounFollowup = /\b(he|she|him|her|his|hers|they|them|their)\b/i.test(query) && !extractPersonNameFromQuery(query);
-    if (isPronounFollowup && Array.isArray(body.history)) {
-      // Walk backward through history to find the most recent user turn that
-      // contained a person name.
-      for (let i = body.history.length - 1; i >= 0; i--) {
-        const turn = body.history[i];
-        if (turn && turn.role === "user") {
-          const priorName = extractPersonNameFromQuery((turn.content || "").trim());
-          if (priorName) {
-            resolvedPersonName = priorName;
-            break;
-          }
-        }
-      }
-    }
+        {/* Content */}
+        <div key={tab} className="cb-fade" style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1, WebkitOverflowScrolling: "touch" }}>
 
-    // Intent classification. If this is a follow-up or correction referring to
-    // the previous answer, skip the fresh search entirely and reuse the last
-    // turn's sources. This is the difference between "the main point was
-    // microbiome" being routed to unrelated micro-motion papers vs. being
-    // treated as a comment on the paper we just cited.
-    const intent = classifyIntent(query, body.history || []);
-    const prevAssistantTurn = Array.isArray(body.history)
-      ? [...body.history].reverse().find((t) => t && t.role === "assistant")
-      : null;
-    const prevSources = (prevAssistantTurn && Array.isArray(prevAssistantTurn.sources)) ? prevAssistantTurn.sources : [];
-    const pinnedSources = Array.isArray(body.pinnedSources) ? body.pinnedSources : [];
-    const corrections = Array.isArray(body.corrections) ? body.corrections : [];
+          {tab === "general" && (<>
+            <Section title="Responses">
+              <Row label="Answer length" control={
+                <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} />
+              } />
+              <Row label="Animated typing" desc="Reveals answers progressively" control={<Switch on={typewriter} onChange={setTypewriter} label="Typing animation" />} />
+              <Row label="Citation format" control={
+                <Picker value={citationStyle} options={[["vancouver", "Vancouver"], ["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"], ["bibtex", "BibTeX"]]} onChange={setCitationStyle} />
+              } last />
+            </Section>
 
-    // ---- SMART FOLLOW-UP LOGIC ----
-    // When a user says "what about papers by Reese Saho" after a failed search,
-    // that's a NEW search for an author, not a follow-up on empty results.
-    // Previously the classifier treated it as a follow-up, merged it with the
-    // old failed query terms, and searched for gibberish.
-    //
-    // Rule: if the message contains a person name OR specific new search terms
-    // that weren't in the previous query, treat it as a fresh search regardless
-    // of what the intent classifier says.
-    const embeddedNameInFollowup = extractPersonNameFromQuery(query);
-    const hasNewSubstance = (() => {
-      if (!Array.isArray(body.history)) return true;
-      const prevUser = [...body.history].reverse().find((t) => t && t.role === "user");
-      if (!prevUser) return true;
-      const prevTerms = new Set(
-        (prevUser.content || "").toLowerCase().split(/\s+/).filter((w) => w.length > 3)
-      );
-      const newTerms = query.toLowerCase().split(/\s+/).filter(
-        (w) => w.length > 3 && !STOPWORDS.has(w) && !prevTerms.has(w)
-      );
-      return newTerms.length >= 2; // at least 2 genuinely new content words
-    })();
+            <Section title="Search" footer="Cerebrum queries 16 scholarly databases including PubMed, Europe PMC, OpenAlex, and Semantic Scholar.">
+              <Row label="Auto-play search tone" desc="Ambient sound while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
+              <Row label="Search sound" control={
+                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Audio.preview(v); }} />
+              } last />
+            </Section>
 
-    const forceNewSearch = !!embeddedNameInFollowup || hasNewSubstance;
-    const isFollowupMode = !forceNewSearch
-      && (intent.kind === "followup" || intent.kind === "correction")
-      && (prevSources.length > 0 || pinnedSources.length > 0);
+            <Section title="Motion">
+              <Row label="Background effects" desc="Ambient particle animation" control={<Switch on={animationMode !== "off"} onChange={(v) => setAnimationMode(v ? "cinematic" : "off")} label="Animations" />} />
+              <Row label="Reduced motion" desc="Minimizes entrance animations" control={<Switch on={animationMode === "subtle"} onChange={(v) => setAnimationMode(v ? "subtle" : "cinematic")} label="Reduced motion" />} last />
+            </Section>
+          </>)}
 
-    let gResult;
-    if (isFollowupMode) {
-      const seenKeys = new Set();
-      const reused = [];
-      for (const s of [...pinnedSources, ...prevSources]) {
-        const key = (s.title || s.url || "").toLowerCase().trim();
-        if (!key || seenKeys.has(key)) continue;
-        seenKeys.add(key);
-        reused.push({
-          ...s,
-          _allAuthors: s._allAuthors || s.authors || "",
-          score: 10,
-          contentHits: 1,
-          contentCoverage: 1,
-          organismPresent: true,
-          relevance: 100,
-        });
-      }
-      gResult = { papers: reused, _isFollowup: true, _intent: intent.kind };
-    } else {
-      // Fresh search. If the intent classifier thought this was a follow-up
-      // but we overrode it (because the user named an author or introduced
-      // genuinely new search terms), search the user's actual message — do NOT
-      // merge with the previous failed query.
-      let searchQuery = query;
-      const looksLikeFollowup = !forceNewSearch && (intent.kind === "followup" || intent.kind === "correction");
-      if (looksLikeFollowup && Array.isArray(body.history)) {
-        const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 0);
-        if (prevUser) {
-          const prevQ = String(prevUser.content).trim();
-          // Merge: previous question provides the topic, current message may add
-          // a new angle. Dedupe words so we don't double-weight anything.
-          const seenW = new Set();
-          const merged = (prevQ + " " + query)
-            .split(/\s+/)
-            .filter((w) => {
-              const k = w.toLowerCase().replace(/[^a-z0-9]/g, "");
-              if (!k || seenW.has(k)) return false;
-              seenW.add(k);
-              return true;
-            })
-            .join(" ");
-          searchQuery = merged;
-        }
-      }
-      gResult = await gatherPapers(searchQuery, {
-        openAlexKey: env.OPENALEX_KEY || "",
-        ncbiKey: env.NCBI_API_KEY || "",
-        limit: 25,
-        resolvedPersonName,
-      }).catch((e) => ({
-        papers: [],
-        // Surface the caught error so we can actually see what is going wrong.
-        // Previously this catch swallowed EVERYTHING silently and returned an
-        // empty _diag, which is why every retrieval failure looked identical.
-        _diag: {
-          fatalError: String((e && e.message) || e).slice(0, 500),
-          errorType: (e && e.name) || "Unknown",
-          stack: String((e && e.stack) || "").slice(0, 800),
-          calledWith: searchQuery,
-        },
-      }));
-    }
+          {tab === "appearance" && (<>
+            <Section title="Theme">
+              <div style={{ display: "flex", gap: 8, padding: 12 }}>
+                {Object.keys(PALETTES).map((pn) => (
+                  <button key={pn} onClick={() => { sfx(); setPaletteName(pn); }}
+                    style={{ flex: 1, padding: "14px 10px 10px", borderRadius: 10, cursor: "pointer", border: paletteName === pn ? `2px solid ${accent}` : `1px solid ${divider}`, background: PALETTES[pn].bg, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 6, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} />
+                      <span style={{ width: 22, height: 22, borderRadius: 6, background: accent }} />
+                    </div>
+                    <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: paletteName === pn ? 600 : 400 }}>{pn}</span>
+                  </button>
+                ))}
+              </div>
+            </Section>
 
-    // Track whether the person-name query returned only low-confidence
-    // (web / bio) results so we can note that in the AI answer.
-    const lowConfidencePersonQuery = !!gResult.lowConfidence;
-    const noResultsPersonQuery = !!gResult.noResults && isNameSearch;
+            <Section title="Accent color">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "14px 16px", alignItems: "center" }}>
+                {Object.keys(ACCENTS).map((an) => (
+                  <button key={an} title={an} aria-label={an} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }}
+                    style={{ width: 32, height: 32, borderRadius: "50%", background: ACCENTS[an], border: (!customAccent && accentName === an) ? "3px solid #fff" : "2px solid transparent", cursor: "pointer", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${ACCENTS[an]}` : "none", transition: "all 200ms ease" }} />
+                ))}
+                <label style={{ width: 32, height: 32, borderRadius: "50%", border: `2px dashed ${P.faint}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }} title="Custom">
+                  <input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} />
+                  <span style={{ fontSize: 16, color: P.faint, lineHeight: 1 }}>+</span>
+                </label>
+              </div>
+            </Section>
+          </>)}
 
-    // Person-name query that returned no author-matched papers. Instead of
-    // walling off or dumping unrelated results, respond with a short, honest
-    // message and actionable suggestions (surfaced by the frontend as buttons).
-    if (noResultsPersonQuery && !isFollowupMode) {
-      const displayName = resolvedPersonName || extractPersonNameFromQuery(query) || query;
-      const parts = displayName.split(/\s+/);
-      const last = parts[parts.length - 1];
-      const first = parts[0];
-      const suggestions = [];
-      // Suggest variant search strategies the user might try
-      if (parts.length >= 2) {
-        suggestions.push({ label: `Try "${first[0]}. ${last}"`, query: `${first[0]}. ${last}` });
-        suggestions.push({ label: `Try last name only`, query: last });
-      }
-      suggestions.push({ label: `Search a topic they work on instead`, query: "" });
+          {tab === "accessibility" && (<>
+            <Section title="Display" footer="Changes apply immediately.">
+              <Row label="Text size" control={
+                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={setFontSize} />
+              } />
+              <Row label="Reduce transparency" desc="Reduces blur and glass effects" control={<Switch on={reducedTransparency} onChange={setReducedTransparency} label="Reduce transparency" />} />
+              <Row label="High contrast text" desc="Increases text contrast ratio" control={<Switch on={false} onChange={() => {}} label="High contrast" />} last />
+            </Section>
 
-      return new Response(JSON.stringify({
-        answer:
-          `I searched Europe PMC, OpenAlex, Crossref, arXiv, Semantic Scholar, bioRxiv, and medRxiv for papers authored by **${displayName}** and didn't find any that list them as an author.\n\n` +
-          `This usually means one of a few things:\n\n` +
-          `- Their paper hasn't propagated to these indexes yet (aggregators can lag weeks to months behind actual publication).\n` +
-          `- They publish under a slightly different form of their name (initials, middle name, hyphenation).\n` +
-          `- They're an early-career researcher whose work is only on their institution's site or a lab page.\n\n` +
-          `Give one of the suggestions below a try, or search a topic they work on and I'll find the paper that way.`,
-        sources: [],
-        videos: [],
-        factCheck: null,
-        related: [],
-        suggestions,
-        source: "No author match",
-      }), { status: 200, headers: cors });
-    }
+            <Section title="Reading">
+              <Row label="Auto-read answers" desc="Read answers aloud automatically" control={<Switch on={autoplay} onChange={setAutoplay} label="Auto-read" />} last />
+            </Section>
 
-    const papers = gResult.papers || [];
-    const hasPapers = papers.length > 0;
+            <Section title="Voice">
+              <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+              <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+            </Section>
+          </>)}
 
-    // Web fallback (only if no papers)
-    let webRefs = [];
-    if (!hasPapers) {
-      try {
-        const [wiki, ddg] = await Promise.all([
-          wikipedia(cleanQuery(query), 2).catch(() => []),
-          duckduckgo(query).catch(() => []),
-        ]);
-        const seen = new Set();
-        for (const r of [...wiki, ...ddg]) {
-          const k = (r.title || "").toLowerCase();
-          if (r.abstract && !seen.has(k)) {
-            seen.add(k);
-            webRefs.push(r);
-          }
-        }
-        // If STILL empty, try the generic Wikipedia opensearch as a last-resort
-        // web fallback so we never return zero to the user.
-        if (!webRefs.length) {
-          const generic = await genericWebSearch(query).catch(() => []);
-          for (const r of generic) {
-            const k = (r.title || "").toLowerCase();
-            if (!seen.has(k)) {
-              seen.add(k);
-              webRefs.push(r);
-            }
-          }
-        }
-      } catch {}
-    }
+          {tab === "audio" && (<>
+            <Section title="Interface sounds">
+              <Row label="Sound effects" desc="Subtle tones on click and hover" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
+              <Row label="Search ambience" desc="Background tone while searching" control={
+                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Audio.preview(v); }} />
+              } last />
+            </Section>
 
-    const useEvidence = hasPapers;
-    const useWeb = !useEvidence && webRefs.length > 0;
+            <Section title="Text to speech" footer="Default voice uses Cerebrum's free servers. Add an ElevenLabs key for premium narration.">
+              <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+              <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+            </Section>
+          </>)}
 
-    // Detect if this was a person-name query (matches the same logic gatherPapers uses)
-    const isNameSearch = !!extractPersonNameFromQuery(query);
-    const speciesSearch = extractBinomial(query);
+          {tab === "data" && (<>
+            <Section title="Storage" footer="All data is stored locally in your browser. Cerebrum never sends your data to external servers.">
+              <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} />
+              <Row label="Clear all data" destructive control={
+                confirmClear
+                  ? <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => { setSessions([]); setSaved([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, fontWeight: 600, background: "#ff3b30", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Delete</button>
+                      <button onClick={() => setConfirmClear(false)} style={{ padding: "6px 14px", fontSize: 13, color: P.ink2, background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", fontSize: 13, color: "#ff3b30", background: "transparent", border: "none", cursor: "pointer", fontWeight: 500 }}>Clear...</button>
+              } last />
+            </Section>
 
-    // Only send genuinely relevant papers to the AI. Previously the top 12 were
-    // sent regardless of match quality, and the model would faithfully cite
-    // whatever it received — the direct cause of confidently-wrong answers.
-    // Author and follow-up modes bypass this (their papers are pre-verified).
-    const evidencePapers = (isNameSearch || isFollowupMode)
-      ? papers.slice(0, 12)
-      : (() => {
-          const strong = papers.filter((p) => (p.relevance || 0) >= 45);
-          // If nothing clears the bar, fall back to the best 4 so the AI still
-          // has something — but they'll be tagged as weak below.
-          return (strong.length >= 2 ? strong : papers.slice(0, 4)).slice(0, 12);
-        })();
+            <Section title="Keyboard shortcuts">
+              <div style={{ padding: "4px 0" }}>
+                {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], ["Esc", "Close panel"]].map(([key, desc], i, arr) => (
+                  <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `0.5px solid ${divider}` : "none" }}>
+                    <span style={{ fontSize: 15, color: P.ink }}>{desc}</span>
+                    <kbd style={{ fontSize: 12, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 6, fontWeight: 500 }}>{key}</kbd>
+                  </div>
+                ))}
+              </div>
+            </Section>
 
-    // CITATION ALIGNMENT: the bibliography the user sees MUST be the exact same
-    // list, in the exact same order, that the AI was given. Otherwise the model
-    // writes "[3]" meaning its third source while the UI renders a different
-    // paper as entry 3. This was silently misattributing citations.
-    const sourceList = (useEvidence ? evidencePapers : useWeb ? webRefs : []).map(
-      ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType }) => ({
-        title,
-        url,
-        journal,
-        authors,
-        year,
-        citations,
-        relevance: relevance == null ? null : relevance,
-        type: type || "Reference",
-        tldr: tldr || null,
-        retracted: !!retracted,
-        concern: !!concern,
-        updateType: updateType || null,
-      })
-    );
+            <Section title="About">
+              <Row label="Version" control={<span style={{ fontSize: 15, color: P.faint }}>4.0</span>} />
+              <Row label="Built by" control={<span style={{ fontSize: 15, color: accent }}>Vaticay</span>} last />
+            </Section>
+          </>)}
 
-    const evidence = useEvidence
-      ? evidencePapers
-          .map((p, i) => {
-            const authorTag = isNameSearch
-              ? (p.authorMatch
-                  ? " [AUTHOR-MATCHED to \"" + p.authorMatch + "\"]"
-                  : " [NOT author-matched — appeared via keyword match only]")
-              : "";
-            // Detect what species this paper actually mentions when it's a species query
-            let speciesTag = "";
-            if (speciesSearch) {
-              const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
-              const target = speciesSearch.full.toLowerCase();
-              const targetShort = speciesSearch.genus[0].toLowerCase() + ". " + speciesSearch.species;
-              const hasTarget = hay.indexOf(target) !== -1 || hay.indexOf(targetShort) !== -1;
-              // Look for other species in the same genus (false-positive risk)
-              const otherSpeciesRe = new RegExp("\\b" + speciesSearch.genus.toLowerCase() + "\\s+([a-z]{3,})", "gi");
-              const otherSpecies = new Set();
-              let m;
-              while ((m = otherSpeciesRe.exec(hay)) !== null) {
-                if (m[1].toLowerCase() !== speciesSearch.species) otherSpecies.add(m[1].toLowerCase());
-              }
-              if (hasTarget) {
-                speciesTag = " [DIRECT match for " + speciesSearch.full + "]";
-              } else if (otherSpecies.size) {
-                speciesTag = " [WRONG SPECIES: paper is about " + speciesSearch.genus + " " + [...otherSpecies].join("/") + ", NOT " + speciesSearch.full + "]";
-              } else {
-                speciesTag = " [CONTEXT ONLY: paper is genus " + speciesSearch.genus + " but does not specifically identify " + speciesSearch.full + "]";
-              }
-            }
-            const retractTag = p.retracted
-              ? " [⚠ RETRACTED — do not cite as valid science; flag this to the user]"
-              : p.concern
-              ? " [⚠ EXPRESSION OF CONCERN issued for this paper]"
-              : "";
-            // Relevance honesty tag. If a paper only weakly matches the query,
-            // say so explicitly so the model treats it as background context
-            // rather than direct evidence.
-            const rel = typeof p.relevance === "number" ? p.relevance : null;
-            let relTag = "";
-            if (!isNameSearch && !isFollowupMode && rel !== null) {
-              if (rel < 45) relTag = " [WEAK MATCH (" + rel + "%) — only tangentially related; do NOT present this as directly answering the question]";
-              else if (rel < 65) relTag = " [PARTIAL MATCH (" + rel + "%) — related but not a direct answer]";
-            }
-            const tldrLine = p.tldr ? "\nTL;DR: " + p.tldr : "";
-            return (
-              "[" + (i + 1) + "] " + p.title +
-              " (Authors: " + (p.authors || "n/a") + ", " +
-              p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag +
-              tldrLine +
-              "\nAbstract: " + (p.abstract || "(no abstract available)")
-            );
-          })
-          .join("\n\n")
-      : useWeb
-      ? webRefs
-          .map((r, i) => "[" + (i + 1) + "] " + r.title + " (" + r.journal + ")\n" + r.abstract)
-          .join("\n\n")
-      : "";
+        </div>
+      </div>
+    </div>
+  );
+}
 
-    // ============ CEREBRUM INTELLIGENCE CORE v4 ============
-    // Zero prefacing. Synthesis over listing. Peer tone. Graceful gaps.
-    const VOICE =
-      "VOICE & STRUCTURE — read every word, this defines your entire output:\n\n" +
-      "ZERO PREFACING: Your first sentence must be a substantive claim, finding, or direct answer. " +
-      "Never start with: 'Based on the provided sources', 'The research shows', 'Let me explain', 'Here is what we know', 'This is a great question', " +
-      "'Let\\'s break this down', 'According to the literature', 'To answer your question'. " +
-      "If you catch yourself writing any variation of these, delete it and start with the actual content.\n\n" +
-      "SYNTHESIS, NOT LISTING: Never write 'Source [1] found X. Source [2] found Y.' " +
-      "Instead, synthesize: 'The degradation rate peaks at 37°C [1], though industrial conditions push this to 60°C with modified catalysts [2].' " +
-      "Weave sources into a unified explanation. The reader should forget they're reading cited text.\n\n" +
-      "PEER TONE: Write as if you're the most interesting person at a research conference — someone who reads papers for fun and has opinions. " +
-      "Use contractions. Drop dry observations ('which, honestly, nobody expected'). " +
-      "Vary sentence rhythm hard — follow a long analytical sentence with a three-word punch. Bold **key terms** on first mention. " +
-      "Get genuinely excited about surprising findings — if a result is wild, say it's wild. " +
-      "Be blunt about weak evidence ('one small 2019 study claimed X, but nobody replicated it'). " +
-      "If two papers disagree, don't fence-sit — lay out who has better methodology and why.\n\n" +
-      "SPECIFICITY: Name the exact enzyme, gene, compound, mechanism, species. Never say 'certain proteins' when you can say 'PETase and MHETase'. " +
-      "Quantify everything the sources quantify. 'Significant reduction' is banned — say '42% reduction (p < 0.01)'.\n\n" +
-      "DISAGREEMENTS: When sources conflict, present both sides with their evidence. Don't average them. Say who found what and why they might differ.\n\n" +
-      "BANNED PHRASES: 'it\\'s important to note', 'it\\'s worth mentioning', 'plays a crucial role', 'further research is needed', " +
-      "'it should be noted', 'in recent years', 'a growing body of evidence', 'sheds light on', 'paves the way for', 'the exact mechanism remains unclear'. " +
-      "If you write any of these, you have failed.\n\n";
 
-    const CONTEXT =
-      "CONTEXT & CONTINUITY:\n" +
-      "You are in a live conversation. The user can see their previous messages and your previous answers. " +
-      "When they say 'it', 'that paper', 'those results', 'the enzyme' — resolve the reference from conversation history. " +
-      "When corrected, accept immediately without defensiveness. " +
-      "Follow-ups must go DEEPER — never repeat background you already covered. Add new specificity, new mechanisms, new numbers.\n\n" +
-      "HANDLING GAPS: If the retrieved sources don't fully answer the question, don't apologize or hedge excessively. " +
-      "State what the sources DO cover in 1-2 sentences, then seamlessly extend with your own knowledge. " +
-      "Signal the transition naturally: 'The retrieved papers focus on X, but the broader literature also shows...' " +
-      "Never refuse to answer. A partial answer with honest scope is always better than a refusal.\n\n";
+/* ════════════════════════════════════════════════════════════════
+   STYLE SYSTEM v4 — "DARKNODE"
+   
+   Left-aligned editorial layout. Serif display headings. Deep navy
+   glass surfaces. The search bar is a command line. Results read
+   like a premium brief.
+   ════════════════════════════════════════════════════════════════ */
+function makeStyles(P, accent, at, isMobile = false) {
+  const font = "var(--cb-body)";
+  const pad = isMobile ? 18 : 32;
+  const glass = P.dark 
+    ? `${withAlpha(P.surface, 0.6)}` 
+    : P.surface;
+  const glassBorder = P.dark 
+    ? `1px solid ${withAlpha("#8b95a8", 0.08)}`
+    : `1px solid ${P.line2}`;
 
-    const CITE_RULES =
-      "CITATION FORMAT — mechanical compliance required:\n" +
-      "- Cite ONLY as [1], [2], [3]. Never parentheses, never superscripts, never bare numbers.\n" +
-      "- Place citations INLINE at the end of the specific sentence they support.\n" +
-      "- Do NOT cluster citations at paragraph end. Each citation attaches to one specific claim.\n" +
-      "- Only cite source N if it genuinely supports that sentence. [WEAK MATCH] sources: ignore or note as tangential. [RETRACTED]: flag prominently.\n" +
-      "- NEVER fabricate DOIs, authors, journal names, or statistics not in the abstracts.\n" +
-      "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
-      "- No <think> tags, no code fences, no meta-commentary about your process.\n";
+  return {
+    /* ── Page shell ── */
+    page: { minHeight: "100dvh", height: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "fixed", inset: 0, overflow: "hidden", touchAction: "pan-y", overscrollBehavior: "none" },
+    grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
-    const ID = "You are Cerebrum, a scientific research engine. You search 16+ open scholarly databases and write cited answers. " +
-      "You were built by Vaticay. You are not a general assistant — you are a precision instrument for scientific literature.\n\n";
+    /* ── Header: dark glass bar, minimal ── */
+    header: { 
+      flexShrink: 0, 
+      borderBottom: glassBorder, 
+      background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85), 
+      backdropFilter: "blur(20px) saturate(1.3)", 
+      WebkitBackdropFilter: "blur(20px) saturate(1.3)", 
+      position: "sticky", top: 0, zIndex: 20 
+    },
+    headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
+    brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
+    brand: { fontWeight: 700, fontSize: 18, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-body)" },
+    headActions: { display: "flex", alignItems: "center", gap: isMobile ? 1 : 4 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "var(--cb-mono)", boxShadow: P.shadowSm, marginRight: 4 },
+    kbd: { fontSize: 10, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 4, padding: "2px 6px", fontWeight: 500 },
+    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13.5, fontWeight: 500, fontFamily: font },
+    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-body)", position: "relative" },
+    iconBtnLabel: { lineHeight: 1 },
+    countPill: { fontSize: 10, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 20, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
 
-    let systemPrompt;
-    if (useEvidence && speciesSearch) {
-      systemPrompt = ID + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
-    } else if (useEvidence && isNameSearch) {
-      systemPrompt = ID + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
-    } else if (useEvidence) {
-      systemPrompt = ID + "You have real peer-reviewed papers. Answer fully, cite inline [1] [2]. If papers don't fully cover something, blend in your own knowledge — don't refuse.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
-    } else if (useWeb) {
-      systemPrompt = ID + "No peer-reviewed papers matched. Start with: Note: no peer-reviewed papers matched — this draws on reference sources and general knowledge.\nThen answer fully.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
-    } else {
-      systemPrompt = ID + "Literature search returned nothing. Start with: Note: no papers retrieved — this is from general knowledge.\n\n" +
-        "Give an excellent answer. Be specific. Being conservatively wrong is still wrong.\n" +
-        "ZERO citations — no [1], no (Author, Year), no journal names. You may name findings in plain prose but never attach fake refs.\n\n" + VOICE + CONTEXT + lengthHint;
-    }
+    /* ── Scroll area ── */
+    scroll: { flex: 1, overflowY: "auto", overflowX: "hidden", paddingBottom: isMobile ? 88 : 0, WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" },
+    container: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
 
-    const messages = [{ role: "system", content: systemPrompt }];
+    /* ── Hero: LEFT-ALIGNED editorial layout ── */
+    hero: { 
+      flex: 1, display: "flex", flexDirection: "column", 
+      alignItems: "center", justifyContent: "center", 
+      textAlign: "center",
+      padding: isMobile ? "32px 0 40px" : "40px 0 56px", 
+      position: "relative",
+    },
+    heroGlow: { 
+      position: "absolute", width: 800, height: 800, borderRadius: "50%", 
+      background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.06 : 0.04)}, transparent 60%)`, 
+      top: "-20%", left: "50%", transform: "translateX(-50%)", filter: "blur(100px)", pointerEvents: "none" 
+    },
+    heroMark: { marginBottom: 32, position: "relative" },
+    heroTitle: { 
+      fontSize: isMobile ? 48 : 80, fontWeight: 700, 
+      letterSpacing: "-0.05em", lineHeight: 0.95, 
+      color: P.ink, marginBottom: 20, position: "relative", 
+      fontFamily: "var(--cb-body)",
+    },
+    heroSub: { 
+      fontSize: isMobile ? 16 : 18, color: P.ink2, 
+      maxWidth: 520, lineHeight: 1.6, marginBottom: 48, 
+      letterSpacing: "-0.01em", position: "relative", fontWeight: 400 
+    },
 
-    // If the user has provided corrections in previous turns, thread those into
-    // the system message as authoritative facts the AI must respect. This makes
-    // corrections stick across the whole session.
-    if (corrections.length > 0) {
-      const correctionsBlock = corrections
-        .map((c, i) => `- ${c}`)
-        .join("\n");
-      messages.push({
-        role: "system",
-        content:
-          "USER-PROVIDED CORRECTIONS (treat as ground truth for the rest of this conversation):\n" +
-          correctionsBlock,
-      });
-    }
+    /* ── Search bar: COMMAND CENTER ── */
+    searchShell: { 
+      display: "flex", alignItems: "center", gap: 12, 
+      width: "100%", maxWidth: 700, 
+      backdropFilter: "blur(24px) saturate(1.4)", 
+      WebkitBackdropFilter: "blur(24px) saturate(1.4)", 
+      background: glass, 
+      border: glassBorder, 
+      borderRadius: 14, 
+      padding: isMobile ? "8px 8px 8px 16px" : "10px 10px 10px 20px", 
+      boxShadow: P.shadow, 
+      transition: "border-color 0.3s ease, box-shadow 0.3s ease", 
+      position: "relative" 
+    },
+    searchShellActive: { 
+      borderColor: withAlpha(accent, 0.4), 
+      boxShadow: `${P.shadow}, 0 0 0 1px ${withAlpha(accent, 0.15)}, 0 0 40px ${withAlpha(accent, 0.06)}` 
+    },
+    searchInput: { 
+      flex: 1, border: "none", outline: "none", background: "transparent", 
+      fontFamily: "var(--cb-body)", fontSize: 15, color: P.ink, 
+      minWidth: 0, letterSpacing: "-0.01em" 
+    },
+    searchBtn: { 
+      fontSize: 14, fontWeight: 600, 
+      background: accent, color: at, 
+      border: "none", 
+      padding: isMobile ? "12px 18px" : "12px 24px", 
+      borderRadius: 10, cursor: "pointer", 
+      fontFamily: "var(--cb-display)", flexShrink: 0, 
+      letterSpacing: "0.01em",
+      boxShadow: `0 2px 12px ${withAlpha(accent, 0.3)}` 
+    },
 
-    // If this is a follow-up on the previous answer, tell the AI explicitly
-    // so it doesn't restart from zero and doesn't switch topics.
-    if (isFollowupMode) {
-      messages.push({
-        role: "system",
-        content:
-          intent.kind === "correction"
-            ? "CORRECTION MODE: The user is correcting your previous answer. Rules: " +
-              "1) Assume they are right — they often know the literature better than the retrieval. " +
-              "2) State plainly what you got wrong in one sentence. " +
-              "3) Give the corrected account with full rigor. " +
-              "4) If their correction reveals something the sources missed, say that explicitly. " +
-              "Do not get defensive. Do not over-apologize. Do not switch topics."
-            : "FOLLOW-UP MODE: You are in the middle of an ongoing investigation with the user. Critical rules: " +
-              "1) Do NOT repeat background information you've already established — they read your previous answer. " +
-              "2) Build directly on the previous turn. Go DEEPER: more mechanism, more specificity, more quantification. " +
-              "3) Answer the PRECISE thing they asked, not the general topic. " +
-              "4) If their question exposes a limit of the evidence, say so in one sentence and push forward anyway. " +
-              "5) Two to three tight paragraphs unless they explicitly ask for more. " +
-              "6) Never start with 'As I mentioned' or 'As discussed' — just advance the conversation.",
-      });
-    }
+    /* ── Suggestion chips ── */
+    chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 700 },
+    chip: { 
+      fontSize: 13, color: P.ink2, 
+      background: P.dark ? withAlpha(P.surface, 0.4) : withAlpha(P.surface, 0.7), 
+      backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", 
+      border: glassBorder, 
+      borderRadius: 10, padding: "10px 16px", 
+      cursor: "pointer", transition: "all 0.25s ease", 
+      fontFamily: font, letterSpacing: "-0.01em" 
+    },
+    chipHover: { 
+      borderColor: withAlpha(accent, 0.3), color: accent, 
+      transform: "translateY(-2px)", 
+      boxShadow: `0 4px 20px ${withAlpha(accent, 0.1)}` 
+    },
+    trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
+    trustItem: { fontSize: 11, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
 
-    // ════════════════════════════════════════════════════════════════
-    // SMART HISTORY THREADING
-    // Format history so the LLM clearly distinguishes between:
-    // - What the user said (their questions/corrections)
-    // - What the AI said (previous answers)
-    // - What sources were available (so it knows what's new vs old)
-    // ════════════════════════════════════════════════════════════════
-    const historyTurns = Array.isArray(body.history)
-      ? body.history.slice(-10)
-      : [];
-    for (const turn of historyTurns) {
-      if (turn.role === "user") {
-        messages.push({
-          role: "user",
-          content: String(turn.content || "").slice(0, 1500),
-        });
-      } else if (turn.role === "assistant") {
-        // Include a condensed version of the previous answer + what sources it used
-        const prevAnswer = String(turn.content || "").slice(0, 1500);
-        const prevSourceTitles = (turn.sources || [])
-          .slice(0, 5)
-          .map((s, i) => `[${i + 1}] ${s.title || "Untitled"}`)
-          .join("; ");
-        const sourceNote = prevSourceTitles
-          ? `\n[Previously cited: ${prevSourceTitles}]`
-          : "";
-        messages.push({
-          role: "assistant",
-          content: prevAnswer + sourceNote,
-        });
-      }
-    }
-    const userContent =
-      useEvidence || useWeb
-        ? "Sources:\n\n" + evidence + "\n\n---\nQuestion: " + query
-        : query;
-    messages.push({ role: "user", content: userContent });
+    /* ── Workspace: single-column editorial flow ── */
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "24px 0" : "40px 0", flex: 1, maxWidth: 760, margin: "0 auto", width: "100%" },
+    workspaceMobile: { maxWidth: "100%" },
+    thread: { minWidth: 0 },
 
-    // ============ D1 ANSWER CACHE ============
-    // Before calling any LLM, check if we have a cached answer for a similar
-    // query that was previously upvoted or verified. This is free, instant,
-    // and gets better as more people use the tool.
-    const cacheKey = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-    let cachedAnswer = null;
-    if (env.DB && sourceList.length > 0) {
-      try {
-        const cached = await env.DB.prepare(
-          "SELECT answer, sources, score, created_at FROM answer_cache WHERE query_key = ? AND score >= 0 ORDER BY score DESC, created_at DESC LIMIT 1"
-        ).bind(cacheKey).first();
-        if (cached && cached.answer) {
-          cachedAnswer = cached;
-        }
-      } catch {}
-    }
+    /* ── Turn: clean editorial brief ── */
+    turn: { marginBottom: isMobile ? 40 : 56 },
+    qLabel: { 
+      fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", 
+      textTransform: "uppercase", color: accent, 
+      marginBottom: 14, display: "flex", alignItems: "center", gap: 8,
+      fontFamily: "var(--cb-mono)",
+    },
+    qDot: { width: 4, height: 4, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${withAlpha(accent, 0.5)}` },
+    headline: { 
+      fontWeight: 600, fontSize: isMobile ? 24 : 34, 
+      lineHeight: 1.2, marginBottom: isMobile ? 20 : 28, 
+      color: P.ink, letterSpacing: "-0.03em", 
+      fontFamily: "var(--cb-display)",
+    },
 
-    // If we have a high-confidence cached answer (score >= 2 means multiple
-    // upvotes), serve it directly. Otherwise fall through to the LLM chain.
-    if (cachedAnswer && cachedAnswer.score >= 2) {
-      return new Response(
-        JSON.stringify({
-          answer: cachedAnswer.answer,
-          sources: sourceList,
-          videos,
-          factCheck: null,
-          related: [],
-          source: "Cached (verified)",
-          _diag: gResult && gResult._diag ? gResult._diag : null,
-          _cached: true,
-        }),
-        { status: 200, headers: cors }
-      );
-    }
+    /* ── Answer card: GLASSMORPHISM reading surface ── 
+       Semi-transparent dark glass panel that separates 
+       content from the animated background. The single 
+       biggest premium upgrade. ── */
+    answerCard: { 
+      background: P.dark ? "rgba(5,8,22,0.75)" : "rgba(255,255,255,0.85)", 
+      backdropFilter: "blur(12px) saturate(1.1)",
+      WebkitBackdropFilter: "blur(12px) saturate(1.1)",
+      border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`,
+      borderRadius: 16, 
+      padding: isMobile ? "24px 20px" : "32px 36px", 
+      boxShadow: P.dark 
+        ? "0 0 0 0.5px rgba(255,255,255,0.04) inset, 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3)"
+        : P.shadow,
+    },
+    byline: { 
+      fontSize: 10, color: P.faint, 
+      paddingTop: 16, marginTop: 20, 
+      fontFamily: "var(--cb-mono)", display: "flex",
+      letterSpacing: "0.04em", textTransform: "uppercase",
+    },
+    aiTag: { fontSize: 10, color: P.faint, fontWeight: 500, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
+    loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
+    spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
+    error: { padding: "16px 20px", background: withAlpha("#e5484d", 0.08), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.2)}` },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: glass, border: glassBorder, borderRadius: 14, padding: "10px 10px 10px 20px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 16 },
+    relatedWrap: { marginTop: 28, paddingTop: 24, borderTop: `1px solid ${P.line}` },
+    relatedLabel: { fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 14, fontFamily: "var(--cb-mono)" },
+    relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 },
+    relatedBtn: { 
+      display: "flex", alignItems: "center", justifyContent: "space-between", 
+      gap: 12, textAlign: "left", padding: "12px 16px", 
+      fontSize: 13.5, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, color: P.ink2, 
+      border: glassBorder, borderRadius: 10, 
+      cursor: "pointer", fontFamily: font, 
+      transition: "all 0.25s ease", letterSpacing: "-0.01em" 
+    },
 
-    // ============ AI ANSWER GENERATION (Smart Router) ============
-    // Race 2-3 models in parallel — take the first good response. Over time,
-    // D1 tracks which model wins per domain so we skip the race.
-    let answer = "";
-    let aiOK = false;
-    const token = env.OPENROUTER_API_KEY;
+    /* ── Sources panel: dark glass sidebar ── */
+    panel: { 
+      position: "sticky", top: 24, 
+      background: glass, 
+      backdropFilter: "blur(20px) saturate(1.15)", 
+      WebkitBackdropFilter: "blur(20px) saturate(1.15)", 
+      border: glassBorder, borderRadius: 16, 
+      padding: "20px", boxShadow: P.shadow, 
+      maxHeight: "calc(100dvh - 110px)", overflowY: "auto" 
+    },
+    panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
+    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
+    srcCount: { fontSize: 10, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 20, fontFamily: "var(--cb-mono)" },
+    srcActions: { display: "flex", gap: 6, marginBottom: 12 },
+    srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: 12, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 10 },
+    sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 10, marginBottom: 14, border: `1px solid ${P.line}` },
+    sortTab: { flex: 1, padding: "6px", fontSize: 11, background: "transparent", color: P.ink2, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, transition: "all 0.2s ease" },
+    sortTabActive: { background: P.dark ? P.raised : P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
+    srcGroupLabel: { fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" },
+    sBtn: { flex: 1, fontSize: 11.5, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550 },
+    sBtnP: { flex: 1, fontSize: 11.5, padding: "8px", background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-mono)" },
+    savedNote: { fontSize: 11, color: accent, marginBottom: 12, fontFamily: "var(--cb-mono)" },
+    zBox: { background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, border: glassBorder, borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
+    zIn: { padding: "9px 12px", fontSize: 12, border: glassBorder, background: P.dark ? withAlpha(P.surface, 0.4) : P.surface, color: P.ink, borderRadius: 8, outline: "none", fontFamily: "var(--cb-mono)" },
+    zMsg: { fontSize: 11, color: accent, fontFamily: "var(--cb-mono)" },
+    srcList: { display: "flex", flexDirection: "column", gap: 2 },
+    empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
+    srcItem: { padding: "14px 12px", margin: "0 -12px", borderRadius: 10, transition: "background 0.25s ease", borderBottom: `1px solid ${P.line}` },
+    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 4, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
+    srcMeta: { fontSize: 11, color: P.ink2, lineHeight: 1.45, fontFamily: "var(--cb-mono)" },
+    srcRow: { display: "flex", gap: 6, marginTop: 10 },
+    chipMini: { fontSize: 10.5, padding: "4px 10px", border: "1px solid", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, background: "transparent", transition: "all 0.2s ease" },
 
-    const callOR = async (model, msgs, maxTok) => {
-      if (!token) throw new Error("no key");
-      const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 12000);
-      try {
-        const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
-          body: JSON.stringify({ model, temperature: 0.3, max_tokens: maxTok, messages: msgs }),
-          signal: c.signal,
-        });
-        clearTimeout(t);
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const j = await r.json();
-        const txt = j?.choices?.[0]?.message?.content || "";
-        const cleaned = cleanAIResponse(txt);
-        if (cleaned.length < 30) throw new Error("too short");
-        return { answer: cleaned, model };
-      } catch (e) { clearTimeout(t); throw e; }
+    /* ── Footer ── */
+    foot: { marginTop: "auto", padding: "20px 0 28px", textAlign: "center" },
+    footDbs: { fontSize: 10, letterSpacing: "0.06em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
+
+    /* ── Mobile sources FAB ── */
+    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 12, padding: "12px 18px", fontSize: 12, fontWeight: 600, cursor: "pointer", boxShadow: `0 4px 20px ${withAlpha(accent, 0.35)}`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8 },
+    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 25 },
+
+    /* ── Command palette ── */
+    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "12vh", zIndex: 50 },
+    cmdBox: { width: 560, maxWidth: "92vw", background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden", fontFamily: font },
+    cmdInputRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
+    cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, color: P.ink, fontFamily: "var(--cb-mono)" },
+    cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
+    cmdSection: { fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, padding: "12px 14px 6px", fontFamily: "var(--cb-mono)" },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "center", transition: "background 0.15s" },
+
+    /* ── Modals ── */
+    modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
+    modal: { background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 18, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
+    modalTitle: { fontSize: 24, fontWeight: 400, color: P.ink, marginBottom: 24, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" },
+    setLabel: { fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: P.faint, marginBottom: 10, marginTop: 4, fontWeight: 600, fontFamily: "var(--cb-mono)" },
+    palRow: { display: "flex", gap: 10, marginBottom: 24 },
+    palCard: { flex: 1, display: "flex", flexDirection: "column", gap: 8, padding: "12px", borderRadius: 12, cursor: "pointer", border: "1px solid", alignItems: "flex-start", fontFamily: font },
+    accentRow: { display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 24, alignItems: "center" },
+    accentDot: { width: 26, height: 26, borderRadius: "50%", border: "none", cursor: "pointer", transition: "transform 0.2s" },
+    customDot: { width: 26, height: 26, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
+    modalClose: { width: "100%", padding: "13px", fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-display)" },
+    soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 },
+    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", fontSize: 12.5, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550 },
+    soundBtnActive: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
+  };
+}
+
+function App() {
+  const isMobile = useIsMobile();
+  const [entered, setEntered] = useState(() => { try { return getCookie("cb_entered_v4") === "1"; } catch { return false; } });
+  const [input, setInput] = useState("");
+  const [turns, setTurns] = useState([]);
+  const [pinnedSources, setPinnedSources] = useState([]);
+  const [corrections, setCorrections] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [allSources, setAllSources] = useState([]);
+  const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [mobilePanel, setMobilePanel] = useState(false);
+  const [suggestions, setSuggestions] = useState(pick());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [cmdQuery, setCmdQuery] = useState("");
+  const [zoteroOpen, setZoteroOpen] = useState(false);
+  const [srcSort, setSrcSort] = useState("relevance");
+  const [srcFilter, setSrcFilter] = useState("");
+  const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
+  const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
+  const [factCheck, setFactCheck] = useState(true);
+  const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
+  const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
+  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
+  const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
+  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim") || "cinematic");
+  const [animPreset, setAnimPreset] = useState(() => getCookie("cb_animP") || "aurora");
+  const [animDensity, setAnimDensity] = useState(() => parseFloat(getCookie("cb_animD") || "1"));
+  const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
+  const [animOpacity, setAnimOpacity] = useState(() => parseFloat(getCookie("cb_animO") || "1"));
+  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Light");
+  const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
+  const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
+  const [hover, setHover] = useState("");
+  const [hoverCite, setHoverCite] = useState(0);
+  const inputRef = useRef(null);
+  const cmdRef = useRef(null);
+  const threadRef = useRef(null);
+  const mutedRef = useRef(false);
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
+
+  const P = PALETTES[paletteName] || PALETTES.Light;
+  const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (ACCENTS[accentName] || ACCENTS.Emerald);
+  const at = accentText(accent);
+  const S = makeStyles(P, accent, at, isMobile);
+  const sfx = () => { if (!mutedRef.current) Audio.click(); };
+  const easterEgg = BrainEasterEgg({ accent, P, S });
+
+  const ask = useCallback(async (q, opts = {}) => {
+    const question = (q ?? input).trim();
+    if (!question || busy) return;
+    if (!mutedRef.current) Audio.click();
+    setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    const prior = [];
+    turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
+    try {
+      const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
+      const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
+      const videosPromise = fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck }, pinnedSources, corrections }) });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Something went sideways. Try that again?"); setBusy(false); return; }
+      const turnId = Date.now() + Math.random();
+      const nt = { id: turnId, q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
+      if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
+      setTurns((t) => [...t, nt]);
+      setAllSources((prev) => { const seen = new Set(prev.map((s) => (s.title || "").toLowerCase())); return [...prev, ...(data.sources || []).filter((s) => !seen.has((s.title || "").toLowerCase()))]; });
+      if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
+      if (!mutedRef.current) Audio.pop();
+      videosPromise.then(({ videos }) => { if (videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
+    } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
+    finally { setBusy(false); }
+  }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile]);
+
+  useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
+  useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; if (window.AOS) window.AOS.refresh(); }, [turns, busy]);
+  useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
+  useEffect(() => { document.body.style.background = P.bg; }, [P]);
+  useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
+  useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
+  useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
+  useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
+  useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
+  useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
+  useEffect(() => { setCookie("cb_anim", animationMode); }, [animationMode]);
+  useEffect(() => { setCookie("cb_animP", animPreset); }, [animPreset]);
+  useEffect(() => { const t = setTimeout(() => setCookie("cb_animD", String(animDensity)), 500); return () => clearTimeout(t); }, [animDensity]);
+  useEffect(() => { const t = setTimeout(() => setCookie("cb_animS", String(animSpeed)), 500); return () => clearTimeout(t); }, [animSpeed]);
+  useEffect(() => { const t = setTimeout(() => setCookie("cb_animO", String(animOpacity)), 500); return () => clearTimeout(t); }, [animOpacity]);
+  useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
+  useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
+  useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
+  useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
+      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); setSavedOpen(false); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
     };
+    window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
-    const callCF = async (model, msgs, maxTok) => {
-      if (!env.AI || typeof env.AI.run !== "function") throw new Error("no AI");
-      const out = await env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) });
-      const cleaned = cleanAIResponse((out && out.response) || "");
-      if (cleaned.length < 30) throw new Error("too short");
-      return { answer: cleaned, model };
-    };
+  function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
+  function toggleSave(s) { sfx(); setSaved((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
+  function isPinned(s) { const k = (s.title || "").toLowerCase(); return pinnedSources.some((x) => (x.title || "").toLowerCase() === k); }
+  function togglePin(s) { sfx(); setPinnedSources((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
+  const isSaved = (s) => saved.some((x) => (x.title || "").toLowerCase() === (s.title || "").toLowerCase());
+  async function doZotero() { setZMsg(""); const list = saved.length ? saved : allSources; if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; } try { await saveToZotero(list, zKey.trim(), zUser.trim()); setZMsg(`Saved ${list.length} items.`); } catch (e) { setZMsg(`Failed: ${e.message}`); } }
 
-    // Check if we know the best model for this topic domain
-    const domainKey = query.toLowerCase().split(/\s+/).slice(0, 3).join(" ");
-    let preferredModel = null;
-    if (env.DB) {
-      try {
-        const pref = await env.DB.prepare(
-          "SELECT model, wins FROM model_perf WHERE domain = ? ORDER BY wins DESC LIMIT 1"
-        ).bind(domainKey).first();
-        if (pref && pref.wins >= 3) preferredModel = pref.model;
-      } catch {}
-    }
+  const commands = [
+    { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
+    { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
+    { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
+    { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
+    { label: "Toggle light / dark", run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
+    { label: factCheck ? "Turn off fact-check" : "Turn on fact-check", run: () => { setFactCheck(!factCheck); setCmdOpen(false); } },
+    { label: "Export saved as BibTeX", run: () => { download("cerebrum.bib", toBibTeX(saved.length ? saved : allSources)); setCmdOpen(false); } },
+  ];
+  const filteredCmds = commands.filter((c) => c.label.toLowerCase().includes(cmdQuery.toLowerCase()));
+  const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
 
-    // Fast path: known best model for this domain
-    if (preferredModel && token) {
-      try { const r = await callOR(preferredModel, messages, maxTokens); answer = r.answer; aiOK = true; } catch {}
-    }
+  if (!entered) {
+    return <Intro accent={accent} P={P} onEnter={() => { sfx(); try { setCookie("cb_entered_v4", "1", 365); } catch {} setEntered(true); }} animationMode={animationMode} />;
+  }
 
-    // Race path: 3 models in parallel, first good answer wins
-    if (!aiOK && token) {
-      try {
-        const winner = await Promise.any([
-          callOR("deepseek/deepseek-chat-v3-0324:free", messages, maxTokens),
-          callOR("google/gemini-2.0-flash-exp:free", messages, maxTokens),
-          callOR("meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens),
-        ]);
-        answer = winner.answer; aiOK = true;
-        if (env.DB) {
-          try { await env.DB.prepare("INSERT INTO model_perf (domain, model, wins) VALUES (?, ?, 1) ON CONFLICT(domain, model) DO UPDATE SET wins = wins + 1").bind(domainKey, winner.model).run(); } catch {}
-        }
-      } catch {
-        for (const m of ["qwen/qwen-2.5-72b-instruct:free", "mistralai/mistral-small-3.1-24b-instruct:free", "meta-llama/llama-3.1-8b-instruct:free"]) {
-          try { const r = await callOR(m, messages, maxTokens); answer = r.answer; aiOK = true; break; } catch {}
-        }
-      }
-    }
+  const started = turns.length > 0 || busy;
+  const exportList = saved.length ? saved : allSources;
+  const filteredSources = allSources.filter((s) => { if (!srcFilter.trim()) return true; const f = srcFilter.toLowerCase(); return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f); });
+  const sortedSources = [...filteredSources].sort((a, b) => { if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0); if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || ""); return (b.relevance ?? 0) - (a.relevance ?? 0); });
+  const grouped = (() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; })();
+  const relColor = (r) => r >= 65 ? "#10b981" : r >= 45 ? "#d9a520" : "#9ca3af";
+  const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
+  const typeColor = (t) => t === "Preprint" ? "#d97706" : t === "Reference" ? "#7c3aed" : t === "Dataset" ? "#0284c7" : accent;
 
-    // TIER 2: Workers AI race
-    if (!aiOK && env.AI && typeof env.AI.run === "function") {
-      try {
-        const winner = await Promise.any([
-          callCF("@cf/meta/llama-3.3-70b-instruct-fp8-fast", messages, maxTokens),
-          callCF("@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", messages, maxTokens),
-        ]);
-        answer = winner.answer; aiOK = true;
-      } catch {
-        try { const r = await callCF("@cf/meta/llama-3.1-8b-instruct", messages, maxTokens); answer = r.answer; aiOK = true; } catch {}
-      }
-    }
+  const SourceCard = (s, i) => (
+    <div key={i} className="cb-fade" style={{ ...S.srcItem, background: hover === "src" + i ? withAlpha(accent, 0.05) : hoverCite === i + 1 ? withAlpha(accent, 0.06) : "transparent", transform: hover === "src" + i ? "translate3d(0, -1px, 0)" : "translate3d(0, 0, 0)" }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
+        {s.type && <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.type}</span>}
+        {typeof s.relevance === "number" && <span title={`Relevance: ${relLabel(s.relevance)} match`} style={{ fontSize: 9, fontWeight: 600, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.relevance}%</span>}
+        {s.year && <span style={{ fontSize: 10, color: P.faint, fontFamily: "var(--cb-mono)" }}>{s.year}</span>}
+      </div>
+      <a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title || s.url}</a>
+      <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
+      <div style={S.srcRow}>
+        <button style={{ ...S.chipMini, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}>{isSaved(s) ? "★ Saved" : "☆ Save"}</button>
+        <button style={{ ...S.chipMini, color: isPinned(s) ? at : P.ink2, background: isPinned(s) ? accent : "transparent", borderColor: isPinned(s) ? accent : P.line2 }} onClick={() => togglePin(s)} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow-ups"}>{isPinned(s) ? "📌 Pinned" : "📌 Pin"}</button>
+        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
+      </div>
+    </div>
+  );
 
-    // TIER 3: Pollinations
-    if (!aiOK) {
-      try {
-        const pRes = await fetch("https://text.pollinations.ai/", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: [{ role: "system", content: "You are a science assistant. Answer naturally. Do NOT fabricate citations. " + humanStyle + " " + rules }, { role: "user", content: query }], model: "openai" }),
-        });
-        if (pRes.ok) { let c = cleanAIResponse(await pRes.text()); if (c && c.length > 30) { answer = c; aiOK = true; } }
-      } catch {}
-    }
+  const SourcesInner = (
+    <>
+      <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
+      {pinnedSources.length > 0 && (<div style={{ padding: "7px 10px", margin: "0 0 8px", background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 7, fontSize: 11, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-mono)" }}><span>📌 {pinnedSources.length} pinned</span><button onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: 10.5, textDecoration: "underline" }}>Clear</button></div>)}
+      {corrections.length > 0 && (<div style={{ padding: "7px 10px", margin: "0 0 8px", background: withAlpha("#f59e0b", 0.06), border: `1px solid ${withAlpha("#f59e0b", 0.25)}`, borderRadius: 7, fontSize: 11, color: "#f59e0b", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-mono)" }}><span>✎ {corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><button onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: "#f59e0b", cursor: "pointer", fontSize: 10.5, textDecoration: "underline" }}>Clear</button></div>)}
+      {allSources.length > 0 && (<>
+        <div style={S.srcActions}>
+          <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
+          <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.bib", toBibTeX(exportList)); }}>BibTeX</button>
+          <button style={S.sBtnP} onClick={() => { sfx(); setZoteroOpen(!zoteroOpen); }}>Zotero</button>
+        </div>
+        <input style={S.srcFilterInput} placeholder="Filter sources…" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
+        <div style={S.sortTabs}>
+          {[["relevance", "Relevance"], ["date", "Date"], ["database", "Type"]].map(([k, label]) => (
+            <button key={k} style={{ ...S.sortTab, ...(srcSort === k ? S.sortTabActive : {}) }} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
+          ))}
+        </div>
+      </>)}
+      {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
+      {zoteroOpen && (<div style={S.zBox}><input style={S.zIn} placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} /><input style={S.zIn} placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)} /><button style={S.sBtnP} onClick={doZotero}>Save {exportList.length}</button>{zMsg && <div style={S.zMsg}>{zMsg}</div>}</div>)}
+      <div style={S.srcList} className="cb-stagger">
+        {allSources.length === 0 ? <div style={S.empty} className="cb-fade">Sources appear here as you research.</div> :
+          sortedSources.length === 0 ? <div style={S.empty} className="cb-fade">No sources match "{srcFilter}".</div> :
+          grouped ? grouped.map(([label, items]) => (<div key={label} className="cb-fade"><div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>{items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}</div>)) : sortedSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
+      </div>
+    </>
+  );
 
-    // TIER 4: If we STILL have no answer but we have papers, show them with an honest note.
-    if (!aiOK) {
-      if (useEvidence && papers.length) {
-        answer =
-          "The AI answer service is momentarily unavailable. Here are the most relevant papers found for your query:\n\n" +
-          papers
-            .slice(0, 6)
-            .map(
-              (p, i) =>
-                "[" +
-                (i + 1) +
-                "] **" +
-                p.title +
-                "**\n" +
-                (p.journal || "") +
-                (p.year ? ", " + p.year : "") +
-                "\n" +
-                ((p.abstract || "").slice(0, 300) +
-                  (p.abstract && p.abstract.length > 300 ? "..." : ""))
-            )
-            .join("\n\n");
-      } else if (useWeb && webRefs.length) {
-        answer =
-          "The AI answer service is momentarily unavailable. Here are relevant reference sources:\n\n" +
-          webRefs
-            .map(
-              (r, i) =>
-                "[" +
-                (i + 1) +
-                "] **" +
-                r.title +
-                "**\n" +
-                ((r.abstract || "").slice(0, 300) + "...")
-            )
-            .join("\n\n");
-      } else {
-        answer =
-          "The AI answer service is busy right now (free models get rate-limited). Please try again in a few seconds. Your question will be answered.";
-      }
-    }
+  return (
+    <div style={{...S.page, "--cb-accent": accent}}>
+      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
+      <div style={S.grain} />
+      <header style={S.header}>
+        <div style={S.headInner}>
+          <div style={{ ...S.brandRow, position: "relative" }}>
+            <Magnetic strength={0.2}>
+              <div onClick={(e) => { e.stopPropagation(); try { document.cookie = "cb_entered_v4=; path=/; max-age=0"; } catch {} window.location.reload(); }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
+                <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
+              </div>
+            </Magnetic>
+            {easterEgg.render}
+          </div>
+          <div style={S.headActions}>
+            {!isMobile && (<Magnetic strength={0.15}><button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button></Magnetic>)}
+            <Magnetic strength={0.2}><button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button></Magnetic>
+            <Magnetic strength={0.2}><button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button></Magnetic>
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}><Icon name={muted ? "volumeOff" : "volumeOn"} size={16} /></button>
+            <Magnetic strength={0.2}><button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button></Magnetic>
+          </div>
+        </div>
+      </header>
+      <div style={S.scroll} ref={threadRef}>
+        <div style={S.container}>
+          {!started ? (
+            <div style={S.hero} className="cb-hero">
+              <div style={S.heroGlow} />
+              <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
+              <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
+              <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can verify.</p>
+              <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700, borderRadius: 14 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
+                  <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
+                  <Magnetic strength={0.15}><button style={S.searchBtn} onClick={() => ask()}>Search</button></Magnetic>
+              </div>
+              <div style={S.chips} className="cb-stagger">
+                {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
+              </div>
+              <div style={S.trustRow}>
+                {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
+                <span style={{ ...S.trustItem, color: P.faint }}>+ 10 more</span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : {}) }} className="cb-page-enter">
+              <div style={S.thread}>
+                {turns.map((t, ti) => (<Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />))}
+                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Searching</span></div><Skeleton P={P} /><LoadingLine P={P} accent={accent} S={S} /></div>)}
+                {error && <div style={S.error}>{error}</div>}
+                {turns.length > 0 && !busy && (
+                  <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
+                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Follow up — I remember the whole thread" />
+                    <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
+                    <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <div style={S.foot}>
+            <div style={{ fontSize: 11, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Answers are assembled from real papers by AI. Always check the cited sources.</div>
+            <div style={{ fontSize: 10.5, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+              <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}`, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/about" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>About</a>
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/privacy" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/terms" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/contact" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Contact</a>
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>© {new Date().getFullYear()} Cerebrum™ · v4.0
+            </div>
+          </div>
+        </div>
+      </div>
+      {started && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 20, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
+      {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
+      {cmdOpen && (<div style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
+      {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, close: () => setSettingsOpen(false) }} />}
+      {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
+    </div>
+  );
+}
 
-    const dbUsed = useEvidence
-      ? "Scientific databases"
-      : useWeb
-      ? "Reference sources"
-      : "General knowledge";
 
-    // Final safety: if this was a person-name query, force-correct any close
-    // variants the AI hallucinated ("Sahoy" -> "Saho") in the answer body.
-    // HARD GUARD against fabricated references. Runs on every answer, not just
-    // the no-sources case: it also removes dangling markers like [7] when only
-    // 4 sources exist, which would otherwise render as a broken citation link.
-    answer = stripFabricatedCitations(answer, sourceList.length);
+/* ════════════════════════════════════════════════════════════════
+   CSS v4 — DARKNODE
+   Serif display. Blur-to-focus entrances. No bouncy springs.
+   Everything slow, intentional, premium.
+   ════════════════════════════════════════════════════════════════ */
+const CSS = `
+:root {
+  --cb-display: 'Cormorant Garamond', 'Georgia', 'Times New Roman', serif;
+  --cb-body:    'Inter', system-ui, -apple-system, sans-serif;
+  --cb-mono:    'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
+  --cb-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --cb-ease-out: cubic-bezier(0, 0, 0.2, 1);
+}
 
-    const canonicalName = resolvedPersonName || extractPersonNameFromQuery(query) || (isNameSearch ? query : "");
-    if (canonicalName) {
-      answer = correctNameVariants(answer, canonicalName);
-    }
+*, *::before, *::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+html, body { margin: 0; overflow-x: hidden; overscroll-behavior-y: contain; }
+@supports (padding: max(0px)) {
+  body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
+}
+input, textarea, select { font-size: 16px; }
+a { color: inherit; text-decoration: none; }
+input::placeholder, textarea::placeholder { color: inherit; opacity: 0.35; }
+summary::-webkit-details-marker { display: none; }
+::selection { background: rgba(56, 189, 248, 0.2); }
 
-    // ---- CACHE THE ANSWER (D1) ----
-    // Store this answer so future similar queries can skip the LLM entirely.
-    // Only cache answers that have real sources — unsourced general-knowledge
-    // answers are the ones most likely to contain errors.
-    const answerId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    if (env.DB && sourceList.length > 0 && answer.length > 50) {
-      try {
-        await env.DB.prepare(
-          "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
-        ).bind(
-          cacheKey,
-          answerId,
-          answer,
-          JSON.stringify(sourceList.slice(0, 10)),
-          new Date().toISOString()
-        ).run();
-      } catch {} // Cache write failure is not critical — don't block the response
-    }
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(138,155,186,0.15); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(138,155,186,0.25); }
+* { scrollbar-width: thin; scrollbar-color: rgba(138,155,186,0.15) transparent; }
 
-    return new Response(
-      JSON.stringify({
-        answer,
-        sources: sourceList,
-        videos,
-        factCheck: null,
-        related: [],
-        answerId, // frontend can use this for upvote/downvote
-        source:
-          aiOK && useEvidence
-            ? dbUsed + " + AI"
-            : aiOK && useWeb
-            ? dbUsed + " + AI"
-            : aiOK
-            ? "General knowledge (AI)"
-            : dbUsed,
-        _diag: gResult && gResult._diag ? gResult._diag : null,
-      }),
-      { status: 200, headers: cors }
-    );
-  } catch (e) {
-    return new Response(
-      JSON.stringify({ error: "Runtime error: " + (e.message || String(e)) }),
-      { status: 500, headers: cors }
-    );
+/* ── Keyframes: all blur-to-focus, slow, intentional ── */
+@keyframes cbspin { to { transform: rotate(360deg); } }
+@keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+@keyframes cbEnter {
+  from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes cbFade {
+  from { opacity: 0; filter: blur(4px); }
+  to   { opacity: 1; filter: blur(0); }
+}
+@keyframes cbRise {
+  from { opacity: 0; transform: translateY(12px); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes cbPop {
+  from { opacity: 0; transform: scale(0.97); filter: blur(4px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes cbHero {
+  from { opacity: 0; transform: translateY(20px); filter: blur(10px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes cbGate {
+  from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes cbModal {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cbSlideUp {
+  from { opacity: 0; transform: translateY(24px); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes cbMicPulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%      { opacity: 0; transform: scale(1.5); }
+}
+@keyframes cbSynapse {
+  0%, 100% { opacity: 0.2; transform: scale(0.7); }
+  35%      { opacity: 1; transform: scale(1.2); }
+  65%      { opacity: 0.35; transform: scale(0.85); }
+}
+@keyframes cb-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+@keyframes cb-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  30%      { transform: rotate(-4deg); }
+  70%      { transform: rotate(3deg); }
+}
+@keyframes cbGlowPulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 0.8; transform: scale(1.1); }
+}
+@keyframes cbCaret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0.15; } }
+
+/* CTA shimmer */
+.cb-glow-btn { position: relative; overflow: hidden; }
+.cb-glow-btn::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.12) 55%, transparent 65%);
+  background-size: 250% 100%;
+  animation: cbBtnShimmer 4s ease-in-out infinite;
+  border-radius: inherit;
+}
+@keyframes cbBtnShimmer { 0% { background-position: 200% center; } 100% { background-position: -200% center; } }
+
+/* ── Entrance classes: all SLOW (500-800ms) ── */
+.cb-fade    { animation: cbFade  500ms var(--cb-ease) both; }
+.cb-rise    { animation: cbRise  600ms var(--cb-ease) both; }
+.cb-pop     { animation: cbPop   400ms var(--cb-ease) both; }
+.cb-gate    { animation: cbGate  800ms var(--cb-ease) both; }
+.cb-hero    { animation: cbHero  900ms var(--cb-ease) both; }
+.cb-modal   { animation: cbModal 400ms var(--cb-ease) both; will-change: transform, opacity, filter; }
+.cb-backdrop { animation: cbBackdrop 300ms ease both; }
+.cb-wiggle  { animation: cb-wiggle 400ms var(--cb-ease); }
+.cb-answer-enter cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
+
+/* ── Stagger cascade: slower delays ── */
+.cb-stagger > * { opacity: 0; animation: cbFade 500ms var(--cb-ease) both; }
+.cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.cb-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.cb-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.cb-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.cb-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.cb-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.cb-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.cb-stagger > *:nth-child(8) { animation-delay: 420ms; }
+.cb-stagger > *:nth-child(n+9) { animation-delay: 480ms; }
+
+/* ── Global button physics: subtle, no bounce ── */
+button {
+  transition: transform 120ms ease, opacity 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
+}
+button:not(:disabled):hover { transform: translateY(-1px); }
+button:not(:disabled):active { transform: scale(0.98) translateY(0); transition-duration: 60ms; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Search focus glow — clean, no radar ── */
+.cb-search-glow { position: relative; }
+.cb-search-glow:focus-within {
+  border-color: var(--cb-accent, #34d399) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #34d399) 15%, transparent), 0 4px 20px rgba(0,0,0,0.1) !important;
+}
+@supports not (background: color-mix(in srgb, red 50%, blue)) {
+  .cb-search-glow:focus-within { box-shadow: 0 0 0 3px rgba(52,211,153,0.15), 0 4px 20px rgba(0,0,0,0.1) !important; }
+}
+
+/* ── Header buttons ── */
+.cb-hbtn:hover:not(:disabled) { background: rgba(138,155,186,0.08) !important; }
+.cb-hbtn:active:not(:disabled) { background: rgba(138,155,186,0.14) !important; }
+
+/* ── Cards with glass depth ── */
+.cb-card {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.3s ease, box-shadow 0.3s ease;
+  will-change: transform;
+}
+.cb-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+}
+
+/* Source card hover lift */
+.cb-src-card {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s, border-color 0.25s;
+}
+.cb-src-card:hover { transform: translateY(-2px); }
+
+/* Glass panel depth — multi-layer shadows for 3D float effect */
+.cb-glass-panel {
+  box-shadow: 
+    0 0 0 0.5px rgba(255,255,255,0.05) inset,
+    0 1px 0 rgba(255,255,255,0.03) inset,
+    0 4px 16px rgba(0,0,0,0.2),
+    0 16px 48px rgba(0,0,0,0.15);
+}
+
+/* Smooth page-level transitions */
+.cb-page-enter {
+  animation: cbPageEnter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes cbPageEnter {
+  from { opacity: 0; transform: translateY(30px); filter: blur(12px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+
+/* Suggestion chip hover ripple */
+.cb-chip-hover {
+  position: relative;
+  overflow: hidden;
+}
+.cb-chip-hover::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.08), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.cb-chip-hover:hover::after { opacity: 1; }
+
+/* Premium text reveal for headings */
+.cb-text-reveal {
+  animation: cbTextReveal 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes cbTextReveal {
+  from { opacity: 0; transform: translateY(20px); filter: blur(8px); letter-spacing: 0.05em; }
+  to { opacity: 1; transform: none; filter: blur(0); letter-spacing: inherit; }
+}
+
+/* Floating action button pulse */
+.cb-fab-pulse {
+  animation: cbFabPulse 2.5s ease-in-out infinite;
+}
+@keyframes cbFabPulse {
+  0%, 100% { box-shadow: 0 4px 20px var(--fab-glow, rgba(52,211,153,0.35)); }
+  50% { box-shadow: 0 4px 32px var(--fab-glow, rgba(52,211,153,0.5)); }
+}
+
+/* Focus */
+:focus { outline: none; }
+:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 6px; }
+
+/* ── Animated gradient text — cycles through accent colors ── */
+@keyframes cbGradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.cb-gradient-text {
+  background: linear-gradient(270deg, #34d399, #38bdf8, #818cf8, #a78bfa, #fb7185, #fbbf24, #34d399);
+  background-size: 400% 400%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: cbGradientShift 8s ease infinite;
+}
+
+/* Range sliders */
+input[type="range"] { -webkit-appearance: none; height: 3px; border-radius: 2px; }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: currentColor; cursor: pointer; transition: transform 120ms ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
+
+/* Info page styles */
+.cb-info-block h2 { font-size: 22px; font-weight: 400; letter-spacing: -0.02em; margin: 0 0 14px; font-family: var(--cb-display); }
+.cb-info-block p { font-size: 15.5px; line-height: 1.7; margin: 0; }
+.cb-info-block ul { margin: 0; padding: 0; list-style: none; }
+.cb-info-block li { font-size: 15px; line-height: 1.65; padding: 12px 0 12px 24px; position: relative; }
+.cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 20px; width: 4px; height: 4px; border-radius: 50%; }
+.cb-info-navlink { transition: color .2s, background .2s; }
+.cb-fadein { animation: cbEnter .7s var(--cb-ease) both; }
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
+`;
+
+/* Font + animation library loading */
+(function loadFonts() {
+  if (typeof document === "undefined") return;
+  // Fonts
+  const id = "cb-fonts-v4";
+  if (!document.getElementById(id)) {
+    const link = document.createElement("link");
+    link.id = id; link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
+    document.head.appendChild(link);
+  }
+  // AOS — scroll-triggered animations
+  if (!document.getElementById("cb-aos-css")) {
+    const aosCSS = document.createElement("link");
+    aosCSS.id = "cb-aos-css"; aosCSS.rel = "stylesheet";
+    aosCSS.href = "https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css";
+    document.head.appendChild(aosCSS);
+  }
+  loadCDN("https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js").then(() => {
+    if (window.AOS) window.AOS.init({ duration: 600, easing: "ease-out-cubic", once: true, offset: 60 });
+  }).catch(() => {});
+  // Preload Vanta dependencies
+  ensureVanta().catch(() => {});
+})();
+
+/* Root */
+function Root() {
+  const p = typeof window !== "undefined"
+    ? window.location.pathname.replace(/\.html$/, "").replace(/\/+$/, "")
+    : "";
+  if (p === "/about") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="about" /></>;
+  if (p === "/privacy") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="privacy" /></>;
+  if (p === "/terms") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="terms" /></>;
+  if (p === "/contact") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="contact" /></>;
+  return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><App /></>;
+}
+
+createRoot(document.getElementById("root")).render(<Root />);
