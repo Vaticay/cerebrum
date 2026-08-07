@@ -27,7 +27,6 @@ const LOADING_MESSAGES = [
   "Achievement unlocked: asked a real question",
   "Press F to pay respects to null results",
   "Task failed successfully (just kidding, still loading)",
-  "Dusty waz h3re",
   "Vaticay was here",
   "Bribing PubMed with a warm cookie",
   "Convincing OpenAlex you're not a robot",
@@ -126,7 +125,7 @@ const PALETTES = {
   Dark:  { dark: true, bg: "#09090b", surface: "#18181b", raised: "#27272a", ink: "#fafafa", ink2: "#a1a1aa", faint: "#52525b", line: "rgba(161,161,170,0.08)", line2: "rgba(161,161,170,0.12)", shadow: "0 1px 2px rgba(0,0,0,0.5), 0 12px 48px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.014, skel: "linear-gradient(90deg, #18181b 25%, #27272a 50%, #18181b 75%)" },
   Mid:   { dark: true, bg: "#0c0a09", surface: "#1c1917", raised: "#292524", ink: "#fafaf9", ink2: "#a8a29e", faint: "#57534e", line: "rgba(168,162,158,0.08)", line2: "rgba(168,162,158,0.12)", shadow: "0 1px 2px rgba(0,0,0,0.5), 0 12px 48px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.016, skel: "linear-gradient(90deg, #1c1917 25%, #292524 50%, #1c1917 75%)" },
 };
-const ACCENTS = { Emerald: "#10b981", Indigo: "#6366f1", Sky: "#0ea5e9", Amber: "#f59e0b", Rose: "#f43f5e", Violet: "#8b5cf6", Teal: "#14b8a6" };
+const ACCENTS = { Emerald: "#34d399", Indigo: "#818cf8", Sky: "#38bdf8", Amber: "#fbbf24", Rose: "#fb7185", Violet: "#a78bfa", Teal: "#2dd4bf" };
 
 function accentText(hex) {
   if (!hex || hex[0] !== "#" || hex.length < 7) return "#111";
@@ -343,6 +342,14 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   let clean = (text || "")
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]")
+    .replace(/\(([\d,\s]+)\)/g, (m, nums) => {
+      const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
+      return ds.length ? ds.map(n => "["+n+"]").join("") : m;
+    })
+    .replace(/([a-z])\s+(\d(?:\s*,?\s*\d){0,8})\s*([.;,])/gi, (m, b, nums, p) => {
+      const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
+      return ds.length >= 1 ? b + " " + ds.map(n => "["+n+"]").join("") + p : m;
+    })
     .replace(/\n[-—]{2,}\s*\n/g, "\n\n")
     .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
     .trim();
@@ -704,132 +711,78 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [phase]);
 
-  /* ── Award-winning intro screen ── */
-  const bg = P.dark
-    ? `radial-gradient(ellipse at 50% 40%, ${withAlpha(accent, 0.10)}, ${P.bg} 65%)`
-    : `radial-gradient(ellipse at 50% 40%, ${withAlpha(accent, 0.06)}, ${P.bg} 65%)`;
+  const isMob = typeof window !== "undefined" && window.innerWidth < 768;
+  const bg = P.bg;
 
   return (
-    <div style={{
-      minHeight: "100dvh",
-      display: "flex", flexDirection: "column",
-      alignItems: "center", justifyContent: "center",
-      background: bg,
-      fontFamily: "var(--cb-body)",
-      position: "relative", overflow: "hidden",
-      padding: "clamp(24px, 6vw, 48px) 22px",
-      textAlign: "center",
-    }}>
-      <canvas ref={canvasRef} style={{
-        position: "absolute", inset: 0, width: "100%", height: "100%",
-        opacity: animationMode === "off" ? 0 : animationMode === "subtle" ? 0.4 : 0.85,
-        transition: "opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1)",
-      }} />
+    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", background: bg, position: "relative", overflow: "hidden" }}>
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: animationMode === "off" ? 0 : 0.6 }} />
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", background: `radial-gradient(ellipse 70% 50% at 40% 35%, ${withAlpha(accent, 0.05)}, transparent)` }} />
 
-      <div style={{
-        position: "relative", zIndex: 1,
-        maxWidth: 560, width: "100%",
-        display: "flex", flexDirection: "column", alignItems: "center",
-        transition: "opacity 1s cubic-bezier(0.4, 0, 0.2, 1), transform 1s cubic-bezier(0.4, 0, 0.2, 1)",
-        opacity: phase === "forming" ? 0 : 1,
-        transform: phase === "forming" ? "translateY(8px)" : "none",
-      }}>
-        {/* Floating mark with breathing glow halo */}
-        <div style={{
-          animation: "cb-float 5s ease-in-out infinite",
-          marginBottom: "clamp(24px, 5vw, 36px)",
-          position: "relative",
-        }}>
-          <div style={{
-            position: "absolute", inset: -20, borderRadius: "50%",
-            background: `radial-gradient(circle, ${withAlpha(accent, 0.25)}, transparent 70%)`,
-            filter: "blur(14px)", animation: "cbGlowPulse 3s ease-in-out infinite",
-          }} />
-          <Mark size={52} accent={accent} glow={P.dark} />
+      {/* Minimal top bar */}
+      <div style={{ position: "relative", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMob ? "24px 20px" : "32px 48px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Mark size={24} accent={accent} glow={P.dark} />
+          <span style={{ fontSize: 15, fontWeight: 600, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-sans)" }}>Cerebrum</span>
         </div>
+        <div style={{ display: "flex", gap: isMob ? 16 : 28 }}>
+          {["About", "Privacy", "Contact"].map(l => (
+            <a key={l} href={"/"+l.toLowerCase()} style={{ fontSize: 12.5, color: P.faint, textDecoration: "none", letterSpacing: "0.03em", fontWeight: 500, fontFamily: "var(--cb-mono)", transition: "color 0.2s" }}
+              onMouseEnter={e => e.target.style.color = P.ink} onMouseLeave={e => e.target.style.color = P.faint}>{l}</a>
+          ))}
+        </div>
+      </div>
 
-        {/* Gradient text title */}
+      {/* Hero — left-aligned, editorial, NOT centered */}
+      <div style={{
+        flex: 1, display: "flex", flexDirection: "column", justifyContent: "center",
+        padding: isMob ? "0 24px 60px" : "0 clamp(48px, 8vw, 120px) 100px",
+        position: "relative", zIndex: 1, maxWidth: 900, width: "100%",
+        opacity: phase === "forming" ? 0 : 1, transform: phase === "forming" ? "translateY(12px)" : "none",
+        transition: "opacity 1.2s cubic-bezier(0.4,0,0.2,1), transform 1.2s cubic-bezier(0.4,0,0.2,1)",
+      }}>
+        <div style={{ marginBottom: 28 }}><Mark size={40} accent={accent} glow={P.dark} /></div>
+
         <h1 style={{
-          fontSize: "clamp(44px, 13vw, 64px)",
-          fontWeight: 760, letterSpacing: "-0.05em",
-          margin: "0 0 8px", lineHeight: 0.95,
-          fontFamily: "var(--cb-display)",
-          background: `linear-gradient(135deg, ${P.ink} 40%, ${accent})`,
-          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-          backgroundClip: "text",
+          fontSize: isMob ? "clamp(34px, 9vw, 44px)" : "clamp(48px, 5vw, 68px)",
+          fontWeight: 300, letterSpacing: "-0.035em", color: P.ink,
+          margin: "0 0 28px", lineHeight: 1.1, fontFamily: "var(--cb-display)", maxWidth: 660,
         }}>
-          Cerebrum
+          The scientific literature,{isMob ? " " : <br/>}<span style={{ fontWeight: 700 }}>answered.</span>
         </h1>
 
-        {/* Mono eyebrow */}
         <p style={{
-          fontSize: "clamp(11px, 3vw, 13px)",
-          color: accent, margin: "0 0 clamp(18px, 4vw, 24px)",
-          letterSpacing: "0.15em", textTransform: "uppercase",
-          fontWeight: 600, fontFamily: "var(--cb-mono)",
+          fontSize: isMob ? 15.5 : 18, color: P.ink2, margin: "0 0 44px",
+          lineHeight: 1.65, maxWidth: 480, fontWeight: 400, letterSpacing: "-0.008em",
         }}>
-          Scientific Literature Engine
+          Ask a question. Cerebrum searches millions of peer-reviewed papers and writes you an answer you can trace to the source.
         </p>
 
-        {/* Body copy */}
-        <p style={{
-          fontSize: "clamp(16px, 4.5vw, 19px)",
-          color: P.ink2, margin: "0 0 clamp(32px, 7vw, 44px)",
-          letterSpacing: "-0.012em", lineHeight: 1.55,
-          maxWidth: 440, fontWeight: 400,
-        }}>
-          Ask anything scientific. We search millions of peer-reviewed papers
-          and give you answers you can actually verify.
-        </p>
-
-        {/* Glass feature cards with subtitles */}
-        <div style={{
-          display: "flex", flexWrap: "wrap", justifyContent: "center",
-          gap: 10, marginBottom: "clamp(28px, 6vw, 40px)", maxWidth: 440,
-        }}>
-          {[
-            ["16 databases", "Searched in parallel"],
-            ["Real citations", "Every DOI is verifiable"],
-            ["Always free", "No account needed"],
-          ].map(([label, sub]) => (
-            <div key={label} className="cb-fade" style={{
-              background: withAlpha(P.surface, 0.7),
-              backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-              border: `1px solid ${P.line}`,
-              borderRadius: 14, padding: "12px 18px",
-              textAlign: "left", flex: "1 1 130px", minWidth: 130,
-            }}>
-              <div style={{ fontSize: 14, fontWeight: 650, color: P.ink, letterSpacing: "-0.01em", fontFamily: "var(--cb-display)" }}>{label}</div>
-              <div style={{ fontSize: 11, color: P.faint, marginTop: 2, lineHeight: 1.35, fontFamily: "var(--cb-mono)" }}>{sub}</div>
-            </div>
-          ))}
+        <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={go} style={{
+            display: "inline-flex", alignItems: "center", gap: 9, padding: "13px 30px",
+            fontSize: 14.5, fontWeight: 600, background: accent, color: accentText(accent),
+            border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-sans)",
+            letterSpacing: "-0.01em", boxShadow: `0 4px 20px ${withAlpha(accent, 0.25)}`,
+          }}>
+            Start exploring
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+          <a href="/about" style={{
+            fontSize: 13.5, color: P.ink2, textDecoration: "none", borderBottom: `1px solid ${P.line2}`,
+            paddingBottom: 2, fontWeight: 500, fontFamily: "var(--cb-sans)", transition: "color 0.2s, border-color 0.2s",
+          }} onMouseEnter={e => { e.target.style.color = P.ink; e.target.style.borderColor = P.ink; }}
+             onMouseLeave={e => { e.target.style.color = P.ink2; e.target.style.borderColor = P.line2; }}>
+            How it works →
+          </a>
         </div>
 
-        {/* Gradient CTA button with inset highlight */}
-        <button onClick={go} className="cb-btn cb-glow-btn" style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
-          padding: "16px 40px", fontSize: 16, fontWeight: 650,
-          background: `linear-gradient(135deg, ${accent}, ${withAlpha(accent, 0.75)})`,
-          color: accentText(accent),
-          border: "none", borderRadius: 14, cursor: "pointer",
-          fontFamily: "var(--cb-display)",
-          boxShadow: `0 8px 32px ${withAlpha(accent, 0.35)}, inset 0 1px 0 ${withAlpha("#fff", 0.15)}`,
-          letterSpacing: "-0.015em", position: "relative", overflow: "hidden",
-        }}>
-          <span style={{ position: "relative", zIndex: 1 }}>Start exploring</span>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ position: "relative", zIndex: 1 }}><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
-        </button>
-
-        {/* Trust row — mono database names */}
-        <div style={{
-          marginTop: "clamp(32px, 7vw, 48px)",
-          display: "flex", flexWrap: "wrap", justifyContent: "center",
-          gap: "8px 20px", opacity: 0.55,
-        }}>
-          {["Europe PMC", "PubMed", "OpenAlex", "Semantic Scholar", "arXiv", "Crossref"].map((d) => (
-            <span key={d} style={{ fontSize: 11, fontWeight: 550, color: P.ink2, letterSpacing: "0.03em", fontFamily: "var(--cb-mono)" }}>{d}</span>
+        {/* Database provenance — quiet mono bar */}
+        <div style={{ position: "absolute", bottom: isMob ? 20 : 36, left: isMob ? 24 : "clamp(48px, 8vw, 120px)", display: "flex", gap: 18, opacity: 0.35 }}>
+          {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE"].map(d => (
+            <span key={d} style={{ fontSize: 10.5, color: P.ink2, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", fontWeight: 500 }}>{d}</span>
           ))}
-          <span style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>+ 10 more</span>
+          <span style={{ fontSize: 10.5, color: P.faint, fontFamily: "var(--cb-mono)" }}>+11</span>
         </div>
       </div>
     </div>
@@ -1669,7 +1622,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     hero: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "48px 0 72px", position: "relative" },
     heroGlow: { position: "absolute", width: 720, height: 720, borderRadius: "50%", background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.12 : 0.07)}, transparent 65%)`, top: "4%", filter: "blur(70px)", pointerEvents: "none" },
     heroMark: { marginBottom: 28, position: "relative" },
-    heroTitle: { fontSize: isMobile ? 42 : 72, fontWeight: 760, letterSpacing: "-0.05em", lineHeight: 0.92, color: P.ink, marginBottom: 14, position: "relative", fontFamily: "var(--cb-display)" },
+    heroTitle: { fontSize: isMobile ? 36 : 60, fontWeight: 300, letterSpacing: "-0.05em", lineHeight: 0.92, color: P.ink, marginBottom: 14, position: "relative", fontFamily: "var(--cb-display)" },
     heroSub: { fontSize: isMobile ? 16 : 18.5, color: P.ink2, maxWidth: 460, lineHeight: 1.5, marginBottom: 42, letterSpacing: "-0.012em", position: "relative", fontWeight: 400 },
 
     /* ── Search bar: the focal ring ── */
@@ -1699,7 +1652,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     /* ── Answer card: the signature element. 
        Clean left accent border, generous padding, 
        subtle glass backdrop ── */
-    answerCard: { background: withAlpha(P.surface, 0.7), backdropFilter: "blur(16px) saturate(1.2)", WebkitBackdropFilter: "blur(16px) saturate(1.2)", border: `1px solid ${P.line}`, borderLeft: `3px solid ${accent}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "18px 16px" : "22px 26px", boxShadow: P.shadow },
+    answerCard: { background: withAlpha(P.surface, 0.7), backdropFilter: "blur(16px) saturate(1.2)", WebkitBackdropFilter: "blur(16px) saturate(1.2)", border: `1px solid ${P.line}`, borderTop: `2px solid ${withAlpha(accent, 0.4)}`, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "18px 16px" : "22px 26px", boxShadow: P.shadow },
     byline: { fontSize: 11, color: P.faint, borderTop: `1px solid ${P.line}`, paddingTop: 14, marginTop: 20, fontFamily: "var(--cb-mono)", display: "flex" },
     aiTag: { fontSize: 10.5, color: P.faint, fontWeight: 500, letterSpacing: "0.02em", fontFamily: "var(--cb-mono)" },
 
@@ -2059,7 +2012,7 @@ const CSS = `
 
 /* ── Typography ── */
 :root {
-  --cb-display: 'DM Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  --cb-display: 'Instrument Serif', 'Georgia', 'Times New Roman', serif;
   --cb-body:    'Inter', system-ui, -apple-system, sans-serif;
   --cb-mono:    'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   --cb-instant: 90ms;
@@ -2342,7 +2295,7 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.32); }
   const link = document.createElement("link");
   link.id = id;
   link.rel = "stylesheet";
-  link.href = "https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
+  link.href = "https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
   document.head.appendChild(link);
 })();
 
