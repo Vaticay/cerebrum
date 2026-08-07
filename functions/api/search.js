@@ -3256,16 +3256,20 @@ Respond naturally to the user's message. Be yourself.`;
     const answerLength = settings.answerLength || "medium";
     const maxTokens =
       answerLength === "short"
-        ? 500
+        ? 800
         : answerLength === "long"
-        ? 1500
-        : 950;
+        ? 3000
+        : 1500;
     const lengthHint =
       answerLength === "short"
-        ? "Keep it to one tight paragraph."
+        ? "Two to three focused paragraphs. Hit the key mechanism and the strongest evidence, then stop."
         : answerLength === "long"
-        ? "Give a thorough, well-structured explanation with clear sections."
-        : "Give a few clear paragraphs, enough to actually explain, not a dump.";
+        ? "Give a thorough, well-structured deep dive — this is the user's preferred mode. Use **bold** for key terms. " +
+          "Cover the mechanism in detail, name specific compounds/genes/species, include quantitative findings from the sources, " +
+          "address conflicting evidence, and end with what's still unknown or debated. " +
+          "Five to eight paragraphs minimum. Think review article, not abstract summary."
+        : "Four to five clear paragraphs. Cover the core mechanism, key evidence with numbers, and any nuance. " +
+          "Bold key terms. Don't summarize — explain.";
 
     // Videos are fetched by frontend via /api/videos in parallel, so we don't
     // block the answer waiting for YouTube. Return empty array here.
@@ -3583,9 +3587,12 @@ Respond naturally to the user's message. Be yourself.`;
       "SYNTHESIS, NOT LISTING: Never write 'Source [1] found X. Source [2] found Y.' " +
       "Instead, synthesize: 'The degradation rate peaks at 37°C [1], though industrial conditions push this to 60°C with modified catalysts [2].' " +
       "Weave sources into a unified explanation. The reader should forget they're reading cited text.\n\n" +
-      "PEER TONE: Write as if explaining to a sharp colleague over coffee. Use contractions. Vary sentence rhythm — " +
-      "follow a long analytical sentence with a short punchy one. Bold **key terms** on first mention. " +
-      "Get genuinely excited about surprising findings. Be blunt about weak evidence.\n\n" +
+      "PEER TONE: Write as if you're the most interesting person at a research conference — someone who reads papers for fun and has opinions. " +
+      "Use contractions. Drop dry observations ('which, honestly, nobody expected'). " +
+      "Vary sentence rhythm hard — follow a long analytical sentence with a three-word punch. Bold **key terms** on first mention. " +
+      "Get genuinely excited about surprising findings — if a result is wild, say it's wild. " +
+      "Be blunt about weak evidence ('one small 2019 study claimed X, but nobody replicated it'). " +
+      "If two papers disagree, don't fence-sit — lay out who has better methodology and why.\n\n" +
       "SPECIFICITY: Name the exact enzyme, gene, compound, mechanism, species. Never say 'certain proteins' when you can say 'PETase and MHETase'. " +
       "Quantify everything the sources quantify. 'Significant reduction' is banned — say '42% reduction (p < 0.01)'.\n\n" +
       "DISAGREEMENTS: When sources conflict, present both sides with their evidence. Don't average them. Say who found what and why they might differ.\n\n" +
