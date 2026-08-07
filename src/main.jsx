@@ -313,7 +313,7 @@ const Audio = (() => {
    ════════════════════════════════════════════════════════════════ */
 
 const PALETTES = {
-  Dark:  { dark: true,  bg: "#070b14", surface: "#0d1220", raised: "#141c2e", ink: "#e8edf5", ink2: "#8b95a8", faint: "#4a5568", line: "rgba(138,155,186,0.07)", line2: "rgba(138,155,186,0.12)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.5)", grain: 0.012, skel: "linear-gradient(90deg, #0d1220 25%, #141c2e 50%, #0d1220 75%)" },
+  Dark:  { dark: true,  bg: "#050816", surface: "#0c1222", raised: "#131c30", ink: "#f0f2f8", ink2: "#94a0b8", faint: "#4e5a70", line: "rgba(148,160,184,0.07)", line2: "rgba(148,160,184,0.12)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.5)", grain: 0.01, skel: "linear-gradient(90deg, #0c1222 25%, #131c30 50%, #0c1222 75%)" },
   Mid:   { dark: true,  bg: "#0a0d15", surface: "#111827", raised: "#1f2937", ink: "#f3f4f6", ink2: "#9ca3af", faint: "#4b5563", line: "rgba(156,163,175,0.08)", line2: "rgba(156,163,175,0.13)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.014, skel: "linear-gradient(90deg, #111827 25%, #1f2937 50%, #111827 75%)" },
   Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#94a3b8", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.07)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
 };
@@ -394,7 +394,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
     .trim();
   return clean.split(/\n{2,}/).map((para, pi) => (
-    <p key={pi} style={{ fontSize: 15.5, lineHeight: 1.75, margin: "0 0 16px", color: P.ink, letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>
+    <p key={pi} style={{ fontSize: 16, lineHeight: 1.8, margin: "0 0 18px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 420 }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|\[\d+\])/g).map((seg, si) => {
@@ -616,7 +616,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
           color2: c2 || 0x0a0e1a,
           size: isMobile ? 0.8 : 0.5,
           speed: 1.5,
-          backgroundColor: 0x050910,
+          backgroundColor: 0x050816,
         });
       } catch (e) { console.warn("Vanta init failed:", e); }
     }
@@ -643,7 +643,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
   return (
     <div id="cb-intro-wrap" style={{
       minHeight: "100dvh", display: "flex", flexDirection: "column",
-      background: "#050910", position: "relative", overflow: "hidden",
+      background: "#050816", position: "relative", overflow: "hidden",
       fontFamily: "var(--cb-body)",
     }}>
       {/* Vanta background container */}
@@ -794,6 +794,7 @@ function ensureVanta() {
       loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"),
       loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.fog.min.js"),
       loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.cells.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.halo.min.js"),
     ]))
     .catch(() => { _vantaReady = null; });
   return _vantaReady;
@@ -818,48 +819,44 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
     const el = containerRef.current;
 
     try {
-      if (P.dark && window.VANTA && window.VANTA.NET) {
-        // Dark mode: NET — connected nodes, depth, premium
-        const r = parseInt(hex.slice(0,2),16);
-        const g = parseInt(hex.slice(2,4),16);
-        const b = parseInt(hex.slice(4,6),16);
-        const dimColor = ((Math.max(0,r-60)) << 16) | ((Math.max(0,g-60)) << 8) | (Math.max(0,b-60));
-
-        effectRef.current = window.VANTA.NET({
+      if (P.dark && window.VANTA && window.VANTA.HALO) {
+        // Dark mode: HALO — soft glow, premium, never competes with content
+        effectRef.current = window.VANTA.HALO({
           el,
           THREE: window.THREE,
           mouseControls: true,
           touchControls: true,
           gyroControls: false,
           minHeight: 200, minWidth: 200,
-          scale: 1.0,
-          scaleMobile: 1.0,
+          backgroundColor: 0x050816,
+          baseColor: accentInt,
+          size: 1.5,
+          amplitudeFactor: 0.8,
+          speed: speed * 0.4,
+          xOffset: 0.1,
+          yOffset: 0.05,
+        });
+      } else if (P.dark && window.VANTA && window.VANTA.NET) {
+        // Fallback: NET at very low density
+        effectRef.current = window.VANTA.NET({
+          el, THREE: window.THREE,
+          mouseControls: true, touchControls: true, gyroControls: false,
+          minHeight: 200, minWidth: 200, scale: 1.0, scaleMobile: 1.0,
           color: accentInt,
-          backgroundColor: parseInt(P.bg.replace("#",""), 16) || 0x070b14,
-          points: Math.round(8 * density),
-          maxDistance: 22,
-          spacing: 18,
-          showDots: true,
-          speed: speed * 0.8,
+          backgroundColor: 0x050816,
+          points: 3, maxDistance: 18, spacing: 25, showDots: true,
+          speed: speed * 0.3,
         });
       } else if (!P.dark && window.VANTA && window.VANTA.NET) {
-        // Light mode: NET with lighter colors
+        // Light mode: NET barely visible
         effectRef.current = window.VANTA.NET({
-          el,
-          THREE: window.THREE,
-          mouseControls: true,
-          touchControls: true,
-          gyroControls: false,
-          minHeight: 200, minWidth: 200,
-          scale: 1.0,
-          scaleMobile: 1.0,
+          el, THREE: window.THREE,
+          mouseControls: true, touchControls: true, gyroControls: false,
+          minHeight: 200, minWidth: 200, scale: 1.0, scaleMobile: 1.0,
           color: accentInt,
           backgroundColor: parseInt(P.bg.replace("#",""), 16) || 0xf8f9fc,
-          points: Math.round(6 * density),
-          maxDistance: 20,
-          spacing: 20,
-          showDots: true,
-          speed: speed * 0.5,
+          points: 3, maxDistance: 16, spacing: 28, showDots: true,
+          speed: speed * 0.3,
         });
       }
     } catch (e) { console.warn("Vanta bg failed:", e); }
@@ -878,7 +875,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
     <div ref={containerRef} style={{
       position: "fixed", inset: 0, width: "100%", height: "100%",
       pointerEvents: "none", zIndex: 0,
-      opacity: intensity === "subtle" ? 0.5 : opacity,
+      opacity: intensity === "subtle" ? 0.1 : 0.18,
       transition: "opacity 0.5s ease",
     }} aria-hidden="true" />
   );
@@ -1551,7 +1548,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   const copyAll = () => { navigator.clipboard.writeText(formatBibliography(sources, citationStyle)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   return (
-    <div style={{ marginTop: 24, border: `1px solid ${P.line}`, borderRadius: 12, padding: "18px 20px", background: withAlpha(P.surface, 0.5), backdropFilter: "blur(8px)" }} className="cb-fade">
+    <div style={{ marginTop: 24, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 14, padding: "20px 24px", background: P.dark ? "rgba(5,8,22,0.6)" : withAlpha(P.surface, 0.8), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 3, height: 16, background: accent, borderRadius: 2 }} />
@@ -2094,21 +2091,26 @@ function makeStyles(P, accent, at, isMobile = false) {
     },
     qDot: { width: 4, height: 4, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${withAlpha(accent, 0.5)}` },
     headline: { 
-      fontWeight: 500, fontSize: isMobile ? 24 : 36, 
+      fontWeight: 600, fontSize: isMobile ? 24 : 34, 
       lineHeight: 1.2, marginBottom: isMobile ? 20 : 28, 
       color: P.ink, letterSpacing: "-0.03em", 
       fontFamily: "var(--cb-display)",
     },
 
-    /* ── Answer card: no box, just clean typography ── */
+    /* ── Answer card: GLASSMORPHISM reading surface ── 
+       Semi-transparent dark glass panel that separates 
+       content from the animated background. The single 
+       biggest premium upgrade. ── */
     answerCard: { 
-      background: "transparent", 
-      border: "none",
-      borderRadius: 0, 
-      padding: 0, 
-      boxShadow: "none",
-      borderBottom: `1px solid ${P.line}`,
-      paddingBottom: 24,
+      background: P.dark ? "rgba(5,8,22,0.75)" : "rgba(255,255,255,0.85)", 
+      backdropFilter: "blur(12px) saturate(1.1)",
+      WebkitBackdropFilter: "blur(12px) saturate(1.1)",
+      border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`,
+      borderRadius: 16, 
+      padding: isMobile ? "24px 20px" : "32px 36px", 
+      boxShadow: P.dark 
+        ? "0 0 0 0.5px rgba(255,255,255,0.04) inset, 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3)"
+        : P.shadow,
     },
     byline: { 
       fontSize: 10, color: P.faint, 
