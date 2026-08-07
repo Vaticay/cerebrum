@@ -3334,6 +3334,12 @@ Respond naturally to the user's message. Be yourself.`;
     // that weren't in the previous query, treat it as a fresh search regardless
     // of what the intent classifier says.
     const embeddedNameInFollowup = extractPersonNameFromQuery(query);
+    
+    // Detect explicit requests for MORE papers/sources — these MUST trigger a fresh search
+    const wantsMorePapers = /\b(find|get|show|give|more|additional|other|new|different|further|related)\b.*\b(papers?|sources?|studies|articles?|research|literature|references?|citations?)\b/i.test(query)
+      || /\b(papers?|sources?|studies|articles?)\b.*\b(on|about|related|similar)\b/i.test(query)
+      || /\b(what else|anything else|more on|dig deeper|keep going|keep searching|search again|search more)\b/i.test(query);
+
     const hasNewSubstance = (() => {
       if (!Array.isArray(body.history)) return true;
       const prevUser = [...body.history].reverse().find((t) => t && t.role === "user");
@@ -3344,10 +3350,10 @@ Respond naturally to the user's message. Be yourself.`;
       const newTerms = query.toLowerCase().split(/\s+/).filter(
         (w) => w.length > 3 && !STOPWORDS.has(w) && !prevTerms.has(w)
       );
-      return newTerms.length >= 2; // at least 2 genuinely new content words
+      return newTerms.length >= 2;
     })();
 
-    const forceNewSearch = !!embeddedNameInFollowup || hasNewSubstance;
+    const forceNewSearch = !!embeddedNameInFollowup || hasNewSubstance || wantsMorePapers;
     const isFollowupMode = !forceNewSearch
       && (intent.kind === "followup" || intent.kind === "correction")
       && (prevSources.length > 0 || pinnedSources.length > 0);
@@ -3440,6 +3446,24 @@ Respond naturally to the user's message. Be yourself.`;
       // genuinely new search terms), search the user's actual message — do NOT
       // merge with the previous failed query.
       let searchQuery = query;
+      
+      // If user is asking for MORE papers, use the ORIGINAL topic as the search query
+      // not the meta-request "find me more papers about X"
+      if (wantsMorePapers && Array.isArray(body.history)) {
+        const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 8);
+        if (prevUser) {
+          // Use the original question as the search, with broader terms
+          searchQuery = String(prevUser.content).trim();
+          // Also extract any new topic words from the current request
+          const currentTopicWords = query.toLowerCase()
+            .replace(/\b(find|get|show|give|more|additional|other|new|different|further|related|papers?|sources?|studies|articles?|research|literature|references?|citations?|on|about|me|please|can|you|i|want|need|some)\b/gi, "")
+            .trim();
+          if (currentTopicWords.length > 5) {
+            searchQuery = searchQuery + " " + currentTopicWords;
+          }
+        }
+      }
+      
       const looksLikeFollowup = !forceNewSearch && (intent.kind === "followup" || intent.kind === "correction");
       if (looksLikeFollowup && Array.isArray(body.history)) {
         const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 0);
@@ -3463,7 +3487,7 @@ Respond naturally to the user's message. Be yourself.`;
       gResult = await gatherPapers(searchQuery, {
         openAlexKey: env.OPENALEX_KEY || "",
         ncbiKey: env.NCBI_API_KEY || "",
-        limit: 25,
+        limit: wantsMorePapers ? 40 : 25,
         resolvedPersonName,
       }).catch((e) => ({
         papers: [],
@@ -3477,6 +3501,20 @@ Respond naturally to the user's message. Be yourself.`;
           calledWith: searchQuery,
         },
       }));
+    }
+
+    // When user asked for MORE papers, remove duplicates of what they already have
+    if (wantsMorePapers && prevSources.length > 0 && gResult.papers) {
+      const seenTitles = new Set(prevSources.map(s => (s.title || "").toLowerCase().trim()).filter(Boolean));
+      const before = gResult.papers.length;
+      gResult.papers = gResult.papers.filter(p => {
+        const key = (p.title || "").toLowerCase().trim();
+        return !key || !seenTitles.has(key);
+      });
+      const removed = before - gResult.papers.length;
+      if (removed > 0) {
+        gResult._dedupedFromPrev = removed;
+      }
     }
 
     // Track whether the person-name query returned only low-confidence
@@ -3562,13 +3600,12 @@ Respond naturally to the user's message. Be yourself.`;
     // sent regardless of match quality, and the model would faithfully cite
     // whatever it received — the direct cause of confidently-wrong answers.
     // Author and follow-up modes bypass this (their papers are pre-verified).
+    const maxEvidence = wantsMorePapers ? 20 : 12;
     const evidencePapers = (isNameSearch || isFollowupMode)
-      ? papers.slice(0, 12)
+      ? papers.slice(0, maxEvidence)
       : (() => {
           const strong = papers.filter((p) => (p.relevance || 0) >= 45);
-          // If nothing clears the bar, fall back to the best 4 so the AI still
-          // has something — but they'll be tagged as weak below.
-          return (strong.length >= 2 ? strong : papers.slice(0, 4)).slice(0, 12);
+          return (strong.length >= 2 ? strong : papers.slice(0, 4)).slice(0, maxEvidence);
         })();
 
     // CITATION ALIGNMENT: the bibliography the user sees MUST be the exact same
@@ -3694,6 +3731,7 @@ Respond naturally to the user's message. Be yourself.`;
       "- Do NOT cluster citations at paragraph end. Each citation attaches to one specific claim.\n" +
       "- Only cite source N if it genuinely supports that sentence. [WEAK MATCH] sources: ignore or note as tangential. [RETRACTED]: flag prominently.\n" +
       "- NEVER fabricate DOIs, authors, journal names, or statistics not in the abstracts.\n" +
+      "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' — but NEVER invent specific paper titles or authors.\n" +
       "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
       "- No <think> tags, no code fences, no meta-commentary about your process.\n";
 
@@ -3702,7 +3740,14 @@ Respond naturally to the user's message. Be yourself.`;
       "ALWAYS respond in English regardless of the language of the source papers.\n\n";
 
     let systemPrompt;
-    if (useEvidence && speciesSearch) {
+    if (wantsMorePapers && useEvidence) {
+      systemPrompt = ID + "The user wants ADDITIONAL papers on this topic. You have " + evidencePapers.length + " papers that are NEW (not shown before). " +
+        "Present them as a curated research digest. For each paper:\n" +
+        "1. State the key finding in one sentence with the citation [N]\n" +
+        "2. Note why it's relevant to their investigation\n" +
+        "Group related papers together thematically. Bold the paper topics. " +
+        "End with a one-sentence synthesis of what these additional sources add to the picture.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+    } else if (useEvidence && speciesSearch) {
       systemPrompt = ID + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence && isNameSearch) {
       systemPrompt = ID + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
