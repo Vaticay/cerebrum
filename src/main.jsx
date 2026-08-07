@@ -125,43 +125,6 @@ function pick(n = 3) {
   return a.slice(0, n);
 }
 
-/* ============================================================
-   DESIGN SYSTEM v3 — "Observatory"
-   
-   Design direction: A scientific instrument — clean, precise, 
-   confident. Inspired by observatory control panels, research 
-   notebooks, and premium developer tools. The signature element
-   is a "focal ring" search bar that contracts/expands like an 
-   iris, paired with a monospaced data layer for source metadata 
-   that reads as raw instrumentation output.
-   
-   Typography: DM Sans for display (geometric, open apertures,
-   reads as modern without being trendy), Inter for body (proven
-   readability), JetBrains Mono for data/metadata (signals that 
-   this is a precision tool, not a chatbot).
-   
-   Color: Each palette is tighter — fewer competing tones, more 
-   deliberate neutral steps. The accent is used surgically: 
-   citations, active states, the search ring. Everything else is
-   monochrome.
-   ============================================================ */
-
-const PALETTES = {
-  Light: { dark: false, bg: "#fafbfc", surface: "#ffffff", raised: "#ffffff", ink: "#111827", ink2: "#4b5563", faint: "#9ca3af", line: "rgba(17,24,39,0.06)", line2: "rgba(17,24,39,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.03), 0 8px 32px rgba(0,0,0,0.06)", shadowSm: "0 1px 2px rgba(0,0,0,0.04)", grain: 0.008, skel: "linear-gradient(90deg, #f3f4f6 25%, #f9fafb 50%, #f3f4f6 75%)" },
-  Dark:  { dark: true, bg: "#09090b", surface: "#18181b", raised: "#27272a", ink: "#fafafa", ink2: "#a1a1aa", faint: "#52525b", line: "rgba(161,161,170,0.08)", line2: "rgba(161,161,170,0.12)", shadow: "0 1px 2px rgba(0,0,0,0.5), 0 12px 48px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.014, skel: "linear-gradient(90deg, #18181b 25%, #27272a 50%, #18181b 75%)" },
-  Mid:   { dark: true, bg: "#0c0a09", surface: "#1c1917", raised: "#292524", ink: "#fafaf9", ink2: "#a8a29e", faint: "#57534e", line: "rgba(168,162,158,0.08)", line2: "rgba(168,162,158,0.12)", shadow: "0 1px 2px rgba(0,0,0,0.5), 0 12px 48px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.016, skel: "linear-gradient(90deg, #1c1917 25%, #292524 50%, #1c1917 75%)" },
-};
-const ACCENTS = { Emerald: "#34d399", Indigo: "#818cf8", Sky: "#38bdf8", Amber: "#fbbf24", Rose: "#fb7185", Violet: "#a78bfa", Teal: "#2dd4bf" };
-
-function accentText(hex) {
-  if (!hex || hex[0] !== "#" || hex.length < 7) return "#111";
-  const r = parseInt(hex.slice(1, 3), 16),
-        g = parseInt(hex.slice(3, 5), 16),
-        b = parseInt(hex.slice(5, 7), 16);
-  const L = (0.299 * r + 0.587 * g + 0.114 * b);
-  return L > 175 ? "#111" : "#fff";
-}
-function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
 
 function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
 function toRIS(sources) {
@@ -2089,11 +2052,6 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
     </div>
   );
 }
-
-
-/* ============================================================
-   STYLE SYSTEM v3 — "Observatory" 
-   Clean, precise, monospaced metadata, generous whitespace
 
 
 /* ════════════════════════════════════════════════════════════════
