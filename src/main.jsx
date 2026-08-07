@@ -575,59 +575,92 @@ function LoadingLine({ P, accent, S }) {
    reveal with blur-to-focus. No neural canvas, no cheap animations.
    Two CTAs: "Start exploring" and "How it works."
    ════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════
+   INTRO v4.1 — Vanta.js CELLS background
+   Loads Three.js + Vanta from CDN. Dark, immersive, cinematic.
+   ════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
+  const vantaRef = useRef(null);
+  const vantaEffect = useRef(null);
   const [revealed, setRevealed] = useState(false);
   const [ready, setReady] = useState(false);
   const isMobile = useIsMobile();
 
+  // Load Three.js + Vanta from CDN and init CELLS
   useEffect(() => {
-    // Staggered reveal
-    const t1 = setTimeout(() => setRevealed(true), 300);
-    const t2 = setTimeout(() => setReady(true), 800);
+    if (animationMode === "off") { setRevealed(true); setReady(true); return; }
+
+    function initVanta() {
+      if (!window.VANTA || !window.THREE || !vantaRef.current) return;
+      try {
+        // Parse accent to hex int
+        const hex = accent.replace("#", "");
+        const c1 = parseInt(hex, 16);
+        // Darker complement
+        const r = Math.max(0, parseInt(hex.slice(0,2),16) - 80);
+        const g = Math.max(0, parseInt(hex.slice(2,4),16) - 80);
+        const b = Math.max(0, parseInt(hex.slice(4,6),16) - 80);
+        const c2 = (r << 16) | (g << 8) | b;
+
+        vantaEffect.current = window.VANTA.CELLS({
+          el: vantaRef.current,
+          THREE: window.THREE,
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200,
+          minWidth: 200,
+          scale: 1.0,
+          color1: c1,
+          color2: c2 || 0x0a0e1a,
+          size: isMobile ? 0.8 : 0.5,
+          speed: 1.5,
+          backgroundColor: 0x050910,
+        });
+      } catch (e) { console.warn("Vanta init failed:", e); }
+    }
+
+    // Load Vanta via shared loader
+    ensureVanta().then(() => { setTimeout(initVanta, 50); }).catch(() => {});
+
+    return () => { if (vantaEffect.current) { try { vantaEffect.current.destroy(); } catch {} } };
+  }, [accent, animationMode, isMobile]);
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setRevealed(true), 400);
+    const t2 = setTimeout(() => setReady(true), 900);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
   const go = () => {
     if (animationMode === "off") { onEnter(); return; }
-    // Fade out then enter
     const el = document.getElementById("cb-intro-wrap");
-    if (el) {
-      el.style.transition = "opacity 0.6s ease, filter 0.6s ease";
-      el.style.opacity = "0";
-      el.style.filter = "blur(8px)";
-    }
+    if (el) { el.style.transition = "opacity 0.6s ease, filter 0.6s ease"; el.style.opacity = "0"; el.style.filter = "blur(8px)"; }
     setTimeout(() => onEnter(), 650);
   };
-
-  // Force dark palette for intro regardless of user setting
-  const introP = PALETTES.Dark;
-  const introBg = "#050910";
 
   return (
     <div id="cb-intro-wrap" style={{
       minHeight: "100dvh", display: "flex", flexDirection: "column",
-      background: introBg, position: "relative", overflow: "hidden",
+      background: "#050910", position: "relative", overflow: "hidden",
       fontFamily: "var(--cb-body)",
     }}>
-      {/* WebGL background */}
-      {animationMode !== "off" && (
-        <WebGLField accent={accent} P={introP} intensity={1.2} paused={false} />
-      )}
+      {/* Vanta background container */}
+      <div ref={vantaRef} style={{ position: "absolute", inset: 0, zIndex: 0 }} />
 
-      {/* Subtle radial glow */}
+      {/* Dark overlay for readability */}
       <div style={{
-        position: "absolute", top: "-20%", right: "-10%",
-        width: "70vw", height: "70vw", maxWidth: 900, maxHeight: 900,
-        borderRadius: "50%",
-        background: `radial-gradient(circle, ${withAlpha(accent, 0.06)}, transparent 65%)`,
-        filter: "blur(60px)", pointerEvents: "none",
+        position: "absolute", inset: 0, zIndex: 1,
+        background: "linear-gradient(135deg, rgba(5,9,16,0.7) 0%, rgba(5,9,16,0.3) 50%, rgba(5,9,16,0.5) 100%)",
+        pointerEvents: "none",
       }} />
 
-      {/* Nav bar */}
+      {/* Nav */}
       <nav style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: isMobile ? "16px 20px" : "20px 40px",
-        position: "relative", zIndex: 2,
+        position: "relative", zIndex: 3,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Mark size={20} accent={accent} glow />
@@ -635,380 +668,217 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
         </div>
         <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
           {["About", "Privacy", "Contact"].map((item) => (
-            <a key={item} href={`/${item.toLowerCase()}`} style={{
-              fontSize: 13, color: "#8b95a8", textDecoration: "none",
-              fontWeight: 450, letterSpacing: "0.01em",
-              transition: "color 0.2s",
-            }} onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#8b95a8"}>{item}</a>
+            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: 13, color: "#6b7a90", textDecoration: "none", fontWeight: 450, transition: "color 0.2s" }}
+              onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#6b7a90"}>{item}</a>
           ))}
         </div>
       </nav>
 
-      {/* Main content — left-aligned editorial hero */}
+      {/* Hero content */}
       <main style={{
-        flex: 1, display: "flex", flexDirection: "column",
-        justifyContent: "center",
-        padding: isMobile ? "0 24px 60px" : "0 clamp(40px, 8vw, 120px) 80px",
-        position: "relative", zIndex: 2,
-        maxWidth: 800,
+        flex: 1, display: "flex", flexDirection: "column", justifyContent: "center",
+        padding: isMobile ? "0 24px 60px" : "0 clamp(48px, 8vw, 140px) 80px",
+        position: "relative", zIndex: 3, maxWidth: 820,
       }}>
-        {/* Mark */}
         <div style={{
-          marginBottom: 28,
-          opacity: revealed ? 1 : 0,
-          transform: revealed ? "none" : "translateY(12px)",
+          marginBottom: 32,
+          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(12px)",
           filter: revealed ? "blur(0)" : "blur(6px)",
           transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
         }}>
-          <Mark size={32} accent={accent} glow />
+          <Mark size={36} accent={accent} glow />
         </div>
 
-        {/* Headline — two lines, second line bold */}
         <h1 style={{
-          fontSize: isMobile ? 40 : "clamp(48px, 6vw, 72px)",
-          fontWeight: 300, letterSpacing: "-0.04em", lineHeight: 1.1,
-          color: "#e8edf5", margin: "0 0 24px",
+          fontSize: isMobile ? 38 : "clamp(52px, 6.5vw, 76px)",
+          fontWeight: 300, letterSpacing: "-0.04em", lineHeight: 1.08,
+          color: "#e8edf5", margin: "0 0 28px",
           fontFamily: "var(--cb-display)",
-          opacity: revealed ? 1 : 0,
-          transform: revealed ? "none" : "translateY(20px)",
-          filter: revealed ? "blur(0)" : "blur(8px)",
-          transition: "all 1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s",
+          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(24px)",
+          filter: revealed ? "blur(0)" : "blur(10px)",
+          transition: "all 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s",
         }}>
-          The scientific literature,{" "}
-          <br />
-          <span style={{ fontWeight: 700, color: accent }}>answered.</span>
+          Ask anything.<br />
+          <span style={{ fontWeight: 700, color: accent }}>We'll find the paper.</span>
         </h1>
 
-        {/* Subtitle */}
         <p style={{
-          fontSize: isMobile ? 15 : 17, color: "#8b95a8",
-          lineHeight: 1.6, margin: "0 0 40px",
-          maxWidth: 440, fontWeight: 400,
-          opacity: revealed ? 1 : 0,
-          transform: revealed ? "none" : "translateY(16px)",
+          fontSize: isMobile ? 15 : 17, color: "#7a8599", lineHeight: 1.65,
+          margin: "0 0 44px", maxWidth: 460, fontWeight: 400,
+          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(16px)",
           filter: revealed ? "blur(0)" : "blur(6px)",
-          transition: "all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.3s",
+          transition: "all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.35s",
         }}>
-          Ask a question. Cerebrum searches millions of peer-reviewed
-          papers and writes you an answer you can trace to the source.
+          Cerebrum searches 16 scholarly databases in parallel and writes
+          you an answer where every claim traces back to a real, citable source.
         </p>
 
-        {/* CTAs */}
         <div style={{
           display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-          opacity: ready ? 1 : 0,
-          transform: ready ? "none" : "translateY(12px)",
+          opacity: ready ? 1 : 0, transform: ready ? "none" : "translateY(12px)",
           filter: ready ? "blur(0)" : "blur(4px)",
           transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s",
         }}>
           <button onClick={go} className="cb-glow-btn" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
-            padding: "14px 28px", fontSize: 15, fontWeight: 600,
+            padding: "15px 32px", fontSize: 15, fontWeight: 600,
             background: accent, color: accentText(accent),
             border: "none", borderRadius: 12, cursor: "pointer",
             fontFamily: "var(--cb-body)",
-            boxShadow: `0 4px 24px ${withAlpha(accent, 0.35)}`,
-            letterSpacing: "-0.01em",
+            boxShadow: `0 4px 28px ${withAlpha(accent, 0.4)}`,
           }}>
             Start exploring
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
           </button>
 
-          <button onClick={() => { window.location.href = "/about"; }} style={{
+          <button onClick={() => window.location.href = "/about"} style={{
             display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "14px 20px", fontSize: 14, fontWeight: 500,
-            background: "transparent", color: "#8b95a8",
-            border: "none", cursor: "pointer",
-            fontFamily: "var(--cb-body)", letterSpacing: "-0.01em",
-          }}
-            onMouseEnter={(e) => e.target.style.color = "#e8edf5"}
-            onMouseLeave={(e) => e.target.style.color = "#8b95a8"}>
-            How it works <span style={{ fontSize: 16 }}>→</span>
+            padding: "15px 20px", fontSize: 14, fontWeight: 500,
+            background: "transparent", color: "#7a8599", border: "none",
+            cursor: "pointer", fontFamily: "var(--cb-body)",
+          }} onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#7a8599"}>
+            How it works →
           </button>
         </div>
       </main>
 
-      {/* Bottom database row */}
+      {/* Bottom database strip */}
       <div style={{
-        padding: isMobile ? "0 24px 24px" : "0 40px 32px",
-        position: "relative", zIndex: 2,
-        display: "flex", flexWrap: "wrap", gap: isMobile ? "6px 16px" : "6px 24px",
-        opacity: ready ? 0.4 : 0,
-        transition: "opacity 1.2s ease 0.5s",
+        padding: isMobile ? "0 24px 24px" : "0 48px 36px",
+        position: "relative", zIndex: 3,
+        display: "flex", flexWrap: "wrap", gap: isMobile ? "6px 16px" : "6px 28px",
+        opacity: ready ? 0.35 : 0, transition: "opacity 1.5s ease 0.6s",
       }}>
-        {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE"].map((d) => (
-          <span key={d} style={{ fontSize: 10, fontWeight: 500, color: "#8b95a8", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{d}</span>
+        {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE", "arXiv"].map((d) => (
+          <span key={d} style={{ fontSize: 10, fontWeight: 500, color: "#6b7a90", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{d}</span>
         ))}
-        <span style={{ fontSize: 10, color: "#4a5568", fontFamily: "var(--cb-mono)", letterSpacing: "0.08em" }}>+11</span>
+        <span style={{ fontSize: 10, color: "#3d4a5c", fontFamily: "var(--cb-mono)", letterSpacing: "0.1em" }}>+10</span>
       </div>
     </div>
   );
 }
 
+
+/* ════════════════════════════════════════════════════════════════
+   LIVING BACKGROUND v4 — Vanta.js powered
+   
+   Replaces 700 lines of hand-rolled canvas with CDN-hosted 
+   Three.js + Vanta.js. Loads NET for dark themes (connected 
+   nodes, premium depth), FOG for light themes (soft ambient).
+   Mouse-reactive, GPU-accelerated, zero maintenance.
+   ════════════════════════════════════════════════════════════════ */
+
+// Global script loader — deduplicates across components
+const _loadedScripts = new Set();
+function loadCDN(src) {
+  return new Promise((resolve, reject) => {
+    if (_loadedScripts.has(src) || document.querySelector(`script[src="${src}"]`)) {
+      _loadedScripts.add(src);
+      resolve();
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = () => { _loadedScripts.add(src); resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// Load all Vanta dependencies once
+let _vantaReady = null;
+function ensureVanta() {
+  if (_vantaReady) return _vantaReady;
+  _vantaReady = loadCDN("https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js")
+    .then(() => Promise.all([
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.fog.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.cells.min.js"),
+    ]))
+    .catch(() => { _vantaReady = null; });
+  return _vantaReady;
+}
+
 function LivingBackground({ accent, P, intensity = "cinematic", preset = "particles", density = 1, speed = 1, opacity = 1, paused = false }) {
-  const canvasRef = useRef(null);
-  const rafRef = useRef(0);
-  const stateRef = useRef({ items: [], t: 0 });
-  const mouseRef = useRef({ x: -9999, y: -9999 });
-  const speedRef = useRef(speed);
-  const densityRef = useRef(density);
-  const pausedRef = useRef(paused);
-  useEffect(() => { speedRef.current = speed; }, [speed]);
-  useEffect(() => { densityRef.current = density; }, [density]);
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
+  const containerRef = useRef(null);
+  const effectRef = useRef(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const intensityScale = intensity === "subtle" ? 0.55 : 1;
-    const getDensity = () => densityRef.current * intensityScale;
-    const getSpeed = () => speedRef.current;
-
-    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
-    const [ar, ag, ab] = rgb;
-
-    const initItems = () => {
-      const cw = canvas.width, ch = canvas.height;
-      const items = [];
-      if (preset === "particles" || preset === "neurons") {
-        const target = Math.floor((cw * ch) / (28000 * dpr) * getDensity());
-        for (let i = 0; i < target; i++) {
-          items.push({ x: Math.random() * cw, y: Math.random() * ch, vx: (Math.random() - 0.5) * 0.25 * dpr, vy: (Math.random() - 0.5) * 0.25 * dpr, r: (1 + Math.random() * 1.6) * dpr, pulse: Math.random() * Math.PI * 2, pulseSpeed: 0.4 + Math.random() * 0.8 });
-        }
-      } else if (preset === "waves") {
-        const count = Math.floor(8 * getDensity());
-        for (let i = 0; i < count; i++) {
-          items.push({ yBase: (ch / (count + 1)) * (i + 1), amplitude: (20 + Math.random() * 40) * dpr, wavelength: (200 + Math.random() * 400) * dpr, phase: Math.random() * Math.PI * 2, phaseSpeed: 0.3 + Math.random() * 0.4, thickness: (1 + Math.random() * 1.5) * dpr, offset: Math.random() });
-        }
-      } else if (preset === "dna") {
-        const count = Math.floor(60 * getDensity());
-        for (let i = 0; i < count; i++) { items.push({ t: i / count, offset: Math.random() * 0.05 }); }
-      } else if (preset === "circuits") {
-        const spacing = 90 * dpr / getDensity();
-        const cols = Math.ceil(cw / spacing) + 1;
-        const rows = Math.ceil(ch / spacing) + 1;
-        for (let ix = 0; ix < cols; ix++) {
-          for (let iy = 0; iy < rows; iy++) {
-            items.push({ x: ix * spacing + (Math.random() - 0.5) * spacing * 0.15, y: iy * spacing + (Math.random() - 0.5) * spacing * 0.15, pulse: Math.random() * Math.PI * 2, hasEdgeR: Math.random() > 0.4, hasEdgeD: Math.random() > 0.4, pulseR: Math.random(), pulseD: Math.random(), rateR: 0.3 + Math.random() * 0.5, rateD: 0.3 + Math.random() * 0.5 });
-          }
-        }
-      } else if (preset === "starfield") {
-        const target = Math.floor((cw * ch) / (10000 * dpr) * getDensity());
-        for (let i = 0; i < target; i++) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = Math.random() * Math.max(cw, ch) * 0.6;
-          items.push({ x: cw / 2 + Math.cos(angle) * dist, y: ch / 2 + Math.sin(angle) * dist, angle, dist, distMax: Math.hypot(cw, ch) * 0.7, speed: (0.5 + Math.random() * 2) * dpr, r: (0.6 + Math.random() * 1.2) * dpr });
-        }
-      } else if (preset === "orbs") {
-        const count = Math.max(3, Math.min(7, Math.round(5 * getDensity())));
-        const anchors = [ { x: cw * 0.15, y: ch * 0.2 }, { x: cw * 0.85, y: ch * 0.25 }, { x: cw * 0.2, y: ch * 0.85 }, { x: cw * 0.8, y: ch * 0.8 }, { x: cw * 0.5, y: ch * 0.5 }, { x: cw * 0.5, y: ch * 0.1 }, { x: cw * 0.5, y: ch * 0.9 } ];
-        for (let i = 0; i < count; i++) {
-          const a = anchors[i % anchors.length];
-          items.push({ anchorX: a.x, anchorY: a.y, baseRad: (140 + Math.random() * 120) * dpr, intensity: 0.14 + Math.random() * 0.08, orbitSpeed: 0.6 + Math.random() * 0.8, orbitR: 0.5 + Math.random() * 0.6, orbitPhase: Math.random() * Math.PI * 2 });
-        }
-      }
-      stateRef.current.items = items;
-    };
-
-    let lastW = 0, lastH = 0, resizeTimer = null;
-    const applySize = () => {
-      const cssW = canvas.offsetWidth || window.innerWidth || 1;
-      const cssH = canvas.offsetHeight || window.innerHeight || 1;
-      const MAX_PIXELS = 4_500_000;
-      let effDpr = dpr;
-      while (cssW * effDpr * cssH * effDpr > MAX_PIXELS && effDpr > 0.75) effDpr -= 0.25;
-      canvas.width = Math.max(1, Math.floor(cssW * effDpr));
-      canvas.height = Math.max(1, Math.floor(cssH * effDpr));
-    };
-    const resize = (rebuild) => { applySize(); if (rebuild) initItems(); lastW = canvas.offsetWidth; lastH = canvas.offsetHeight; };
-    const onResize = () => {
-      const w = canvas.offsetWidth, h = canvas.offsetHeight;
-      const widthChanged = Math.abs(w - lastW) > 2;
-      const heightChangedALot = Math.abs(h - lastH) > 220;
-      if (!widthChanged && !heightChangedALot) { applySize(); lastH = h; return; }
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { resize(true); }, 180);
-    };
-    resize(true);
-    window.addEventListener("resize", onResize, { passive: true });
-    window.addEventListener("orientationchange", () => { if (resizeTimer) clearTimeout(resizeTimer); resizeTimer = setTimeout(() => resize(true), 300); }, { passive: true });
-    const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true });
-    const hasMouse = typeof window.matchMedia === "function" ? window.matchMedia("(hover: hover) and (pointer: fine)").matches : true;
-    const onMove = (e) => { const rect = canvas.getBoundingClientRect(); mouseRef.current.x = (e.clientX - rect.left) * dpr; mouseRef.current.y = (e.clientY - rect.top) * dpr; };
-    const onLeave = () => { mouseRef.current.x = -9999; mouseRef.current.y = -9999; };
-    if (hasMouse) { window.addEventListener("mousemove", onMove, { passive: true }); window.addEventListener("mouseleave", onLeave, { passive: true }); }
-
-    const startTime = performance.now();
-    const linkDist = 130 * dpr;
-
-    function drawParticles(elapsed) {
-      const items = stateRef.current.items;
-      const mx = mouseRef.current.x, my = mouseRef.current.y;
-      const mouseR = 140 * dpr;
-      for (const p of items) {
-        p.x += p.vx * getSpeed(); p.y += p.vy * getSpeed();
-        p.vx += Math.sin(elapsed * 0.3 + p.pulse) * 0.002 * dpr;
-        p.vy += Math.cos(elapsed * 0.2 + p.pulse) * 0.002 * dpr;
-        if (mx > 0) { const dx = p.x - mx, dy = p.y - my, d = Math.hypot(dx, dy); if (d < mouseR && d > 0.1) { const force = (1 - d / mouseR) * 0.6 * dpr; p.vx += (dx / d) * force * 0.05; p.vy += (dy / d) * force * 0.05; } }
-        p.vx *= 0.985; p.vy *= 0.985;
-        if (p.x < -20) p.x = canvas.width + 20; else if (p.x > canvas.width + 20) p.x = -20;
-        if (p.y < -20) p.y = canvas.height + 20; else if (p.y > canvas.height + 20) p.y = -20;
-      }
-      for (let i = 0; i < items.length; i++) {
-        for (let j = i + 1; j < items.length; j++) {
-          const a = items[i], b = items[j], dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
-          if (d2 < linkDist * linkDist) { const d = Math.sqrt(d2); const alpha = (1 - d / linkDist) * 0.14; ctx.strokeStyle = `rgba(${ar},${ag},${ab},${alpha})`; ctx.lineWidth = 0.7 * dpr; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
-        }
-      }
-      for (const p of items) {
-        const pulse = 0.6 + 0.4 * Math.sin(elapsed * p.pulseSpeed + p.pulse);
-        const glowR = p.r * 4;
-        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
-        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.22 * pulse})`); glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
-        ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.55 * pulse})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-    function drawWaves(elapsed) {
-      const waves = stateRef.current.items; const cw = canvas.width;
-      for (const w of waves) {
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.25 + 0.15 * Math.sin(elapsed + w.phase)})`; ctx.lineWidth = w.thickness; ctx.beginPath();
-        const steps = Math.ceil(cw / 8);
-        for (let s = 0; s <= steps; s++) { const x = (s / steps) * cw; const y = w.yBase + w.amplitude * Math.sin(x / w.wavelength * Math.PI * 2 + elapsed * w.phaseSpeed * getSpeed() + w.phase); if (s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
-        ctx.stroke();
-      }
-    }
-    function drawDNA(elapsed) {
-      const items = stateRef.current.items; const cx = canvas.width / 2; const cy = canvas.height / 2;
-      const heightExtent = canvas.height * 1.1; const radius = 110 * dpr; const twistSpeed = 0.5 * getSpeed();
-      ctx.lineWidth = 1.3 * dpr;
-      for (let strand = 0; strand < 2; strand++) {
-        ctx.beginPath();
-        for (let idx = 0; idx <= items.length; idx++) { const n = items[idx % items.length]; const y = cy - heightExtent / 2 + n.t * heightExtent; const twist = elapsed * twistSpeed + n.t * Math.PI * 4; const x = cx + Math.cos(twist + strand * Math.PI) * radius; if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.28)`; ctx.stroke();
-      }
-      for (const n of items) {
-        const y = cy - heightExtent / 2 + n.t * heightExtent; const twist = elapsed * twistSpeed + n.t * Math.PI * 4;
-        const x1 = cx + Math.cos(twist) * radius; const x2 = cx + Math.cos(twist + Math.PI) * radius;
-        const z1 = Math.sin(twist); const z2 = Math.sin(twist + Math.PI);
-        const bright1 = 0.5 + 0.5 * (z1 + 1) / 2; const bright2 = 0.5 + 0.5 * (z2 + 1) / 2;
-        const rungAlpha = 0.14 * Math.max(0, (bright1 + bright2) / 2 - 0.3);
-        if (rungAlpha > 0.02) { ctx.strokeStyle = `rgba(${ar},${ag},${ab},${rungAlpha})`; ctx.lineWidth = 0.9 * dpr; ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke(); }
-        for (const p of [{ x: x1, b: bright1 }, { x: x2, b: bright2 }]) {
-          const r = (1.6 + 1.4 * p.b) * dpr;
-          const glow = ctx.createRadialGradient(p.x, y, 0, p.x, y, r * 5);
-          glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.55 * p.b})`); glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
-          ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(p.x, y, r * 5, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = `rgba(${ar},${ag},${ab},${0.85 * p.b})`; ctx.beginPath(); ctx.arc(p.x, y, r, 0, Math.PI * 2); ctx.fill();
-        }
-      }
-    }
-    function drawCircuits(elapsed) {
-      const items = stateRef.current.items;
-      for (const n of items) {
-        for (const m of items) {
-          if (n.hasEdgeR && Math.abs(m.y - n.y) < 5 * dpr && m.x > n.x && m.x - n.x < 130 * dpr) {
-            ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.12)`; ctx.lineWidth = 0.8 * dpr; ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y); ctx.stroke();
-            const pt = ((elapsed * n.rateR * getSpeed() + n.pulseR) % 2) / 2;
-            if (pt < 0.7) { const t = pt / 0.7; const px = n.x + (m.x - n.x) * t; const py = n.y + (m.y - n.y) * t; const glow = ctx.createRadialGradient(px, py, 0, px, py, 5 * dpr); glow.addColorStop(0, `rgba(${ar},${ag},${ab},0.9)`); glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`); ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(px, py, 5 * dpr, 0, Math.PI * 2); ctx.fill(); }
-            break;
-          }
-        }
-        for (const m of items) {
-          if (n.hasEdgeD && Math.abs(m.x - n.x) < 5 * dpr && m.y > n.y && m.y - n.y < 130 * dpr) {
-            ctx.strokeStyle = `rgba(${ar},${ag},${ab},0.12)`; ctx.lineWidth = 0.8 * dpr; ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y); ctx.stroke();
-            const pt = ((elapsed * n.rateD * getSpeed() + n.pulseD) % 2) / 2;
-            if (pt < 0.7) { const t = pt / 0.7; const px = n.x + (m.x - n.x) * t; const py = n.y + (m.y - n.y) * t; const glow = ctx.createRadialGradient(px, py, 0, px, py, 5 * dpr); glow.addColorStop(0, `rgba(${ar},${ag},${ab},0.9)`); glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`); ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(px, py, 5 * dpr, 0, Math.PI * 2); ctx.fill(); }
-            break;
-          }
-        }
-        const r = 1.6 * dpr; ctx.fillStyle = `rgba(${ar},${ag},${ab},0.5)`; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-    function drawStarfield(elapsed) {
-      const items = stateRef.current.items; const cx = canvas.width / 2, cy = canvas.height / 2;
-      for (const s of items) {
-        s.dist += s.speed * getSpeed(); if (s.dist > s.distMax) { s.dist = 5; s.angle = Math.random() * Math.PI * 2; }
-        s.x = cx + Math.cos(s.angle) * s.dist; s.y = cy + Math.sin(s.angle) * s.dist;
-        const alpha = Math.min(1, s.dist / (s.distMax * 0.3));
-        const tailLen = s.speed * 5 * dpr; const tx = cx + Math.cos(s.angle) * (s.dist - tailLen); const ty = cy + Math.sin(s.angle) * (s.dist - tailLen);
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${alpha * 0.4})`; ctx.lineWidth = s.r; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(s.x, s.y); ctx.stroke();
-        ctx.fillStyle = `rgba(${ar},${ag},${ab},${alpha * 0.8})`; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-    function drawAurora(elapsed) {
-      const cw = canvas.width, ch = canvas.height; const t = elapsed * 0.15 * getSpeed();
-      const blobs = [ { hueShift: 0, speedX: 1.0, speedY: 0.7, phaseX: 0, phaseY: 1.2, size: 0.75 }, { hueShift: 30, speedX: 0.8, speedY: 1.1, phaseX: 2.4, phaseY: 0.4, size: 0.85 }, { hueShift: -30, speedX: 1.3, speedY: 0.9, phaseX: 4.1, phaseY: 3.3, size: 0.65 } ];
-      ctx.fillStyle = `rgba(${ar},${ag},${ab},0.02)`; ctx.fillRect(0, 0, cw, ch);
-      for (const b of blobs) {
-        const cx = cw * (0.5 + 0.4 * Math.sin(t * b.speedX + b.phaseX)); const cy = ch * (0.5 + 0.35 * Math.cos(t * b.speedY + b.phaseY)); const rad = Math.max(cw, ch) * b.size;
-        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
-        const sr = Math.min(255, Math.max(0, ar + b.hueShift)); const sg = Math.min(255, Math.max(0, ag + b.hueShift * 0.5)); const sb = Math.min(255, Math.max(0, ab - b.hueShift * 0.4));
-        g.addColorStop(0, `rgba(${sr},${sg},${sb},0.28)`); g.addColorStop(0.5, `rgba(${sr},${sg},${sb},0.08)`); g.addColorStop(1, `rgba(${sr},${sg},${sb},0)`);
-        ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
-      }
-    }
-    function drawOrbs(elapsed) {
-      const cw = canvas.width, ch = canvas.height; const items = stateRef.current.items; const t = elapsed * 0.08 * getSpeed();
-      for (const o of items) {
-        const cx = o.anchorX + Math.cos(t * o.orbitSpeed + o.orbitPhase) * o.orbitR * cw * 0.08;
-        const cy = o.anchorY + Math.sin(t * o.orbitSpeed + o.orbitPhase) * o.orbitR * ch * 0.08;
-        const rad = o.baseRad * (1 + 0.08 * Math.sin(t * 1.3 + o.orbitPhase));
-        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
-        g.addColorStop(0, `rgba(${ar},${ag},${ab},${o.intensity})`); g.addColorStop(0.4, `rgba(${ar},${ag},${ab},${o.intensity * 0.35})`); g.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
-        ctx.fillStyle = g; ctx.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
-      }
-    }
-    function drawGrid() {
-      const cw = canvas.width, ch = canvas.height; const cell = 40 * dpr;
-      ctx.fillStyle = `rgba(${ar},${ag},${ab},0.08)`;
-      for (let x = cell; x < cw; x += cell) { for (let y = cell; y < ch; y += cell) { ctx.beginPath(); ctx.arc(x, y, 1 * dpr, 0, Math.PI * 2); ctx.fill(); } }
-    }
-    function drawNone() {
-      const cw = canvas.width, ch = canvas.height;
-      const g = ctx.createLinearGradient(0, 0, cw, ch);
-      g.addColorStop(0, `rgba(${ar},${ag},${ab},0.03)`); g.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
-      ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
-    }
-
-    function draw(now) {
-      if (pausedRef.current) { rafRef.current = requestAnimationFrame(draw); return; }
-      const elapsed = (now - startTime) / 1000;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (preset === "waves") drawWaves(elapsed);
-      else if (preset === "dna") drawDNA(elapsed);
-      else if (preset === "circuits") drawCircuits(elapsed);
-      else if (preset === "starfield") drawStarfield(elapsed);
-      else if (preset === "aurora") drawAurora(elapsed);
-      else if (preset === "orbs") drawOrbs(elapsed);
-      else if (preset === "grid") drawGrid();
-      else if (preset === "none") drawNone();
-      else drawParticles(elapsed);
-      rafRef.current = requestAnimationFrame(draw);
-    }
-    rafRef.current = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(rafRef.current); if (resizeTimer) clearTimeout(resizeTimer); window.removeEventListener("resize", onResize); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseleave", onLeave); };
-  }, [accent, intensity, preset]);
+    ensureVanta().then(() => setLoaded(true));
+  }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const canvas = canvasRef.current; if (!canvas) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const intensityScale = intensity === "subtle" ? 0.55 : 1;
-      const finalDensity = density * intensityScale;
-      const cw = canvas.width, ch = canvas.height;
-      const cur = stateRef.current.items;
-      if (preset === "particles" || preset === "neurons") {
-        const target = Math.floor((cw * ch) / (28000 * dpr) * finalDensity);
-        while (cur.length < target) { cur.push({ x: Math.random() * cw, y: Math.random() * ch, vx: (Math.random() - 0.5) * 0.25 * dpr, vy: (Math.random() - 0.5) * 0.25 * dpr, r: (1 + Math.random() * 1.6) * dpr, pulse: Math.random() * Math.PI * 2, pulseSpeed: 0.4 + Math.random() * 0.8 }); }
-        while (cur.length > target) cur.pop();
+    if (!loaded || !containerRef.current || !window.THREE) return;
+    // Destroy previous
+    if (effectRef.current) { try { effectRef.current.destroy(); } catch {} effectRef.current = null; }
+
+    const hex = accent.replace("#", "");
+    const accentInt = parseInt(hex, 16);
+    const el = containerRef.current;
+
+    try {
+      if (P.dark && window.VANTA && window.VANTA.NET) {
+        // Dark mode: NET — connected nodes, depth, premium
+        const r = parseInt(hex.slice(0,2),16);
+        const g = parseInt(hex.slice(2,4),16);
+        const b = parseInt(hex.slice(4,6),16);
+        const dimColor = ((Math.max(0,r-60)) << 16) | ((Math.max(0,g-60)) << 8) | (Math.max(0,b-60));
+
+        effectRef.current = window.VANTA.NET({
+          el,
+          THREE: window.THREE,
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200, minWidth: 200,
+          scale: 1.0,
+          scaleMobile: 1.0,
+          color: accentInt,
+          backgroundColor: parseInt(P.bg.replace("#",""), 16) || 0x070b14,
+          points: Math.round(8 * density),
+          maxDistance: 22,
+          spacing: 18,
+          showDots: true,
+          speed: speed * 0.8,
+        });
+      } else if (!P.dark && window.VANTA && window.VANTA.FOG) {
+        // Light mode: FOG — soft, ambient, clean
+        effectRef.current = window.VANTA.FOG({
+          el,
+          THREE: window.THREE,
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200, minWidth: 200,
+          highlightColor: accentInt,
+          midtoneColor: 0xe8edf5,
+          lowlightColor: 0xd4dae6,
+          baseColor: parseInt(P.bg.replace("#",""), 16) || 0xf8f9fc,
+          blurFactor: 0.7,
+          speed: speed * 0.6,
+          zoom: 1.2,
+        });
       }
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [density, intensity, preset]);
+    } catch (e) { console.warn("Vanta bg failed:", e); }
+
+    return () => { if (effectRef.current) { try { effectRef.current.destroy(); } catch {} effectRef.current = null; } };
+  }, [loaded, accent, P.dark, P.bg, density, speed]);
+
+  // Pause/resume
+  useEffect(() => {
+    if (!effectRef.current) return;
+    if (paused) { try { effectRef.current.setOptions({ speed: 0 }); } catch {} }
+    else { try { effectRef.current.setOptions({ speed: speed * (P.dark ? 0.8 : 0.6) }); } catch {} }
+  }, [paused, speed, P.dark]);
 
   return (
-    <canvas ref={canvasRef} style={{ position: "fixed", inset: 0, width: "100%", height: "100%", pointerEvents: "none", opacity: (P.dark ? 0.3 : 0.22) * (intensity === "subtle" ? 0.55 : 1) * opacity, zIndex: 0 }} aria-hidden="true" />
+    <div ref={containerRef} style={{
+      position: "fixed", inset: 0, width: "100%", height: "100%",
+      pointerEvents: "none", zIndex: 0,
+      opacity: intensity === "subtle" ? 0.5 : opacity,
+      transition: "opacity 0.5s ease",
+    }} aria-hidden="true" />
   );
 }
 
@@ -1749,7 +1619,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
       </div>
       <h2 style={S.headline}>{t.q}</h2>
       {/* Answer card */}
-      <div style={S.answerCard} className="cb-answer-enter">
+      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
         {done && t.source && (
           <div style={S.byline}>
@@ -2409,7 +2279,7 @@ function App() {
   }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile]);
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
-  useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [turns, busy]);
+  useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; if (window.AOS) window.AOS.refresh(); }, [turns, busy]);
   useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
   useEffect(() => { document.body.style.background = P.bg; }, [P]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
@@ -2547,16 +2417,16 @@ function App() {
             <div style={S.hero} className="cb-hero">
               <div style={S.heroGlow} />
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
-              <h1 style={S.heroTitle}><KineticText text="Cerebrum" /></h1>
+              <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
               <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can verify.</p>
               <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700, borderRadius: 14 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Search the scientific literature..." />
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <Magnetic strength={0.15}><button style={S.searchBtn} onClick={() => ask()}>Search</button></Magnetic>
               </div>
               <div style={S.chips} className="cb-stagger">
-                {suggestions.map((s, i) => (<button key={s} className="cb-fade" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
+                {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
               <div style={S.trustRow}>
                 {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
@@ -2564,7 +2434,7 @@ function App() {
               </div>
             </div>
           ) : (
-            <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : {}) }}>
+            <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : {}) }} className="cb-page-enter">
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Searching</span></div><Skeleton P={P} /><LoadingLine P={P} accent={accent} S={S} /></div>)}
@@ -2592,7 +2462,7 @@ function App() {
           </div>
         </div>
       </div>
-      {started && (<button style={S.mobSrcBtn} onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 20, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
+      {started && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 20, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
       {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
       {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
@@ -2726,7 +2596,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-modal   { animation: cbModal 400ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
 .cb-wiggle  { animation: cb-wiggle 400ms var(--cb-ease); }
-.cb-answer-enter { animation: cbEnter 700ms var(--cb-ease) both; }
+.cb-answer-enter cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
 
 /* ── Stagger cascade: slower delays ── */
 .cb-stagger > * { opacity: 0; animation: cbFade 500ms var(--cb-ease) both; }
@@ -2762,9 +2632,74 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .cb-hbtn:hover:not(:disabled) { background: rgba(138,155,186,0.08) !important; }
 .cb-hbtn:active:not(:disabled) { background: rgba(138,155,186,0.14) !important; }
 
-/* ── Card hover ── */
-.cb-card { transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease; }
-.cb-card:hover { transform: translateY(-2px); }
+/* ── Cards with glass depth ── */
+.cb-card {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.3s ease, box-shadow 0.3s ease;
+  will-change: transform;
+}
+.cb-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+}
+
+/* Source card hover lift */
+.cb-src-card {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s, border-color 0.25s;
+}
+.cb-src-card:hover { transform: translateY(-2px); }
+
+/* Glass panel depth — multi-layer shadows for 3D float effect */
+.cb-glass-panel {
+  box-shadow: 
+    0 0 0 0.5px rgba(255,255,255,0.05) inset,
+    0 1px 0 rgba(255,255,255,0.03) inset,
+    0 4px 16px rgba(0,0,0,0.2),
+    0 16px 48px rgba(0,0,0,0.15);
+}
+
+/* Smooth page-level transitions */
+.cb-page-enter {
+  animation: cbPageEnter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes cbPageEnter {
+  from { opacity: 0; transform: translateY(30px); filter: blur(12px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+
+/* Suggestion chip hover ripple */
+.cb-chip-hover {
+  position: relative;
+  overflow: hidden;
+}
+.cb-chip-hover::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.08), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.cb-chip-hover:hover::after { opacity: 1; }
+
+/* Premium text reveal for headings */
+.cb-text-reveal {
+  animation: cbTextReveal 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes cbTextReveal {
+  from { opacity: 0; transform: translateY(20px); filter: blur(8px); letter-spacing: 0.05em; }
+  to { opacity: 1; transform: none; filter: blur(0); letter-spacing: inherit; }
+}
+
+/* Floating action button pulse */
+.cb-fab-pulse {
+  animation: cbFabPulse 2.5s ease-in-out infinite;
+}
+@keyframes cbFabPulse {
+  0%, 100% { box-shadow: 0 4px 20px var(--fab-glow, rgba(52,211,153,0.35)); }
+  50% { box-shadow: 0 4px 32px var(--fab-glow, rgba(52,211,153,0.5)); }
+}
 
 /* Focus */
 :focus { outline: none; }
@@ -2813,16 +2748,29 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 }
 `;
 
-/* Font loading */
+/* Font + animation library loading */
 (function loadFonts() {
   if (typeof document === "undefined") return;
+  // Fonts
   const id = "cb-fonts-v4";
-  if (document.getElementById(id)) return;
-  const link = document.createElement("link");
-  link.id = id;
-  link.rel = "stylesheet";
-  link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
-  document.head.appendChild(link);
+  if (!document.getElementById(id)) {
+    const link = document.createElement("link");
+    link.id = id; link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
+    document.head.appendChild(link);
+  }
+  // AOS — scroll-triggered animations
+  if (!document.getElementById("cb-aos-css")) {
+    const aosCSS = document.createElement("link");
+    aosCSS.id = "cb-aos-css"; aosCSS.rel = "stylesheet";
+    aosCSS.href = "https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css";
+    document.head.appendChild(aosCSS);
+  }
+  loadCDN("https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js").then(() => {
+    if (window.AOS) window.AOS.init({ duration: 600, easing: "ease-out-cubic", once: true, offset: 60 });
+  }).catch(() => {});
+  // Preload Vanta dependencies
+  ensureVanta().catch(() => {});
 })();
 
 /* Root */
