@@ -842,22 +842,24 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
           showDots: true,
           speed: speed * 0.8,
         });
-      } else if (!P.dark && window.VANTA && window.VANTA.FOG) {
-        // Light mode: FOG — soft, ambient, clean
-        effectRef.current = window.VANTA.FOG({
+      } else if (!P.dark && window.VANTA && window.VANTA.NET) {
+        // Light mode: NET with lighter colors
+        effectRef.current = window.VANTA.NET({
           el,
           THREE: window.THREE,
           mouseControls: true,
           touchControls: true,
           gyroControls: false,
           minHeight: 200, minWidth: 200,
-          highlightColor: accentInt,
-          midtoneColor: 0xe8edf5,
-          lowlightColor: 0xd4dae6,
-          baseColor: parseInt(P.bg.replace("#",""), 16) || 0xf8f9fc,
-          blurFactor: 0.7,
-          speed: speed * 0.6,
-          zoom: 1.2,
+          scale: 1.0,
+          scaleMobile: 1.0,
+          color: accentInt,
+          backgroundColor: parseInt(P.bg.replace("#",""), 16) || 0xf8f9fc,
+          points: Math.round(6 * density),
+          maxDistance: 20,
+          spacing: 20,
+          showDots: true,
+          speed: speed * 0.5,
         });
       }
     } catch (e) { console.warn("Vanta bg failed:", e); }
@@ -1744,7 +1746,7 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
    SETTINGS v4 — Full iOS-style redesign
    Grouped sections, proper alignment, accessibility, real settings
    ════════════════════════════════════════════════════════════════ */
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, close }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState("general");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -2387,9 +2389,7 @@ function App() {
 
   return (
     <div style={{...S.page, "--cb-accent": accent}}>
-      {animationMode !== "off" && P.dark && <WebGLField accent={accent} P={P} intensity={animDensity} paused={settingsOpen} />}
-      {animationMode !== "off" && !P.dark && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
-      <CustomCursor accent={accent} P={P} />
+      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
       <div style={S.grain} />
       <header style={S.header}>
         <div style={S.headInner}>
@@ -2466,7 +2466,7 @@ function App() {
       {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
       {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, close: () => setSettingsOpen(false) }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
     </div>
   );
