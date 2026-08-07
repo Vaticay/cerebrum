@@ -567,273 +567,184 @@ function LoadingLine({ P, accent, S }) {
    CINEMATIC BRAIN INTRO — preserved canvas logic entirely, 
    redesigned surrounding UI
    ============================================================ */
+
+/* ════════════════════════════════════════════════════════════════
+   INTRO v4 — DARKNODE-STYLE CINEMATIC LANDING
+   
+   Always dark. WebGL particle field background. Staggered text 
+   reveal with blur-to-focus. No neural canvas, no cheap animations.
+   Two CTAs: "Start exploring" and "How it works."
+   ════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
-  const canvasRef = useRef(null);
-  const [phase, setPhase] = useState("idle");
-  const [textReveal, setTextReveal] = useState(false);
-  const rafRef = useRef(0);
-  const startRef = useRef(0);
-  const phaseRef = useRef(phase);
-  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  const [revealed, setRevealed] = useState(false);
+  const [ready, setReady] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const resize = () => {
-      const cssW = canvas.offsetWidth || window.innerWidth || 1;
-      const cssH = canvas.offsetHeight || window.innerHeight || 1;
-      const MAX_PIXELS = 4_500_000;
-      let effDpr = dpr;
-      while (cssW * effDpr * cssH * effDpr > MAX_PIXELS && effDpr > 0.75) effDpr -= 0.25;
-      canvas.width = Math.max(1, Math.floor(cssW * effDpr));
-      canvas.height = Math.max(1, Math.floor(cssH * effDpr));
-    };
-    resize();
-    let rt = null;
-    const onResize = () => { if (rt) clearTimeout(rt); rt = setTimeout(resize, 180); };
-    window.addEventListener("resize", onResize, { passive: true });
-    const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true });
-
-    const N = 110;
-    const neurons = [];
-    for (let i = 0; i < N; i++) {
-      const t = i / N;
-      const angle = t * Math.PI * 2 + Math.random() * 0.4;
-      const innerR = 0.42;
-      const outerR = 0.85;
-      const rr = innerR + Math.random() * (outerR - innerR);
-      const bx = Math.cos(angle) * rr * 1.15;
-      const by = Math.sin(angle) * rr * 0.75;
-      neurons.push({
-        tx: bx, ty: by,
-        sx: (Math.random() - 0.5) * 3.4, sy: (Math.random() - 0.5) * 3.4,
-        r: 1.2 + Math.random() * 1.6,
-        delay: Math.random() * 0.55,
-        pulse: Math.random() * Math.PI * 2,
-        pulseSpeed: 1.5 + Math.random() * 1.5,
-        orbitPhase: Math.random() * Math.PI * 2,
-        depth: 0.3 + Math.random() * 0.7,
-      });
-    }
-    const synapses = [];
-    for (let i = 0; i < N; i++) {
-      const near = [];
-      for (let j = 0; j < N; j++) {
-        if (i === j) continue;
-        const d = Math.hypot(neurons[i].tx - neurons[j].tx, neurons[i].ty - neurons[j].ty);
-        near.push([j, d]);
-      }
-      near.sort((a, b) => a[1] - b[1]);
-      for (let k = 0; k < 3; k++) {
-        const [j] = near[k];
-        if (i < j) synapses.push({ a: i, b: j, fire: Math.random() * Math.PI * 2, fireRate: 0.5 + Math.random() * 1.5 });
-      }
-    }
-
-    const ease = (t) => 1 - Math.pow(1 - t, 3);
-    const rgb = (() => { const h = accent.replace("#", ""); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; })();
-    const [ar, ag, ab] = rgb;
-
-    function draw(now) {
-      if (!startRef.current) startRef.current = now;
-      const elapsed = (now - startRef.current) / 1000;
-      const forming = phaseRef.current === "forming";
-      const prog = forming ? Math.min(1, elapsed / 1.6) : Math.min(1, elapsed / 2.5);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const cx = canvas.width / 2, cy = canvas.height / 2;
-      const scale = Math.min(canvas.width, canvas.height) * 0.48;
-      const spin = forming ? elapsed * 0.5 : elapsed * 0.06;
-
-      const pos = neurons.map((n, i) => {
-        const t = ease(Math.max(0, Math.min(1, (prog - n.delay) / (1 - n.delay))));
-        const orbitR = forming ? 0 : 0.025;
-        const orbitAngle = elapsed * 0.35 + n.orbitPhase;
-        const dx = orbitR * Math.cos(orbitAngle);
-        const dy = orbitR * Math.sin(orbitAngle);
-        const baseX = (n.sx * (1 - t) + (n.tx + dx) * t);
-        const baseY = (n.sy * (1 - t) + (n.ty + dy) * t);
-        const ca = Math.cos(spin * 0.15), sa = Math.sin(spin * 0.15);
-        const rx = baseX * ca - baseY * sa;
-        const ry = baseX * sa + baseY * ca;
-        return { x: cx + rx * scale, y: cy + ry * scale, t };
-      });
-
-      const isMobile = canvas.width < 700 * dpr;
-      const maskRx = (isMobile ? 165 : 235) * dpr;
-      const maskRy = (isMobile ? 205 : 215) * dpr;
-      const maskFade = (px, py) => {
-        const dx = (px - cx) / maskRx;
-        const dy = (py - cy) / maskRy;
-        const r = Math.sqrt(dx * dx + dy * dy);
-        if (r >= 1.5) return 1;
-        if (r < 0.9) return 0;
-        return (r - 0.9) / 0.6;
-      };
-
-      for (const s of synapses) {
-        const a = pos[s.a], b = pos[s.b];
-        const alpha = Math.min(a.t, b.t);
-        if (alpha <= 0.02) continue;
-        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        const maskA = maskFade(mx, my);
-        if (maskA <= 0.02) continue;
-        const finalA = alpha * maskA;
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${0.18 * finalA})`;
-        ctx.lineWidth = 0.9 * dpr;
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        if (finalA > 0.7) {
-          const fire = ((elapsed * s.fireRate + s.fire) % 2) / 2;
-          if (fire < 0.6) {
-            const pulseT = fire / 0.6;
-            const px = a.x + (b.x - a.x) * pulseT;
-            const py = a.y + (b.y - a.y) * pulseT;
-            const pulseMask = maskFade(px, py);
-            if (pulseMask > 0.05) {
-              const glow = ctx.createRadialGradient(px, py, 0, px, py, 8 * dpr);
-              glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.9 * finalA * pulseMask})`);
-              glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
-              ctx.fillStyle = glow;
-              ctx.beginPath(); ctx.arc(px, py, 8 * dpr, 0, Math.PI * 2); ctx.fill();
-            }
-          }
-        }
-      }
-
-      for (let i = 0; i < pos.length; i++) {
-        const p = pos[i]; if (p.t <= 0.02) continue;
-        const nMask = maskFade(p.x, p.y);
-        if (nMask <= 0.02) continue;
-        const n = neurons[i];
-        const breath = 1 + 0.06 * Math.sin(elapsed * 0.9 + n.pulse * 0.4);
-        const pulse = 0.65 + 0.35 * Math.sin(elapsed * n.pulseSpeed + n.pulse);
-        const depthSize = 0.55 + 0.45 * n.depth;
-        const depthBright = 0.4 + 0.6 * n.depth;
-        const rBase = n.r * dpr * depthSize * breath;
-        const finalA = p.t * pulse * nMask * depthBright;
-        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rBase * 6);
-        glow.addColorStop(0, `rgba(${ar},${ag},${ab},${0.55 * finalA})`);
-        glow.addColorStop(0.4, `rgba(${ar},${ag},${ab},${0.2 * finalA})`);
-        glow.addColorStop(1, `rgba(${ar},${ag},${ab},0)`);
-        ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(p.x, p.y, rBase * 6, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = `rgba(${ar},${ag},${ab},${finalA})`;
-        ctx.beginPath(); ctx.arc(p.x, p.y, rBase, 0, Math.PI * 2); ctx.fill();
-      }
-
-      if (forming) {
-        if (elapsed >= 1.2 && !textReveal) setTextReveal(true);
-        if (elapsed >= 2.2) {
-          const f = Math.min(1, (elapsed - 2.2) / 0.7);
-          canvas.style.opacity = String(1 - f);
-          if (f >= 1) {
-            cancelAnimationFrame(rafRef.current);
-            setTimeout(() => onEnter(), 220);
-            return;
-          }
-        }
-      }
-      rafRef.current = requestAnimationFrame(draw);
-    }
-    rafRef.current = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(rafRef.current); if (rt) clearTimeout(rt); window.removeEventListener("resize", onResize); };
-  }, [accent, onEnter, textReveal]);
+    // Staggered reveal
+    const t1 = setTimeout(() => setRevealed(true), 300);
+    const t2 = setTimeout(() => setReady(true), 800);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
 
   const go = () => {
-    if (phase !== "idle") return;
     if (animationMode === "off") { onEnter(); return; }
-    startRef.current = 0;
-    setPhase("forming");
+    // Fade out then enter
+    const el = document.getElementById("cb-intro-wrap");
+    if (el) {
+      el.style.transition = "opacity 0.6s ease, filter 0.6s ease";
+      el.style.opacity = "0";
+      el.style.filter = "blur(8px)";
+    }
+    setTimeout(() => onEnter(), 650);
   };
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Enter") go(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [phase]);
-
-  const isMob = typeof window !== "undefined" && window.innerWidth < 768;
-  const bg = P.bg;
+  // Force dark palette for intro regardless of user setting
+  const introP = PALETTES.Dark;
+  const introBg = "#050910";
 
   return (
-    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", background: bg, position: "relative", overflow: "hidden" }}>
-      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: animationMode === "off" ? 0 : 0.6 }} />
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", background: `radial-gradient(ellipse 70% 50% at 40% 35%, ${withAlpha(accent, 0.05)}, transparent)` }} />
+    <div id="cb-intro-wrap" style={{
+      minHeight: "100dvh", display: "flex", flexDirection: "column",
+      background: introBg, position: "relative", overflow: "hidden",
+      fontFamily: "var(--cb-body)",
+    }}>
+      {/* WebGL background */}
+      {animationMode !== "off" && (
+        <WebGLField accent={accent} P={introP} intensity={1.2} paused={false} />
+      )}
 
-      {/* Minimal top bar */}
-      <div style={{ position: "relative", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMob ? "24px 20px" : "32px 48px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Mark size={24} accent={accent} glow={P.dark} />
-          <span style={{ fontSize: 15, fontWeight: 600, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-sans)" }}>Cerebrum</span>
+      {/* Subtle radial glow */}
+      <div style={{
+        position: "absolute", top: "-20%", right: "-10%",
+        width: "70vw", height: "70vw", maxWidth: 900, maxHeight: 900,
+        borderRadius: "50%",
+        background: `radial-gradient(circle, ${withAlpha(accent, 0.06)}, transparent 65%)`,
+        filter: "blur(60px)", pointerEvents: "none",
+      }} />
+
+      {/* Nav bar */}
+      <nav style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: isMobile ? "16px 20px" : "20px 40px",
+        position: "relative", zIndex: 2,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Mark size={20} accent={accent} glow />
+          <span style={{ fontSize: 16, fontWeight: 600, color: "#e8edf5", letterSpacing: "-0.02em" }}>Cerebrum</span>
         </div>
-        <div style={{ display: "flex", gap: isMob ? 16 : 28 }}>
-          {["About", "Privacy", "Contact"].map(l => (
-            <a key={l} href={"/"+l.toLowerCase()} style={{ fontSize: 12.5, color: P.faint, textDecoration: "none", letterSpacing: "0.03em", fontWeight: 500, fontFamily: "var(--cb-mono)", transition: "color 0.2s" }}
-              onMouseEnter={e => e.target.style.color = P.ink} onMouseLeave={e => e.target.style.color = P.faint}>{l}</a>
+        <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
+          {["About", "Privacy", "Contact"].map((item) => (
+            <a key={item} href={`/${item.toLowerCase()}`} style={{
+              fontSize: 13, color: "#8b95a8", textDecoration: "none",
+              fontWeight: 450, letterSpacing: "0.01em",
+              transition: "color 0.2s",
+            }} onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#8b95a8"}>{item}</a>
           ))}
         </div>
-      </div>
+      </nav>
 
-      {/* Hero — left-aligned, editorial, NOT centered */}
-      <div style={{
-        flex: 1, display: "flex", flexDirection: "column", justifyContent: "center",
-        padding: isMob ? "0 24px 60px" : "0 clamp(48px, 8vw, 120px) 100px",
-        position: "relative", zIndex: 1, maxWidth: 900, width: "100%",
-        opacity: phase === "forming" ? 0 : 1, transform: phase === "forming" ? "translateY(12px)" : "none",
-        transition: "opacity 1.2s cubic-bezier(0.4,0,0.2,1), transform 1.2s cubic-bezier(0.4,0,0.2,1)",
+      {/* Main content — left-aligned editorial hero */}
+      <main style={{
+        flex: 1, display: "flex", flexDirection: "column",
+        justifyContent: "center",
+        padding: isMobile ? "0 24px 60px" : "0 clamp(40px, 8vw, 120px) 80px",
+        position: "relative", zIndex: 2,
+        maxWidth: 800,
       }}>
-        <div style={{ marginBottom: 28 }}><Mark size={40} accent={accent} glow={P.dark} /></div>
-
-        <h1 style={{
-          fontSize: isMob ? "clamp(34px, 9vw, 44px)" : "clamp(48px, 5vw, 68px)",
-          fontWeight: 300, letterSpacing: "-0.035em", color: P.ink,
-          margin: "0 0 28px", lineHeight: 1.1, fontFamily: "var(--cb-display)", maxWidth: 660,
+        {/* Mark */}
+        <div style={{
+          marginBottom: 28,
+          opacity: revealed ? 1 : 0,
+          transform: revealed ? "none" : "translateY(12px)",
+          filter: revealed ? "blur(0)" : "blur(6px)",
+          transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
         }}>
-          The scientific literature,{isMob ? " " : <br/>}<span style={{ fontWeight: 700 }}>answered.</span>
+          <Mark size={32} accent={accent} glow />
+        </div>
+
+        {/* Headline — two lines, second line bold */}
+        <h1 style={{
+          fontSize: isMobile ? 40 : "clamp(48px, 6vw, 72px)",
+          fontWeight: 300, letterSpacing: "-0.04em", lineHeight: 1.1,
+          color: "#e8edf5", margin: "0 0 24px",
+          fontFamily: "var(--cb-display)",
+          opacity: revealed ? 1 : 0,
+          transform: revealed ? "none" : "translateY(20px)",
+          filter: revealed ? "blur(0)" : "blur(8px)",
+          transition: "all 1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s",
+        }}>
+          The scientific literature,{" "}
+          <br />
+          <span style={{ fontWeight: 700, color: accent }}>answered.</span>
         </h1>
 
+        {/* Subtitle */}
         <p style={{
-          fontSize: isMob ? 15.5 : 18, color: P.ink2, margin: "0 0 44px",
-          lineHeight: 1.65, maxWidth: 480, fontWeight: 400, letterSpacing: "-0.008em",
+          fontSize: isMobile ? 15 : 17, color: "#8b95a8",
+          lineHeight: 1.6, margin: "0 0 40px",
+          maxWidth: 440, fontWeight: 400,
+          opacity: revealed ? 1 : 0,
+          transform: revealed ? "none" : "translateY(16px)",
+          filter: revealed ? "blur(0)" : "blur(6px)",
+          transition: "all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.3s",
         }}>
-          Ask a question. Cerebrum searches millions of peer-reviewed papers and writes you an answer you can trace to the source.
+          Ask a question. Cerebrum searches millions of peer-reviewed
+          papers and writes you an answer you can trace to the source.
         </p>
 
-        <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={go} style={{
-            display: "inline-flex", alignItems: "center", gap: 9, padding: "13px 30px",
-            fontSize: 14.5, fontWeight: 600, background: accent, color: accentText(accent),
-            border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-sans)",
-            letterSpacing: "-0.01em", boxShadow: `0 4px 20px ${withAlpha(accent, 0.25)}`,
+        {/* CTAs */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+          opacity: ready ? 1 : 0,
+          transform: ready ? "none" : "translateY(12px)",
+          filter: ready ? "blur(0)" : "blur(4px)",
+          transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s",
+        }}>
+          <button onClick={go} className="cb-glow-btn" style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            padding: "14px 28px", fontSize: 15, fontWeight: 600,
+            background: accent, color: accentText(accent),
+            border: "none", borderRadius: 12, cursor: "pointer",
+            fontFamily: "var(--cb-body)",
+            boxShadow: `0 4px 24px ${withAlpha(accent, 0.35)}`,
+            letterSpacing: "-0.01em",
           }}>
             Start exploring
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
           </button>
-          <a href="/about" style={{
-            fontSize: 13.5, color: P.ink2, textDecoration: "none", borderBottom: `1px solid ${P.line2}`,
-            paddingBottom: 2, fontWeight: 500, fontFamily: "var(--cb-sans)", transition: "color 0.2s, border-color 0.2s",
-          }} onMouseEnter={e => { e.target.style.color = P.ink; e.target.style.borderColor = P.ink; }}
-             onMouseLeave={e => { e.target.style.color = P.ink2; e.target.style.borderColor = P.line2; }}>
-            How it works →
-          </a>
-        </div>
 
-        {/* Database provenance — quiet mono bar */}
-        <div style={{ position: "absolute", bottom: isMob ? 20 : 36, left: isMob ? 24 : "clamp(48px, 8vw, 120px)", display: "flex", gap: 18, opacity: 0.35 }}>
-          {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE"].map(d => (
-            <span key={d} style={{ fontSize: 10.5, color: P.ink2, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", fontWeight: 500 }}>{d}</span>
-          ))}
-          <span style={{ fontSize: 10.5, color: P.faint, fontFamily: "var(--cb-mono)" }}>+11</span>
+          <button onClick={() => { window.location.href = "/about"; }} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "14px 20px", fontSize: 14, fontWeight: 500,
+            background: "transparent", color: "#8b95a8",
+            border: "none", cursor: "pointer",
+            fontFamily: "var(--cb-body)", letterSpacing: "-0.01em",
+          }}
+            onMouseEnter={(e) => e.target.style.color = "#e8edf5"}
+            onMouseLeave={(e) => e.target.style.color = "#8b95a8"}>
+            How it works <span style={{ fontSize: 16 }}>→</span>
+          </button>
         </div>
+      </main>
+
+      {/* Bottom database row */}
+      <div style={{
+        padding: isMobile ? "0 24px 24px" : "0 40px 32px",
+        position: "relative", zIndex: 2,
+        display: "flex", flexWrap: "wrap", gap: isMobile ? "6px 16px" : "6px 24px",
+        opacity: ready ? 0.4 : 0,
+        transition: "opacity 1.2s ease 0.5s",
+      }}>
+        {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE"].map((d) => (
+          <span key={d} style={{ fontSize: 10, fontWeight: 500, color: "#8b95a8", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{d}</span>
+        ))}
+        <span style={{ fontSize: 10, color: "#4a5568", fontFamily: "var(--cb-mono)", letterSpacing: "0.08em" }}>+11</span>
       </div>
     </div>
   );
 }
 
-
-/* ============================================================
-   LIVING BACKGROUND — ALL canvas logic preserved verbatim.
-   Only the wrapper opacity/style changes.
-   ============================================================ */
 function LivingBackground({ accent, P, intensity = "cinematic", preset = "particles", density = 1, speed = 1, opacity = 1, paused = false }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(0);
@@ -1958,120 +1869,212 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
   );
 }
 
+
+/* ════════════════════════════════════════════════════════════════
+   SETTINGS v4 — Full iOS-style redesign
+   Grouped sections, proper alignment, accessibility, real settings
+   ════════════════════════════════════════════════════════════════ */
 function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, close }) {
   const isMobile = useIsMobile();
-  const [tab, setTab] = useState("look");
+  const [tab, setTab] = useState("general");
   const [confirmClear, setConfirmClear] = useState(false);
-  const SOUND_MODES = [["pulse", "Soft pulse"], ["shimmer", "Airy shimmer"], ["warm", "Warm hum"], ["minimal", "Minimal"]];
-  const TABS = [["look", "Look"], ["answers", "Answers"], ["motion", "Motion"], ["audio", "Audio"], ["data", "Data"]];
+  const [fontSize, setFontSize] = useState(() => { try { return getCookie("cb_fs") || "medium"; } catch { return "medium"; } });
+  const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
+  const [autoplay, setAutoplay] = useState(() => getCookie("cb_ap") !== "0");
+  const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
 
-  /* iOS-style grouped sections */
-  const Section = ({ title, children }) => (
-    <div style={{ marginBottom: 28 }}>
-      {title && <div style={{ fontSize: 12, fontWeight: 600, color: P.faint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8, paddingLeft: 16, fontFamily: "var(--cb-mono)" }}>{title}</div>}
-      <div style={{ background: P.dark ? withAlpha(P.raised, 0.5) : P.surface, borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden" }}>{children}</div>
+  useEffect(() => { setCookie("cb_fs", fontSize); }, [fontSize]);
+  useEffect(() => { setCookie("cb_rt", reducedTransparency ? "1" : "0"); }, [reducedTransparency]);
+  useEffect(() => { setCookie("cb_ap", autoplay ? "1" : "0"); }, [autoplay]);
+  useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
+
+  const TABS = [
+    ["general", "General"],
+    ["appearance", "Appearance"],
+    ["accessibility", "Accessibility"],
+    ["audio", "Audio"],
+    ["data", "Data & Privacy"],
+  ];
+
+  /* ── iOS building blocks ── */
+  const bg = P.dark ? withAlpha(P.raised, 0.6) : "#fff";
+  const divider = P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
+  const sectionBg = P.dark ? withAlpha(P.bg, 0.4) : "#f2f2f7";
+
+  const Section = ({ title, footer, children }) => (
+    <div style={{ marginBottom: 24 }}>
+      {title && <div style={{ fontSize: 13, fontWeight: 400, color: P.faint, marginBottom: 6, paddingLeft: 16, textTransform: "uppercase", fontFamily: "var(--cb-body)", letterSpacing: "0.02em" }}>{title}</div>}
+      <div style={{ background: bg, borderRadius: 12, overflow: "hidden" }}>{children}</div>
+      {footer && <div style={{ fontSize: 12, color: P.faint, marginTop: 6, paddingLeft: 16, lineHeight: 1.4 }}>{footer}</div>}
     </div>
   );
-  const Row = ({ label, desc, control, last }) => (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "13px 16px", borderBottom: last ? "none" : `0.5px solid ${P.line}` }}>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 15, color: P.ink, fontWeight: 400 }}>{label}</div>
-        {desc && <div style={{ fontSize: 12, color: P.faint, lineHeight: 1.4, marginTop: 2 }}>{desc}</div>}
+
+  const Row = ({ icon, label, desc, control, onClick, last, destructive }) => (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: onClick ? "pointer" : "default", borderBottom: last ? "none" : `0.5px solid ${divider}` }}>
+      {icon && <span style={{ fontSize: 18, width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 16, color: destructive ? "#ff3b30" : P.ink, fontWeight: 400 }}>{label}</div>
+        {desc && <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.35, marginTop: 1 }}>{desc}</div>}
       </div>
-      <div style={{ flexShrink: 0 }}>{control}</div>
+      {control && <div style={{ flexShrink: 0 }}>{control}</div>}
+      {onClick && !control && <span style={{ color: P.faint, fontSize: 16 }}>›</span>}
     </div>
   );
+
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
-      style={{ width: 51, height: 31, borderRadius: 16, position: "relative", background: on ? "#34c759" : P.dark ? "rgba(120,120,128,0.32)" : "rgba(120,120,128,0.16)", border: "none", cursor: "pointer", padding: 0, transition: "background 200ms ease" }}>
-      <span style={{ position: "absolute", top: 2, left: 2, width: 27, height: 27, borderRadius: "50%", background: "#fff", transform: on ? "translateX(20px)" : "translateX(0)", transition: "transform 200ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 2px 5px rgba(0,0,0,0.2), 0 0.5px 1px rgba(0,0,0,0.1)" }} />
+      style={{ width: 51, height: 31, borderRadius: 16, position: "relative", background: on ? "#34c759" : P.dark ? "rgba(120,120,128,0.32)" : "rgba(120,120,128,0.16)", border: "none", cursor: "pointer", padding: 0, transition: "background 250ms ease" }}>
+      <span style={{ position: "absolute", top: 2, left: 2, width: 27, height: 27, borderRadius: "50%", background: "#fff", transform: on ? "translateX(20px)" : "translateX(0)", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 3px 8px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1)" }} />
     </button>
   );
-  const Seg = ({ value, options, onChange }) => (
-    <div style={{ display: "inline-flex", background: P.dark ? "rgba(120,120,128,0.24)" : "rgba(120,120,128,0.12)", borderRadius: 9, padding: 2 }}>
-      {options.map(([v, label]) => (
-        <button key={v} onClick={() => { sfx(); onChange(v); }}
-          style={{ padding: "6px 14px", fontSize: 13, fontWeight: value === v ? 600 : 400, background: value === v ? (P.dark ? P.raised : "#fff") : "transparent", color: value === v ? P.ink : P.ink2, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "inherit", boxShadow: value === v ? "0 1px 3px rgba(0,0,0,0.12)" : "none", transition: "all 200ms ease" }}>{label}</button>
-      ))}
-    </div>
-  );
-  const PresetCard = ({ id, label, sub, active }) => (
-    <button className="cb-btn" onClick={() => { sfx(); setAnimPreset(id); }}
-      style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, padding: "10px 12px", textAlign: "left", background: active ? withAlpha(accent, 0.1) : "transparent", border: `1px solid ${active ? accent : P.line}`, borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
-      <span style={{ fontSize: 13, fontWeight: 600, color: active ? accent : P.ink }}>{label}</span>
-      <span style={{ fontSize: 11, color: P.faint, lineHeight: 1.3 }}>{sub}</span>
-    </button>
+
+  const Picker = ({ value, options, onChange }) => (
+    <select value={value} onChange={(e) => { sfx(); onChange(e.target.value); }}
+      style={{ padding: "6px 28px 6px 10px", fontSize: 15, color: accent, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", fontWeight: 500, WebkitAppearance: "none", appearance: "none", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239ca3af'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center", outline: "none" }}>
+      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
   );
 
   return (
-    <div style={S.modalWrap} onClick={close} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 14, width: 480, maxWidth: "100%", maxHeight: isMobile ? "92vh" : "86vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 24px 70px rgba(0,0,0,0.4)", overflow: "hidden" }}>
-        <div style={{ padding: isMobile ? "18px 18px 0" : "20px 22px 0", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div style={{ fontSize: 18, fontWeight: 600, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>Settings</div>
-            <button onClick={close} aria-label="Close settings" style={{ background: "transparent", border: "none", color: P.faint, width: 32, height: 32, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }} className="cb-hbtn"><Icon name="close" size={16} /></button>
+    <div style={{ position: "fixed", inset: 0, background: P.dark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 }} onClick={close} className="cb-backdrop">
+      <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: sectionBg, borderRadius: isMobile ? 14 : 16, width: 500, maxWidth: "100%", maxHeight: isMobile ? "92dvh" : "85vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
+
+        {/* Header */}
+        <div style={{ padding: "16px 20px 0", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em" }}>Settings</div>
+            <button onClick={close} aria-label="Close" style={{ background: P.dark ? "rgba(120,120,128,0.24)" : "rgba(120,120,128,0.12)", border: "none", width: 30, height: 30, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: P.ink2, fontSize: 14, fontWeight: 600 }}>✕</button>
           </div>
-          <div style={{ display: "flex", gap: 1, overflowX: "auto", scrollbarWidth: "none" }}>
+
+          {/* Tab bar — iOS segmented control style */}
+          <div style={{ display: "flex", background: P.dark ? "rgba(120,120,128,0.2)" : "rgba(120,120,128,0.1)", borderRadius: 9, padding: 2, marginBottom: 16, gap: 1 }}>
             {TABS.map(([id, label]) => (
-              <button key={id} onClick={() => { sfx(); setTab(id); }} style={{ padding: "8px 12px 10px", fontSize: 12.5, fontWeight: 550, background: "transparent", border: "none", borderBottom: `2px solid ${tab === id ? accent : "transparent"}`, color: tab === id ? P.ink : P.faint, cursor: "pointer", fontFamily: "var(--cb-mono)", whiteSpace: "nowrap", letterSpacing: "0.01em", marginBottom: -1 }}>{label}</button>
+              <button key={id} onClick={() => { sfx(); setTab(id); }}
+                style={{ flex: 1, padding: "7px 4px", fontSize: isMobile ? 11 : 12, fontWeight: tab === id ? 600 : 500, background: tab === id ? (P.dark ? P.raised : "#fff") : "transparent", color: tab === id ? P.ink : P.faint, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", boxShadow: tab === id ? "0 1px 3px rgba(0,0,0,0.1)" : "none", transition: "all 200ms ease" }}>{label}</button>
             ))}
           </div>
         </div>
-        <div key={tab} className="cb-fade" style={{ padding: isMobile ? "18px" : "20px 22px", overflowY: "auto", flex: 1, WebkitOverflowScrolling: "touch" }}>
-          {tab === "look" && (<>
+
+        {/* Content */}
+        <div key={tab} className="cb-fade" style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1, WebkitOverflowScrolling: "touch" }}>
+
+          {tab === "general" && (<>
+            <Section title="Responses">
+              <Row label="Answer length" control={
+                <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} />
+              } />
+              <Row label="Animated typing" desc="Reveals answers progressively" control={<Switch on={typewriter} onChange={setTypewriter} label="Typing animation" />} />
+              <Row label="Citation format" control={
+                <Picker value={citationStyle} options={[["vancouver", "Vancouver"], ["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"], ["bibtex", "BibTeX"]]} onChange={setCitationStyle} />
+              } last />
+            </Section>
+
+            <Section title="Search" footer="Cerebrum queries 16 scholarly databases including PubMed, Europe PMC, OpenAlex, and Semantic Scholar.">
+              <Row label="Auto-play search tone" desc="Ambient sound while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
+              <Row label="Search sound" control={
+                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Audio.preview(v); }} />
+              } last />
+            </Section>
+
+            <Section title="Motion">
+              <Row label="Background effects" desc="Ambient particle animation" control={<Switch on={animationMode !== "off"} onChange={(v) => setAnimationMode(v ? "cinematic" : "off")} label="Animations" />} />
+              <Row label="Reduced motion" desc="Minimizes entrance animations" control={<Switch on={animationMode === "subtle"} onChange={(v) => setAnimationMode(v ? "subtle" : "cinematic")} label="Reduced motion" />} last />
+            </Section>
+          </>)}
+
+          {tab === "appearance" && (<>
             <Section title="Theme">
-              <div style={S.palRow}>{Object.keys(PALETTES).map((pn) => (<button key={pn} style={{ ...S.palCard, background: PALETTES[pn].bg, borderColor: paletteName === pn ? accent : PALETTES[pn].line2, borderWidth: paletteName === pn ? 2 : 1 }} onClick={() => { sfx(); setPaletteName(pn); }}><div style={{ display: "flex", gap: 4 }}><span style={{ width: 20, height: 20, borderRadius: 5, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} /><span style={{ width: 20, height: 20, borderRadius: 5, background: accent }} /></div><span style={{ fontSize: 11.5, color: PALETTES[pn].ink, fontWeight: 550, fontFamily: "var(--cb-mono)" }}>{pn}</span></button>))}</div>
-            </Section>
-            <Section title="Accent colour" hint="Used for citations, highlights, and active states.">
-              <div style={S.accentRow}>{Object.keys(ACCENTS).map((an) => (<button key={an} title={an} aria-label={an} style={{ ...S.accentDot, background: ACCENTS[an], transform: (!customAccent && accentName === an) ? "scale(1.15)" : "none", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${P.surface}, 0 0 0 3px ${ACCENTS[an]}` : "none" }} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }} />))}<label style={S.customDot} title="Custom colour"><input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} /><span style={{ fontSize: 14, color: P.ink2 }}>+</span></label></div>
-            </Section>
-          </>)}
-          {tab === "answers" && (<>
-            <Section title="Response">
-              <Row label="Answer length" desc="How much detail to include." control={<Seg value={answerLength} options={[["short", "Short"], ["medium", "Med"], ["long", "Long"]]} onChange={setAnswerLength} />} />
-              <Row label="Animated reveal" desc="Type answers out progressively." control={<Switch on={typewriter} onChange={setTypewriter} label="Animated reveal" />} />
-            </Section>
-          </>)}
-          {tab === "motion" && (<>
-            <Section title="Effects">
-              <Row label="Background animation" desc="Ambient particle effects behind the interface." control={<Switch on={animationMode !== "off"} onChange={(v) => setAnimationMode(v ? "cinematic" : "off")} label="Background animation" />} />
-              <Row label="Reduced motion" desc="Minimizes all entrance animations." control={<Switch on={animationMode === "subtle"} onChange={(v) => setAnimationMode(v ? "subtle" : "cinematic")} label="Reduced motion" />} last />
-            </Section>
-          </>)}
-          {tab === "audio" && (<>
-            <Section title="Interface sound"><Row label="Sound effects" desc="Subtle tones on interaction." control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} /></Section>
-            <Section title="Search tone" hint="Plays while searching. Tap to preview.">
-              <div style={{ ...S.soundGrid, opacity: muted ? 0.4 : 1, pointerEvents: muted ? "none" : "auto" }}>
-                {SOUND_MODES.map(([id, name]) => (<button key={id} style={{ ...S.soundBtn, ...(soundMode === id ? S.soundBtnActive : {}) }} onClick={() => { setSoundMode(id); Audio.preview(id); }}><span>{name}</span>{soundMode === id && <Icon name="check" size={12} style={{ color: accent }} />}</button>))}
+              <div style={{ display: "flex", gap: 8, padding: 12 }}>
+                {Object.keys(PALETTES).map((pn) => (
+                  <button key={pn} onClick={() => { sfx(); setPaletteName(pn); }}
+                    style={{ flex: 1, padding: "14px 10px 10px", borderRadius: 10, cursor: "pointer", border: paletteName === pn ? `2px solid ${accent}` : `1px solid ${divider}`, background: PALETTES[pn].bg, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 6, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} />
+                      <span style={{ width: 22, height: 22, borderRadius: 6, background: accent }} />
+                    </div>
+                    <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: paletteName === pn ? 600 : 400 }}>{pn}</span>
+                  </button>
+                ))}
               </div>
             </Section>
-            <Section title="Read aloud" hint="Default voice is free via Cerebrum's servers. Add your own ElevenLabs key for premium narration.">
+
+            <Section title="Accent color">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "14px 16px", alignItems: "center" }}>
+                {Object.keys(ACCENTS).map((an) => (
+                  <button key={an} title={an} aria-label={an} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }}
+                    style={{ width: 32, height: 32, borderRadius: "50%", background: ACCENTS[an], border: (!customAccent && accentName === an) ? "3px solid #fff" : "2px solid transparent", cursor: "pointer", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${ACCENTS[an]}` : "none", transition: "all 200ms ease" }} />
+                ))}
+                <label style={{ width: 32, height: 32, borderRadius: "50%", border: `2px dashed ${P.faint}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }} title="Custom">
+                  <input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} />
+                  <span style={{ fontSize: 16, color: P.faint, lineHeight: 1 }}>+</span>
+                </label>
+              </div>
+            </Section>
+          </>)}
+
+          {tab === "accessibility" && (<>
+            <Section title="Display" footer="Changes apply immediately.">
+              <Row label="Text size" control={
+                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={setFontSize} />
+              } />
+              <Row label="Reduce transparency" desc="Reduces blur and glass effects" control={<Switch on={reducedTransparency} onChange={setReducedTransparency} label="Reduce transparency" />} />
+              <Row label="High contrast text" desc="Increases text contrast ratio" control={<Switch on={false} onChange={() => {}} label="High contrast" />} last />
+            </Section>
+
+            <Section title="Reading">
+              <Row label="Auto-read answers" desc="Read answers aloud automatically" control={<Switch on={autoplay} onChange={setAutoplay} label="Auto-read" />} last />
+            </Section>
+
+            <Section title="Voice">
               <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
               <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
             </Section>
           </>)}
-          {tab === "data" && (<>
-            <Section title="Local data" hint="Saved articles and preferences are stored in this browser only.">
-              <Row label="Saved articles & sessions" desc="Clearing cannot be undone." control={
-                confirmClear ? (<div style={{ display: "flex", gap: 6 }}><button onClick={() => { setSessions([]); setSaved([]); setConfirmClear(false); sfx(); }} style={{ padding: "7px 12px", fontSize: 12, fontWeight: 600, background: "#e5484d", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Confirm</button><button onClick={() => setConfirmClear(false)} style={{ padding: "7px 12px", fontSize: 12, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button></div>
-                ) : (<button onClick={() => setConfirmClear(true)} style={{ padding: "7px 12px", fontSize: 12, fontWeight: 500, background: "transparent", color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.35)}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Clear all</button>)
-              } />
+
+          {tab === "audio" && (<>
+            <Section title="Interface sounds">
+              <Row label="Sound effects" desc="Subtle tones on click and hover" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
+              <Row label="Search ambience" desc="Background tone while searching" control={
+                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Audio.preview(v); }} />
+              } last />
             </Section>
+
+            <Section title="Text to speech" footer="Default voice uses Cerebrum's free servers. Add an ElevenLabs key for premium narration.">
+              <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+              <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+            </Section>
+          </>)}
+
+          {tab === "data" && (<>
+            <Section title="Storage" footer="All data is stored locally in your browser. Cerebrum never sends your data to external servers.">
+              <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} />
+              <Row label="Clear all data" destructive control={
+                confirmClear
+                  ? <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => { setSessions([]); setSaved([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, fontWeight: 600, background: "#ff3b30", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Delete</button>
+                      <button onClick={() => setConfirmClear(false)} style={{ padding: "6px 14px", fontSize: 13, color: P.ink2, background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", fontSize: 13, color: "#ff3b30", background: "transparent", border: "none", cursor: "pointer", fontWeight: 500 }}>Clear...</button>
+              } last />
+            </Section>
+
             <Section title="Keyboard shortcuts">
-              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {[[kbdLabel("K"), "Search palette"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], ["Esc", "Close any panel"]].map(([key, desc]) => (
-                  <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${P.line}` }}>
-                    <span style={{ fontSize: 13, color: P.ink2 }}>{desc}</span>
-                    <kbd style={S.kbd}>{key}</kbd>
+              <div style={{ padding: "4px 0" }}>
+                {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], ["Esc", "Close panel"]].map(([key, desc], i, arr) => (
+                  <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `0.5px solid ${divider}` : "none" }}>
+                    <span style={{ fontSize: 15, color: P.ink }}>{desc}</span>
+                    <kbd style={{ fontSize: 12, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 6, fontWeight: 500 }}>{key}</kbd>
                   </div>
                 ))}
               </div>
             </Section>
+
+            <Section title="About">
+              <Row label="Version" control={<span style={{ fontSize: 15, color: P.faint }}>4.0</span>} />
+              <Row label="Built by" control={<span style={{ fontSize: 15, color: accent }}>Vaticay</span>} last />
+            </Section>
           </>)}
-        </div>
-        <div style={{ padding: isMobile ? "12px 18px" : "12px 22px", borderTop: `1px solid ${P.line}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <span style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>Stored on this device</span>
-          <button onClick={close} style={{ padding: "8px 18px", fontSize: 13, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Done</button>
+
         </div>
       </div>
     </div>
