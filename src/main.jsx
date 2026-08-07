@@ -1550,6 +1550,10 @@ function WebGLField({ accent, P, intensity = 1, paused = false }) {
 }
 
 
+/* ════════════════════════════════════════════════════════════════
+   MIC BUTTON — speech-to-text logic preserved
+   ════════════════════════════════════════════════════════════════ */
+function MicButton({ onTranscript, accent, P }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
