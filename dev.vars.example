@@ -1,6 +1,7 @@
-# Local development secrets for `wrangler pages dev`.
-# Copy to `.dev.vars` (no extension change) and fill in. Never commit .dev.vars.
+# Local development secrets for wrangler pages dev.
+# Copy to .dev.vars and fill in. Never commit .dev.vars.
 
-GEMINI_API_KEY=AIzaSy-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENROUTER_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxx
 OPENALEX_KEY=
+NCBI_API_KEY=
 SEMANTIC_SCHOLAR_KEY=

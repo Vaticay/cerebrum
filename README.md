@@ -1,87 +1,44 @@
-# Cerebrum (web, on Cloudflare)
+# Cerebrum v4.0
 
-A science search engine that lives at a URL. You ask a question; it pulls real
-papers from scholarly databases, then answers grounded only in those papers with
-inline citation links.
+A scientific literature search engine at [askcerebrum.org](https://askcerebrum.org).
 
-Frontend: static site (Vite + React) on Cloudflare Pages.
-Backend: a Pages Function (Cloudflare Workers runtime) in `functions/api/search.js`
-that queries the databases and calls Google Gemini (free tier). One deploy, one URL, free tier.
+Ask a question. Cerebrum searches 16 open scholarly databases in parallel, then writes an answer where every claim traces back to a real, citable paper.
 
-Sources: Europe PMC (bio/chem, keyless), Semantic Scholar (all fields, keyless),
-OpenAlex (optional key), and UTK TRACE (University of Tennessee repository).
+## Stack
 
-## Deploy — the fast way (dashboard, no CLI)
+- **Frontend**: React + Vite, deployed as static site on Cloudflare Pages
+- **Backend**: Cloudflare Pages Functions (`functions/api/search.js`)
+- **AI**: OpenRouter free models (Gemini Flash, DeepSeek, Llama, Qwen, Mistral) + Cloudflare Workers AI fallback
+- **Databases**: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, medRxiv, DOAJ, PLOS, Zenodo, CORE, DataCite, and more
+- **Animations**: Three.js + Vanta.js (loaded from CDN)
 
-1. Put this folder in a GitHub repo (create a repo, push these files).
-2. Go to the Cloudflare dashboard → Workers & Pages → Create → Pages →
-   Connect to Git → pick your repo.
-3. Build settings:
-   - Framework preset: None (or Vite)
-   - Build command: `npm run build`
-   - Build output directory: `dist`
-4. Before the first deploy finishes, go to the project's
-   Settings → Variables and Secrets and add:
-   - `GEMINI_API_KEY` (mark as Secret / Encrypt) — from aistudio.google.com/apikey
-   - `OPENALEX_KEY` (optional) — from openalex.org
-   - `SEMANTIC_SCHOLAR_KEY` (optional)
-5. Redeploy (Deployments → Retry, or push a commit). Your site is live at
-   `https://<project>.pages.dev`.
+## Deploy
 
-That's it. Type a question and search.
-
-## Deploy — the CLI way
-
-```
+```bash
 npm install
 npx wrangler login
-npm run deploy        # builds, then wrangler pages deploy ./dist
+npm run deploy
 ```
 
-Then add the secrets (once):
-
-```
-npx wrangler pages secret put GEMINI_API_KEY
+Then add secrets (once):
+```bash
+npx wrangler pages secret put OPENROUTER_KEY
 npx wrangler pages secret put OPENALEX_KEY          # optional
-npx wrangler pages secret put SEMANTIC_SCHOLAR_KEY  # optional
+npx wrangler pages secret put NCBI_API_KEY          # optional
 ```
 
-Redeploy after adding secrets: `npm run deploy`.
+## Local development
 
-## Run locally first (optional)
-
-```
+```bash
 npm install
-cp .dev.vars.example .dev.vars     # then paste your GEMINI_API_KEY into it
-npm run build
-npm run preview                    # wrangler serves site + functions together
+cp dev.vars.example .dev.vars    # fill in your OPENROUTER_KEY
+npm run dev
 ```
-
-Open the URL it prints. Local dev reads secrets from `.dev.vars` (never commit it).
-
-## How it works
-
-- The page (`src/Cerebrum.jsx`) calls `POST /api/search`.
-- The Function (`functions/api/search.js`) calls `gatherPapers()` in
-  `functions/api/_sources.js`, which queries the databases (with fallback) and
-  merges in UTK TRACE results, then asks Gemini to answer using only those papers.
-- Files starting with `_` in `functions/` are treated as shared modules, not
-  routes, so `_sources.js` is imported, not exposed as an endpoint.
-
-## Notes and limits
-
-- Europe PMC is strongest for life sciences and chemistry. For physics/math,
-  Semantic Scholar carries more of the load; the fallback handles it.
-- TRACE has no keyword search (OAI-PMH), so it harvests theses/dissertations and
-  filters them against your query. Lighter match than the big databases, but real
-  UTK work. To change collections, edit the `sets` array in `traceUTK()` in
-  `functions/api/_sources.js`.
-- Keyless database pools are shared and can throttle. Add the optional keys to
-  raise limits.
-- Answers are only as good as the retrieved abstracts. Citations let you verify.
 
 ## Cost
 
-Cloudflare Pages free tier covers a lot (static requests are free; Functions get
-100k requests/day free). Gemini free tier covers the answer generation (1,500 requests/day). The
-free database tiers are free.
+Everything runs on free tiers. Cloudflare Pages (100k requests/day), OpenRouter free models, and free scholarly APIs.
+
+## Built by
+
+[Vaticay](https://github.com/Vaticay)

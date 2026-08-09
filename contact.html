@@ -1,65 +1,34 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contact — Cerebrum</title>
-  <meta name="description" content="Contact Cerebrum for bug reports, feature requests, or general questions." />
-  <meta name="robots" content="index, follow" />
-  <link rel="canonical" href="https://askcerebrum.org/contact" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <style>
-    :root { color-scheme: light dark; }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; background: #fafaf9; color: #18181b; line-height: 1.6; -webkit-font-smoothing: antialiased; }
-    @media (prefers-color-scheme: dark) { body { background: #0f0f10; color: #e4e4e7; } a { color: #f97316; } .muted { color: #a1a1aa; } .card { background: #18181b !important; border-color: #27272a !important; } }
-    a { color: #b45309; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    header { padding: 20px 24px; border-bottom: 1px solid rgba(128,128,128,0.15); }
-    header a { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; color: inherit; font-size: 17px; letter-spacing: -0.01em; }
-    main { max-width: 720px; margin: 0 auto; padding: 48px 24px 96px; }
-    h1 { font-size: clamp(30px, 5vw, 40px); font-weight: 750; letter-spacing: -0.025em; margin: 0 0 12px; line-height: 1.1; }
-    h2 { font-size: 19px; font-weight: 650; letter-spacing: -0.015em; margin: 32px 0 10px; }
-    .lede { color: #52525b; margin: 0 0 26px; }
-    p { margin: 0 0 14px; }
-    .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 18px 22px; margin: 18px 0; }
-    .email { font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 15px; }
-    footer { border-top: 1px solid rgba(128,128,128,0.15); padding: 24px; text-align: center; font-size: 13px; color: #71717a; }
-    footer a { color: inherit; margin: 0 12px; }
-  </style>
+  <meta name="description" content="Contact Cerebrum for bug reports, feedback, or security issues." />
+  <link rel="canonical" href="https://askcerebrum.org/contact" /><link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>:root{color-scheme:dark light}*{box-sizing:border-box;margin:0}body{font-family:"Inter",system-ui,sans-serif;background:#050816;color:#f0f2f8;line-height:1.7;-webkit-font-smoothing:antialiased}a{color:#34d399;text-decoration:none}a:hover{opacity:.8}header{padding:20px 24px;border-bottom:1px solid rgba(148,160,184,.1)}header a{display:inline-flex;align-items:center;gap:10px;font-weight:700;color:inherit;font-size:17px}main{max-width:680px;margin:0 auto;padding:56px 24px 96px}h1{font-size:clamp(28px,5vw,40px);font-weight:700;letter-spacing:-.03em;margin:0 0 14px;line-height:1.1}h2{font-size:18px;font-weight:600;margin:36px 0 12px;color:#34d399}.lede{font-size:17px;color:#94a0b8;margin:0 0 32px}p{margin:0 0 16px;color:#c4cad8}.card{background:rgba(12,18,34,.7);border:1px solid rgba(148,160,184,.08);border-radius:14px;padding:24px;margin:20px 0;backdrop-filter:blur(8px)}.mono{font-family:"JetBrains Mono",monospace}footer{border-top:1px solid rgba(148,160,184,.08);padding:28px 24px;text-align:center;font-size:13px;color:#4e5a70}footer a{color:#94a0b8;margin:0 10px}</style>
 </head>
 <body>
-  <header>
-    <a href="/">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
-        <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
-      </svg>
-      Cerebrum
-    </a>
-  </header>
+  <header><div style="display:flex;align-items:center;justify-content:space-between;max-width:680px;margin:0 auto"><a href="/"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/></svg> Cerebrum</a><nav style="display:flex;gap:16px"><a href="/about" style="color:#94a0b8;font-size:13px">About</a><a href="/privacy" style="color:#94a0b8;font-size:13px">Privacy</a><a href="/terms" style="color:#94a0b8;font-size:13px">Terms</a><a href="/contact" style="color:#34d399;font-weight:600;font-size:13px">Contact</a></nav></div></header>
   <main>
     <h1>Contact</h1>
-    <p class="lede">Get in touch for bug reports, feature requests, feedback, or general questions.</p>
+    <p class="lede">Bug reports, feature requests, feedback, security issues — all welcome.</p>
 
     <div class="card">
-      <h2 style="margin-top: 0;">Email</h2>
-      <p class="email"><a href="mailto:contact@askcerebrum.org">contact@askcerebrum.org</a></p>
-      <p class="muted">Please include as much detail as you can — a bug report is much easier to act on with the exact query, browser, and what you expected to see.</p>
+      <h2 style="margin-top:0;color:#34d399">Email</h2>
+      <p class="mono" style="font-size:16px;color:#34d399"><a href="mailto:contact@askcerebrum.org">contact@askcerebrum.org</a></p>
+      <p style="font-size:14px;color:#94a0b8;margin:0">Include the exact query, your browser, and what you expected to see. The more detail, the faster the fix.</p>
     </div>
 
-    <h2>Reporting a bad answer</h2>
-    <p>Cerebrum's answers are AI-generated summaries of retrieved abstracts. If you find one that's wrong — a wrong species, invented citation, misattributed finding — please email us with the exact question and a short description of the issue. This is how the system improves.</p>
+    <h2>Bad answers</h2>
+    <p>Found a wrong species, invented citation, or misattributed finding? Email the exact question and what's wrong. This is how Cerebrum improves.</p>
 
     <h2>Security</h2>
-    <p>If you've discovered a security issue, please email <a href="mailto:contact@askcerebrum.org">contact@askcerebrum.org</a> with details. Please don't publicly disclose the issue until we've had a chance to respond.</p>
+    <p>Found a vulnerability? Email us with details. Please hold off on public disclosure until we've responded.</p>
 
-    <h2>Reputation and categorization</h2>
-    <p>If your organization's web filter is blocking Cerebrum incorrectly, please email us — we can help you get it recategorized correctly (Educational / Reference).</p>
+    <h2>Blocked at work?</h2>
+    <p>If your organization's web filter is blocking Cerebrum, email us. We can help get it recategorized as Educational / Reference.</p>
   </main>
-  <footer>
-    <a href="/">Home</a> · <a href="/about.html">About</a> · <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a> · <a href="/contact.html">Contact</a>
-    <div style="margin-top: 12px;">© 2026 Cerebrum</div>
-  </footer>
+  <footer><a href="/">Home</a> · <a href="/about">About</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a><div style="margin-top:10px">© 2026 Cerebrum™ · Built by Vaticay</div></footer>
 </body>
 </html>
