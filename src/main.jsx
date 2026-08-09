@@ -576,6 +576,39 @@ function LoadingLine({ P, accent, S }) {
    Two CTAs: "Start exploring" and "How it works."
    ════════════════════════════════════════════════════════════════ */
 
+// Global script loader — deduplicates across components
+const _loadedScripts = new Set();
+function loadCDN(src) {
+  return new Promise((resolve, reject) => {
+    if (_loadedScripts.has(src) || document.querySelector(`script[src="${src}"]`)) {
+      _loadedScripts.add(src);
+      resolve();
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = () => { _loadedScripts.add(src); resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// Load all Vanta dependencies once
+let _vantaReady = null;
+function ensureVanta() {
+  if (_vantaReady) return _vantaReady;
+  _vantaReady = loadCDN("https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js")
+    .then(() => Promise.all([
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.fog.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.cells.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.halo.min.js"),
+    ]))
+    .catch(() => { _vantaReady = null; });
+  return _vantaReady;
+}
+
+
 /* ════════════════════════════════════════════════════════════════
    INTRO v4.1 — Vanta.js CELLS background
    Loads Three.js + Vanta from CDN. Dark, immersive, cinematic.
@@ -767,39 +800,6 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
    nodes, premium depth), FOG for light themes (soft ambient).
    Mouse-reactive, GPU-accelerated, zero maintenance.
    ════════════════════════════════════════════════════════════════ */
-
-// Global script loader — deduplicates across components
-const _loadedScripts = new Set();
-function loadCDN(src) {
-  return new Promise((resolve, reject) => {
-    if (_loadedScripts.has(src) || document.querySelector(`script[src="${src}"]`)) {
-      _loadedScripts.add(src);
-      resolve();
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = src; s.async = true;
-    s.onload = () => { _loadedScripts.add(src); resolve(); };
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-
-// Load all Vanta dependencies once
-let _vantaReady = null;
-function ensureVanta() {
-  if (_vantaReady) return _vantaReady;
-  _vantaReady = loadCDN("https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js")
-    .then(() => Promise.all([
-      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"),
-      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.fog.min.js"),
-      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.cells.min.js"),
-      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.halo.min.js"),
-    ]))
-    .catch(() => { _vantaReady = null; });
-  return _vantaReady;
-}
-
 function LivingBackground({ accent, P, intensity = "cinematic", preset = "particles", density = 1, speed = 1, opacity = 1, paused = false }) {
   const containerRef = useRef(null);
   const effectRef = useRef(null);
@@ -875,7 +875,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
     <div ref={containerRef} style={{
       position: "fixed", inset: 0, width: "100%", height: "100%",
       pointerEvents: "none", zIndex: 0,
-      opacity: intensity === "subtle" ? 0.1 : 0.18,
+      opacity: intensity === "subtle" ? 0.35 : 0.65,
       transition: "opacity 0.5s ease",
     }} aria-hidden="true" />
   );
@@ -894,110 +894,6 @@ function BrainEasterEgg() {
    Hides the default cursor. Renders a glowing dot with a trailing 
    ring that expands + inverts over actionable elements via 
    mix-blend-mode: difference. Pure React, no dependencies.
-   ════════════════════════════════════════════════════════════════ */
-function CustomCursor({ accent, P }) {
-  const dotRef = useRef(null);
-  const ringRef = useRef(null);
-  const pos = useRef({ x: -100, y: -100 });
-  const target = useRef({ x: -100, y: -100 });
-  const hovering = useRef(false);
-  const clicking = useRef(false);
-  const visible = useRef(false);
-
-  useEffect(() => {
-    // Only on desktop with fine pointer
-    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-    if (!hasMouse) return;
-
-    document.documentElement.style.cursor = "none";
-    const actionables = "a, button, input, select, textarea, [role='button'], summary, label[for], .cb-card, .cb-btn, .cb-hbtn";
-
-    const onMove = (e) => {
-      target.current = { x: e.clientX, y: e.clientY };
-      if (!visible.current) { visible.current = true; pos.current = { ...target.current }; }
-    };
-    const onEnter = (e) => {
-      if (e.target.closest(actionables)) hovering.current = true;
-      else hovering.current = false;
-    };
-    const onLeave = () => { hovering.current = false; };
-    const onDown = () => { clicking.current = true; };
-    const onUp = () => { clicking.current = false; };
-    const onOut = () => { visible.current = false; };
-
-    window.addEventListener("mousemove", onMove, { passive: true });
-    document.addEventListener("mouseover", onEnter, { passive: true });
-    document.addEventListener("mouseout", onLeave, { passive: true });
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("mouseup", onUp);
-    document.addEventListener("mouseleave", onOut);
-
-    let raf;
-    const lerp = (a, b, t) => a + (b - a) * t;
-    const loop = () => {
-      pos.current.x = lerp(pos.current.x, target.current.x, 0.4);
-      pos.current.y = lerp(pos.current.y, target.current.y, 0.4);
-      const { x, y } = pos.current;
-      const vis = visible.current;
-      if (dotRef.current) {
-        dotRef.current.style.transform = `translate3d(${x - 4}px, ${y - 4}px, 0) scale(${clicking.current ? 0.6 : 1})`;
-        dotRef.current.style.opacity = vis ? "1" : "0";
-      }
-      if (ringRef.current) {
-        const ringX = lerp(parseFloat(ringRef.current.dataset.x || x), x, 0.18);
-        const ringY = lerp(parseFloat(ringRef.current.dataset.y || y), y, 0.18);
-        ringRef.current.dataset.x = ringX;
-        ringRef.current.dataset.y = ringY;
-        const s = hovering.current ? 2.5 : 1;
-        ringRef.current.style.transform = `translate3d(${ringX - 20}px, ${ringY - 20}px, 0) scale(${s})`;
-        ringRef.current.style.opacity = vis ? (hovering.current ? "0.8" : "0.4") : "0";
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      document.documentElement.style.cursor = "";
-      window.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseover", onEnter);
-      document.removeEventListener("mouseout", onLeave);
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mouseup", onUp);
-      document.removeEventListener("mouseleave", onOut);
-    };
-  }, []);
-
-  return (
-    <>
-      {/* Dot: solid, fast-tracking */}
-      <div ref={dotRef} style={{
-        position: "fixed", top: 0, left: 0, width: 8, height: 8,
-        borderRadius: "50%", background: accent,
-        boxShadow: `0 0 12px ${withAlpha(accent, 0.6)}`,
-        pointerEvents: "none", zIndex: 9999, opacity: 0,
-        transition: "transform 60ms ease, opacity 300ms",
-        willChange: "transform",
-      }} />
-      {/* Ring: slow-trailing, blend-mode */}
-      <div ref={ringRef} data-x="-100" data-y="-100" style={{
-        position: "fixed", top: 0, left: 0, width: 40, height: 40,
-        borderRadius: "50%", border: `1.5px solid ${accent}`,
-        mixBlendMode: "difference",
-        pointerEvents: "none", zIndex: 9998, opacity: 0,
-        transition: "transform 0.35s cubic-bezier(0.16,1,0.3,1), opacity 0.4s, width 0.3s, height 0.3s",
-        willChange: "transform",
-      }} />
-    </>
-  );
-}
-
-
-/* ════════════════════════════════════════════════════════════════
-   UPGRADE 2: MAGNETIC BUTTON
-   
-   Wraps any element and makes it gently pull toward the cursor 
-   when hovered, using lerped offset translation. Resets on leave.
    ════════════════════════════════════════════════════════════════ */
 function Magnetic({ children, strength = 0.3, style, className, ...props }) {
   const ref = useRef(null);
@@ -1053,57 +949,6 @@ function Magnetic({ children, strength = 0.3, style, className, ...props }) {
    Wraps the search bar. Renders a radial glow that follows the 
    mouse X/Y along the border. Creates a localized light source.
    ════════════════════════════════════════════════════════════════ */
-function GlowBorder({ children, accent, active, style, className, ...props }) {
-  const ref = useRef(null);
-  const glowRef = useRef(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    const glow = glowRef.current;
-    if (!el || !glow) return;
-    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-    if (!hasMouse) return;
-
-    const onMove = (e) => {
-      const rect = el.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      glow.style.opacity = "1";
-      glow.style.background = `radial-gradient(180px circle at ${x}px ${y}px, ${withAlpha(accent, 0.25)}, transparent 70%)`;
-    };
-    const onLeave = () => { glow.style.opacity = "0"; };
-
-    el.addEventListener("mousemove", onMove, { passive: true });
-    el.addEventListener("mouseleave", onLeave, { passive: true });
-    return () => {
-      el.removeEventListener("mousemove", onMove);
-      el.removeEventListener("mouseleave", onLeave);
-    };
-  }, [accent]);
-
-  return (
-    <div ref={ref} style={{ position: "relative", ...style }} className={className} {...props}>
-      {/* Mouse-following glow layer */}
-      <div ref={glowRef} style={{
-        position: "absolute", inset: -1, borderRadius: "inherit",
-        opacity: 0, transition: "opacity 0.4s ease",
-        pointerEvents: "none", zIndex: 0,
-      }} />
-      {/* Content */}
-      <div style={{ position: "relative", zIndex: 1, display: "contents" }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-
-/* ════════════════════════════════════════════════════════════════
-   UPGRADE 4: KINETIC TEXT
-   
-   Splits text into individual characters that gently breathe/shift 
-   with staggered sine-wave offsets. Subtle, premium, not gimmicky.
-   ════════════════════════════════════════════════════════════════ */
 function KineticText({ text, style, className }) {
   return (
     <span className="cb-gradient-text" style={{ ...style, display: "inline-block" }} aria-label={text}>
@@ -1122,233 +967,6 @@ function KineticText({ text, style, className }) {
    cursor and reform magnetically. Replaces the 2D canvas 
    LivingBackground on capable devices.
    ════════════════════════════════════════════════════════════════ */
-function WebGLField({ accent, P, intensity = 1, paused = false }) {
-  const canvasRef = useRef(null);
-  const mouseRef = useRef({ x: 0.5, y: 0.5 });
-  const pausedRef = useRef(paused);
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const gl = canvas.getContext("webgl", { alpha: true, antialias: false, premultipliedAlpha: false });
-    if (!gl) return; // Fallback handled by parent
-
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const resize = () => {
-      canvas.width = Math.floor(canvas.offsetWidth * dpr);
-      canvas.height = Math.floor(canvas.offsetHeight * dpr);
-      gl.viewport(0, 0, canvas.width, canvas.height);
-    };
-    resize();
-    window.addEventListener("resize", resize, { passive: true });
-
-    // Parse accent color
-    const hex = accent.replace("#", "");
-    const cr = parseInt(hex.slice(0,2),16) / 255;
-    const cg = parseInt(hex.slice(2,4),16) / 255;
-    const cb = parseInt(hex.slice(4,6),16) / 255;
-
-    // ── Shaders ──
-    const vertSrc = `
-      attribute vec3 aPos;
-      attribute float aSize;
-      attribute float aPhase;
-      uniform float uTime;
-      uniform vec2 uMouse;
-      uniform vec2 uRes;
-      varying float vAlpha;
-      varying float vDist;
-      
-      void main() {
-        vec3 pos = aPos;
-        
-        // Breathing motion
-        float breath = sin(uTime * 0.4 + aPhase) * 0.02;
-        pos.x += breath;
-        pos.y += cos(uTime * 0.3 + aPhase * 1.3) * 0.015;
-        pos.z += sin(uTime * 0.2 + aPhase * 0.7) * 0.01;
-        
-        // Mouse repulsion
-        vec2 mouseNDC = uMouse * 2.0 - 1.0;
-        vec2 posNDC = pos.xy;
-        float mouseDist = distance(posNDC, mouseNDC);
-        float repulse = smoothstep(0.4, 0.0, mouseDist) * 0.15;
-        vec2 dir = normalize(posNDC - mouseNDC + 0.001);
-        pos.xy += dir * repulse;
-        
-        // Perspective projection
-        float fov = 1.2;
-        float z = pos.z + 1.5;
-        vec2 projected = pos.xy * fov / z;
-        float aspect = uRes.x / uRes.y;
-        projected.x /= aspect;
-        
-        gl_Position = vec4(projected, pos.z * 0.1, 1.0);
-        gl_PointSize = aSize * (300.0 / z) * (uRes.y / 800.0);
-        
-        // Alpha: distance from center + depth
-        vAlpha = smoothstep(1.8, 0.3, length(pos.xy)) * smoothstep(1.0, 0.0, abs(pos.z));
-        vDist = mouseDist;
-      }
-    `;
-    const fragSrc = `
-      precision mediump float;
-      uniform vec3 uColor;
-      uniform float uTime;
-      varying float vAlpha;
-      varying float vDist;
-      
-      void main() {
-        // Soft circle
-        vec2 cxy = gl_PointCoord * 2.0 - 1.0;
-        float r = dot(cxy, cxy);
-        if (r > 1.0) discard;
-        
-        // Glow falloff
-        float glow = exp(-r * 3.0) * 0.8 + exp(-r * 0.8) * 0.4;
-        
-        // Pulse near mouse
-        float mousePulse = smoothstep(0.5, 0.0, vDist) * 0.3;
-        float pulse = sin(uTime * 2.0 + vDist * 10.0) * 0.5 + 0.5;
-        
-        float alpha = glow * vAlpha * (0.6 + mousePulse * pulse);
-        gl_FragColor = vec4(uColor * (1.0 + mousePulse * 0.5), alpha * 0.7);
-      }
-    `;
-
-    function compileShader(src, type) {
-      const s = gl.createShader(type);
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        console.warn("Shader error:", gl.getShaderInfoLog(s));
-        gl.deleteShader(s);
-        return null;
-      }
-      return s;
-    }
-
-    const vs = compileShader(vertSrc, gl.VERTEX_SHADER);
-    const fs = compileShader(fragSrc, gl.FRAGMENT_SHADER);
-    if (!vs || !fs) return;
-
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
-    gl.useProgram(prog);
-
-    // ── Particle data ──
-    const N = Math.floor(400 * intensity);
-    const posData = new Float32Array(N * 3);
-    const sizeData = new Float32Array(N);
-    const phaseData = new Float32Array(N);
-
-    for (let i = 0; i < N; i++) {
-      // Distribute in a sphere-ish volume
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      const r = 0.3 + Math.random() * 1.2;
-      posData[i * 3]     = Math.sin(phi) * Math.cos(theta) * r;
-      posData[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * r * 0.7;
-      posData[i * 3 + 2] = (Math.cos(phi) * r * 0.5) - 0.2;
-      sizeData[i] = 1.5 + Math.random() * 3.5;
-      phaseData[i] = Math.random() * Math.PI * 2;
-    }
-
-    // ── Buffers ──
-    const posBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, posData, gl.STATIC_DRAW);
-    const aPosLoc = gl.getAttribLocation(prog, "aPos");
-    gl.enableVertexAttribArray(aPosLoc);
-    gl.vertexAttribPointer(aPosLoc, 3, gl.FLOAT, false, 0, 0);
-
-    const sizeBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, sizeData, gl.STATIC_DRAW);
-    const aSizeLoc = gl.getAttribLocation(prog, "aSize");
-    gl.enableVertexAttribArray(aSizeLoc);
-    gl.vertexAttribPointer(aSizeLoc, 1, gl.FLOAT, false, 0, 0);
-
-    const phaseBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, phaseBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, phaseData, gl.STATIC_DRAW);
-    const aPhaseLoc = gl.getAttribLocation(prog, "aPhase");
-    gl.enableVertexAttribArray(aPhaseLoc);
-    gl.vertexAttribPointer(aPhaseLoc, 1, gl.FLOAT, false, 0, 0);
-
-    // ── Uniforms ──
-    const uTime = gl.getUniformLocation(prog, "uTime");
-    const uMouse = gl.getUniformLocation(prog, "uMouse");
-    const uRes = gl.getUniformLocation(prog, "uRes");
-    const uColor = gl.getUniformLocation(prog, "uColor");
-
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // Additive blending for glow
-
-    const onMove = (e) => {
-      mouseRef.current = {
-        x: e.clientX / window.innerWidth,
-        y: 1.0 - e.clientY / window.innerHeight,
-      };
-    };
-    window.addEventListener("mousemove", onMove, { passive: true });
-
-    const startTime = performance.now();
-    let raf;
-    function draw() {
-      if (pausedRef.current) { raf = requestAnimationFrame(draw); return; }
-      const t = (performance.now() - startTime) / 1000;
-
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-
-      gl.useProgram(prog);
-      gl.uniform1f(uTime, t);
-      gl.uniform2f(uMouse, mouseRef.current.x, mouseRef.current.y);
-      gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform3f(uColor, cr, cg, cb);
-
-      // Re-bind position buffer
-      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
-      gl.vertexAttribPointer(aPosLoc, 3, gl.FLOAT, false, 0, 0);
-      gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
-      gl.vertexAttribPointer(aSizeLoc, 1, gl.FLOAT, false, 0, 0);
-      gl.bindBuffer(gl.ARRAY_BUFFER, phaseBuf);
-      gl.vertexAttribPointer(aPhaseLoc, 1, gl.FLOAT, false, 0, 0);
-
-      gl.drawArrays(gl.POINTS, 0, N);
-      raf = requestAnimationFrame(draw);
-    }
-    raf = requestAnimationFrame(draw);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
-      window.removeEventListener("mousemove", onMove);
-      gl.deleteProgram(prog);
-      gl.deleteShader(vs);
-      gl.deleteShader(fs);
-      gl.deleteBuffer(posBuf);
-      gl.deleteBuffer(sizeBuf);
-      gl.deleteBuffer(phaseBuf);
-    };
-  }, [accent, intensity]);
-
-  return (
-    <canvas ref={canvasRef} style={{
-      position: "fixed", inset: 0, width: "100%", height: "100%",
-      pointerEvents: "none", zIndex: 0, opacity: P.dark ? 0.6 : 0.25,
-    }} aria-hidden="true" />
-  );
-}
-
-
-/* ════════════════════════════════════════════════════════════════
-   MIC BUTTON — speech-to-text logic preserved
    ════════════════════════════════════════════════════════════════ */
 function MicButton({ onTranscript, accent, P }) {
   const [supported, setSupported] = useState(true);
@@ -1467,11 +1085,11 @@ function InfoPage({ page }) {
   const accent = customAccent || ACCENTS[accentName] || ACCENTS.Amber;
   const at = accentText(accent);
   const isMobile = useIsMobile();
-  const goHome = () => { try { setCookie("cb_entered_v3", "1", 365); } catch {} window.location.href = "/"; };
+  const goHome = () => { try { setCookie("cb_entered_v4", "1", 365); } catch {} window.location.href = "/"; };
   const PAGES = {
-    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "Cerebrum queries the open scientific literature and returns answers where every claim traces back to a real, verifiable paper.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no account, no selling data."] } ] },
-    privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible", lede: "No tracking pixels. No third-party analytics. No account. No selling data — there is nothing to sell.", updated: "Last updated January 2026", blocks: [ { h: "What we don't do", list: ["No tracking pixels, third-party analytics, or ad networks.", "No account, email, or personal information required.", "No selling, sharing, or profiling of user data.", "No tracking cookies. Preferences live in your browser's local storage and never leave your device."] }, { h: "What happens when you search", list: ["Your question is sent to Cerebrum's server to query databases and generate an answer.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others).", "The question is sent to a language-model provider (OpenRouter or Cloudflare Workers AI) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention.", "We do not permanently store your questions."] }, { h: "Local storage", p: "Saved articles, session history, and preferences (theme, motion, voice) are stored only in your browser via localStorage. Clearing your browser data removes them entirely." }, { h: "Children", p: "Cerebrum is not directed at children under 13." } ] },
-    terms: { eyebrow: "Terms", title: "The rules that keep this usable for everyone", lede: "Cerebrum is a free tool provided as-is. Using it means agreeing to a few common-sense terms.", updated: "Last updated January 2026", blocks: [ { h: "What Cerebrum is", p: "A free scientific literature search tool that returns AI-generated summaries of retrieved peer-reviewed papers, provided as-is with no warranty." }, { h: "Accuracy is not guaranteed", p: "Answers are generated by a language model from retrieved abstracts. Models can misread or misattribute. Verify anything important against the cited sources. Cerebrum is not a substitute for a qualified professional." }, { h: "Acceptable use", list: ["Don't disrupt, degrade, or circumvent the service or its rate limits.", "Don't systematically scrape, mirror, or resell answers.", "Don't generate content meant to defraud, defame, harass, or endanger.", "Don't violate the terms of the upstream scholarly APIs."] }, { h: "Third-party content", p: "Cerebrum links to papers hosted by publishers and repositories. We aren't responsible for their content, availability, or licensing — follow each publisher's terms." }, { h: "Availability & liability", p: "Cerebrum is free and comes with no availability guarantee. To the maximum extent allowed by law, we aren't liable for damages arising from your use of the service." } ] },
+    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no account, no selling data."] } ] },
+    privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible", lede: "No tracking pixels. No third-party analytics. No account. No selling data — there is nothing to sell.", updated: "Last updated August 2026", blocks: [ { h: "What we don't do", list: ["No tracking pixels, third-party analytics, or ad networks.", "No account, email, or personal information required.", "No selling, sharing, or profiling of user data.", "No tracking cookies. Preferences live in your browser's local storage and never leave your device."] }, { h: "What happens when you search", list: ["Your question is sent to Cerebrum's server to query databases and generate an answer.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others).", "The question is sent to a language-model provider (OpenRouter or Cloudflare Workers AI) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention.", "We do not permanently store your questions."] }, { h: "Local storage", p: "Saved articles, session history, and preferences (theme, motion, voice) are stored only in your browser via localStorage. Clearing your browser data removes them entirely." }, { h: "Children", p: "Cerebrum is not directed at children under 13." } ] },
+    terms: { eyebrow: "Terms", title: "The rules that keep this usable for everyone", lede: "Cerebrum is a free tool provided as-is. Using it means agreeing to a few common-sense terms.", updated: "Last updated August 2026", blocks: [ { h: "What Cerebrum is", p: "A free scientific literature search tool that returns AI-generated summaries of retrieved peer-reviewed papers, provided as-is with no warranty." }, { h: "Accuracy is not guaranteed", p: "Answers are generated by a language model from retrieved abstracts. Models can misread or misattribute. Verify anything important against the cited sources. Cerebrum is not a substitute for a qualified professional." }, { h: "Acceptable use", list: ["Don't disrupt, degrade, or circumvent the service or its rate limits.", "Don't systematically scrape, mirror, or resell answers.", "Don't generate content meant to defraud, defame, harass, or endanger.", "Don't violate the terms of the upstream scholarly APIs."] }, { h: "Third-party content", p: "Cerebrum links to papers hosted by publishers and repositories. We aren't responsible for their content, availability, or licensing — follow each publisher's terms." }, { h: "Availability & liability", p: "Cerebrum is free and comes with no availability guarantee. To the maximum extent allowed by law, we aren't liable for damages arising from your use of the service." } ] },
     contact: { eyebrow: "Contact", title: "Tell us what's broken or missing", lede: "Bug reports, feature requests, feedback, security issues — all welcome.", blocks: [ { h: "Email", email: "contact@askcerebrum.org", p: "Include as much detail as you can. A bug report is far easier to act on with the exact query, your browser, and what you expected to see." }, { h: "Reporting a bad answer", p: "Found a wrong species, an invented citation, a misattributed finding? Email the exact question and a short description. This is how the system improves." }, { h: "Security", p: "Discovered a vulnerability? Email us with details and please hold off on public disclosure until we've had a chance to respond." }, { h: "Blocked at work?", p: "If your organization's web filter is blocking Cerebrum, email us — we can help get it recategorized correctly as Reference / Educational." } ] },
   };
   const data = PAGES[page]; if (!data) return null;
@@ -1749,11 +1367,13 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
   const [confirmClear, setConfirmClear] = useState(false);
   const [fontSize, setFontSize] = useState(() => { try { return getCookie("cb_fs") || "medium"; } catch { return "medium"; } });
   const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
+  const [highContrast, setHighContrast] = useState(() => getCookie("cb_hc") === "1");
   const [autoplay, setAutoplay] = useState(() => getCookie("cb_ap") !== "0");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
 
   useEffect(() => { setCookie("cb_fs", fontSize); }, [fontSize]);
   useEffect(() => { setCookie("cb_rt", reducedTransparency ? "1" : "0"); }, [reducedTransparency]);
+  useEffect(() => { setCookie("cb_hc", highContrast ? "1" : "0"); }, [highContrast]);
   useEffect(() => { setCookie("cb_ap", autoplay ? "1" : "0"); }, [autoplay]);
   useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
 
@@ -1887,7 +1507,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                 <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={setFontSize} />
               } />
               <Row label="Reduce transparency" desc="Reduces blur and glass effects" control={<Switch on={reducedTransparency} onChange={setReducedTransparency} label="Reduce transparency" />} />
-              <Row label="High contrast text" desc="Increases text contrast ratio" control={<Switch on={false} onChange={() => {}} label="High contrast" />} last />
+              <Row label="High contrast text" desc="Increases text contrast ratio" control={<Switch on={highContrast} onChange={setHighContrast} label="High contrast" />} last />
             </Section>
 
             <Section title="Reading">
@@ -2177,13 +1797,13 @@ function makeStyles(P, accent, at, isMobile = false) {
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 25 },
 
     /* ── Command palette ── */
-    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "12vh", zIndex: 50 },
+    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh", zIndex: 50 },
     cmdBox: { width: 560, maxWidth: "92vw", background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden", fontFamily: font },
     cmdInputRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
     cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, color: P.ink, fontFamily: "var(--cb-mono)" },
     cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
     cmdSection: { fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, padding: "12px 14px 6px", fontFamily: "var(--cb-mono)" },
-    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "center", transition: "background 0.15s" },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.15s" },
 
     /* ── Modals ── */
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
@@ -2237,7 +1857,8 @@ function App() {
   const [animDensity, setAnimDensity] = useState(() => parseFloat(getCookie("cb_animD") || "1"));
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
   const [animOpacity, setAnimOpacity] = useState(() => parseFloat(getCookie("cb_animO") || "1"));
-  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Light");
+  const [highContrast, setHighContrast] = useState(() => getCookie("cb_hc") === "1");
+  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Dark");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
   const [hover, setHover] = useState("");
@@ -2248,7 +1869,7 @@ function App() {
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
-  const P = PALETTES[paletteName] || PALETTES.Light;
+  const P = PALETTES[paletteName] || PALETTES.Dark;
   const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (ACCENTS[accentName] || ACCENTS.Emerald);
   const at = accentText(accent);
   const S = makeStyles(P, accent, at, isMobile);
@@ -2390,7 +2011,7 @@ function App() {
   );
 
   return (
-    <div style={{...S.page, "--cb-accent": accent}}>
+    <div style={{...S.page, "--cb-accent": accent}} className={highContrast ? "cb-high-contrast" : ""}>
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
       <div style={S.grain} />
       <header style={S.header}>
@@ -2454,7 +2075,7 @@ function App() {
           <div style={S.foot}>
             <div style={{ fontSize: 11, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Answers are assembled from real papers by AI. Always check the cited sources.</div>
             <div style={{ fontSize: 10.5, color: P.faint, fontFamily: "var(--cb-mono)" }}>
-              <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}`, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
+              <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", background: "none", border: "none", borderBottom: `1px dotted ${P.faint}`, padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/about" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>About</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/privacy" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/terms" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
@@ -2468,7 +2089,7 @@ function App() {
       {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
       {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, close: () => { setSettingsOpen(false); setHighContrast(getCookie("cb_hc") === "1"); } }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
     </div>
   );
@@ -2595,7 +2216,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-modal   { animation: cbModal 400ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
 .cb-wiggle  { animation: cb-wiggle 400ms var(--cb-ease); }
-.cb-answer-enter cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
+.cb-answer-enter.cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
 
 /* ── Stagger cascade: slower delays ── */
 .cb-stagger > * { opacity: 0; animation: cbFade 500ms var(--cb-ease) both; }
@@ -2736,6 +2357,17 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 .cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 20px; width: 4px; height: 4px; border-radius: 50%; }
 .cb-info-navlink { transition: color .2s, background .2s; }
 .cb-fadein { animation: cbEnter .7s var(--cb-ease) both; }
+
+/* ── High contrast mode ── */
+.cb-high-contrast { --hc-ink: #ffffff !important; }
+.cb-high-contrast p, .cb-high-contrast span, .cb-high-contrast div, .cb-high-contrast li, .cb-high-contrast a {
+  color: #ffffff !important;
+  text-shadow: 0 0 1px rgba(255,255,255,0.1);
+}
+.cb-high-contrast h1, .cb-high-contrast h2, .cb-high-contrast strong, .cb-high-contrast b {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
