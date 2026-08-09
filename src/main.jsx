@@ -576,6 +576,39 @@ function LoadingLine({ P, accent, S }) {
    Two CTAs: "Start exploring" and "How it works."
    ════════════════════════════════════════════════════════════════ */
 
+// Global script loader — deduplicates across components
+const _loadedScripts = new Set();
+function loadCDN(src) {
+  return new Promise((resolve, reject) => {
+    if (_loadedScripts.has(src) || document.querySelector(`script[src="${src}"]`)) {
+      _loadedScripts.add(src);
+      resolve();
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = () => { _loadedScripts.add(src); resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// Load all Vanta dependencies once
+let _vantaReady = null;
+function ensureVanta() {
+  if (_vantaReady) return _vantaReady;
+  _vantaReady = loadCDN("https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js")
+    .then(() => Promise.all([
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.fog.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.cells.min.js"),
+      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.halo.min.js"),
+    ]))
+    .catch(() => { _vantaReady = null; });
+  return _vantaReady;
+}
+
+
 /* ════════════════════════════════════════════════════════════════
    INTRO v4.1 — Vanta.js CELLS background
    Loads Three.js + Vanta from CDN. Dark, immersive, cinematic.
@@ -767,39 +800,6 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
    nodes, premium depth), FOG for light themes (soft ambient).
    Mouse-reactive, GPU-accelerated, zero maintenance.
    ════════════════════════════════════════════════════════════════ */
-
-// Global script loader — deduplicates across components
-const _loadedScripts = new Set();
-function loadCDN(src) {
-  return new Promise((resolve, reject) => {
-    if (_loadedScripts.has(src) || document.querySelector(`script[src="${src}"]`)) {
-      _loadedScripts.add(src);
-      resolve();
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = src; s.async = true;
-    s.onload = () => { _loadedScripts.add(src); resolve(); };
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-
-// Load all Vanta dependencies once
-let _vantaReady = null;
-function ensureVanta() {
-  if (_vantaReady) return _vantaReady;
-  _vantaReady = loadCDN("https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js")
-    .then(() => Promise.all([
-      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"),
-      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.fog.min.js"),
-      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.cells.min.js"),
-      loadCDN("https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.halo.min.js"),
-    ]))
-    .catch(() => { _vantaReady = null; });
-  return _vantaReady;
-}
-
 function LivingBackground({ accent, P, intensity = "cinematic", preset = "particles", density = 1, speed = 1, opacity = 1, paused = false }) {
   const containerRef = useRef(null);
   const effectRef = useRef(null);
@@ -1467,11 +1467,11 @@ function InfoPage({ page }) {
   const accent = customAccent || ACCENTS[accentName] || ACCENTS.Amber;
   const at = accentText(accent);
   const isMobile = useIsMobile();
-  const goHome = () => { try { setCookie("cb_entered_v3", "1", 365); } catch {} window.location.href = "/"; };
+  const goHome = () => { try { setCookie("cb_entered_v4", "1", 365); } catch {} window.location.href = "/"; };
   const PAGES = {
-    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "Cerebrum queries the open scientific literature and returns answers where every claim traces back to a real, verifiable paper.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no account, no selling data."] } ] },
-    privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible", lede: "No tracking pixels. No third-party analytics. No account. No selling data — there is nothing to sell.", updated: "Last updated January 2026", blocks: [ { h: "What we don't do", list: ["No tracking pixels, third-party analytics, or ad networks.", "No account, email, or personal information required.", "No selling, sharing, or profiling of user data.", "No tracking cookies. Preferences live in your browser's local storage and never leave your device."] }, { h: "What happens when you search", list: ["Your question is sent to Cerebrum's server to query databases and generate an answer.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others).", "The question is sent to a language-model provider (OpenRouter or Cloudflare Workers AI) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention.", "We do not permanently store your questions."] }, { h: "Local storage", p: "Saved articles, session history, and preferences (theme, motion, voice) are stored only in your browser via localStorage. Clearing your browser data removes them entirely." }, { h: "Children", p: "Cerebrum is not directed at children under 13." } ] },
-    terms: { eyebrow: "Terms", title: "The rules that keep this usable for everyone", lede: "Cerebrum is a free tool provided as-is. Using it means agreeing to a few common-sense terms.", updated: "Last updated January 2026", blocks: [ { h: "What Cerebrum is", p: "A free scientific literature search tool that returns AI-generated summaries of retrieved peer-reviewed papers, provided as-is with no warranty." }, { h: "Accuracy is not guaranteed", p: "Answers are generated by a language model from retrieved abstracts. Models can misread or misattribute. Verify anything important against the cited sources. Cerebrum is not a substitute for a qualified professional." }, { h: "Acceptable use", list: ["Don't disrupt, degrade, or circumvent the service or its rate limits.", "Don't systematically scrape, mirror, or resell answers.", "Don't generate content meant to defraud, defame, harass, or endanger.", "Don't violate the terms of the upstream scholarly APIs."] }, { h: "Third-party content", p: "Cerebrum links to papers hosted by publishers and repositories. We aren't responsible for their content, availability, or licensing — follow each publisher's terms." }, { h: "Availability & liability", p: "Cerebrum is free and comes with no availability guarantee. To the maximum extent allowed by law, we aren't liable for damages arising from your use of the service." } ] },
+    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no account, no selling data."] } ] },
+    privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible", lede: "No tracking pixels. No third-party analytics. No account. No selling data — there is nothing to sell.", updated: "Last updated August 2026", blocks: [ { h: "What we don't do", list: ["No tracking pixels, third-party analytics, or ad networks.", "No account, email, or personal information required.", "No selling, sharing, or profiling of user data.", "No tracking cookies. Preferences live in your browser's local storage and never leave your device."] }, { h: "What happens when you search", list: ["Your question is sent to Cerebrum's server to query databases and generate an answer.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others).", "The question is sent to a language-model provider (OpenRouter or Cloudflare Workers AI) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention.", "We do not permanently store your questions."] }, { h: "Local storage", p: "Saved articles, session history, and preferences (theme, motion, voice) are stored only in your browser via localStorage. Clearing your browser data removes them entirely." }, { h: "Children", p: "Cerebrum is not directed at children under 13." } ] },
+    terms: { eyebrow: "Terms", title: "The rules that keep this usable for everyone", lede: "Cerebrum is a free tool provided as-is. Using it means agreeing to a few common-sense terms.", updated: "Last updated August 2026", blocks: [ { h: "What Cerebrum is", p: "A free scientific literature search tool that returns AI-generated summaries of retrieved peer-reviewed papers, provided as-is with no warranty." }, { h: "Accuracy is not guaranteed", p: "Answers are generated by a language model from retrieved abstracts. Models can misread or misattribute. Verify anything important against the cited sources. Cerebrum is not a substitute for a qualified professional." }, { h: "Acceptable use", list: ["Don't disrupt, degrade, or circumvent the service or its rate limits.", "Don't systematically scrape, mirror, or resell answers.", "Don't generate content meant to defraud, defame, harass, or endanger.", "Don't violate the terms of the upstream scholarly APIs."] }, { h: "Third-party content", p: "Cerebrum links to papers hosted by publishers and repositories. We aren't responsible for their content, availability, or licensing — follow each publisher's terms." }, { h: "Availability & liability", p: "Cerebrum is free and comes with no availability guarantee. To the maximum extent allowed by law, we aren't liable for damages arising from your use of the service." } ] },
     contact: { eyebrow: "Contact", title: "Tell us what's broken or missing", lede: "Bug reports, feature requests, feedback, security issues — all welcome.", blocks: [ { h: "Email", email: "contact@askcerebrum.org", p: "Include as much detail as you can. A bug report is far easier to act on with the exact query, your browser, and what you expected to see." }, { h: "Reporting a bad answer", p: "Found a wrong species, an invented citation, a misattributed finding? Email the exact question and a short description. This is how the system improves." }, { h: "Security", p: "Discovered a vulnerability? Email us with details and please hold off on public disclosure until we've had a chance to respond." }, { h: "Blocked at work?", p: "If your organization's web filter is blocking Cerebrum, email us — we can help get it recategorized correctly as Reference / Educational." } ] },
   };
   const data = PAGES[page]; if (!data) return null;
@@ -1618,7 +1618,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
       </div>
       <h2 style={S.headline}>{t.q}</h2>
       {/* Answer card */}
-      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
+      <div style={S.answerCard} className=.cb-answer-enter.cb-glass-panel">
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
         {done && t.source && (
           <div style={S.byline}>
@@ -1887,7 +1887,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                 <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={setFontSize} />
               } />
               <Row label="Reduce transparency" desc="Reduces blur and glass effects" control={<Switch on={reducedTransparency} onChange={setReducedTransparency} label="Reduce transparency" />} />
-              <Row label="High contrast text" desc="Increases text contrast ratio" control={<Switch on={false} onChange={() => {}} label="High contrast" />} last />
+              <Row label="High contrast text" desc="Increases text contrast ratio" control={<Switch on={P.ink === "#fff" || P.ink === "#f0f2f8"} onChange={() => {}} label="High contrast" />} last />
             </Section>
 
             <Section title="Reading">
@@ -2177,13 +2177,13 @@ function makeStyles(P, accent, at, isMobile = false) {
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 25 },
 
     /* ── Command palette ── */
-    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "12vh", zIndex: 50 },
+    cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh", zIndex: 50 },
     cmdBox: { width: 560, maxWidth: "92vw", background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden", fontFamily: font },
     cmdInputRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
     cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, color: P.ink, fontFamily: "var(--cb-mono)" },
     cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
     cmdSection: { fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, padding: "12px 14px 6px", fontFamily: "var(--cb-mono)" },
-    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "center", transition: "background 0.15s" },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: 13.5, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.15s" },
 
     /* ── Modals ── */
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
@@ -2237,7 +2237,7 @@ function App() {
   const [animDensity, setAnimDensity] = useState(() => parseFloat(getCookie("cb_animD") || "1"));
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
   const [animOpacity, setAnimOpacity] = useState(() => parseFloat(getCookie("cb_animO") || "1"));
-  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Light");
+  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Dark");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
   const [hover, setHover] = useState("");
@@ -2248,7 +2248,7 @@ function App() {
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
-  const P = PALETTES[paletteName] || PALETTES.Light;
+  const P = PALETTES[paletteName] || PALETTES.Dark;
   const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (ACCENTS[accentName] || ACCENTS.Emerald);
   const at = accentText(accent);
   const S = makeStyles(P, accent, at, isMobile);
@@ -2454,7 +2454,7 @@ function App() {
           <div style={S.foot}>
             <div style={{ fontSize: 11, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Answers are assembled from real papers by AI. Always check the cited sources.</div>
             <div style={{ fontSize: 10.5, color: P.faint, fontFamily: "var(--cb-mono)" }}>
-              <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}`, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
+              <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", background: "none", border: "none", borderBottom: `1px dotted ${P.faint}`, padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/about" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>About</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/privacy" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/terms" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
@@ -2595,7 +2595,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-modal   { animation: cbModal 400ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
 .cb-wiggle  { animation: cb-wiggle 400ms var(--cb-ease); }
-.cb-answer-enter cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
+.cb-answer-enter.cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
 
 /* ── Stagger cascade: slower delays ── */
 .cb-stagger > * { opacity: 0; animation: cbFade 500ms var(--cb-ease) both; }
