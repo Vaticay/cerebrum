@@ -1361,20 +1361,11 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
    SETTINGS v4 — Full iOS-style redesign
    Grouped sections, proper alignment, accessibility, real settings
    ════════════════════════════════════════════════════════════════ */
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, close }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState("general");
   const [confirmClear, setConfirmClear] = useState(false);
-  const [fontSize, setFontSize] = useState(() => { try { return getCookie("cb_fs") || "medium"; } catch { return "medium"; } });
-  const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
-  const [highContrast, setHighContrast] = useState(() => getCookie("cb_hc") === "1");
-  const [autoplay, setAutoplay] = useState(() => getCookie("cb_ap") !== "0");
-  const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
 
-  useEffect(() => { setCookie("cb_fs", fontSize); }, [fontSize]);
-  useEffect(() => { setCookie("cb_rt", reducedTransparency ? "1" : "0"); }, [reducedTransparency]);
-  useEffect(() => { setCookie("cb_hc", highContrast ? "1" : "0"); }, [highContrast]);
-  useEffect(() => { setCookie("cb_ap", autoplay ? "1" : "0"); }, [autoplay]);
   useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
 
   const TABS = [
@@ -1502,21 +1493,34 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
           </>)}
 
           {tab === "accessibility" && (<>
-            <Section title="Display" footer="Changes apply immediately.">
+            <Section title="Vision" footer="All changes apply immediately and persist across sessions.">
+              <Row label="High contrast" desc="Maximum contrast between text and background" control={<Switch on={highContrast} onChange={(v) => { sfx(); setHighContrast(v); }} label="High contrast" />} />
               <Row label="Text size" control={
-                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={setFontSize} />
+                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={(v) => { sfx(); setFontSize(v); }} />
               } />
-              <Row label="Reduce transparency" desc="Reduces blur and glass effects" control={<Switch on={reducedTransparency} onChange={setReducedTransparency} label="Reduce transparency" />} />
-              <Row label="High contrast text" desc="Increases text contrast ratio" control={<Switch on={highContrast} onChange={setHighContrast} label="High contrast" />} last />
+              <Row label="Line spacing" desc="Increases space between lines of text" control={
+                <Picker value={lineSpacing} options={[["normal", "Normal"], ["relaxed", "Relaxed"], ["loose", "Loose"]]} onChange={(v) => { sfx(); setLineSpacing(v); }} />
+              } />
+              <Row label="Reduce transparency" desc="Makes panels solid instead of frosted glass" control={<Switch on={reducedTransparency} onChange={(v) => { sfx(); setReducedTransparency(v); }} label="Reduce transparency" />} />
+              <Row label="Focus indicators" desc="Shows a visible ring around the focused element" control={<Switch on={focusHighlight} onChange={(v) => { sfx(); setFocusHighlight(v); }} label="Focus indicators" />} last />
             </Section>
 
-            <Section title="Reading">
-              <Row label="Auto-read answers" desc="Read answers aloud automatically" control={<Switch on={autoplay} onChange={setAutoplay} label="Auto-read" />} last />
+            <Section title="Reading" footer="OpenDyslexic is a typeface designed to increase readability for readers with dyslexia.">
+              <Row label="Dyslexia-friendly font" desc="Uses OpenDyslexic typeface for body text" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); setDyslexicFont(v); }} label="Dyslexic font" />} />
+              <Row label="Auto-read answers" desc="Reads answers aloud using text-to-speech" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto-read" />} />
+              <Row label="Animated typing" desc="Disable to show answers instantly" control={<Switch on={typewriter} onChange={(v) => { sfx(); setTypewriter(v); }} label="Typing animation" />} last />
+            </Section>
+
+            <Section title="Motion">
+              <Row label="Reduce motion" desc="Disables background animations and entrance effects" control={<Switch on={animationMode === "off"} onChange={(v) => { sfx(); setAnimationMode(v ? "off" : "cinematic"); }} label="Reduce motion" />} last />
             </Section>
 
             <Section title="Voice">
-              <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-              <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+              <div style={{ padding: "12px 16px" }}>
+                <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+                <div style={{ height: 8 }} />
+                <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+              </div>
             </Section>
           </>)}
 
@@ -1858,6 +1862,12 @@ function App() {
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
   const [animOpacity, setAnimOpacity] = useState(() => parseFloat(getCookie("cb_animO") || "1"));
   const [highContrast, setHighContrast] = useState(() => getCookie("cb_hc") === "1");
+  const [fontSize, setFontSize] = useState(() => getCookie("cb_fs") || "medium");
+  const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
+  const [autoplay, setAutoplay] = useState(() => getCookie("cb_ap") !== "0");
+  const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
+  const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
+  const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
   const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Dark");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
@@ -1921,6 +1931,13 @@ function App() {
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
+  useEffect(() => { setCookie("cb_hc", highContrast ? "1" : "0"); }, [highContrast]);
+  useEffect(() => { setCookie("cb_fs", fontSize); }, [fontSize]);
+  useEffect(() => { setCookie("cb_rt", reducedTransparency ? "1" : "0"); }, [reducedTransparency]);
+  useEffect(() => { setCookie("cb_ap", autoplay ? "1" : "0"); }, [autoplay]);
+  useEffect(() => { setCookie("cb_df", dyslexicFont ? "1" : "0"); }, [dyslexicFont]);
+  useEffect(() => { setCookie("cb_ls", lineSpacing); }, [lineSpacing]);
+  useEffect(() => { setCookie("cb_fh", focusHighlight ? "1" : "0"); }, [focusHighlight]);
   useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
   useEffect(() => {
     const onKey = (e) => {
@@ -2010,8 +2027,20 @@ function App() {
     </>
   );
 
+  const a11yClasses = [
+    highContrast && "cb-high-contrast",
+    fontSize === "large" && "cb-text-lg",
+    fontSize === "xlarge" && "cb-text-xl",
+    fontSize === "small" && "cb-text-sm",
+    lineSpacing === "relaxed" && "cb-line-relaxed",
+    lineSpacing === "loose" && "cb-line-loose",
+    reducedTransparency && "cb-solid-panels",
+    dyslexicFont && "cb-dyslexic",
+    focusHighlight && "cb-focus-ring",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div style={{...S.page, "--cb-accent": accent}} className={highContrast ? "cb-high-contrast" : ""}>
+    <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
       <div style={S.grain} />
       <header style={S.header}>
@@ -2089,7 +2118,7 @@ function App() {
       {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
       {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, close: () => { setSettingsOpen(false); setHighContrast(getCookie("cb_hc") === "1"); } }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, close: () => setSettingsOpen(false) }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
     </div>
   );
@@ -2358,15 +2387,65 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 .cb-info-navlink { transition: color .2s, background .2s; }
 .cb-fadein { animation: cbEnter .7s var(--cb-ease) both; }
 
-/* ── High contrast mode ── */
-.cb-high-contrast { --hc-ink: #ffffff !important; }
-.cb-high-contrast p, .cb-high-contrast span, .cb-high-contrast div, .cb-high-contrast li, .cb-high-contrast a {
-  color: #ffffff !important;
-  text-shadow: 0 0 1px rgba(255,255,255,0.1);
+/* ════════════════════════════════════════════════════════════════
+   ACCESSIBILITY CSS — all features controlled by classes on root
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── High contrast ── */
+.cb-high-contrast,
+.cb-high-contrast p,
+.cb-high-contrast span,
+.cb-high-contrast div,
+.cb-high-contrast li,
+.cb-high-contrast td,
+.cb-high-contrast label { color: #ffffff !important; }
+.cb-high-contrast a { color: #5eead4 !important; text-decoration: underline !important; }
+.cb-high-contrast h1, .cb-high-contrast h2, .cb-high-contrast h3,
+.cb-high-contrast strong, .cb-high-contrast b { color: #ffffff !important; font-weight: 800 !important; }
+.cb-high-contrast button { border-width: 2px !important; }
+.cb-high-contrast input, .cb-high-contrast select, .cb-high-contrast textarea {
+  border: 2px solid rgba(255,255,255,0.4) !important; color: #ffffff !important;
 }
-.cb-high-contrast h1, .cb-high-contrast h2, .cb-high-contrast strong, .cb-high-contrast b {
-  color: #ffffff !important;
-  font-weight: 700 !important;
+
+/* ── Text size ── */
+.cb-text-sm  { font-size: 14px !important; }
+.cb-text-sm p, .cb-text-sm li, .cb-text-sm span { font-size: 14px !important; }
+.cb-text-lg  p, .cb-text-lg li, .cb-text-lg span  { font-size: 18px !important; }
+.cb-text-lg  h1 { font-size: clamp(36px, 6vw, 56px) !important; }
+.cb-text-lg  h2 { font-size: 24px !important; }
+.cb-text-xl  p, .cb-text-xl li, .cb-text-xl span  { font-size: 21px !important; }
+.cb-text-xl  h1 { font-size: clamp(40px, 7vw, 64px) !important; }
+.cb-text-xl  h2 { font-size: 28px !important; }
+
+/* ── Line spacing ── */
+.cb-line-relaxed p, .cb-line-relaxed li, .cb-line-relaxed div { line-height: 2.0 !important; }
+.cb-line-loose   p, .cb-line-loose   li, .cb-line-loose   div { line-height: 2.4 !important; }
+
+/* ── Solid panels (reduce transparency) ── */
+.cb-solid-panels * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.cb-solid-panels header { background: var(--cb-solid-bg, #050816) !important; }
+
+/* ── Dyslexia-friendly font ── */
+.cb-dyslexic, .cb-dyslexic p, .cb-dyslexic li, .cb-dyslexic span,
+.cb-dyslexic input, .cb-dyslexic textarea, .cb-dyslexic button {
+  font-family: 'OpenDyslexic', 'Comic Sans MS', sans-serif !important;
+  letter-spacing: 0.05em !important;
+  word-spacing: 0.15em !important;
+}
+
+/* ── Focus ring indicators ── */
+.cb-focus-ring *:focus {
+  outline: 3px solid #5eead4 !important;
+  outline-offset: 3px !important;
+  border-radius: 4px;
+}
+.cb-focus-ring *:focus:not(:focus-visible) { outline: none !important; }
+.cb-focus-ring *:focus-visible {
+  outline: 3px solid #5eead4 !important;
+  outline-offset: 3px !important;
 }
 
 /* ── Reduced motion ── */
@@ -2389,6 +2468,13 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
     link.id = id; link.rel = "stylesheet";
     link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
     document.head.appendChild(link);
+  }
+  // OpenDyslexic for accessibility
+  if (!document.getElementById("cb-dyslexic-font")) {
+    const df = document.createElement("link");
+    df.id = "cb-dyslexic-font"; df.rel = "stylesheet";
+    df.href = "https://fonts.cdnfonts.com/css/opendyslexic";
+    document.head.appendChild(df);
   }
   // AOS — scroll-triggered animations
   if (!document.getElementById("cb-aos-css")) {
