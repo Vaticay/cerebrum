@@ -967,7 +967,6 @@ function KineticText({ text, style, className }) {
    cursor and reform magnetically. Replaces the 2D canvas 
    LivingBackground on capable devices.
    ════════════════════════════════════════════════════════════════ */
-   ════════════════════════════════════════════════════════════════ */
 function MicButton({ onTranscript, accent, P }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
