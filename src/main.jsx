@@ -806,7 +806,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    ensureVanta().then(() => setLoaded(true));
+    ensureVanta().then(() => setLoaded(true)).catch((e) => console.warn("Vanta load failed:", e));
   }, []);
 
   useEffect(() => {
@@ -877,6 +877,10 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       pointerEvents: "none", zIndex: 0,
       opacity: intensity === "subtle" ? 0.35 : 0.65,
       transition: "opacity 0.5s ease",
+      /* CSS fallback gradient — visible while Vanta loads or if it fails */
+      background: loaded ? "transparent" : (P.dark
+        ? `radial-gradient(ellipse at 30% 20%, rgba(52,211,153,0.07) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(129,140,248,0.05) 0%, transparent 50%), ${P.bg}`
+        : P.bg),
     }} aria-hidden="true" />
   );
 }
@@ -895,52 +899,6 @@ function BrainEasterEgg() {
    ring that expands + inverts over actionable elements via 
    mix-blend-mode: difference. Pure React, no dependencies.
    ════════════════════════════════════════════════════════════════ */
-function Magnetic({ children, strength = 0.3, style, className, ...props }) {
-  const ref = useRef(null);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const animRef = useRef(null);
-  const targetRef = useRef({ x: 0, y: 0 });
-  const currentRef = useRef({ x: 0, y: 0 });
-
-  const onMove = (e) => {
-    if (!ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    targetRef.current = {
-      x: (e.clientX - cx) * strength,
-      y: (e.clientY - cy) * strength,
-    };
-  };
-  const onLeave = () => {
-    targetRef.current = { x: 0, y: 0 };
-  };
-
-  useEffect(() => {
-    const hasMouse = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-    if (!hasMouse) return;
-    const lerp = (a, b, t) => a + (b - a) * t;
-    const loop = () => {
-      currentRef.current.x = lerp(currentRef.current.x, targetRef.current.x, 0.12);
-      currentRef.current.y = lerp(currentRef.current.y, targetRef.current.y, 0.12);
-      if (Math.abs(currentRef.current.x) > 0.05 || Math.abs(currentRef.current.y) > 0.05 ||
-          Math.abs(targetRef.current.x) > 0.05 || Math.abs(targetRef.current.y) > 0.05) {
-        setOffset({ x: currentRef.current.x, y: currentRef.current.y });
-      }
-      animRef.current = requestAnimationFrame(loop);
-    };
-    animRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animRef.current);
-  }, []);
-
-  return (
-    <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave}
-      style={{ display: "inline-flex", transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`, transition: "transform 0.1s ease", ...style }}
-      className={className} {...props}>
-      {children}
-    </div>
-  );
-}
 
 
 /* ════════════════════════════════════════════════════════════════
@@ -1360,12 +1318,11 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
    SETTINGS v4 — Full iOS-style redesign
    Grouped sections, proper alignment, accessibility, real settings
    ════════════════════════════════════════════════════════════════ */
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, close }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState("general");
   const [confirmClear, setConfirmClear] = useState(false);
 
-  useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
 
   const TABS = [
     ["general", "General"],
@@ -2045,20 +2002,20 @@ function App() {
       <header style={S.header}>
         <div style={S.headInner}>
           <div style={{ ...S.brandRow, position: "relative" }}>
-            <Magnetic strength={0.2}>
+            
               <div onClick={(e) => { e.stopPropagation(); try { document.cookie = "cb_entered_v4=; path=/; max-age=0"; } catch {} window.location.reload(); }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                 <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
                 <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
               </div>
-            </Magnetic>
+            
             {easterEgg.render}
           </div>
           <div style={S.headActions}>
-            {!isMobile && (<Magnetic strength={0.15}><button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button></Magnetic>)}
-            <Magnetic strength={0.2}><button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button></Magnetic>
-            <Magnetic strength={0.2}><button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button></Magnetic>
+            {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button>
+            <button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}><Icon name={muted ? "volumeOff" : "volumeOn"} size={16} /></button>
-            <Magnetic strength={0.2}><button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button></Magnetic>
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button>
           </div>
         </div>
       </header>
@@ -2074,7 +2031,7 @@ function App() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
                   <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
-                  <Magnetic strength={0.15}><button style={S.searchBtn} onClick={() => ask()}>Search</button></Magnetic>
+                  <button style={S.searchBtn} onClick={() => ask()}>Search</button>
               </div>
               <div style={S.chips} className="cb-stagger">
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
@@ -2117,7 +2074,7 @@ function App() {
       {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
       {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={s.url} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => (x.title || "").toLowerCase() !== (s.title || "").toLowerCase()))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, close: () => setSettingsOpen(false) }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
     </div>
   );
