@@ -3059,7 +3059,7 @@ async function gatherPapers(rawQuery, opts) {
 
 const cors = {
   "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": request.headers.get("Origin") || "https://askcerebrum.org",
+  "Access-Control-Allow-Origin": "*",
 };
 
 // ---- SECURITY LAYER ----
