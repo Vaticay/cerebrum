@@ -606,6 +606,23 @@ const SYNONYMS = {
   // Molecular biology
   bsfl: ["black soldier fly larvae", "hermetia illucens"],
   bsf: ["black soldier fly", "hermetia illucens"],
+  "black soldier fly": ["hermetia illucens"],
+  "black soldier fly larvae": ["hermetia illucens"],
+  "black soldier fly larva": ["hermetia illucens"],
+  "fruit fly": ["drosophila melanogaster"],
+  "house mouse": ["mus musculus"],
+  "lab rat": ["rattus norvegicus"],
+  "lab mouse": ["mus musculus"],
+  "roundworm": ["caenorhabditis elegans"],
+  "zebrafish": ["danio rerio"],
+  "baker's yeast": ["saccharomyces cerevisiae"],
+  "brewer's yeast": ["saccharomyces cerevisiae"],
+  "e coli": ["escherichia coli"],
+  "e. coli": ["escherichia coli"],
+  "staph": ["staphylococcus aureus"],
+  "mrsa": ["methicillin-resistant staphylococcus aureus"],
+  "tb": ["mycobacterium tuberculosis"],
+  "malaria": ["plasmodium falciparum"],
   crispr: ["clustered regularly interspaced short palindromic repeats", "cas9", "gene editing"],
   pcr: ["polymerase chain reaction"],
   qpcr: ["quantitative pcr", "real-time pcr", "rt-pcr", "quantitative polymerase chain reaction"],
@@ -2673,14 +2690,25 @@ async function gatherPapers(rawQuery, opts) {
   // to any engine, that engine silently returns zero and the user sees
   // "no papers found".
   const fanout = (terms, useBoolean) => {
-    // Boolean engines (EPMC, PubMed): use the full structured query on the
-    // first rung, plain terms on fallback rungs.
-    const boolQ = useBoolean ? booleanQuery : terms.join(" ");
-    // Plain-keyword engines: BARE TERMS ONLY. No parentheses, no "OR", no
-    // boolean syntax of any kind. These engines do their own semantic matching.
-    const bare = terms.join(" ");
-    // arXiv: prefix each term with "all:" and join with " AND ".
-    const arx = arxivQuery(terms);
+    // For organism queries: build queries that force organism AND topic together.
+    // The organism term is quoted so search engines treat it as a phrase.
+    const orgQuoted = organismTerm || "";
+    const topicTerms = orgQuoted
+      ? terms.filter((t) => t !== orgQuoted && !orgQuoted.replace(/"/g, "").toLowerCase().includes(t.toLowerCase()))
+      : terms;
+    const topicStr = topicTerms.join(" ");
+
+    // Boolean engines (EPMC, PubMed): organism AND topic using boolean syntax
+    const boolQ = useBoolean
+      ? (orgQuoted ? orgQuoted + " AND (" + (topicStr || query) + ")" : booleanQuery)
+      : (orgQuoted ? orgQuoted + " " + topicStr : terms.join(" "));
+    // Plain-keyword engines: combined string (organism + topic together)
+    const bare = orgQuoted ? orgQuoted.replace(/"/g, "") + " " + topicStr : terms.join(" ");
+    // arXiv: prefix each term with "all:" and join with " AND "
+    const arxTerms = orgQuoted
+      ? [orgQuoted.replace(/"/g, ""), ...topicTerms]
+      : terms;
+    const arx = arxTerms.map((t) => "all:" + t).join(" AND ");
 
     return [
       europePMC(boolQ, 12),
@@ -2752,10 +2780,14 @@ async function gatherPapers(rawQuery, opts) {
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
   if (totalSoFar < 8) {
+    // Include organism name in the raw fallback so we find species-specific papers
+    const rawQ = organismTerm
+      ? organismTerm.replace(/"/g, "") + " " + query
+      : query;
     const rawFallback = await Promise.allSettled([
-      europePMC(query, 12),
-      semanticScholar(query, 10),
-      openAlex(query, 10, openAlexKey),
+      europePMC(rawQ, 12),
+      semanticScholar(rawQ, 10),
+      openAlex(rawQ, 10, openAlexKey),
     ]);
     results = results.concat(rawFallback);
     diag.rawFallback = rawFallback.map((r, i) => ({
