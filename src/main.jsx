@@ -919,6 +919,40 @@ function BrainEasterEgg() {
    Wraps the search bar. Renders a radial glow that follows the 
    mouse X/Y along the border. Creates a localized light source.
    ════════════════════════════════════════════════════════════════ */
+function RotatingPlaceholder() {
+  const phrases = [
+    "How does CRISPR achieve target specificity?",
+    "What causes antibiotic resistance to spread?",
+    "Mechanisms of long COVID persistence",
+    "How do CAR-T cells recognize tumors?",
+    "What drives protein phase separation in cells?",
+    "Neural mechanisms of general anesthesia",
+  ];
+  const [idx, setIdx] = useState(0);
+  const [text, setText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    const phrase = phrases[idx];
+    let timer;
+    if (!deleting) {
+      if (text.length < phrase.length) {
+        timer = setTimeout(() => setText(phrase.slice(0, text.length + 1)), 40 + Math.random() * 30);
+      } else {
+        timer = setTimeout(() => setDeleting(true), 2800);
+      }
+    } else {
+      if (text.length > 0) {
+        timer = setTimeout(() => setText(text.slice(0, -1)), 20);
+      } else {
+        setDeleting(false);
+        setIdx((idx + 1) % phrases.length);
+      }
+    }
+    return () => clearTimeout(timer);
+  }, [text, deleting, idx]);
+  return text || " ";
+}
+
 function KineticText({ text, style, className }) {
   return (
     <span className="cb-gradient-text" style={{ ...style, display: "inline-block" }} aria-label={text}>
@@ -1206,10 +1240,27 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
       <h2 style={S.headline}>{t.q}</h2>
       {/* Answer card */}
       <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
+        {t.sources && t.sources.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            {t.answer && <span style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
+          </div>
+        )}
+        {t.sources && t.sources.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "3px 10px", borderRadius: 20, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
+            {t.answer && <span style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
+          </div>
+        )}
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
-        {done && t.source && (
+        {done && (<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <div style={S.byline}>
-            <span style={S.aiTag}>AI-synthesized · verify against cited sources</span>
+            <span style={S.aiTag}>AI-synthesized · verify against cited sources</span><span style={{ fontSize: 10, color: P.faint, fontFamily: "var(--cb-mono)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>
+          </div>
+        )}
+        {done && t.answer && (
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+            <button onClick={() => { navigator.clipboard.writeText(t.answer).then(() => { const btn = event.target; btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "Copy answer", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: "1px solid " + P.line2, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Copy answer</button>
+            <button onClick={() => { const url = window.location.origin + "/?q=" + encodeURIComponent(t.q); navigator.clipboard.writeText(url).then(() => { const btn = event.target; btn.textContent = "Link copied!"; setTimeout(() => btn.textContent = "Share", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: "1px solid " + P.line2, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Share</button>
           </div>
         )}
         {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
@@ -1714,7 +1765,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     error: { padding: "16px 20px", background: withAlpha("#e5484d", 0.08), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.2)}` },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: glass, border: glassBorder, borderRadius: 14, padding: "10px 10px 10px 20px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 16 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(5,8,22,0.85)" : "rgba(255,255,255,0.9)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: glassBorder, borderRadius: 14, padding: "10px 10px 10px 20px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", position: "sticky", bottom: isMobile ? 80 : 16, zIndex: 10, marginTop: 16 },
     relatedWrap: { marginTop: 28, paddingTop: 24, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 14, fontFamily: "var(--cb-mono)" },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 },
@@ -1810,6 +1861,11 @@ function App() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
+  useEffect(() => {
+    if (turns.length > 0) return;
+    const id = setInterval(() => setSuggestions(pick()), 8000);
+    return () => clearInterval(id);
+  }, [turns.length]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -1853,6 +1909,21 @@ function App() {
   const S = makeStyles(P, accent, at, isMobile);
   const sfx = () => { if (!mutedRef.current) Audio.click(); };
   const easterEgg = BrainEasterEgg({ accent, P, S });
+
+  // Scroll progress bar
+  const [scrollProg, setScrollProg] = useState(0);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  useEffect(() => {
+    const el = threadRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const max = el.scrollHeight - el.clientHeight;
+      setScrollProg(max > 0 ? el.scrollTop / max : 0);
+      setShowScrollTop(el.scrollTop > 400);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [entered]);
 
   const ask = useCallback(async (q, opts = {}) => {
     const question = (q ?? input).trim();
@@ -1913,11 +1984,13 @@ function App() {
       else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); setSavedOpen(false); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "d") { e.preventDefault(); setPaletteName(P.dark ? "Light" : "Dark"); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const [showHistory, setShowHistory] = useState(false);
   function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = (s.title || "").toLowerCase(); return prev.some((x) => (x.title || "").toLowerCase() === k) ? prev.filter((x) => (x.title || "").toLowerCase() !== k) : [...prev, s]; }); }
   function isPinned(s) { const k = (s.title || "").toLowerCase(); return pinnedSources.some((x) => (x.title || "").toLowerCase() === k); }
@@ -2011,6 +2084,8 @@ function App() {
     <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
       <div style={S.grain} />
+      {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
+      {showScrollTop && <button onClick={() => threadRef.current?.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: 16 }}>↑</button>}
       <header style={S.header}>
         <div style={S.headInner}>
           <div style={{ ...S.brandRow, position: "relative" }}>
@@ -2031,7 +2106,12 @@ function App() {
           </div>
         </div>
       </header>
-      <div style={S.scroll} ref={threadRef}>
+      <div style={S.scroll} ref={threadRef} onDoubleClick={(e) => {
+        const sel = window.getSelection()?.toString()?.trim();
+        if (sel && sel.length > 3 && sel.length < 80 && !sel.includes("\n")) {
+          ask(sel);
+        }
+      }}>
         <div style={S.container}>
           {!started ? (
             <div style={S.hero} className="cb-hero">
@@ -2041,7 +2121,7 @@ function App() {
               <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can verify.</p>
               <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700, borderRadius: 14 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder={RotatingPlaceholder()} />
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button style={S.searchBtn} onClick={() => ask()}>Search</button>
               </div>
@@ -2057,7 +2137,7 @@ function App() {
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : {}) }} className="cb-page-enter">
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />))}
-                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Searching</span></div><Skeleton P={P} /><LoadingLine P={P} accent={accent} S={S} /></div>)}
+                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Searching</span></div><div style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)", margin: "8px 0 12px", letterSpacing: "0.03em", opacity: 0.7 }}>Querying PubMed · Europe PMC · OpenAlex · Semantic Scholar · Crossref · arXiv</div><Skeleton P={P} /><LoadingLine P={P} accent={accent} S={S} /></div>)}
                 {error && <div style={S.error}>{error}</div>}
                 {turns.length > 0 && !busy && (
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
@@ -2415,6 +2495,24 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
   outline: 3px solid #5eead4 !important;
   outline-offset: 3px !important;
 }
+
+/* ── Scroll progress bar ── */
+.cb-scroll-progress {
+  position: fixed; top: 0; left: 0; height: 2px; z-index: 100;
+  background: var(--cb-accent, #34d399);
+  transform-origin: left; transition: transform 0.1s linear;
+  pointer-events: none;
+}
+
+/* ── Print-friendly ── */
+@media print {
+  header, footer, .cb-fab-pulse, button { display: none !important; }
+  body, div { background: white !important; color: black !important; }
+  * { backdrop-filter: none !important; box-shadow: none !important; }
+}
+
+/* ── Text selection accent ── */
+::selection { background: rgba(52, 211, 153, 0.25); }
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
