@@ -2930,7 +2930,7 @@ async function gatherPapers(rawQuery, opts) {
       match += peripheralTerms.length ? (periphHits / peripheralTerms.length) * 4 : 0;
       if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 12;
       // Penalize papers that MISS the organism when the query clearly names one
-      if (!organismPresent && contentTerms.length > 0 && speciesSearch) match -= 5;
+      if (!organismPresent && contentTerms.length > 0 && binomial) match -= 5;
 
       let quality = 0;
       if (abstract.length > 200) quality += 8;      // has a real abstract
