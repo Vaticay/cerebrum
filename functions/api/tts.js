@@ -165,6 +165,7 @@ function preprocessForSpeech(raw) {
   s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
   s = s.replace(/\*([^*\n]+)\*/g, "$1");
   s = s.replace(/`([^`]+)`/g, "$1");
+  s = s.replace(/_([^_\n]+)_/g, "$1");
   s = s.replace(/^#+\s+/gm, "");
   // URLs — reading these aloud is awful
   s = s.replace(/https?:\/\/\S+/g, "");
