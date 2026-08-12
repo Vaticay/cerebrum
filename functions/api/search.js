@@ -3403,12 +3403,22 @@ Respond naturally to the user's message. Be yourself.`;
     // that weren't in the previous query, treat it as a fresh search regardless
     // of what the intent classifier says.
     const embeddedNameInFollowup = extractPersonNameFromQuery(query);
-    
+
+    // Detect meta-questions asking about the papers ALREADY cited in the
+    // conversation ("what are the papers on this", "where are the papers",
+    // "which papers", "what sources did you use") — these must NEVER trigger
+    // a fresh literal search for the word "papers", or generic terms like
+    // "Panama Papers" swamp the results. This is asking Cerebrum to explain/
+    // list its EXISTING sources, not find new ones.
+    const asksAboutExistingSources = /^(what|where|which|show me|list)\s+(are\s+)?(the\s+)?(papers?|sources?|studies|citations?|references?)\b/i.test(query.trim())
+      && !/\b(more|additional|other|new|different|further)\b/i.test(query);
+
     // Detect explicit requests for MORE papers/sources — these MUST trigger a fresh search
     const wantsMorePapers = /\b(find\s+more|get\s+more|show\s+more|more|additional|other|further)\s+\w*\s*(papers?|sources?|studies|articles?|references?)\b/i.test(query)
       || /\b(what else|anything else|dig deeper|keep searching|search again|search more|find related)\b/i.test(query);
 
     const hasNewSubstance = (() => {
+      if (asksAboutExistingSources) return false; // never treat as new search
       if (!Array.isArray(body.history)) return true;
       const prevUser = [...body.history].reverse().find((t) => t && t.role === "user");
       if (!prevUser) return true;
@@ -3416,12 +3426,12 @@ Respond naturally to the user's message. Be yourself.`;
         (prevUser.content || "").toLowerCase().split(/\s+/).filter((w) => w.length > 3)
       );
       const newTerms = query.toLowerCase().split(/\s+/).filter(
-        (w) => w.length > 3 && !STOPWORDS.has(w) && !prevTerms.has(w)
+        (w) => w.length > 3 && !STOPWORDS.has(w) && !prevTerms.has(w) && w !== "papers" && w !== "sources"
       );
       return newTerms.length >= 2;
     })();
 
-    const forceNewSearch = !!embeddedNameInFollowup || hasNewSubstance || wantsMorePapers;
+    const forceNewSearch = !asksAboutExistingSources && (!!embeddedNameInFollowup || hasNewSubstance || wantsMorePapers);
     const isFollowupMode = !forceNewSearch
       && (intent.kind === "followup" || intent.kind === "correction")
       && (prevSources.length > 0 || pinnedSources.length > 0);
@@ -3851,7 +3861,7 @@ Respond naturally to the user's message. Be yourself.`;
     } else if (useEvidence && isNameSearch) {
       systemPrompt = ID + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence) {
-      systemPrompt = ID + "You have real peer-reviewed papers. Answer fully, cite inline [1] [2]. If papers don't fully cover something, blend in your own knowledge — don't refuse.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+      systemPrompt = ID + "You have " + evidencePapers.length + " real peer-reviewed papers below. MANDATORY: your answer must cite at least " + Math.min(evidencePapers.length, 3) + " of them inline as [1] [2] etc. Every paragraph should have at least one citation. Do NOT write a paragraph of pure background knowledge with zero citation markers — if you know something relevant, find the source below that supports it and cite it, or explicitly extend past it with 'the broader literature also shows...' Only fall back fully to general knowledge if truly nothing below is relevant, and say so explicitly.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useWeb) {
       systemPrompt = ID + "No peer-reviewed papers matched. Start with: Note: no peer-reviewed papers matched — this draws on reference sources and general knowledge.\nThen answer fully.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else {
@@ -3942,7 +3952,9 @@ Respond naturally to the user's message. Be yourself.`;
         ? "Sources:\n\n" + evidence + "\n\n---\nQuestion: " + query
         : query;
     // Reinforce banned phrases at user level - free models often ignore system prompts
-    const enforcer = "\n\n[CRITICAL: Do NOT use these phrases anywhere in your response: 'further research is needed', 'plays a critical role', 'plays a crucial role', 'it is clear that', 'it's important to note', 'it's worth mentioning', 'in conclusion', 'in summary', 'sheds light on', 'paves the way'. Do NOT list sources one by one ('Author et al. found X'). Synthesize. Italicize species names with underscores: _E. coli_.]";
+    const enforcer = useEvidence
+      ? "\n\n[CRITICAL: You were given real papers above — you MUST cite them as [1], [2] etc. throughout your answer. A response with zero citation numbers when sources were provided is a FAILED response. Do NOT use: 'further research is needed', 'plays a critical role', 'plays a crucial role', 'it is clear that', 'in conclusion', 'in summary', 'sheds light on'. Do NOT list sources one by one. Synthesize. Italicize species names: _E. coli_.]"
+      : "\n\n[CRITICAL: Do NOT use these phrases: 'further research is needed', 'plays a critical role', 'it is clear that', 'in conclusion', 'in summary', 'sheds light on'. Italicize species names: _E. coli_.]";
     messages.push({ role: "user", content: userContent + enforcer });
 
     // ============ D1 ANSWER CACHE ============
