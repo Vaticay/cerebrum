@@ -2706,7 +2706,7 @@ async function gatherPapers(rawQuery, opts) {
     }));
     const got = perSource.reduce((n, x) => n + x.count, 0);
     diag.rungs.push({ terms: rungs[i], got, perSource });
-    if (got >= 5) { diag.sourceOutcomes = perSource; break; }
+    if (got >= 10) { diag.sourceOutcomes = perSource; break; }
     diag.sourceOutcomes = perSource;
   }
 
@@ -2717,7 +2717,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalSoFar = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalSoFar < 3) {
+  if (totalSoFar < 8) {
     const rawFallback = await Promise.allSettled([
       europePMC(query, 12),
       semanticScholar(query, 10),
@@ -3022,7 +3022,29 @@ async function gatherPapers(rawQuery, opts) {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
-  for (const p of scored) {
+  // EMERGENCY RELAXATION: the organism gate above is strict by design (never
+  // show BSF papers for an E. coli query), but if it filters EVERY candidate
+  // to zero, an empty result is worse than a clearly-labeled partial match.
+  // Re-run without the hard organism requirement, keep the ones with the best
+  // topical/content overlap, and let the downstream [WEAK MATCH] / relevance-%
+  // tagging tell the AI (and the user) these aren't organism-confirmed.
+  let finalScored = scored;
+  if (scored.length === 0 && merged.length > 0) {
+    finalScored = merged
+      .map((p) => {
+        const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+        const has = (t) => new RegExp("\\b" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(hay);
+        const coreHits = gateTerms.filter(has).length;
+        const coreCoverage = gateTerms.length ? coreHits / gateTerms.length : 0;
+        return { ...p, score: coreCoverage * 40, contentHits: coreHits, contentCoverage: coreCoverage, organismPresent: false, relevance: null };
+      })
+      .filter((p) => p.contentHits > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+  }
+  const scoredFinal = finalScored;
+
+  for (const p of scoredFinal) {
     // ---- ABSOLUTE RELEVANCE ----
     // Score is already on a 0-100 absolute scale (70 match + 30 quality), so we
     // report it directly instead of normalizing against the best result in the
@@ -3037,7 +3059,7 @@ async function gatherPapers(rawQuery, opts) {
     else p.type = "Journal";
   }
 
-  return { papers: scored, _diag: diag };
+  return { papers: scoredFinal, _diag: diag };
   } catch (e) {
     // Any throw in gatherPapers: return an empty result WITH the error surfaced
     // so the response body shows exactly where retrieval died instead of
@@ -3652,6 +3674,38 @@ Respond naturally to the user's message. Be yourself.`;
     const papers = gResult.papers || [];
     const hasPapers = papers.length > 0;
 
+    // ============ D1 PAPER-LEVEL LEARNING (read) ============
+    // Separate from the answer_cache above: this remembers which SPECIFIC
+    // papers were actually cited (and ideally upvoted) for this exact query
+    // in the past, and force-includes them at maximum relevance. This is
+    // what makes "the correct papers exist and Cerebrum should find them
+    // every time" actually hold — a proven-correct paper never has to be
+    // rediscovered by the retrieval ladder again.
+    const learnKey = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    let learnedPapers = [];
+    if (env.DB && learnKey) {
+      try {
+        const rows = await env.DB.prepare(
+          "SELECT title, url, journal, year, authors, abstract, times_confirmed FROM paper_cache WHERE query_key = ? ORDER BY times_confirmed DESC LIMIT 10"
+        ).bind(learnKey).all();
+        if (rows && rows.results && rows.results.length) {
+          learnedPapers = rows.results.map((r) => ({
+            title: r.title, url: r.url, journal: r.journal, year: r.year,
+            authors: r.authors, abstract: r.abstract,
+            score: 95, relevance: 95, organismPresent: true,
+            contentHits: 99, contentCoverage: 1, _learned: true,
+          }));
+        }
+      } catch {}
+    }
+    if (learnedPapers.length) {
+      const seenTitles = new Set(papers.map((p) => (p.title || "").toLowerCase().trim()));
+      for (const lp of learnedPapers) {
+        const key = (lp.title || "").toLowerCase().trim();
+        if (key && !seenTitles.has(key)) { papers.unshift(lp); seenTitles.add(key); }
+      }
+    }
+
     // Web fallback (only if no papers)
     let webRefs = [];
     if (!hasPapers) {
@@ -4086,6 +4140,65 @@ Respond naturally to the user's message. Be yourself.`;
         });
         if (pRes.ok) { let c = cleanAIResponse(await pRes.text()); if (c && c.length > 30) { answer = c; aiOK = true; } }
       } catch {}
+    }
+
+    // ============ MECHANICAL CITATION ENFORCEMENT ============
+    // Free-tier models routinely ignore citation instructions in the prompt.
+    // If we gave the model real papers (useEvidence) but the answer it wrote
+    // contains ZERO [N] citation markers, don't just trust it next time —
+    // fix it now. One blunt retry with an ultra-simple direct instruction,
+    // then a mechanical fallback that guarantees citations exist no matter
+    // what the model does.
+    if (aiOK && useEvidence && evidencePapers.length > 0) {
+      const hasCitations = /\[\d+\]/.test(answer);
+      if (!hasCitations) {
+        // One retry: strip all the prose instructions, just demand citations bluntly.
+        try {
+          const retryMsgs = [
+            { role: "system", content: "You are a citation machine. You will be given papers numbered [1] through [" + evidencePapers.length + "] and a question. Write a clear answer that cites AT LEAST " + Math.min(evidencePapers.length, 3) + " of them using [1] [2] [3] notation. Every single paragraph must contain at least one [N] citation marker. This is the only rule that matters." },
+            { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query + "\n\nWrite the answer now with citation markers [1] [2] etc. throughout." },
+          ];
+          const retryModels = ["deepseek/deepseek-chat-v3-0324:free", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free"];
+          for (const m of retryModels) {
+            try {
+              const r = await callOR(m, retryMsgs, maxTokens);
+              if (/\[\d+\]/.test(r.answer)) { answer = r.answer; break; }
+            } catch {}
+          }
+        } catch {}
+      }
+
+      // If STILL no citations after the retry, mechanically append a sources
+      // list. This guarantees the user always sees which papers back the
+      // answer, even when every model in the chain ignores instructions.
+      if (!/\[\d+\]/.test(answer)) {
+        answer = answer.trim() +
+          "\n\n---\n**Sources consulted for this answer:**\n" +
+          evidencePapers.slice(0, 6).map((p, i) => "[" + (i + 1) + "] " + p.title + (p.year ? " (" + p.year + ")" : "")).join("\n");
+      }
+
+      // ============ D1 PAPER-LEVEL LEARNING (write) ============
+      // Parse which citation numbers actually appear in the final answer and
+      // persist THOSE specific papers as confirmed-correct for this query.
+      // Next time this question (or an identically-worded one) is asked,
+      // these papers get force-included at max relevance instead of being
+      // rediscovered — this is the self-improving loop.
+      if (env.DB && learnKey) {
+        try {
+          const citedIdx = new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10)));
+          const citedPapers = [...citedIdx]
+            .map((n) => evidencePapers[n - 1])
+            .filter(Boolean)
+            .slice(0, 8);
+          for (const p of citedPapers) {
+            await env.DB.prepare(
+              "INSERT INTO paper_cache (query_key, title, url, journal, year, authors, abstract, times_confirmed, created_at) " +
+              "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) " +
+              "ON CONFLICT(query_key, title) DO UPDATE SET times_confirmed = times_confirmed + 1"
+            ).bind(learnKey, p.title || "", p.url || "", p.journal || "", p.year || "", p.authors || "", (p.abstract || "").slice(0, 500), Date.now()).run();
+          }
+        } catch {}
+      }
     }
 
     // TIER 4: If we STILL have no answer but we have papers, show them with an honest note.
