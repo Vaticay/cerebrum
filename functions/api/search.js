@@ -603,25 +603,84 @@ const COMMON_SHORT_WORDS = new Set([
 
 
 const SYNONYMS = {
+  // Molecular biology
   bsfl: ["black soldier fly larvae", "hermetia illucens"],
   bsf: ["black soldier fly", "hermetia illucens"],
-  crispr: ["clustered regularly interspaced short palindromic repeats"],
+  crispr: ["clustered regularly interspaced short palindromic repeats", "cas9", "gene editing"],
   pcr: ["polymerase chain reaction"],
+  qpcr: ["quantitative pcr", "real-time pcr", "rt-pcr", "quantitative polymerase chain reaction"],
+  "rt-pcr": ["reverse transcription pcr", "qpcr", "real-time pcr"],
   dna: ["deoxyribonucleic acid"],
   rna: ["ribonucleic acid"],
-  mrna: ["messenger rna"],
+  mrna: ["messenger rna", "messenger ribonucleic acid"],
+  sirna: ["small interfering rna"],
+  mirna: ["microrna", "micro rna"],
   utr: ["untranslated region"],
-  gwas: ["genome wide association"],
-  qtl: ["quantitative trait loci"],
-  ros: ["reactive oxygen species"],
+  orf: ["open reading frame"],
+  gwas: ["genome wide association study", "genome-wide association"],
+  qtl: ["quantitative trait loci", "quantitative trait locus"],
+  snp: ["single nucleotide polymorphism"],
+  // Cell biology
+  ros: ["reactive oxygen species", "oxidative stress", "free radicals"],
   er: ["endoplasmic reticulum"],
   atp: ["adenosine triphosphate"],
   ecm: ["extracellular matrix"],
   tcr: ["t cell receptor"],
-  llps: ["liquid liquid phase separation"],
+  bcr: ["b cell receptor"],
+  mhc: ["major histocompatibility complex", "hla"],
+  hla: ["human leukocyte antigen", "mhc"],
+  llps: ["liquid liquid phase separation", "biomolecular condensate"],
+  // Biochemistry
   pet: ["polyethylene terephthalate"],
   pe: ["polyethylene"],
   pp: ["polypropylene"],
+  nad: ["nicotinamide adenine dinucleotide"],
+  fad: ["flavin adenine dinucleotide"],
+  // Immunology
+  car: ["chimeric antigen receptor"],
+  "car-t": ["chimeric antigen receptor t cell", "car t cell therapy"],
+  tnf: ["tumor necrosis factor"],
+  il: ["interleukin"],
+  ifn: ["interferon"],
+  // Neuroscience
+  gaba: ["gamma aminobutyric acid"],
+  nmda: ["n-methyl-d-aspartate"],
+  ltp: ["long term potentiation"],
+  ltd: ["long term depression"],
+  fmri: ["functional magnetic resonance imaging", "functional mri"],
+  eeg: ["electroencephalography", "electroencephalogram"],
+  // Microbiology
+  cfu: ["colony forming units", "colony forming unit"],
+  otu: ["operational taxonomic unit"],
+  asv: ["amplicon sequence variant"],
+  "16s": ["16s rrna", "16s ribosomal rna", "16s rdna"],
+  // Ecology
+  npp: ["net primary productivity", "net primary production"],
+  lai: ["leaf area index"],
+  ndvi: ["normalized difference vegetation index"],
+  // Medicine
+  bmi: ["body mass index"],
+  bp: ["blood pressure"],
+  ldl: ["low density lipoprotein"],
+  hdl: ["high density lipoprotein"],
+  copd: ["chronic obstructive pulmonary disease"],
+  nafld: ["non-alcoholic fatty liver disease"],
+  nsaid: ["nonsteroidal anti-inflammatory drug"],
+  ssri: ["selective serotonin reuptake inhibitor"],
+  ace: ["angiotensin converting enzyme"],
+  // Common method terms
+  elisa: ["enzyme-linked immunosorbent assay"],
+  "western blot": ["immunoblot", "protein blot"],
+  "flow cytometry": ["facs", "fluorescence activated cell sorting"],
+  facs: ["flow cytometry", "fluorescence activated cell sorting"],
+  "mass spec": ["mass spectrometry", "ms", "proteomics"],
+  rnaseq: ["rna sequencing", "rna-seq", "transcriptomics"],
+  "rna-seq": ["rna sequencing", "rnaseq", "transcriptomics"],
+  chipseq: ["chip-seq", "chromatin immunoprecipitation sequencing"],
+  atacseq: ["atac-seq", "assay for transposase accessible chromatin"],
+  metabolomics: ["metabolome", "metabolite profiling"],
+  proteomics: ["proteome", "protein profiling", "mass spectrometry"],
+  metagenomics: ["metagenomic", "shotgun sequencing", "microbiome sequencing"],
 };
 
 function expansionsFor(tokens) {
@@ -2853,7 +2912,9 @@ async function gatherPapers(rawQuery, opts) {
       match += gateTerms.length ? (coreTitleHits / gateTerms.length) * 20 : 0;
       // Peripheral terms are a small bonus, never a requirement
       match += peripheralTerms.length ? (periphHits / peripheralTerms.length) * 4 : 0;
-      if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 4;
+      if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 12;
+      // Penalize papers that MISS the organism when the query clearly names one
+      if (!organismPresent && contentTerms.length > 0 && speciesSearch) match -= 15;
 
       let quality = 0;
       if (abstract.length > 200) quality += 8;      // has a real abstract
@@ -3448,18 +3509,34 @@ Respond naturally to the user's message. Be yourself.`;
       let searchQuery = query;
       
       // If user is asking for MORE papers, use the ORIGINAL topic as the search query
-      // not the meta-request "find me more papers about X"
       if (wantsMorePapers && Array.isArray(body.history)) {
         const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 8);
         if (prevUser) {
-          // Use the original question as the search, with broader terms
           searchQuery = String(prevUser.content).trim();
-          // Also extract any new topic words from the current request
           const currentTopicWords = query.toLowerCase()
             .replace(/\b(find|get|show|give|more|additional|other|new|different|further|related|papers?|sources?|studies|articles?|research|literature|references?|citations?|on|about|me|please|can|you|i|want|need|some)\b/gi, "")
             .trim();
           if (currentTopicWords.length > 5) {
             searchQuery = searchQuery + " " + currentTopicWords;
+          }
+        }
+      }
+
+      // CONTEXT INJECTION: When this is a follow-up with new substance (e.g. asking about
+      // qPCR in BSF midgut after an initial BSF query), the current query may lack the
+      // organism/topic context. Pull key terms from conversation history to enrich the search.
+      if (!wantsMorePapers && Array.isArray(body.history) && body.history.length > 0) {
+        const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 10);
+        if (prevUser) {
+          const prevQ = String(prevUser.content).trim().toLowerCase();
+          const currentQ = query.toLowerCase();
+          // Extract organism/topic words from previous query that aren't in current
+          const prevWords = prevQ.split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
+          const currentWords = new Set(currentQ.split(/\s+/));
+          const missingContext = prevWords.filter(w => !currentWords.has(w));
+          // If the current query is missing key context words, add them
+          if (missingContext.length > 0 && missingContext.length <= 6) {
+            searchQuery = query + " " + missingContext.join(" ");
           }
         }
       }
@@ -3604,7 +3681,7 @@ Respond naturally to the user's message. Be yourself.`;
     const evidencePapers = (isNameSearch || isFollowupMode)
       ? papers.slice(0, maxEvidence)
       : (() => {
-          const strong = papers.filter((p) => (p.relevance || 0) >= 45);
+          const strong = papers.filter((p) => (p.relevance || 0) >= 55);
           return (strong.length >= 2 ? strong : papers.slice(0, 4)).slice(0, maxEvidence);
         })();
 
@@ -3670,14 +3747,18 @@ Respond naturally to the user's message. Be yourself.`;
             const rel = typeof p.relevance === "number" ? p.relevance : null;
             let relTag = "";
             if (!isNameSearch && !isFollowupMode && rel !== null) {
-              if (rel < 45) relTag = " [WEAK MATCH (" + rel + "%) — only tangentially related; do NOT present this as directly answering the question]";
-              else if (rel < 65) relTag = " [PARTIAL MATCH (" + rel + "%) — related but not a direct answer]";
+              if (rel < 45) relTag = " [WEAK MATCH (" + rel + "%) — tangentially related; do NOT present as direct evidence]";
+              else if (rel < 65) relTag = " [PARTIAL MATCH (" + rel + "%)]";
             }
             const tldrLine = p.tldr ? "\nTL;DR: " + p.tldr : "";
+            // Study type detection for grad-student context
+            const isPre = /biorxiv|medrxiv|arxiv|preprint/i.test(p.journal || "");
+            const preTag = isPre ? " [PREPRINT — not yet peer-reviewed]" : "";
+            const citCount = typeof p.citations === "number" ? ` [Cited by ${p.citations}]` : "";
             return (
               "[" + (i + 1) + "] " + p.title +
               " (Authors: " + (p.authors || "n/a") + ", " +
-              p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag +
+              p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag + preTag + citCount +
               tldrLine +
               "\nAbstract: " + (p.abstract || "(no abstract available)")
             );
@@ -3689,40 +3770,51 @@ Respond naturally to the user's message. Be yourself.`;
           .join("\n\n")
       : "";
 
-    // ============ CEREBRUM INTELLIGENCE CORE v4 ============
-    // Zero prefacing. Synthesis over listing. Peer tone. Graceful gaps.
+    // ============ CEREBRUM INTELLIGENCE CORE v4.1 ============
     const VOICE =
-      "VOICE & STRUCTURE — read every word, this defines your entire output:\n\n" +
-      "ZERO PREFACING: Your first sentence must be a substantive claim, finding, or direct answer. " +
-      "Never start with: 'Based on the provided sources', 'The research shows', 'Let me explain', 'Here is what we know', 'This is a great question', " +
-      "'Let\\'s break this down', 'According to the literature', 'To answer your question'. " +
-      "If you catch yourself writing any variation of these, delete it and start with the actual content.\n\n" +
-      "SYNTHESIS, NOT LISTING: Never write 'Source [1] found X. Source [2] found Y.' " +
-      "Instead, synthesize: 'The degradation rate peaks at 37°C [1], though industrial conditions push this to 60°C with modified catalysts [2].' " +
-      "Weave sources into a unified explanation. The reader should forget they're reading cited text.\n\n" +
-      "PEER TONE: Write as if you're the most interesting person at a research conference — someone who reads papers for fun and has opinions. " +
-      "Use contractions. Drop dry observations ('which, honestly, nobody expected'). " +
-      "Vary sentence rhythm hard — follow a long analytical sentence with a three-word punch. Bold **key terms** on first mention. " +
-      "Get genuinely excited about surprising findings — if a result is wild, say it's wild. " +
-      "Be blunt about weak evidence ('one small 2019 study claimed X, but nobody replicated it'). " +
-      "If two papers disagree, don't fence-sit — lay out who has better methodology and why.\n\n" +
-      "SPECIFICITY: Name the exact enzyme, gene, compound, mechanism, species. Never say 'certain proteins' when you can say 'PETase and MHETase'. " +
-      "Quantify everything the sources quantify. 'Significant reduction' is banned — say '42% reduction (p < 0.01)'.\n\n" +
-      "DISAGREEMENTS: When sources conflict, present both sides with their evidence. Don't average them. Say who found what and why they might differ.\n\n" +
-      "BANNED PHRASES: 'it\\'s important to note', 'it\\'s worth mentioning', 'plays a crucial role', 'further research is needed', " +
-      "'it should be noted', 'in recent years', 'a growing body of evidence', 'sheds light on', 'paves the way for', 'the exact mechanism remains unclear'. " +
-      "If you write any of these, you have failed.\n\n";
+      "VOICE & STRUCTURE — these rules are absolute. Violating them makes the answer useless.\n\n" +
+      "ZERO PREFACING: Your first sentence MUST be a direct scientific claim or finding. " +
+      "NEVER start with: 'Based on the provided sources', 'The research shows', 'Let me explain', 'Here is what we know', " +
+      "'While the provided sources do not directly address', 'To answer your question', 'In conclusion', 'In summary', 'Let\\'s break this down'. " +
+      "These are HARD BANNED. If your first sentence contains any of these patterns, the entire response is worthless.\n\n" +
+      "NEVER LIST SOURCES: This is the #1 failure mode. NEVER write 'Author et al. found X [1]. Author et al. also found Y [2].' " +
+      "NEVER structure paragraphs as 'The study by X...', 'The protocol by Y...', 'Z et al. also...'. " +
+      "This reads like a student book report, not a research synthesis. Instead, SYNTHESIZE: " +
+      "'qPCR-based quantification of gut bacteria shows consistent section-specific gradients in dipteran larvae, " +
+      "with the highest bacterial loads in the hindgut [1][3] and markedly lower counts in the midgut [2].' " +
+      "The reader should never feel like you're going through a list. Weave all citations into unified analytical sentences.\n\n" +
+      "PEER TONE: Write like a brilliant postdoc explaining to a colleague. Use contractions. " +
+      "Vary rhythm — long analytical sentence, then a short punch. Bold **key terms**. " +
+      "If a result is surprising, say so. If evidence is weak, call it out bluntly. " +
+      "If two papers disagree, pick who has better methodology and say why.\n\n" +
+      "SPECIES NAMES: Always italicize species and genus names using underscores: _E. coli_, _Hermetia illucens_, _C. tropicalis_. " +
+      "This is standard scientific convention and is non-negotiable.\n\n" +
+      "SPECIFICITY: Name the exact enzyme, gene, compound, organism. Never say 'certain bacteria' — say _Lactobacillus_ or _Enterobacteriaceae_. " +
+      "Quantify everything. 'Significant' is banned — give the number and p-value.\n\n" +
+      "RELEVANCE HONESTY: If the retrieved papers are tangentially related but don't directly answer the question, " +
+      "say so in ONE sentence at the start, then give the best answer you can from the sources AND your broader knowledge. " +
+      "Don't pretend irrelevant papers answer the question. Don't pad with filler. Be honest, then be helpful.\n\n" +
+      "BANNED PHRASES (using any of these = failed response): " +
+      "'it\\'s important to note', 'it\\'s worth mentioning', 'plays a crucial role', 'further research is needed', " +
+      "'it should be noted', 'in recent years', 'a growing body of evidence', 'sheds light on', 'paves the way for', " +
+      "'the exact mechanism remains unclear', 'while the provided sources do not directly', 'in conclusion', 'in summary', " +
+      "'none of these papers directly assess', 'although this study does not specifically investigate'.\n\n";
 
     const CONTEXT =
       "CONTEXT & CONTINUITY:\n" +
-      "You are in a live conversation. The user can see their previous messages and your previous answers. " +
-      "When they say 'it', 'that paper', 'those results', 'the enzyme' — resolve the reference from conversation history. " +
-      "When corrected, accept immediately without defensiveness. " +
-      "Follow-ups must go DEEPER — never repeat background you already covered. Add new specificity, new mechanisms, new numbers.\n\n" +
-      "HANDLING GAPS: If the retrieved sources don't fully answer the question, don't apologize or hedge excessively. " +
-      "State what the sources DO cover in 1-2 sentences, then seamlessly extend with your own knowledge. " +
-      "Signal the transition naturally: 'The retrieved papers focus on X, but the broader literature also shows...' " +
-      "Never refuse to answer. A partial answer with honest scope is always better than a refusal.\n\n";
+      "You are in a live conversation. Resolve pronouns from history. Accept corrections without defensiveness. " +
+      "Follow-ups go DEEPER — never repeat background.\n\n" +
+      "HANDLING GAPS: If retrieved sources don't fully answer the question, state what they cover in ONE sentence, " +
+      "then seamlessly extend with your broader knowledge. Never refuse. Never apologize more than once.\n\n" +
+      "GRAD-STUDENT FORMATTING: Your audience is researchers. Format accordingly:\n" +
+      "- For long answers, use **bold section headers** to organize (e.g., **Mechanism**, **Evidence**, **Limitations**)\n" +
+      "- Always mention **study design**: was it _in vitro_, _in vivo_, a clinical trial, a meta-analysis, a computational model? This matters enormously.\n" +
+      "- Always mention **sample size** and **model organism** when the source provides them: '(n=42 C57BL/6 mice)'\n" +
+      "- Flag **preprints** vs peer-reviewed. If a source is from bioRxiv/medRxiv/arXiv, note it: '[preprint]'\n" +
+      "- When multiple studies agree, say so explicitly: 'Three independent groups confirm...' — this is how researchers assess confidence.\n" +
+      "- When only one study supports a claim, flag it: 'A single 2021 study (n=12) reported X, but this hasn't been independently replicated.'\n" +
+      "- Use proper units: μM not uM, °C not degrees, kDa not kd.\n" +
+      "- Distinguish correlation from causation. If a study shows association, don't write it as mechanism.\n\n";
 
     const CITE_RULES =
       "CITATION FORMAT — mechanical compliance required:\n" +
