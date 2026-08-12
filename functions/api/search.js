@@ -800,14 +800,22 @@ const STOPWORDS = new Set([
 ]);
 
 function cleanQuery(raw) {
-  const cleaned = raw
+  // Strip potential prompt injection attempts
+  let sanitized = raw
+    .replace(/\b(ignore|disregard|forget)\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?|context)\b/gi, "")
+    .replace(/\b(system|assistant|user)\s*:/gi, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/<[^>]+>/g, "")
+    .slice(0, 500); // Hard cap query length
+
+  const cleaned = sanitized
     .toLowerCase()
     .replace(/[^\w\s-]/g, " ")
     .split(/\s+/)
     .filter((w) => w.length > 2 && !STOPWORDS.has(w))
     .join(" ")
     .trim();
-  return cleaned || raw.trim();
+  return cleaned || raw.trim().slice(0, 500);
 }
 
 // ============ SCHOLARLY DATABASE SOURCES ============
@@ -3051,7 +3059,7 @@ async function gatherPapers(rawQuery, opts) {
 
 const cors = {
   "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": request.headers.get("Origin") || "https://askcerebrum.org",
 };
 
 // ---- SECURITY LAYER ----
@@ -3270,8 +3278,8 @@ Respond naturally to the user's message. Be yourself.`;
       try {
         // Use the fastest available model for persona responses
         const personaModels = [
+          { url: "https://openrouter.ai/api/v1/chat/completions", model: "deepseek/deepseek-chat-v3-0324:free", key: "OPENROUTER_KEY" },
           { url: "https://openrouter.ai/api/v1/chat/completions", model: "google/gemini-2.0-flash-exp:free", key: "OPENROUTER_KEY" },
-          { url: "https://openrouter.ai/api/v1/chat/completions", model: "deepseek/deepseek-chat:free", key: "OPENROUTER_KEY" },
         ];
 
         const apiKey = env.OPENROUTER_KEY || "";
