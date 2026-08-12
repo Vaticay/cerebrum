@@ -393,15 +393,26 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     .replace(/\n[-—]{2,}\s*\n/g, "\n\n")
     .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
     .trim();
-  return clean.split(/\n{2,}/).map((para, pi) => (
+  return clean.split(/\n{2,}/).map((para, pi) => {
+    // Check for markdown headers
+    const h2 = para.match(/^##\s+(.+)$/);
+    if (h2) return <h3 key={pi} style={{ fontSize: 17, fontWeight: 700, color: accent, margin: "28px 0 8px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)", borderBottom: `1px solid ${P.line}`, paddingBottom: 8 }}>{h2[1]}</h3>;
+    const h3 = para.match(/^###\s+(.+)$/);
+    if (h3) return <h4 key={pi} style={{ fontSize: 15, fontWeight: 600, color: P.ink, margin: "20px 0 6px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>{h3[1]}</h4>;
+    // Check for bold-line headers (e.g., "**Mechanism**")
+    const boldHeader = para.match(/^\*\*([^*]+)\*\*\s*$/);
+    if (boldHeader) return <h4 key={pi} style={{ fontSize: 15, fontWeight: 700, color: accent, margin: "24px 0 6px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>{boldHeader[1]}</h4>;
+    return (
     <p key={pi} style={{ fontSize: 16, lineHeight: 1.8, margin: "0 0 18px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 420 }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
-          {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|\[\d+\])/g).map((seg, si) => {
+          {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|\[\d+\])/g).map((seg, si) => {
             const b = seg.match(/^\*\*([^*]+)\*\*$/);
             if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 600 }}>{b[1]}</strong>;
             const it = seg.match(/^\*([^*\n]+)\*$/);
             if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{it[1]}</em>;
+            const ul = seg.match(/^_([^_\n]+)_$/);
+            if (ul) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{ul[1]}</em>;
             const c = seg.match(/^\[(\d+)\]$/);
             if (c) {
               const n = parseInt(c[1], 10); const src = sources[n - 1];
@@ -431,7 +442,8 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
         </React.Fragment>
       ))}
     </p>
-  ));
+    );
+  });
 }
 function at2(a) { return a; }
 
