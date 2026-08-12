@@ -887,7 +887,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
     <div ref={containerRef} style={{
       position: "fixed", inset: 0, width: "100%", height: "100%",
       pointerEvents: "none", zIndex: 0,
-      opacity: intensity === "subtle" ? 0.35 : 0.65,
+      opacity: intensity === "subtle" ? 0.08 : 0.15,
       transition: "opacity 0.5s ease",
       /* CSS fallback gradient — visible while Vanta loads or if it fails */
       background: loaded ? "transparent" : (P.dark
@@ -1713,7 +1713,7 @@ function makeStyles(P, accent, at, isMobile = false) {
        content from the animated background. The single 
        biggest premium upgrade. ── */
     answerCard: { 
-      background: P.dark ? "rgba(5,8,22,0.75)" : "rgba(255,255,255,0.85)", 
+      background: P.dark ? "rgba(5,8,22,0.92)" : "rgba(255,255,255,0.85)", 
       backdropFilter: "blur(12px) saturate(1.1)",
       WebkitBackdropFilter: "blur(12px) saturate(1.1)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`,
@@ -1733,7 +1733,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     error: { padding: "16px 20px", background: withAlpha("#e5484d", 0.08), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.2)}` },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(5,8,22,0.85)" : "rgba(255,255,255,0.9)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: glassBorder, borderRadius: 14, padding: "10px 10px 10px 20px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", position: "sticky", bottom: isMobile ? 80 : 16, zIndex: 10, marginTop: 16 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(5,8,22,0.85)" : "rgba(255,255,255,0.9)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: glassBorder, borderRadius: 14, padding: "10px 10px 10px 20px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 16 },
     relatedWrap: { marginTop: 28, paddingTop: 24, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 14, fontFamily: "var(--cb-mono)" },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 },
