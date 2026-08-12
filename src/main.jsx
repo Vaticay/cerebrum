@@ -919,39 +919,6 @@ function BrainEasterEgg() {
    Wraps the search bar. Renders a radial glow that follows the 
    mouse X/Y along the border. Creates a localized light source.
    ════════════════════════════════════════════════════════════════ */
-function RotatingPlaceholder() {
-  const phrases = [
-    "How does CRISPR achieve target specificity?",
-    "What causes antibiotic resistance to spread?",
-    "Mechanisms of long COVID persistence",
-    "How do CAR-T cells recognize tumors?",
-    "What drives protein phase separation in cells?",
-    "Neural mechanisms of general anesthesia",
-  ];
-  const [idx, setIdx] = useState(0);
-  const [text, setText] = useState("");
-  const [deleting, setDeleting] = useState(false);
-  useEffect(() => {
-    const phrase = phrases[idx];
-    let timer;
-    if (!deleting) {
-      if (text.length < phrase.length) {
-        timer = setTimeout(() => setText(phrase.slice(0, text.length + 1)), 40 + Math.random() * 30);
-      } else {
-        timer = setTimeout(() => setDeleting(true), 2800);
-      }
-    } else {
-      if (text.length > 0) {
-        timer = setTimeout(() => setText(text.slice(0, -1)), 20);
-      } else {
-        setDeleting(false);
-        setIdx((idx + 1) % phrases.length);
-      }
-    }
-    return () => clearTimeout(timer);
-  }, [text, deleting, idx]);
-  return text || " ";
-}
 
 function KineticText({ text, style, className }) {
   return (
@@ -1252,15 +1219,16 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
           </div>
         )}
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
-        {done && (<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-          <div style={S.byline}>
-            <span style={S.aiTag}>AI-synthesized · verify against cited sources</span><span style={{ fontSize: 10, color: P.faint, fontFamily: "var(--cb-mono)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>
+        {done && (
+          <div style={{ ...S.byline, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <span style={S.aiTag}>AI-synthesized · verify against cited sources</span>
+            <span style={{ fontSize: 10, color: P.faint, fontFamily: "var(--cb-mono)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           </div>
         )}
         {done && t.answer && (
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-            <button onClick={() => { navigator.clipboard.writeText(t.answer).then(() => { const btn = event.target; btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "Copy answer", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: "1px solid " + P.line2, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Copy answer</button>
-            <button onClick={() => { const url = window.location.origin + "/?q=" + encodeURIComponent(t.q); navigator.clipboard.writeText(url).then(() => { const btn = event.target; btn.textContent = "Link copied!"; setTimeout(() => btn.textContent = "Share", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: "1px solid " + P.line2, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Share</button>
+            <button onClick={(e) => { navigator.clipboard.writeText(t.answer).then(() => { const btn = e.currentTarget; btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "Copy answer", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: "1px solid " + P.line2, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Copy answer</button>
+            <button onClick={(e) => { const url = window.location.origin + "/?q=" + encodeURIComponent(t.q); navigator.clipboard.writeText(url).then(() => { const btn = e.currentTarget; btn.textContent = "Link copied!"; setTimeout(() => btn.textContent = "Share", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: "1px solid " + P.line2, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Share</button>
           </div>
         )}
         {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
@@ -2121,7 +2089,7 @@ function App() {
               <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can verify.</p>
               <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700, borderRadius: 14 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder={RotatingPlaceholder()} />
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button style={S.searchBtn} onClick={() => ask()}>Search</button>
               </div>
