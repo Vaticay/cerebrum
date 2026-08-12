@@ -3405,9 +3405,8 @@ Respond naturally to the user's message. Be yourself.`;
     const embeddedNameInFollowup = extractPersonNameFromQuery(query);
     
     // Detect explicit requests for MORE papers/sources — these MUST trigger a fresh search
-    const wantsMorePapers = /\b(find|get|show|give|more|additional|other|new|different|further|related)\b.*\b(papers?|sources?|studies|articles?|research|literature|references?|citations?)\b/i.test(query)
-      || /\b(papers?|sources?|studies|articles?)\b.*\b(on|about|related|similar)\b/i.test(query)
-      || /\b(what else|anything else|more on|dig deeper|keep going|keep searching|search again|search more)\b/i.test(query);
+    const wantsMorePapers = /\b(find\s+more|get\s+more|show\s+more|more|additional|other|further)\s+\w*\s*(papers?|sources?|studies|articles?|references?)\b/i.test(query)
+      || /\b(what else|anything else|dig deeper|keep searching|search again|search more|find related)\b/i.test(query);
 
     const hasNewSubstance = (() => {
       if (!Array.isArray(body.history)) return true;
@@ -3689,8 +3688,8 @@ Respond naturally to the user's message. Be yourself.`;
     const evidencePapers = (isNameSearch || isFollowupMode)
       ? papers.slice(0, maxEvidence)
       : (() => {
-          const strong = papers.filter((p) => (p.relevance || 0) >= 35);
-          return (strong.length >= 2 ? strong : papers.slice(0, 4)).slice(0, maxEvidence);
+          const strong = papers.filter((p) => (p.relevance || 0) >= 20);
+          return (strong.length >= 2 ? strong : papers.slice(0, 8)).slice(0, maxEvidence);
         })();
 
     // CITATION ALIGNMENT: the bibliography the user sees MUST be the exact same
@@ -3942,7 +3941,9 @@ Respond naturally to the user's message. Be yourself.`;
       useEvidence || useWeb
         ? "Sources:\n\n" + evidence + "\n\n---\nQuestion: " + query
         : query;
-    messages.push({ role: "user", content: userContent });
+    // Reinforce banned phrases at user level - free models often ignore system prompts
+    const enforcer = "\n\n[CRITICAL: Do NOT use these phrases anywhere in your response: 'further research is needed', 'plays a critical role', 'plays a crucial role', 'it is clear that', 'it's important to note', 'it's worth mentioning', 'in conclusion', 'in summary', 'sheds light on', 'paves the way'. Do NOT list sources one by one ('Author et al. found X'). Synthesize. Italicize species names with underscores: _E. coli_.]";
+    messages.push({ role: "user", content: userContent + enforcer });
 
     // ============ D1 ANSWER CACHE ============
     // Before calling any LLM, check if we have a cached answer for a similar
