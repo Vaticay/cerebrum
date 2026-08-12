@@ -2922,7 +2922,7 @@ async function gatherPapers(rawQuery, opts) {
       match += peripheralTerms.length ? (periphHits / peripheralTerms.length) * 4 : 0;
       if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 12;
       // Penalize papers that MISS the organism when the query clearly names one
-      if (!organismPresent && contentTerms.length > 0 && speciesSearch) match -= 15;
+      if (!organismPresent && contentTerms.length > 0 && speciesSearch) match -= 5;
 
       let quality = 0;
       if (abstract.length > 200) quality += 8;      // has a real abstract
@@ -3689,7 +3689,7 @@ Respond naturally to the user's message. Be yourself.`;
     const evidencePapers = (isNameSearch || isFollowupMode)
       ? papers.slice(0, maxEvidence)
       : (() => {
-          const strong = papers.filter((p) => (p.relevance || 0) >= 55);
+          const strong = papers.filter((p) => (p.relevance || 0) >= 35);
           return (strong.length >= 2 ? strong : papers.slice(0, 4)).slice(0, maxEvidence);
         })();
 
