@@ -2630,17 +2630,43 @@ async function gatherPapers(rawQuery, opts) {
     .sort((a, b) => b.spec - a.spec)
     .map((x) => x.t);
 
+  // ORGANISM INJECTION: if the query mentions a known organism (binomial or
+  // common name), force the scientific name into every rung so we never
+  // search "microbial abundance midgut" without "Hermetia illucens". This
+  // is the fix for "only finding one random microbe instead of BSF papers."
+  const orgInfo = splitOrganismTopic(query);
+  let organismTerm = null;
+  if (binomial) {
+    organismTerm = '"' + binomial.full + '"';
+  } else if (orgInfo.hasOrganism && orgInfo.orgPhrases.length) {
+    // Pick the most specific organism phrase (scientific name > common name)
+    const sci = orgInfo.orgPhrases.find((p) => /^[A-Z][a-z]+ [a-z]+$/.test(p) || SYNONYMS[p.toLowerCase()]);
+    const expanded = orgInfo.orgPhrases.flatMap((p) => SYNONYMS[p.toLowerCase()] || []);
+    const sciName = expanded.find((e) => /[A-Z][a-z]+ [a-z]/.test(e));
+    organismTerm = sciName ? '"' + sciName + '"' : (sci || orgInfo.orgPhrases[0]);
+  }
+
   const booleanQuery = buildStructuredQuery(query);
   const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
 
   // Progressive rungs, most-precise first.
-  const rungs = [
+  // If we detected an organism, prepend it to EVERY rung so the organism
+  // is always part of the search, no matter how loose the topic terms get.
+  let rungs = [
     ranked.slice(0, 4),
     ranked.slice(0, 3),
     ranked.slice(0, 2),
     ranked.slice(0, 1),
   ].filter((r) => r.length > 0);
   if (!rungs.length) rungs.push([query]);
+
+  if (organismTerm) {
+    rungs = rungs.map((rung) => {
+      // Don't duplicate if organism term is already in the rung
+      const has = rung.some((t) => organismTerm.replace(/"/g, "").toLowerCase().includes(t.toLowerCase()));
+      return has ? rung : [organismTerm, ...rung];
+    });
+  }
 
   // The fanout sends the RIGHT syntax to EACH engine. This is the most
   // important function in the entire codebase — if it sends the wrong format
