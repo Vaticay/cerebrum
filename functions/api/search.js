@@ -2696,9 +2696,11 @@ async function gatherPapers(rawQuery, opts) {
   const diag = { rungs: [], sourceOutcomes: null };
   const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire"];
 
+  let accumulated = [];
   for (let i = 0; i < rungs.length; i++) {
-    results = await Promise.allSettled(fanout(rungs[i], i === 0));
-    const perSource = results.map((r, idx) => ({
+    const rungResults = await Promise.allSettled(fanout(rungs[i], i === 0));
+    accumulated = accumulated.concat(rungResults);
+    const perSource = rungResults.map((r, idx) => ({
       source: sourceNames[idx],
       status: r.status,
       count: r.status === "fulfilled" ? (r.value || []).length : 0,
@@ -2706,9 +2708,15 @@ async function gatherPapers(rawQuery, opts) {
     }));
     const got = perSource.reduce((n, x) => n + x.count, 0);
     diag.rungs.push({ terms: rungs[i], got, perSource });
-    if (got >= 10) { diag.sourceOutcomes = perSource; break; }
     diag.sourceOutcomes = perSource;
+    // Total accumulated across all rungs so far, not just this rung alone —
+    // this is what should gate whether we keep loosening the query.
+    const totalAccumulated = accumulated.reduce(
+      (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+    );
+    if (totalAccumulated >= 8) break;
   }
+  results = accumulated;
 
   // FINAL FALLBACK: if no rung returned enough, try the raw user query
   // verbatim. Some engines (especially Semantic Scholar and Europe PMC) have
