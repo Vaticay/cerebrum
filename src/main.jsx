@@ -1227,8 +1227,8 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         )}
         {done && t.answer && (
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-            <button onClick={(e) => { navigator.clipboard.writeText(t.answer).then(() => { const btn = e.currentTarget; btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "Copy answer", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: "1px solid " + P.line2, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Copy answer</button>
-            <button onClick={(e) => { const url = window.location.origin + "/?q=" + encodeURIComponent(t.q); navigator.clipboard.writeText(url).then(() => { const btn = e.currentTarget; btn.textContent = "Link copied!"; setTimeout(() => btn.textContent = "Share", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: "1px solid " + P.line2, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Share</button>
+            <button onClick={(e) => { navigator.clipboard.writeText(t.answer).then(() => { const btn = e.currentTarget; btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "Copy answer", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Copy answer</button>
+            <button onClick={(e) => { const url = window.location.origin + "/?q=" + encodeURIComponent(t.q); navigator.clipboard.writeText(url).then(() => { const btn = e.currentTarget; btn.textContent = "Link copied!"; setTimeout(() => btn.textContent = "Share", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Share</button>
           </div>
         )}
         {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
