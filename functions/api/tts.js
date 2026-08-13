@@ -7,14 +7,60 @@
 //
 // Frontend just hits /api/tts and gets audio/mpeg back. Whichever engine
 // worked, the user experience is identical.
+//
+// Hardening: unlike search.js/vote.js, this endpoint had NO origin allowlist
+// (wildcard "*" CORS) and NO rate limiting, despite calling paid/quota-limited
+// Workers AI models plus an external proxy — any third-party site could embed
+// a script hammering this for free. Brought up to the same bar as the other
+// endpoints. Also fixed an ordering bug: the 4500-char cap used to be applied
+// AFTER preprocessForSpeech() ran its ~20 regex passes over the full raw
+// string, so an arbitrarily large `text` field got fully processed before
+// ever being truncated — a cheap CPU-time DoS lever. Now capped up front.
+
+const ALLOWED_ORIGINS = [
+  "https://askcerebrum.org",
+  "https://www.askcerebrum.org",
+  "https://cerebrum-2pz.pages.dev",
+];
+const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
+function originAllowed(request) {
+  const origin = request.headers.get("Origin") || "";
+  if (!origin) return true; // same-origin / non-browser client
+  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
+}
+
+// Same lightweight per-isolate sliding-window limiter used in search.js/vote.js.
+const RATE_BUCKET = new Map();
+const RATE_LIMIT = 20;         // TTS requests
+const RATE_WINDOW_MS = 60000;  // per minute
+function rateLimit(ip) {
+  const now = Date.now();
+  const rec = RATE_BUCKET.get(ip) || [];
+  const recent = rec.filter((t) => now - t < RATE_WINDOW_MS);
+  recent.push(now);
+  RATE_BUCKET.set(ip, recent);
+  if (RATE_BUCKET.size > 5000) {
+    for (const [k, v] of RATE_BUCKET) {
+      if (v.every((t) => now - t > RATE_WINDOW_MS)) RATE_BUCKET.delete(k);
+    }
+  }
+  return recent.length <= RATE_LIMIT;
+}
 
 export async function onRequest(context) {
   const { request, env } = context;
+
+  const reqOrigin = request.headers.get("Origin") || "";
+  const corsOrigin =
+    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin)
+      ? reqOrigin
+      : "https://askcerebrum.org";
   const cors = {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Cache-Control": "no-store",
+    "Vary": "Origin",
   };
 
   if (request.method === "OPTIONS") {
@@ -23,6 +69,20 @@ export async function onRequest(context) {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405, headers: cors });
   }
+  if (!originAllowed(request)) {
+    return jsonErr(cors, 403, "Origin not allowed");
+  }
+
+  const clientIP =
+    request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("X-Forwarded-For") ||
+    "unknown";
+  if (!rateLimit(clientIP)) {
+    return new Response(
+      JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }),
+      { status: 429, headers: { ...cors, "Content-Type": "application/json", "Retry-After": "30" } }
+    );
+  }
 
   let body;
   try { body = await request.json(); }
@@ -30,7 +90,8 @@ export async function onRequest(context) {
     return jsonErr(cors, 400, "Bad JSON");
   }
 
-  const raw = (body.text || "").toString().trim();
+  // Cap the RAW input before any processing — see hardening note above.
+  const raw = (body.text || "").toString().trim().slice(0, 6000);
   if (!raw) return jsonErr(cors, 400, "Missing text");
 
   // Preprocess text for more natural speech. Every TTS engine benefits from
