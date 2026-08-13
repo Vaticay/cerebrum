@@ -1305,123 +1305,6 @@ function extractPersonNameFromQuery(raw) {
   return nameToks.join(" ");
 }
 
-
-
-// OpenAlex authors endpoint: disambiguates people and returns their id, so we
-// can fetch their actual works. Keyless.
-async function openAlexAuthorSearch(name, limit = 10) {
-  try {
-    const authorRes = await getJSON(
-      "https://api.openalex.org/authors?" +
-        new URLSearchParams({
-          search: name,
-          per_page: "10",
-          mailto: "noreply@example.com",
-        })
-    );
-    const authors = (authorRes && authorRes.results) || [];
-    if (!authors.length) return [];
-
-    // Strict name match: require ALL tokens of the query to appear in the
-    // author's display_name (or an alternative form). This kills matches like
-    // "J. P. Reese" surfacing for a "Reese Saho" search.
-    const wanted = name.toLowerCase().split(/\s+/).filter(Boolean);
-    const scored = authors
-      .map((a) => {
-        const dn = (a.display_name || "").toLowerCase();
-        const alt = (a.display_name_alternatives || []).map((x) => (x || "").toLowerCase());
-        const allNames = [dn, ...alt];
-        const allHit = wanted.every((w) => allNames.some((n) => n.includes(w)));
-        return { a, allHit, works: a.works_count || 0 };
-      })
-      .filter((s) => s.allHit);
-
-    if (!scored.length) return [];
-    scored.sort((x, y) => y.works - x.works);
-
-    const worksAll = [];
-    for (const s of scored.slice(0, 2)) {
-      try {
-        const worksRes = await getJSON(
-          "https://api.openalex.org/works?" +
-            new URLSearchParams({
-              filter: "author.id:" + s.a.id.replace("https://openalex.org/", ""),
-              per_page: String(limit),
-              sort: "publication_year:desc",
-              select:
-                "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
-              mailto: "noreply@example.com",
-            })
-        );
-        for (const w of (worksRes.results || [])) {
-          if (!w.title) continue;
-          const first =
-            (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || s.a.display_name;
-          worksAll.push({
-            title: w.title,
-            url: w.doi || (w.primary_location && (w.primary_location.landing_page_url || w.primary_location.pdf_url)) || "",
-            year: w.publication_year || "",
-            citations: typeof w.cited_by_count === "number" ? w.cited_by_count : null,
-            authors: w.authorships && w.authorships.length > 1 ? first + " et al." : first,
-            journal: (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || "OpenAlex",
-            abstract: decodeInverted(w.abstract_inverted_index),
-            authorMatch: s.a.display_name,
-          });
-        }
-      } catch {}
-    }
-    return worksAll;
-  } catch {
-    return [];
-  }
-}
-
-// Fallback for people not indexed by OpenAlex's author-disambiguation endpoint
-// (common for grad students / early-career researchers). Instead of trusting a
-// dedicated "who is this person" lookup, we search for the exact quoted name as
-// a phrase across Europe PMC, OpenAlex works, and Crossref, then keep ONLY
-// papers where that name genuinely appears in the paper's OWN author string.
-// This is what actually finds a real paper like Reese Saho's bioRxiv preprint,
-// which exists but isn't a disambiguated "author" record anywhere.
-function nameAppearsInAuthorString(authorsStr, fullName) {
-  const hay = (authorsStr || "").toLowerCase();
-  const tokens = fullName.toLowerCase().split(/\s+/).filter(Boolean);
-  // Require every name token (first + last) to appear somewhere in the
-  // author string. Handles "Reese Saho, Duy Trinh, ... et al." style strings.
-  return tokens.every((t) => hay.includes(t));
-}
-
-async function searchPapersByExactAuthorName(fullName, limit = 15) {
-  const quoted = '"' + fullName + '"';
-  // Europe PMC is the only source that returns a FULL author string (not just
-  // "first-author et al."). It's also the only one we can reliably filter on
-  // downstream author membership. So we search there directly, then augment
-  // with direct bioRxiv/medRxiv preprint APIs which give complete author lists.
-  try {
-    const [epmc, brx, mrx] = await Promise.allSettled([
-      europePMC(quoted, limit),
-      biorxivDirectAuthor(fullName),
-      medrxivDirectAuthor(fullName),
-    ]);
-    const pools = [epmc, brx, mrx]
-      .filter((r) => r.status === "fulfilled")
-      .flatMap((r) => r.value || []);
-    const seen = new Set();
-    const matched = [];
-    for (const p of pools) {
-      const key = (p.title || "").toLowerCase().trim();
-      if (!key || seen.has(key)) continue;
-      if (nameAppearsInAuthorString(p.authors, fullName)) {
-        seen.add(key);
-        matched.push({ ...p, authorMatch: fullName });
-      }
-    }
-    return matched;
-  } catch {
-    return [];
-  }
-}
-
 // Direct bioRxiv API: pulls up to 100 recent preprints and filters by author
 // name. Only finds someone if their preprint is public on bioRxiv itself. Not
 // mirrored through OpenAlex or PubMed, so this catches things those miss.
@@ -1451,211 +1334,19 @@ async function preprintServerAuthor(server, fullName) {
     });
     return hits.slice(0, 10).map((it) => ({
       title: it.title || "Untitled",
-      url: it.doi ? "https://doi.org/" + it.doi : "https://www.biorxiv.org/content/" + it.doi,
+      // Bug: when a preprint has no DOI yet, the old fallback re-used the
+      // same falsy `it.doi` inside the "no DOI" branch, producing a dead
+      // link like ".../content/undefined". Fall back to a search link built
+      // from the title instead, which always resolves to something useful.
+      url: it.doi
+        ? "https://doi.org/" + it.doi
+        : "https://www.biorxiv.org/search/" + encodeURIComponent(it.title || fullName),
       year: (it.date || "").slice(0, 4),
       citations: null,
       authors: it.authors || "",
       journal: server === "biorxiv" ? "bioRxiv (preprint)" : "medRxiv (preprint)",
       abstract: it.abstract || "",
     }));
-  } catch {
-    return [];
-  }
-}
-
-// ORCID: the canonical author ID registry. Free, keyless, catches researchers
-// who registered before their papers propagated to OpenAlex/PubMed. Returns
-// works listed on their ORCID record.
-async function orcidAuthorSearch(fullName) {
-  try {
-    const searchUrl =
-      "https://pub.orcid.org/v3.0/search/?" +
-      new URLSearchParams({
-        q: 'given-names:"' + fullName.split(/\s+/)[0] + '"+AND+family-name:"' + fullName.split(/\s+/).slice(-1)[0] + '"',
-      });
-    const searchData = await getJSON(searchUrl, { Accept: "application/json" }, 4000);
-    const results = (searchData && searchData.result) || [];
-    if (!results.length) return [];
-    const worksAll = [];
-    // Pull works for the top 2 matching ORCID profiles
-    for (const r of results.slice(0, 2)) {
-      const orcid = r && r["orcid-identifier"] && r["orcid-identifier"].path;
-      if (!orcid) continue;
-      try {
-        const worksUrl = "https://pub.orcid.org/v3.0/" + orcid + "/works";
-        const worksData = await getJSON(worksUrl, { Accept: "application/json" }, 4000);
-        const groups = (worksData && worksData.group) || [];
-        for (const g of groups) {
-          const summaries = (g && g["work-summary"]) || [];
-          for (const w of summaries) {
-            const title = w.title && w.title.title && w.title.title.value;
-            if (!title) continue;
-            const year =
-              w["publication-date"] && w["publication-date"].year && w["publication-date"].year.value;
-            const doiId =
-              (w["external-ids"] &&
-                w["external-ids"]["external-id"] &&
-                w["external-ids"]["external-id"].find(
-                  (x) => x["external-id-type"] === "doi"
-                )) || null;
-            const doi = doiId ? doiId["external-id-value"] : "";
-            worksAll.push({
-              title,
-              url: doi ? "https://doi.org/" + doi : "https://orcid.org/" + orcid,
-              year: year || "",
-              citations: null,
-              authors: fullName,
-              journal: (w["journal-title"] && w["journal-title"].value) || "ORCID record",
-              abstract: "",
-              authorMatch: fullName,
-              source: "orcid",
-            });
-          }
-        }
-      } catch {}
-    }
-    return worksAll;
-  } catch {
-    return [];
-  }
-}
-
-// Semantic Scholar author search: separate from OpenAlex, different coverage.
-// Some researchers surface here that OpenAlex misses and vice versa.
-async function semanticScholarAuthorSearch(fullName) {
-  try {
-    const searchUrl =
-      "https://api.semanticscholar.org/graph/v1/author/search?" +
-      new URLSearchParams({
-        query: fullName,
-        limit: "5",
-        fields: "name,paperCount,papers.title,papers.year,papers.venue,papers.externalIds,papers.authors,papers.abstract,papers.citationCount",
-      });
-    const data = await getJSON(searchUrl, {}, 5000);
-    const authors = (data && data.data) || [];
-    if (!authors.length) return [];
-    const wanted = fullName.toLowerCase().split(/\s+/).filter(Boolean);
-    const worksAll = [];
-    // Only accept authors whose name contains all tokens of the query
-    for (const a of authors) {
-      const name = (a.name || "").toLowerCase();
-      if (!wanted.every((t) => name.includes(t))) continue;
-      const papers = a.papers || [];
-      for (const p of papers) {
-        const doi = p.externalIds && p.externalIds.DOI;
-        worksAll.push({
-          title: p.title || "Untitled",
-          url: doi ? "https://doi.org/" + doi : "",
-          year: p.year || "",
-          citations: typeof p.citationCount === "number" ? p.citationCount : null,
-          authors:
-            (p.authors || []).slice(0, 1).map((x) => x.name).join("") +
-            ((p.authors || []).length > 1 ? " et al." : ""),
-          journal: p.venue || "Semantic Scholar",
-          abstract: p.abstract || "",
-          authorMatch: a.name,
-          source: "semantic-scholar-author",
-        });
-      }
-    }
-    return worksAll;
-  } catch {
-    return [];
-  }
-}
-
-// Wikipedia person lookup: fetch a summary and infobox for a real person.
-// Useful for well-known researchers or public figures. Keyless, free.
-async function wikipediaLookup(query) {
-  try {
-    const searchUrl =
-      "https://en.wikipedia.org/w/api.php?" +
-      new URLSearchParams({
-        action: "query",
-        list: "search",
-        srsearch: query,
-        srlimit: "3",
-        format: "json",
-        origin: "*",
-      });
-    const searchData = await getJSON(searchUrl, {}, 4000);
-    const hits =
-      (searchData && searchData.query && searchData.query.search) || [];
-    const results = [];
-    for (const h of hits) {
-      const title = (h.title || "").trim();
-      if (!title) continue;
-      // Fetch page summary
-      try {
-        const sumUrl =
-          "https://en.wikipedia.org/api/rest_v1/page/summary/" +
-          encodeURIComponent(title);
-        const sum = await getJSON(sumUrl, {}, 4000);
-        if (sum && sum.extract) {
-          results.push({
-            title: sum.title || title,
-            url: sum.content_urls?.desktop?.page || ("https://en.wikipedia.org/wiki/" + encodeURIComponent(title)),
-            year: "",
-            citations: null,
-            authors: "Wikipedia",
-            journal: "Wikipedia",
-            abstract: sum.extract,
-            source: "wikipedia",
-            thumbnail: sum.thumbnail?.source || null,
-          });
-        }
-      } catch {}
-    }
-    return results;
-  } catch {
-    return [];
-  }
-}
-
-// DuckDuckGo Instant Answer: free, keyless, returns a summary for many
-// entity-style queries (people, places, concepts).
-async function duckduckgoInstant(query) {
-  try {
-    const url =
-      "https://api.duckduckgo.com/?" +
-      new URLSearchParams({
-        q: query,
-        format: "json",
-        no_html: "1",
-        skip_disambig: "1",
-      });
-    const data = await getJSON(url, {}, 4000);
-    if (!data) return [];
-    const out = [];
-    if (data.AbstractText) {
-      out.push({
-        title: data.Heading || query,
-        url: data.AbstractURL || "https://duckduckgo.com/?q=" + encodeURIComponent(query),
-        year: "",
-        citations: null,
-        authors: data.AbstractSource || "DuckDuckGo",
-        journal: data.AbstractSource || "DuckDuckGo",
-        abstract: data.AbstractText,
-        source: "duckduckgo",
-      });
-    }
-    // RelatedTopics can carry useful context too
-    const rel = (data.RelatedTopics || []).slice(0, 3);
-    for (const r of rel) {
-      if (r && r.Text && r.FirstURL) {
-        out.push({
-          title: (r.Text.split(" - ")[0] || r.Text).slice(0, 120),
-          url: r.FirstURL,
-          year: "",
-          citations: null,
-          authors: "DuckDuckGo",
-          journal: "DuckDuckGo",
-          abstract: r.Text,
-          source: "duckduckgo",
-        });
-      }
-    }
-    return out;
   } catch {
     return [];
   }
@@ -2083,9 +1774,17 @@ async function openAire(query, limit = 8) {
       const names = creators.map((c) => c?.["$"] || "").filter(Boolean);
       const pids = Array.isArray(m.pid) ? m.pid : (m.pid ? [m.pid] : []);
       const doi = pids.find((p) => p?.["@classid"] === "doi");
+      // Bug: dateofacceptance comes back as {"$": "2021-04-01"} (same shape as
+      // title/description above), not a plain string. Calling .slice() on
+      // that object threw on every single result, and since this whole
+      // .map() runs inside the function's own try/catch, the exception was
+      // silently swallowed and openAire() always returned [] — this source
+      // never actually contributed a single paper. Unwrap it like the other
+      // OAI-PMH-shaped fields already do.
+      const acceptDate = typeof m.dateofacceptance === "string" ? m.dateofacceptance : (m.dateofacceptance?.["$"] || "");
       return {
         title: t, url: doi ? "https://doi.org/" + doi["$"] : "",
-        year: (m.dateofacceptance || "").slice(0,4), citations: null,
+        year: acceptDate.slice(0,4), citations: null,
         authors: names.slice(0,1).join("") + (names.length > 1 ? " et al." : ""),
         _allAuthors: names.join(", "),
         journal: m.journal?.["$"] || "OpenAIRE",
@@ -2377,204 +2076,6 @@ async function fetchVideos(query, maxMs = 3000) {
 
   return Promise.race([doFetch(), timedRace]);
 }
-
-// ============ AUTHOR SEARCH ============
-// If the query looks like a person's name, we hit author-specific endpoints
-// rather than a generic keyword search. This avoids "Reese Saho" returning
-// stellar-pulsation papers just because "Reese" appears somewhere in them.
-
-function detectAuthor(raw) {
-  const q = raw.trim();
-  const lower = q.toLowerCase();
-  const prefixes = [
-    "papers by ", "publications by ", "articles by ",
-    "research by ", "work by ", "author:",
-  ];
-  for (const p of prefixes) {
-    if (lower.startsWith(p)) return q.slice(p.length).trim();
-  }
-  // Bare name heuristic: 2-4 words, all capitalized, no question words.
-  const words = q.split(/\s+/);
-  if (words.length >= 2 && words.length <= 4) {
-    const questiony = /^(what|how|why|when|where|which|who|is|are|does|do|can|explain|tell)/i.test(q);
-    const allCap = words.every((w) => /^[A-Z][a-zA-Z.'-]*$/.test(w));
-    if (allCap && !questiony) return q;
-  }
-  return null;
-}
-
-async function authorOpenAlex(name, limit = 15) {
-  try {
-    // First find the actual author entity, then their works.
-    const searchUrl = "https://api.openalex.org/authors?" +
-      new URLSearchParams({
-        search: name,
-        per_page: "5",
-        select: "id,display_name,works_count,cited_by_count",
-        mailto: "noreply@example.com",
-      });
-    const sdata = await getJSON(searchUrl);
-    const cands = (sdata && sdata.results) || [];
-    if (!cands.length) return { papers: [], matched: null };
-
-    // Prefer exact name match; fall back to top result
-    const wanted = name.toLowerCase();
-    const exact = cands.find((c) => (c.display_name || "").toLowerCase() === wanted);
-    const author = exact || cands[0];
-    if (!author || !author.id) return { papers: [], matched: null };
-
-    // Now fetch that author's works
-    const authorFilter = "authorships.author.id:" + author.id.replace("https://openalex.org/", "");
-    const worksUrl = "https://api.openalex.org/works?" +
-      new URLSearchParams({
-        filter: authorFilter,
-        sort: "cited_by_count:desc",
-        per_page: String(limit),
-        select: "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
-        mailto: "noreply@example.com",
-      });
-    const data = await getJSON(worksUrl);
-    const papers = ((data && data.results) || []).map((w) => {
-      const first = (w.authorships && w.authorships[0] && w.authorships[0].author && w.authorships[0].author.display_name) || "";
-      return {
-        title: w.title || "Untitled",
-        url: w.doi || (w.primary_location && w.primary_location.landing_page_url) || "",
-        year: w.publication_year || "",
-        citations: typeof w.cited_by_count === "number" ? w.cited_by_count : null,
-        authors: w.authorships && w.authorships.length > 1 ? first + " et al." : first,
-        journal: (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || "OpenAlex",
-        abstract: decodeInverted(w.abstract_inverted_index),
-      };
-    }).filter((p) => p.title && p.title !== "Untitled");
-    return { papers, matched: author.display_name };
-  } catch {
-    return { papers: [], matched: null };
-  }
-}
-
-async function authorCrossref(name, limit = 15) {
-  try {
-    const url = "https://api.crossref.org/works?" +
-      new URLSearchParams({
-        "query.author": name,
-        rows: String(limit),
-        sort: "is-referenced-by-count",
-        order: "desc",
-        select: "title,author,container-title,published,DOI,is-referenced-by-count,abstract",
-      }) + "&mailto=cerebrum@example.com";
-    const data = await getJSON(url);
-    return ((data && data.message && data.message.items) || []).map((it) => ({
-      title: Array.isArray(it.title) ? it.title[0] : it.title || "Untitled",
-      url: it.DOI ? "https://doi.org/" + it.DOI : "",
-      year: (it.published && it.published["date-parts"] && it.published["date-parts"][0] && it.published["date-parts"][0][0]) || "",
-      citations: typeof it["is-referenced-by-count"] === "number" ? it["is-referenced-by-count"] : null,
-      authors: (it.author || []).slice(0, 1).map((a) => ((a.given || "") + " " + (a.family || "")).trim()).join("") + ((it.author || []).length > 1 ? " et al." : ""),
-      journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : it["container-title"] || "Crossref",
-      abstract: stripTags(it.abstract || ""),
-    })).filter((p) => p.title);
-  } catch { return []; }
-}
-
-async function authorSemanticScholar(name, limit = 20) {
-  try {
-    const searchUrl = "https://api.semanticscholar.org/graph/v1/author/search?" +
-      new URLSearchParams({ query: name, fields: "name,paperCount,citationCount", limit: "5" });
-    const sdata = await getJSON(searchUrl);
-    const cands = (sdata && sdata.data) || [];
-    if (!cands.length) return { papers: [], matched: null };
-
-    const wanted = name.toLowerCase().split(/\s+/).filter(Boolean);
-    const scoreName = (candName) => {
-      const cn = (candName || "").toLowerCase();
-      return wanted.filter((w) => cn.includes(w)).length / wanted.length;
-    };
-    const ranked = cands
-      .map((c) => ({ c, match: scoreName(c.name) }))
-      .sort((a, b) => (b.match - a.match) || ((b.c.paperCount || 0) - (a.c.paperCount || 0)));
-
-    const best = ranked[0];
-    if (!best || best.match < 0.99) return { papers: [], matched: null };
-
-    const authorId = best.c.authorId;
-    if (!authorId) return { papers: [], matched: null };
-    const papersUrl = "https://api.semanticscholar.org/graph/v1/author/" + authorId + "/papers?" +
-      new URLSearchParams({
-        fields: "title,abstract,year,citationCount,authors,venue,externalIds",
-        limit: String(limit),
-      });
-    const pdata = await getJSON(papersUrl);
-    const papers = ((pdata && pdata.data) || []).map((r) => {
-      const doi = r.externalIds && r.externalIds.DOI;
-      const names = (r.authors || []).map((a) => a.name);
-      return {
-        title: r.title || "Untitled",
-        url: doi ? "https://doi.org/" + doi : (r.externalIds && r.externalIds.ArXiv ? "https://arxiv.org/abs/" + r.externalIds.ArXiv : ""),
-        year: r.year || "",
-        citations: typeof r.citationCount === "number" ? r.citationCount : null,
-        authors: names.length > 1 ? names[0] + " et al." : names[0] || "",
-        journal: r.venue || "Semantic Scholar",
-        abstract: r.abstract || "",
-      };
-    }).filter((p) => p.title && p.title !== "Untitled");
-    return { papers, matched: best.c.name };
-  } catch { return { papers: [], matched: null }; }
-}
-
-// UTK-specific: check TRACE for local grad students since Reese Saho is at UTK
-async function authorUTK(name) {
-  const parts = name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-  if (!parts.length) return [];
-  const sets = ["publication:utk_graddiss", "publication:utk_gradthes"];
-  const all = [];
-  for (const set of sets) {
-    try {
-      const text = await getText(
-        "https://trace.tennessee.edu/do/oai/?" +
-          new URLSearchParams({ verb: "ListRecords", metadataPrefix: "dcq", set })
-      );
-      all.push(...extractTraceRecords(text));
-    } catch {}
-  }
-  // Match only records whose creators actually contain the person's name
-  return all
-    .filter((r) => {
-      const authors = (r.authors || "").toLowerCase();
-      return parts.every((p) => authors.includes(p));
-    })
-    .slice(0, 10)
-    .map((r) => ({
-      title: r.title,
-      url: r.url,
-      year: r.year,
-      citations: null,
-      authors: r.authors,
-      journal: "UTK TRACE",
-      abstract: stripTags(r.abstract),
-    }));
-}
-
-async function gatherByAuthor(name) {
-  const [ssRes, oaRes, cr, utk] = await Promise.all([
-    authorSemanticScholar(name, 20).catch(() => ({ papers: [], matched: null })),
-    authorOpenAlex(name, 15).catch(() => ({ papers: [], matched: null })),
-    authorCrossref(name, 15).catch(() => []),
-    authorUTK(name).catch(() => []),
-  ]);
-  const ss = ssRes.papers || [];
-  const oa = oaRes.papers || [];
-  const merged = [];
-  const seen = new Set();
-  for (const list of [ss, oa, cr, utk]) {
-    for (const p of list) {
-      const key = (p.title || "").toLowerCase().trim();
-      if (key && !seen.has(key)) { seen.add(key); merged.push(p); }
-    }
-  }
-  const papers = merged.sort((a, b) => (b.citations || 0) - (a.citations || 0)).slice(0, 25);
-  const matched = ssRes.matched || oaRes.matched || null;
-  return { papers, confirmed: !!matched, matchedName: matched };
-}
-
 
 // ============ LLM-POWERED QUERY GENERATION ============
 // When mechanical term extraction fails (wrong vocabulary, too narrow, user
@@ -3536,13 +3037,20 @@ const ALLOWED_ORIGINS = [
   "https://www.askcerebrum.org",
   "https://cerebrum-2pz.pages.dev",
 ];
+// Cloudflare Pages preview deploys look like
+// "https://<hash-or-branch>.cerebrum-2pz.pages.dev" — matched, but scoped to
+// OUR project subdomain only. Bug fix: this used to be
+// `origin.endsWith(".pages.dev")`, which trusts EVERY Cloudflare Pages site
+// on the internet (anyone can spin one up for free), completely defeating
+// the allowlist it was supposed to be.
+const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
 function originAllowed(request) {
   const origin = request.headers.get("Origin") || "";
   // No Origin header = same-origin navigation or a non-browser client. Allow,
   // because legitimate same-origin fetches sometimes omit it, but this is the
   // path rate limiting protects.
   if (!origin) return true;
-  return ALLOWED_ORIGINS.some((o) => origin === o) || origin.endsWith(".pages.dev");
+  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
 }
 
 // In-memory sliding-window rate limiter, keyed by client IP. Cloudflare gives
@@ -3576,7 +3084,7 @@ export async function onRequest(context) {
   // Lock CORS to our own origins instead of the wildcard "*".
   const reqOrigin = request.headers.get("Origin") || "";
   const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || reqOrigin.endsWith(".pages.dev")
+    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin)
       ? reqOrigin
       : "https://askcerebrum.org";
   const secureCors = {
@@ -4126,6 +3634,15 @@ Respond naturally to the user's message. Be yourself.`;
       }
     }
 
+    // Detect if this was a person-name query (matches the same logic gatherPapers uses).
+    // NOTE: this MUST be declared before any use below — it was previously declared
+    // ~100 lines further down, and `noResultsPersonQuery` referenced it while still in
+    // its temporal dead zone. Since JS short-circuits `false && isNameSearch`, that only
+    // threw when `gResult.noResults` was actually true — i.e. exactly the real-world case
+    // of "searched a person's name, found zero author-matched papers" — turning the
+    // intended friendly "no author match" response into an opaque 500 error.
+    const isNameSearch = !!extractPersonNameFromQuery(query);
+
     // Track whether the person-name query returned only low-confidence
     // (web / bio) results so we can note that in the AI answer.
     const lowConfidencePersonQuery = !!gResult.lowConfidence;
@@ -4233,8 +3750,8 @@ Respond naturally to the user's message. Be yourself.`;
     const useEvidence = hasPapers;
     const useWeb = !useEvidence && webRefs.length > 0;
 
-    // Detect if this was a person-name query (matches the same logic gatherPapers uses)
-    const isNameSearch = !!extractPersonNameFromQuery(query);
+    // isNameSearch is now computed earlier (right after gResult is available) —
+    // see the note above the `noResultsPersonQuery` block.
     const speciesSearch = extractBinomial(query);
 
     // Only send genuinely relevant papers to the AI. Previously the top 12 were
@@ -4260,6 +3777,22 @@ Respond naturally to the user's message. Be yourself.`;
       try {
         const validated = await llmValidatePapers(query, evidencePapers, env.OPENROUTER_KEY);
         evidencePapers = validated;
+      } catch {}
+    }
+
+    // RETRACTION CHECK: flag any of the final evidence papers that have been
+    // retracted or carry an expression of concern, via Crossref's keyless
+    // crossmark data. This was fully built (checkRetraction/flagRetractions
+    // below, plus a matching RETRACTED/EXPRESSION OF CONCERN badge already
+    // in BibEntry on the frontend) but never actually called, so the fields
+    // it sets (retracted/concern/updateType) were always undefined and
+    // sourceList below always destructured them as empty. Runs against the
+    // final, already-validated list so we only spend the Crossref lookups on
+    // papers that will actually be shown, and never blocks longer than the
+    // per-DOI timeout inside checkRetraction.
+    if (evidencePapers.length > 0) {
+      try {
+        await flagRetractions(evidencePapers, 8);
       } catch {}
     }
 
@@ -4814,7 +4347,13 @@ Respond naturally to the user's message. Be yourself.`;
           answerId,
           answer,
           JSON.stringify(sourceList.slice(0, 10)),
-          new Date().toISOString()
+          // Bug: this wrote an ISO-8601 string into a column declared
+          // INTEGER (see schema.sql), while paper_cache's write a few lines
+          // away correctly uses Date.now(). SQLite's flexible typing stored
+          // it silently, so it worked by luck (ISO strings happen to sort
+          // correctly against each other) but would sort wrong the moment
+          // any row got a genuine numeric timestamp. Match paper_cache.
+          Date.now()
         ).run();
       } catch {} // Cache write failure is not critical — don't block the response
     }
