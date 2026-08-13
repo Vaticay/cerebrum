@@ -423,6 +423,20 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   let clean = (text || "")
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]")
+    // Bug: models frequently write grouped citations as "[1, 2]" or "[1,2]"
+    // in a single bracket (despite CITE_RULES asking for "[1], [2]" style)
+    // instead of "[1][2]". Only the parenthetical form "(1, 2)" below was
+    // being split into individual bracket tokens, so a bracketed group never
+    // matched the later `\[\d+\]` split regex and rendered as inert plain
+    // text instead of the superscript citation pill — this is very likely
+    // why sources are being returned but citations aren't superscripting in
+    // the answer body. Split any bracketed digit group into one token per
+    // number, same as the parenthetical case (a lone "[1]" round-trips
+    // through this unchanged, so it's safe to always run).
+    .replace(/\[([\d,\s]+)\]/g, (m, nums) => {
+      const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
+      return ds.length ? ds.map(n => "["+n+"]").join("") : m;
+    })
     .replace(/\(([\d,\s]+)\)/g, (m, nums) => {
       const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
       return ds.length ? ds.map(n => "["+n+"]").join("") : m;
