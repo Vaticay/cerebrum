@@ -702,11 +702,21 @@ const SYNONYMS = {
 
 function expansionsFor(tokens) {
   const out = [];
+  // Check individual tokens
   for (const t of tokens) {
     const key = t.toLowerCase();
     if (SYNONYMS[key]) out.push(...SYNONYMS[key]);
   }
-  return out;
+  // Also check multi-word phrases (e.g. "black soldier fly" is 3 tokens but
+  // one SYNONYMS key). Without this, common-name organism queries never
+  // resolve to their scientific name during expansion.
+  const joined = tokens.join(" ").toLowerCase();
+  for (const key of Object.keys(SYNONYMS)) {
+    if (key.includes(" ") && joined.includes(key)) {
+      out.push(...SYNONYMS[key]);
+    }
+  }
+  return [...new Set(out)]; // deduplicate
 }
 
 const ORGANISM_PHRASES = [
@@ -715,7 +725,7 @@ const ORGANISM_PHRASES = [
   "hermetia illucens",
 ];
 const ORGANISM_WORDS = new Set([
-  "black", "soldier", "fly", "larvae", "larva", "hermetia", "illucens",
+  "black", "soldier", "fly", "larvae", "larva", "larval", "hermetia", "illucens",
 ]);
 
 function splitOrganismTopic(query) {
@@ -724,10 +734,19 @@ function splitOrganismTopic(query) {
   const exp = expansionsFor(toks);
   const orgPhrases = new Set(exp);
   for (const phrase of ORGANISM_PHRASES) {
-    if (q.includes(phrase)) orgPhrases.add(phrase);
+    if (q.includes(phrase)) {
+      orgPhrases.add(phrase);
+      // Also resolve the phrase to its scientific name immediately
+      const syns = SYNONYMS[phrase] || [];
+      for (const s of syns) orgPhrases.add(s);
+    }
   }
   for (const t of toks) {
-    if (SYNONYMS[t]) orgPhrases.add(t);
+    if (SYNONYMS[t]) {
+      orgPhrases.add(t);
+      // Add expansions of individual tokens too
+      for (const s of (SYNONYMS[t] || [])) orgPhrases.add(s);
+    }
   }
   const topic = toks.filter((t) => !ORGANISM_WORDS.has(t) && !SYNONYMS[t]);
   return {
@@ -752,11 +771,29 @@ function buildStructuredQuery(query) {
     return '"' + bin.full + '"';
   }
   const { orgPhrases, topic, hasOrganism } = splitOrganismTopic(query);
-  if (hasOrganism && topic.length) {
-    const org = orgPhrases
+  if (hasOrganism && (topic.length || !orgPhrases.length)) {
+    // Resolve common names to scientific names for the boolean query.
+    // "black soldier fly" alone is 3 common English words — PubMed will
+    // match papers about black spruce or soldier beetles. The scientific
+    // name as a quoted phrase is unambiguous.
+    const resolvedOrg = new Set();
+    for (const phrase of orgPhrases) {
+      const syns = SYNONYMS[phrase.toLowerCase()] || [];
+      const sciRaw = syns.find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2);
+      if (sciRaw) {
+        const parts = sciRaw.split(" ");
+        resolvedOrg.add(parts[0][0].toUpperCase() + parts[0].slice(1).toLowerCase() + " " + parts[1].toLowerCase());
+      }
+      // Always keep the original phrase too for broader recall
+      resolvedOrg.add(phrase);
+    }
+    const orgStr = [...resolvedOrg]
       .map((e) => (e.includes(" ") ? '"' + e + '"' : e))
       .join(" OR ");
-    return "(" + org + ") AND (" + topic.join(" OR ") + ")";
+    if (topic.length) {
+      return "(" + orgStr + ") AND (" + topic.join(" OR ") + ")";
+    }
+    return orgStr;
   }
   if (hasOrganism) {
     return orgPhrases
@@ -814,6 +851,8 @@ const STOPWORDS = new Set([
   "happen","happens","mean","means","between","into","from","as","at","be","been",
   "get","got","i","my","we","our","use","used","using","there","their","they",
   "responding","respond","level","levels","basis","role","effect","effects",
+  "each","every","change","changes","through","throughout","section","sections",
+  "different","part","parts","type","types","kind","example","within",
 ]);
 
 function cleanQuery(raw) {
@@ -2640,27 +2679,56 @@ async function gatherPapers(rawQuery, opts) {
   //    engines do NLP-level understanding of natural language; our anchor
   //    extraction sometimes loses information they would have caught.
 
+  // ORGANISM INJECTION: detect the organism FIRST so we can strip its common-
+  // name words from the ranked terms. Without this, "black", "soldier", "fly"
+  // fill rung slots that should hold "microbial", "abundance", "midgut" — and
+  // the duplicate check sees "black" in the rung and skips injecting the
+  // scientific name entirely.
+  const orgInfo = splitOrganismTopic(query);
+
+  // Build a set of all words that are part of the organism's common name(s).
+  // These must be EXCLUDED from the ranked topic terms — they get replaced by
+  // the quoted scientific name.
+  const orgFragments = new Set();
+  if (orgInfo.hasOrganism) {
+    for (const phrase of orgInfo.orgPhrases) {
+      for (const w of phrase.toLowerCase().split(/\s+/)) {
+        if (w.length > 2) orgFragments.add(w);
+      }
+    }
+    // Also add all words from ORGANISM_WORDS
+    for (const w of ORGANISM_WORDS) orgFragments.add(w);
+  }
+
   const ranked = query
     .split(/\s+/)
-    .filter((t) => t.length > 2 && !STOPWORDS.has(t))
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t) && !orgFragments.has(t))
     .map((t) => ({ t, spec: termSpecificity(t) }))
     .sort((a, b) => b.spec - a.spec)
     .map((x) => x.t);
-
-  // ORGANISM INJECTION: if the query mentions a known organism (binomial or
-  // common name), force the scientific name into every rung so we never
-  // search "microbial abundance midgut" without "Hermetia illucens". This
-  // is the fix for "only finding one random microbe instead of BSF papers."
-  const orgInfo = splitOrganismTopic(query);
   let organismTerm = null;
   if (binomial) {
     organismTerm = '"' + binomial.full + '"';
   } else if (orgInfo.hasOrganism && orgInfo.orgPhrases.length) {
-    // Pick the most specific organism phrase (scientific name > common name)
-    const sci = orgInfo.orgPhrases.find((p) => /^[A-Z][a-z]+ [a-z]+$/.test(p) || SYNONYMS[p.toLowerCase()]);
+    // Resolve to the SCIENTIFIC NAME, properly capitalized and quoted.
+    // Previous bugs: (1) regex was case-sensitive so lowercase SYNONYMS values
+    // like "hermetia illucens" never matched; (2) fell back to bare common name
+    // "black soldier fly" which search engines split into 3 common words.
     const expanded = orgInfo.orgPhrases.flatMap((p) => SYNONYMS[p.toLowerCase()] || []);
-    const sciName = expanded.find((e) => /[A-Z][a-z]+ [a-z]/.test(e));
-    organismTerm = sciName ? '"' + sciName + '"' : (sci || orgInfo.orgPhrases[0]);
+    // Case-INSENSITIVE binomial detection, then capitalize properly
+    const sciRaw = expanded.find((e) => /^[a-z]+ [a-z]+$/i.test(e) && e.split(" ").length === 2);
+    if (sciRaw) {
+      // Proper binomial capitalization: "Hermetia illucens"
+      const parts = sciRaw.split(" ");
+      const sciName = parts[0][0].toUpperCase() + parts[0].slice(1).toLowerCase() + " " + parts[1].toLowerCase();
+      organismTerm = '"' + sciName + '"';
+    } else if (expanded.length) {
+      // Non-binomial expansion (e.g. acronym → full name)
+      organismTerm = '"' + expanded[0] + '"';
+    } else {
+      // Last resort: quote the detected phrase itself
+      organismTerm = '"' + orgInfo.orgPhrases[0] + '"';
+    }
   }
 
   const booleanQuery = buildStructuredQuery(query);
@@ -2678,11 +2746,15 @@ async function gatherPapers(rawQuery, opts) {
   if (!rungs.length) rungs.push([query]);
 
   if (organismTerm) {
-    rungs = rungs.map((rung) => {
-      // Don't duplicate if organism term is already in the rung
-      const has = rung.some((t) => organismTerm.replace(/"/g, "").toLowerCase().includes(t.toLowerCase()));
-      return has ? rung : [organismTerm, ...rung];
-    });
+    // Organism words were already stripped from `ranked`, so no rung can
+    // contain organism fragments. Unconditionally prepend the quoted
+    // scientific name to every rung.
+    //
+    // Previous bug: the duplicate check used
+    //   organismTerm.includes(rungWord)
+    // which meant "black" (in "black soldier fly") counted as "organism
+    // present" → injection was skipped → search ran without the species.
+    rungs = rungs.map((rung) => [organismTerm, ...rung]);
   }
 
   // The fanout sends the RIGHT syntax to EACH engine. This is the most
@@ -2692,9 +2764,11 @@ async function gatherPapers(rawQuery, opts) {
   const fanout = (terms, useBoolean) => {
     // For organism queries: build queries that force organism AND topic together.
     // The organism term is quoted so search engines treat it as a phrase.
+    // Since organism-word fragments are already stripped from `ranked`, the
+    // only organism element in `terms` is the quoted scientific name itself.
     const orgQuoted = organismTerm || "";
     const topicTerms = orgQuoted
-      ? terms.filter((t) => t !== orgQuoted && !orgQuoted.replace(/"/g, "").toLowerCase().includes(t.toLowerCase()))
+      ? terms.filter((t) => t !== orgQuoted)
       : terms;
     const topicStr = topicTerms.join(" ");
 
@@ -2853,7 +2927,7 @@ async function gatherPapers(rawQuery, opts) {
       if (w.length > 2) neutralWords.add(w);
     }
   }
-  for (const w of ["black", "soldier", "larvae", "larva", "fly", "hermetia", "illucens"]) {
+  for (const w of ORGANISM_WORDS) {
     if (terms.includes(w)) neutralWords.add(w);
   }
   const contentTerms = terms.filter((t) => !neutralWords.has(t));
