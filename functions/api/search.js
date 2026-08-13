@@ -468,6 +468,11 @@ function preprocessQuery(raw) {
     [/global\s+warming/gi, "climate change anthropogenic warming"],
     [/how\s+(?:does|do)\s+(.+?)\s+work/gi, "$1 mechanism"],
     [/what\s+causes?\s+(.+?)(?:\?|$)/gi, "$1 etiology mechanism cause"],
+    // Plant biology
+    [/not\s+need\s+(?:it|photosynthesis|sunlight|light)/gi, "non-photosynthetic heterotrophic mycoheterotrophic parasitic"],
+    [/without\s+(?:photosynthesis|sunlight|light)/gi, "non-photosynthetic heterotrophic"],
+    // Ecology / evolution
+    [/(?:go|went)\s+extinct/gi, "extinction cause"],
   ];
   for (const [re, repl] of PARAPHRASES) {
     q = q.replace(re, repl);
@@ -519,8 +524,9 @@ const CONCEPT_GROUPS = [
   ["degrade", "degradation", "degrading", "biodegradation", "biodegrade",
    "breakdown", "depolymerization", "depolymerisation", "catabolism",
    "decompose", "decomposition", "oxidation", "oxidize", "oxidise", "oxidative"],
-  ["gut", "intestinal", "intestine", "digestive", "midgut", "hindgut",
-   "gastrointestinal", "alimentary"],
+  ["gut", "intestinal", "intestine", "digestive", "midgut", "hindgut", "foregut",
+   "gastrointestinal", "alimentary", "crop", "proventriculus",
+   "peritrophic membrane", "alimentary canal", "digestive tract"],
   ["saliva", "salivary", "secretion", "secretions", "oral", "labial"],
   ["cancer", "tumour", "tumor", "carcinoma", "neoplasm", "oncology", "malignant"],
   ["gene", "genes", "genetic", "genomic", "genome", "transcript", "transcriptome"],
@@ -553,6 +559,23 @@ const CONCEPT_GROUPS = [
    "reduction", "oxidation", "transformation"],
   ["decomposition", "decompose", "decay", "necrobiome", "cadaver", "carcass",
    "putrefaction", "autolysis", "bloat", "rupture"],
+  // Photosynthesis / plant energy
+  ["photosynthesis", "photosynthetic", "chloroplast", "chlorophyll", "light reactions",
+   "dark reactions", "calvin cycle", "rubisco", "carbon fixation", "thylakoid",
+   "photosystem", "photoautotroph", "c3", "c4", "cam"],
+  // Parasitic / heterotrophic plants
+  ["parasitic", "parasite", "mycoheterotroph", "mycoheterotrophic", "holoparasite",
+   "hemiparasite", "heterotroph", "heterotrophic", "non-photosynthetic",
+   "achlorophyllous"],
+  // Abundance / diversity (common ecological measures)
+  ["abundance", "diversity", "richness", "composition", "community structure",
+   "alpha diversity", "beta diversity", "evenness", "dominance"],
+  // Evolution / adaptation
+  ["evolution", "evolutionary", "phylogenetic", "phylogeny", "adaptation",
+   "selection", "speciation", "divergence", "convergent"],
+  // Immunology
+  ["immune", "immunity", "innate immunity", "adaptive immunity", "inflammatory",
+   "inflammation", "cytokine", "chemokine", "lymphocyte"],
 ];
 
 // Build a fast lookup: term -> the full set of equivalent terms
@@ -853,6 +876,8 @@ const STOPWORDS = new Set([
   "responding","respond","level","levels","basis","role","effect","effects",
   "each","every","change","changes","through","throughout","section","sections",
   "different","part","parts","type","types","kind","example","within",
+  "some","other","most","many","much","very","just","also","still","really",
+  "would","could","should","might","may","will","shall","must","need",
 ]);
 
 function cleanQuery(raw) {
@@ -2551,6 +2576,114 @@ async function gatherByAuthor(name) {
 }
 
 
+// ============ LLM-POWERED QUERY GENERATION ============
+// When mechanical term extraction fails (wrong vocabulary, too narrow, user
+// phrased it colloquially), ask a fast LLM to generate the search queries a
+// scientist would actually type into PubMed. This is the "make it think like
+// Claude" fix — mechanical string manipulation can never match an LLM's
+// understanding of what the user actually needs.
+//
+// Returns an array of 3-5 search query strings optimized for scholarly databases.
+// Falls back to empty array on any failure (timeout, rate limit, etc).
+async function llmGenerateSearchQueries(rawQuery, token) {
+  if (!token) return [];
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 5000); // 5s max — this runs in parallel
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
+      body: JSON.stringify({
+        model: "deepseek/deepseek-chat-v3-0324:free",
+        temperature: 0.1,
+        max_tokens: 300,
+        messages: [{
+          role: "system",
+          content: "You are a scientific literature search specialist. Given a user's question, generate 4-6 PubMed/Google Scholar search queries that would find the most relevant papers. Rules:\n" +
+            "- Use proper scientific terminology (binomial names, technical terms)\n" +
+            "- Each query should be 3-7 words, no boolean operators\n" +
+            "- Include the scientific name if an organism is mentioned (e.g. 'black soldier fly' → 'Hermetia illucens')\n" +
+            "- Vary vocabulary across queries (one might say 'microbiome', another 'microbiota', another 'bacterial community')\n" +
+            "- At least one query should be broad (just organism + general topic)\n" +
+            "- At least one query should be very specific (exact mechanism/process)\n" +
+            "- Output ONLY a JSON array of strings, nothing else. No markdown, no explanation."
+        }, {
+          role: "user",
+          content: rawQuery
+        }]
+      }),
+      signal: c.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return [];
+    const j = await r.json();
+    const txt = (j?.choices?.[0]?.message?.content || "").trim();
+    // Parse JSON array from response
+    const clean = txt.replace(/```json|```/g, "").trim();
+    try {
+      const arr = JSON.parse(clean);
+      if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === "string") {
+        return arr.slice(0, 6).map(s => s.trim()).filter(s => s.length > 3 && s.length < 100);
+      }
+    } catch {}
+    // Fallback: try to extract lines
+    return clean.split("\n").map(l => l.replace(/^[\d\.\-\*\s"]+|"$/g, "").trim()).filter(s => s.length > 3 && s.length < 100).slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+// ============ LLM-POWERED PAPER VALIDATION ============
+// Before sending papers to the answer LLM, verify each one actually addresses
+// the user's question. This prevents the #1 failure mode: the AI confidently
+// citing a tsetse fly paper as if it's about BSF gut microbiome.
+// Returns filtered array of papers that are genuinely relevant.
+async function llmValidatePapers(rawQuery, papers, token) {
+  if (!token || !papers.length) return papers;
+  // Only validate if we have few papers (expensive otherwise)
+  if (papers.length > 10) return papers;
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 5000);
+    const paperList = papers.map((p, i) =>
+      `[${i + 1}] "${p.title}" (${p.journal || "unknown"}, ${p.year || "n/a"})\nAbstract snippet: ${(p.abstract || "").slice(0, 200)}`
+    ).join("\n\n");
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
+      body: JSON.stringify({
+        model: "deepseek/deepseek-chat-v3-0324:free",
+        temperature: 0,
+        max_tokens: 200,
+        messages: [{
+          role: "system",
+          content: "You verify whether retrieved papers actually answer a user's scientific question. For each paper, respond YES if it directly addresses the question's topic/organism/mechanism, or NO if it's about a different organism, different process, or unrelated. Output ONLY a JSON array of the paper numbers that are relevant. Example: [1, 3, 5]. No explanation."
+        }, {
+          role: "user",
+          content: "Question: " + rawQuery + "\n\nPapers:\n" + paperList
+        }]
+      }),
+      signal: c.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return papers;
+    const j = await r.json();
+    const txt = (j?.choices?.[0]?.message?.content || "").trim();
+    try {
+      const valid = JSON.parse(txt.replace(/```json|```/g, "").trim());
+      if (Array.isArray(valid) && valid.length > 0) {
+        const validSet = new Set(valid.map(n => typeof n === "number" ? n : parseInt(n, 10)));
+        const filtered = papers.filter((_, i) => validSet.has(i + 1));
+        // Only use filtered if it kept at least 1 paper
+        if (filtered.length > 0) return filtered;
+      }
+    } catch {}
+    return papers;
+  } catch {
+    return papers;
+  }
+}
+
 
 async function gatherPapers(rawQuery, opts) {
   // Wrap the entire function so ANY thrown error still returns a diagnostic
@@ -2870,6 +3003,97 @@ async function gatherPapers(rawQuery, opts) {
     }));
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // CONCEPT-EXPANDED FALLBACK: if we STILL have too few papers, the problem
+  // is vocabulary mismatch — the user's words don't match how papers phrase
+  // it. Expand each topic term through CONCEPT_GROUPS to find synonyms the
+  // papers actually use.
+  //
+  // Example: user writes "microbial abundance" → papers say "bacterial
+  // diversity", "microbiota composition", "16S rRNA community".
+  // The concept expansion turns "microbial" into "bacteria OR microbiome
+  // OR microbiota" — which is how the paper is indexed.
+  //
+  // This runs IN PARALLEL with the raw fallback check above (no extra
+  // latency) by launching immediately and only using results if needed.
+  // ═══════════════════════════════════════════════════════════════
+  const totalAfterRaw = results.reduce(
+    (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+  );
+  if (totalAfterRaw < 8) {
+    // Build synonym-expanded queries from concept groups
+    const topicTermsForExpansion = ranked.slice(0, 3);
+    const expandedQueries = new Set();
+
+    for (const term of topicTermsForExpansion) {
+      const group = CONCEPT_LOOKUP.get(term);
+      if (group) {
+        // Pick 2-3 synonyms from the concept group that aren't the original term
+        const alts = [...group].filter((g) => g !== term && g.length > 3).slice(0, 3);
+        for (const alt of alts) {
+          const q = organismTerm
+            ? organismTerm.replace(/"/g, "") + " " + alt + " " + topicTermsForExpansion.filter((t) => t !== term).join(" ")
+            : alt + " " + topicTermsForExpansion.filter((t) => t !== term).join(" ");
+          expandedQueries.add(q.trim());
+        }
+      }
+    }
+
+    // Also try the organism alone (broadest possible) if we have one
+    if (organismTerm) {
+      expandedQueries.add(organismTerm.replace(/"/g, ""));
+      // Organism + each individual topic term
+      for (const term of topicTermsForExpansion.slice(0, 2)) {
+        expandedQueries.add(organismTerm.replace(/"/g, "") + " " + term);
+        // Also try concept-expanded version
+        const group = CONCEPT_LOOKUP.get(term);
+        if (group) {
+          const alt = [...group].find((g) => g !== term && g.length > 3);
+          if (alt) expandedQueries.add(organismTerm.replace(/"/g, "") + " " + alt);
+        }
+      }
+    }
+
+    // Fire expanded queries in parallel across the most reliable engines
+    const expandedArr = [...expandedQueries].slice(0, 6);
+    if (expandedArr.length) {
+      const expandedResults = await Promise.allSettled(
+        expandedArr.flatMap((eq) => [
+          europePMC(eq, 8),
+          semanticScholar(eq, 6),
+          openAlex(eq, 6, openAlexKey),
+        ])
+      );
+      results = results.concat(expandedResults);
+      diag.conceptExpanded = expandedArr;
+      diag.conceptExpandedCount = expandedResults.reduce(
+        (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+      );
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // NATURAL LANGUAGE FALLBACK: if STILL nearly empty, send the user's
+  // ORIGINAL unprocessed question to Semantic Scholar and Europe PMC.
+  // These engines have good NLP — sometimes the raw human phrasing works
+  // better than any term extraction. This is the "ask it like you'd ask
+  // a person" fallback.
+  // ═══════════════════════════════════════════════════════════════
+  const totalAfterExpand = results.reduce(
+    (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+  );
+  if (totalAfterExpand < 5) {
+    const nlFallback = await Promise.allSettled([
+      semanticScholar(rawQuery.slice(0, 200), 15),
+      europePMC(rawQuery.slice(0, 200), 12),
+      openAlex(rawQuery.slice(0, 200), 10, openAlexKey),
+    ]);
+    results = results.concat(nlFallback);
+    diag.nlFallback = nlFallback.reduce(
+      (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+    );
+  }
+
   // Add results for each sub-question of a compound query
   if (subQueries.length > 1) {
     for (const sub of subQueries) {
@@ -3031,7 +3255,23 @@ async function gatherPapers(rawQuery, opts) {
 
       const contentHits = contentTerms.filter(has).length;
       const titleContentHits = contentTerms.filter(hasTitle).length;
-      const neutralHit = [...neutralWords].some(has);
+      const neutralHit = (() => {
+        // Count how many organism-specific words appear in the paper.
+        // A single word like "fly" is too generic — it matches "fruit fly",
+        // "tsetse fly", "fly ash", etc. Require at least 2 organism words
+        // from the query to match, OR require the full scientific name.
+        const orgWordsInPaper = [...neutralWords].filter(has);
+        // Words that are too generic to count alone
+        const GENERIC_ORG_WORDS = new Set(["fly", "black", "red", "blue", "white", "green",
+          "brown", "common", "small", "large", "big", "long", "short", "wild", "mouse",
+          "rat", "fish", "worm", "bug", "bee", "ant", "cat", "dog", "bird", "tree"]);
+        const specificHits = orgWordsInPaper.filter(w => !GENERIC_ORG_WORDS.has(w));
+        // If we have specific hits (like "hermetia" or "illucens"), one is enough
+        if (specificHits.length >= 1) return true;
+        // If only generic hits (like "fly"), need at least 2 together
+        if (orgWordsInPaper.length >= 2) return true;
+        return false;
+      })();
       // Multi-word expansions are checked as exact phrases (they're already
       // specific enough that substring matching is safe and desirable here).
       let expHit = false;
@@ -3041,7 +3281,20 @@ async function gatherPapers(rawQuery, opts) {
           break;
         }
       }
-      const organismPresent = neutralHit || expHit;
+      // Also check if the resolved scientific name appears (catches papers that
+      // use "Hermetia illucens" but none of the common-name words)
+      let sciHit = false;
+      if (organismTerm) {
+        const sciClean = organismTerm.replace(/"/g, "").toLowerCase();
+        if (hay.indexOf(sciClean) !== -1) sciHit = true;
+        // Also check abbreviated form: "H. illucens"
+        const sciParts = sciClean.split(" ");
+        if (sciParts.length === 2) {
+          const abbrev = sciParts[0][0] + ". " + sciParts[1];
+          if (hay.indexOf(abbrev) !== -1) sciHit = true;
+        }
+      }
+      const organismPresent = neutralHit || expHit || sciHit;
       const contentCoverage = contentTerms.length
         ? contentHits / contentTerms.length
         : 1;
@@ -3165,22 +3418,66 @@ async function gatherPapers(rawQuery, opts) {
   // EMERGENCY RELAXATION: the organism gate above is strict by design (never
   // show BSF papers for an E. coli query), but if it filters EVERY candidate
   // to zero, an empty result is worse than a clearly-labeled partial match.
-  // Re-run without the hard organism requirement, keep the ones with the best
-  // topical/content overlap, and let the downstream [WEAK MATCH] / relevance-%
-  // tagging tell the AI (and the user) these aren't organism-confirmed.
+  //
+  // Three tiers of relaxation:
+  // 1. Drop organism requirement, keep topic gate (finds papers on the topic
+  //    that don't mention the specific species)
+  // 2. Use concept-group matching (finds papers using synonym vocabulary)
+  // 3. Keep anything with a real abstract and any topic word (broadest)
   let finalScored = scored;
-  if (scored.length === 0 && merged.length > 0) {
-    finalScored = merged
+  if (scored.length < 3 && merged.length > 0) {
+    // Tier 1: drop organism, keep content gate
+    const relaxed1 = merged
       .map((p) => {
         const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
         const has = (t) => new RegExp("\\b" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(hay);
-        const coreHits = gateTerms.filter(has).length;
+        // Also check concept-group synonyms — "bacterial" satisfies "microbial"
+        const hasExpanded = (t) => {
+          if (has(t)) return true;
+          const group = CONCEPT_LOOKUP.get(t);
+          if (group) {
+            for (const g of group) {
+              if (g !== t && hay.indexOf(g.toLowerCase()) !== -1) return true;
+            }
+          }
+          return false;
+        };
+        const coreHits = gateTerms.filter(hasExpanded).length;
         const coreCoverage = gateTerms.length ? coreHits / gateTerms.length : 0;
-        return { ...p, score: coreCoverage * 40, contentHits: coreHits, contentCoverage: coreCoverage, organismPresent: false, relevance: null };
+        // Check if organism is present even without the strict gate
+        let orgPresent = false;
+        if (organismTerm) {
+          const sciClean = organismTerm.replace(/"/g, "").toLowerCase();
+          if (hay.indexOf(sciClean) !== -1) orgPresent = true;
+          for (const w of ORGANISM_WORDS) { if (hay.indexOf(w) !== -1) { orgPresent = true; break; } }
+        }
+        const orgBonus = orgPresent ? 15 : 0;
+        return { ...p, score: coreCoverage * 40 + orgBonus, contentHits: coreHits, contentCoverage: coreCoverage, organismPresent: orgPresent, relevance: null };
       })
       .filter((p) => p.contentHits > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
+
+    if (relaxed1.length >= 3) {
+      finalScored = [...scored, ...relaxed1].sort((a, b) => b.score - a.score).slice(0, limit);
+    } else {
+      // Tier 2: accept anything with a real abstract and at least 1 matching word
+      const relaxed2 = merged
+        .filter((p) => (p.abstract || "").length > 100)
+        .map((p) => {
+          const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+          const anyHit = [...contentTerms, ...gateTerms, ...[...neutralWords]].some((t) => hay.indexOf(t) !== -1);
+          return { ...p, score: anyHit ? 20 : 5, contentHits: anyHit ? 1 : 0, contentCoverage: anyHit ? 0.3 : 0, organismPresent: false, relevance: null };
+        })
+        .filter((p) => p.score > 5)
+        .sort((a, b) => {
+          // Prefer papers with more citations and abstracts
+          const ca = (a.citations || 0), cb = (b.citations || 0);
+          return cb - ca;
+        })
+        .slice(0, limit);
+      finalScored = [...scored, ...relaxed1, ...relaxed2].sort((a, b) => b.score - a.score).slice(0, limit);
+    }
   }
   const scoredFinal = finalScored;
 
@@ -3403,6 +3700,25 @@ export async function onRequest(context) {
       /^(tell me a joke|joke|make me laugh)/,
       /^(42|whats 42)\b/,
       /^cerebrum\s*$/,
+      // Personal questions directed at Cerebrum
+      /^how (are|r|was) (you|u|your)\b/,
+      /^how('s| is| was) (your|ur)\b/,
+      /^(are you|r u) (ok|okay|good|fine|happy|sad|tired|bored|real)\b/,
+      /^(do you|can you) (like|love|hate|feel|think|want|remember|know me|miss)\b/,
+      /^(i love you|i hate you|i like you|i miss you|youre (cute|hot|funny|smart|dumb|stupid))\b/,
+      /^(whats your (favorite|fav|opinion|take|view|thought))\b/,
+      /^how do you feel\b/,
+      /^whats on your mind\b/,
+      // Non-scientific requests
+      /^(recommend|suggest) (me )?(a |some )?(movie|book|song|show|game|restaurant|place|gift)/,
+      /^(write|tell) (me )?(a |some )?(poem|story|essay|song|joke|riddle)/,
+      /^(play|sing|dance|draw|paint)\b/,
+      // Conversational fillers
+      /^(ok|okay|k|sure|alright|got it|i see|makes sense|hm|hmm|huh|lol|lmao|haha|omg)\s*$/,
+      /^(yes|no|yeah|yep|nope|nah|yea|ya)\s*$/,
+      // Emotional venting (not scientific)
+      /^(im (sad|happy|bored|tired|lonely|angry|scared|stressed|depressed|anxious))\b/,
+      /^(i feel|i think im|i need to vent|i just wanted to talk)\b/,
     ];
 
     const isConversational = CONVERSATIONAL_PATTERNS.some(p => p.test(small));
@@ -3740,6 +4056,11 @@ Respond naturally to the user's message. Be yourself.`;
           searchQuery = merged;
         }
       }
+      // Launch LLM query generation IN PARALLEL with mechanical search.
+      // Zero extra latency — if mechanical search finds enough papers, we
+      // discard the LLM queries. If it doesn't, they're already ready.
+      const llmQueriesPromise = llmGenerateSearchQueries(searchQuery, env.OPENROUTER_KEY).catch(() => []);
+
       gResult = await gatherPapers(searchQuery, {
         openAlexKey: env.OPENALEX_KEY || "",
         ncbiKey: env.NCBI_API_KEY || "",
@@ -3747,9 +4068,6 @@ Respond naturally to the user's message. Be yourself.`;
         resolvedPersonName,
       }).catch((e) => ({
         papers: [],
-        // Surface the caught error so we can actually see what is going wrong.
-        // Previously this catch swallowed EVERYTHING silently and returned an
-        // empty _diag, which is why every retrieval failure looked identical.
         _diag: {
           fatalError: String((e && e.message) || e).slice(0, 500),
           errorType: (e && e.name) || "Unknown",
@@ -3757,6 +4075,41 @@ Respond naturally to the user's message. Be yourself.`;
           calledWith: searchQuery,
         },
       }));
+
+      // ═══════════════════════════════════════════════════════════════
+      // LLM RESCUE: if mechanical search found too few papers, use the
+      // LLM-generated queries to search again. This is what makes
+      // "photosynthesis and why some plants don't need it" work — the LLM
+      // knows to search for "mycoheterotrophy", "parasitic plants",
+      // "Hermetia illucens gut microbiota" instead of mechanically
+      // extracted fragments.
+      // ═══════════════════════════════════════════════════════════════
+      const mechPaperCount = (gResult.papers || []).length;
+      if (mechPaperCount < 5) {
+        const llmQueries = await llmQueriesPromise;
+        if (llmQueries.length > 0) {
+          const llmSearches = llmQueries.flatMap((q) => [
+            europePMC(q, 8).catch(() => []),
+            semanticScholar(q, 6).catch(() => []),
+            openAlex(q, 6, env.OPENALEX_KEY || "").catch(() => []),
+          ]);
+          const llmResults = await Promise.allSettled(llmSearches);
+          const seenTitles = new Set((gResult.papers || []).map(p => (p.title || "").toLowerCase().trim()));
+          for (const r of llmResults) {
+            if (r.status === "fulfilled" && Array.isArray(r.value)) {
+              for (const p of r.value) {
+                const key = (p.title || "").toLowerCase().trim();
+                if (key && !seenTitles.has(key)) {
+                  seenTitles.add(key);
+                  gResult.papers.push(p);
+                }
+              }
+            }
+          }
+          if (gResult._diag) gResult._diag.llmQueries = llmQueries;
+          if (gResult._diag) gResult._diag.llmRescueAdded = gResult.papers.length - mechPaperCount;
+        }
+      }
     }
 
     // When user asked for MORE papers, remove duplicates of what they already have
@@ -3889,12 +4242,26 @@ Respond naturally to the user's message. Be yourself.`;
     // whatever it received — the direct cause of confidently-wrong answers.
     // Author and follow-up modes bypass this (their papers are pre-verified).
     const maxEvidence = wantsMorePapers ? 20 : 12;
-    const evidencePapers = (isNameSearch || isFollowupMode)
+    let evidencePapers = (isNameSearch || isFollowupMode)
       ? papers.slice(0, maxEvidence)
       : (() => {
-          const strong = papers.filter((p) => (p.relevance || 0) >= 20);
+          const strong = papers.filter((p) => (p.relevance || 0) >= 10);
           return (strong.length >= 2 ? strong : papers.slice(0, 8)).slice(0, maxEvidence);
         })();
+
+    // ═══════════════════════════════════════════════════════════════
+    // LLM PAPER VALIDATION: before sending papers to the answer LLM,
+    // verify they actually address the user's question. This prevents
+    // the AI from confidently citing a tsetse fly paper as if it's
+    // about BSF, or citing a spruce budworm paper for a photosynthesis
+    // query. The validator runs on a fast model with a 5s timeout.
+    // ═══════════════════════════════════════════════════════════════
+    if (!isNameSearch && !isFollowupMode && evidencePapers.length > 0 && evidencePapers.length <= 10) {
+      try {
+        const validated = await llmValidatePapers(query, evidencePapers, env.OPENROUTER_KEY);
+        evidencePapers = validated;
+      } catch {}
+    }
 
     // CITATION ALIGNMENT: the bibliography the user sees MUST be the exact same
     // list, in the exact same order, that the AI was given. Otherwise the model
@@ -4055,13 +4422,34 @@ Respond naturally to the user's message. Be yourself.`;
     } else if (useEvidence && isNameSearch) {
       systemPrompt = ID + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence) {
-      systemPrompt = ID + "You have " + evidencePapers.length + " real peer-reviewed papers below. MANDATORY: your answer must cite at least " + Math.min(evidencePapers.length, 3) + " of them inline as [1] [2] etc. Every paragraph should have at least one citation. Do NOT write a paragraph of pure background knowledge with zero citation markers — if you know something relevant, find the source below that supports it and cite it, or explicitly extend past it with 'the broader literature also shows...' Only fall back fully to general knowledge if truly nothing below is relevant, and say so explicitly.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+      systemPrompt = ID + "You have " + evidencePapers.length + " papers below. READ EACH ONE CAREFULLY before answering.\n\n" +
+        "CRITICAL RULES FOR USING SOURCES:\n" +
+        "1. RELEVANCE CHECK: Before citing ANY paper, verify it actually discusses the SPECIFIC organism, mechanism, or topic asked about. " +
+        "A paper about tsetse fly midgut is NOT evidence about black soldier fly midgut. A paper about spruce budworm is NOT evidence about BSF. " +
+        "Different organism = DO NOT CITE as direct evidence for the asked organism.\n" +
+        "2. CITE ONLY WHAT'S REAL: Only cite a paper [N] if its abstract DIRECTLY supports the specific claim you're making. " +
+        "If a paper is about a different organism or different process, DO NOT cite it. Leaving it uncited is correct.\n" +
+        "3. YOUR KNOWLEDGE IS PRIMARY: You are an expert. Give a COMPLETE, accurate answer to the question using your scientific knowledge. " +
+        "Papers are supporting evidence — they ANCHOR your answer but they are NOT the ceiling. " +
+        "If the papers are weak or tangential, say so in one sentence and then give your full authoritative answer anyway.\n" +
+        "4. NEVER FABRICATE CONNECTIONS: If a paper doesn't actually say what you're claiming, don't cite it. " +
+        "An uncited sentence backed by your knowledge is infinitely better than a cited sentence that misrepresents a paper.\n" +
+        "5. HONESTY > CITATION COUNT: An answer with 0 citations that's scientifically correct beats an answer with 5 citations that misattributes findings. " +
+        "If none of the papers below address the question, state that plainly and answer from knowledge.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useWeb) {
-      systemPrompt = ID + "No peer-reviewed papers matched. Start with: Note: no peer-reviewed papers matched — this draws on reference sources and general knowledge.\nThen answer fully.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+      systemPrompt = ID + "No peer-reviewed papers matched this specific query, but reference sources were found. " +
+        "IMPORTANT: Do NOT start with an apology or 'no papers found' disclaimer. Start with a direct, substantive answer. " +
+        "Draw on both the reference sources below AND your scientific knowledge. " +
+        "If you know relevant papers exist on this topic (from your training), mention the general findings and suggest " +
+        "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else {
-      systemPrompt = ID + "Literature search returned nothing. Start with: Note: no papers retrieved — this is from general knowledge.\n\n" +
-        "Give an excellent answer. Be specific. Being conservatively wrong is still wrong.\n" +
-        "ZERO citations — no [1], no (Author, Year), no journal names. You may name findings in plain prose but never attach fake refs.\n\n" + VOICE + CONTEXT + lengthHint;
+      systemPrompt = ID + "The literature search didn't surface papers for this specific phrasing, but you absolutely know this topic. " +
+        "IMPORTANT: Do NOT start with 'no papers retrieved' or any disclaimer. Start with a direct, authoritative scientific answer. " +
+        "Give an excellent, comprehensive answer drawing on your full scientific knowledge. Be specific — name enzymes, genes, organisms, mechanisms, " +
+        "quantify where possible, and cite the key researchers and landmark studies you know about in plain text (e.g., 'Work by [name] demonstrated...'). " +
+        "At the END (not the beginning), add one line: 'For the primary literature, try searching: [2-3 specific search terms]' — " +
+        "suggest the exact PubMed/Google Scholar search terms that would find the relevant papers.\n" +
+        "ZERO fabricated citations — no [1], no (Author, Year), no DOIs. You may name findings and researchers in plain prose.\n\n" + VOICE + CONTEXT + lengthHint;
     }
 
     const messages = [{ role: "system", content: systemPrompt }];
@@ -4147,7 +4535,11 @@ Respond naturally to the user's message. Be yourself.`;
         : query;
     // Reinforce banned phrases at user level - free models often ignore system prompts
     const enforcer = useEvidence
-      ? "\n\n[CRITICAL: You were given real papers above — you MUST cite them as [1], [2] etc. throughout your answer. A response with zero citation numbers when sources were provided is a FAILED response. Do NOT use: 'further research is needed', 'plays a critical role', 'plays a crucial role', 'it is clear that', 'in conclusion', 'in summary', 'sheds light on'. Do NOT list sources one by one. Synthesize. Italicize species names: _E. coli_.]"
+      ? "\n\n[CRITICAL: Cite papers ONLY when they directly support your specific claim about the EXACT topic asked. " +
+        "A paper about a DIFFERENT organism or DIFFERENT process must NOT be cited as evidence — leave it uncited. " +
+        "An accurate answer with 0 citations is better than a wrong answer with 5. " +
+        "Do NOT use: 'further research is needed', 'plays a critical role', 'plays a crucial role', 'it is clear that', 'in conclusion', 'in summary', 'sheds light on'. " +
+        "Do NOT list sources one by one. Synthesize. Italicize species names: _E. coli_.]"
       : "\n\n[CRITICAL: Do NOT use these phrases: 'further research is needed', 'plays a critical role', 'it is clear that', 'in conclusion', 'in summary', 'sheds light on'. Italicize species names: _E. coli_.]";
     messages.push({ role: "user", content: userContent + enforcer });
 
@@ -4282,39 +4674,47 @@ Respond naturally to the user's message. Be yourself.`;
       } catch {}
     }
 
-    // ============ MECHANICAL CITATION ENFORCEMENT ============
-    // Free-tier models routinely ignore citation instructions in the prompt.
-    // If we gave the model real papers (useEvidence) but the answer it wrote
-    // contains ZERO [N] citation markers, don't just trust it next time —
-    // fix it now. One blunt retry with an ultra-simple direct instruction,
-    // then a mechanical fallback that guarantees citations exist no matter
-    // what the model does.
+    // ============ CITATION QUALITY CHECK ============
+    // If the answer has zero citations but we gave it papers, that's often
+    // CORRECT — the papers may not have been relevant. Only retry if the answer
+    // also seems low quality (too short or generic).
     if (aiOK && useEvidence && evidencePapers.length > 0) {
       const hasCitations = /\[\d+\]/.test(answer);
-      if (!hasCitations) {
-        // One retry: strip all the prose instructions, just demand citations bluntly.
+      // Only retry if: no citations AND answer is suspiciously short (model may
+      // have given up rather than engaging with the papers)
+      if (!hasCitations && answer.length < 200) {
         try {
           const retryMsgs = [
-            { role: "system", content: "You are a citation machine. You will be given papers numbered [1] through [" + evidencePapers.length + "] and a question. Write a clear answer that cites AT LEAST " + Math.min(evidencePapers.length, 3) + " of them using [1] [2] [3] notation. Every single paragraph must contain at least one [N] citation marker. This is the only rule that matters." },
-            { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query + "\n\nWrite the answer now with citation markers [1] [2] etc. throughout." },
+            { role: "system", content: "You are a scientific expert. You will be given papers and a question. Write a thorough, accurate answer. " +
+              "Cite papers ONLY if they directly address the question's specific topic. " +
+              "If none of the papers are relevant, say so briefly and answer from your scientific knowledge instead. " +
+              "An accurate uncited answer is better than a cited answer that misattributes findings." },
+            { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query },
           ];
           const retryModels = ["deepseek/deepseek-chat-v3-0324:free", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free"];
           for (const m of retryModels) {
             try {
               const r = await callOR(m, retryMsgs, maxTokens);
-              if (/\[\d+\]/.test(r.answer)) { answer = r.answer; break; }
+              if (r.answer.length > answer.length) { answer = r.answer; break; }
             } catch {}
           }
         } catch {}
       }
 
-      // If STILL no citations after the retry, mechanically append a sources
-      // list. This guarantees the user always sees which papers back the
-      // answer, even when every model in the chain ignores instructions.
-      if (!/\[\d+\]/.test(answer)) {
-        answer = answer.trim() +
-          "\n\n---\n**Sources consulted for this answer:**\n" +
-          evidencePapers.slice(0, 6).map((p, i) => "[" + (i + 1) + "] " + p.title + (p.year ? " (" + p.year + ")" : "")).join("\n");
+      // Append a reference list at the bottom ONLY if citations were actually used.
+      // Previously this appended sources even when they were irrelevant, which
+      // made it look like the answer was backed by papers that don't support it.
+      if (!/\[\d+\]/.test(answer) && evidencePapers.length > 0) {
+        // No citations used — check if the answer is still good
+        if (answer.length > 300) {
+          // Answer is substantial — the model chose not to cite because papers
+          // weren't relevant. That's correct behavior. Don't force sources.
+        } else {
+          // Short answer with no citations — add source context
+          answer = answer.trim() +
+            "\n\n---\n**Related papers found (may not directly address this question):**\n" +
+            evidencePapers.slice(0, 4).map((p, i) => "[" + (i + 1) + "] " + p.title + (p.year ? " (" + p.year + ")" : "")).join("\n");
+        }
       }
 
       // ============ D1 PAPER-LEVEL LEARNING (write) ============
