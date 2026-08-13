@@ -3929,7 +3929,7 @@ Respond naturally to the user's message. Be yourself.`;
 
     const CITE_RULES =
       "CITATION FORMAT — mechanical compliance required:\n" +
-      "- Cite ONLY as [1], [2], [3]. Never parentheses, never superscripts, never bare numbers.\n" +
+      "- Cite ONLY as [1], [2], [3]. Never parentheses, never superscripts, never bare numbers, and NEVER group multiple sources in one bracket like [1, 2] or [1,2] — write [1][2] as separate brackets, back to back, with no space between them.\n" +
       "- Place citations INLINE at the end of the specific sentence they support.\n" +
       "- Do NOT cluster citations at paragraph end. Each citation attaches to one specific claim.\n" +
       "- Only cite source N if it genuinely supports that sentence. [WEAK MATCH] sources: ignore or note as tangential. [RETRACTED]: flag prominently.\n" +
@@ -4118,6 +4118,19 @@ Respond naturally to the user's message. Be yourself.`;
     let aiOK = false;
     const token = env.OPENROUTER_KEY;
 
+    // Bug: the "good enough to accept" bar below was a flat 30 characters
+    // regardless of answerLength, and Promise.any (used in the race below)
+    // takes the FIRST model to clear that bar — not the best, not the one
+    // that actually followed the length instruction. A free-tier model that
+    // raced back with two lazy sentences was indistinguishable from one that
+    // wrote the requested "five to eight paragraphs" review-article answer,
+    // so "Detailed" mode routinely won the race with a short response while
+    // slower models that would have honored the prompt never got a chance.
+    // Scale the floor to what each tier actually promises (still well under
+    // the target, just enough to reject an obviously-too-short response and
+    // force a retry against the next model).
+    const minAnswerLen = answerLength === "long" ? 500 : answerLength === "short" ? 30 : 150;
+
     const callOR = async (model, msgs, maxTok) => {
       if (!token) throw new Error("no key");
       const c = new AbortController();
@@ -4134,7 +4147,7 @@ Respond naturally to the user's message. Be yourself.`;
         const j = await r.json();
         const txt = j?.choices?.[0]?.message?.content || "";
         const cleaned = cleanAIResponse(txt);
-        if (cleaned.length < 30) throw new Error("too short");
+        if (cleaned.length < minAnswerLen) throw new Error("too short");
         return { answer: cleaned, model };
       } catch (e) { clearTimeout(t); throw e; }
     };
@@ -4143,7 +4156,7 @@ Respond naturally to the user's message. Be yourself.`;
       if (!env.AI || typeof env.AI.run !== "function") throw new Error("no AI");
       const out = await env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) });
       const cleaned = cleanAIResponse((out && out.response) || "");
-      if (cleaned.length < 30) throw new Error("too short");
+      if (cleaned.length < minAnswerLen) throw new Error("too short");
       return { answer: cleaned, model };
     };
 
