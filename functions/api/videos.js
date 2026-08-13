@@ -1,11 +1,59 @@
 // Dedicated videos endpoint. Frontend fires this in parallel with /api/search
 // so the answer isn't delayed by video fetching. Keyless, uses direct YouTube
 // scrape (works from Cloudflare) + community proxy fallback.
+//
+// Hardening: this had no origin allowlist (wildcard "*" CORS) and no rate
+// limiting, unlike search.js/vote.js/tts.js. Every request fans out to
+// youtube.com plus up to 4 third-party piped/invidious proxies, so an
+// unthrottled third-party site could use this as a free anonymized relay —
+// burning Cerebrum's own Pages Functions quota and risking Cerebrum's
+// outbound IP getting flagged by YouTube from volume it didn't generate.
+// Brought up to the same bar as the other endpoints.
 
-const cors = {
-  "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": "*",
-};
+const ALLOWED_ORIGINS = [
+  "https://askcerebrum.org",
+  "https://www.askcerebrum.org",
+  "https://cerebrum-2pz.pages.dev",
+];
+const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
+function originAllowed(request) {
+  const origin = request.headers.get("Origin") || "";
+  if (!origin) return true; // same-origin / non-browser client
+  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
+}
+
+// Same lightweight per-isolate sliding-window limiter used elsewhere in functions/api.
+const RATE_BUCKET = new Map();
+const RATE_LIMIT = 20;         // video-search requests
+const RATE_WINDOW_MS = 60000;  // per minute
+function rateLimit(ip) {
+  const now = Date.now();
+  const rec = RATE_BUCKET.get(ip) || [];
+  const recent = rec.filter((t) => now - t < RATE_WINDOW_MS);
+  recent.push(now);
+  RATE_BUCKET.set(ip, recent);
+  if (RATE_BUCKET.size > 5000) {
+    for (const [k, v] of RATE_BUCKET) {
+      if (v.every((t) => now - t > RATE_WINDOW_MS)) RATE_BUCKET.delete(k);
+    }
+  }
+  return recent.length <= RATE_LIMIT;
+}
+
+function corsFor(request) {
+  const reqOrigin = request.headers.get("Origin") || "";
+  const corsOrigin =
+    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin)
+      ? reqOrigin
+      : "https://askcerebrum.org";
+  return {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": corsOrigin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Vary": "Origin",
+  };
+}
 
 // Everyday words that ambiguate a query. "rupture" without context finds
 // religious rapture content; "cell" finds jail cells; "python" finds snakes.
@@ -159,19 +207,29 @@ async function tryProxy(inst, query) {
 
 export async function onRequest(context) {
   const { request } = context;
+  const cors = corsFor(request);
   if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-    });
+    return new Response(null, { status: 204, headers: cors });
+  }
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ videos: [], error: "Method not allowed." }), { status: 405, headers: cors });
+  }
+  if (!originAllowed(request)) {
+    return new Response(JSON.stringify({ videos: [], error: "Origin not allowed." }), { status: 403, headers: cors });
+  }
+  const clientIP =
+    request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("X-Forwarded-For") ||
+    "unknown";
+  if (!rateLimit(clientIP)) {
+    return new Response(
+      JSON.stringify({ videos: [], error: "Too many requests. Please wait a moment and try again." }),
+      { status: 429, headers: { ...cors, "Retry-After": "30" } }
+    );
   }
   try {
     const body = await request.json().catch(() => ({}));
-    const query = (body.query || "").trim();
+    const query = (body.query || "").toString().trim().slice(0, 300);
     if (!query) return new Response(JSON.stringify({ videos: [] }), { status: 200, headers: cors });
 
     const timedRace = new Promise((resolve) => setTimeout(() => resolve([]), 4000));
