@@ -15,6 +15,14 @@ CREATE TABLE IF NOT EXISTS answer_cache (
   PRIMARY KEY (query_key, answer_id)
 );
 CREATE INDEX IF NOT EXISTS idx_answer_cache_query ON answer_cache(query_key);
+-- /api/vote looks up and updates rows by answer_id ALONE (not query_key), but
+-- the only existing index is the composite PK (query_key, answer_id), which
+-- can't be used to seek on answer_id by itself — every vote was doing a full
+-- table scan. UNIQUE also closes a theoretical collision gap: answer_id is
+-- generated from Date.now() + a few random base36 chars with no uniqueness
+-- guarantee outside the composite key, so two different queries could in
+-- principle share one and let a vote silently touch the wrong answer's score.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_answer_cache_answer_id ON answer_cache(answer_id);
 
 -- Existing: tracks which LLM tends to win (produce the accepted answer) for
 -- a given topic domain, so repeat domains skip straight to the best model.
