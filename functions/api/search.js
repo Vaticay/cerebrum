@@ -5580,8 +5580,13 @@ Respond naturally to the user's message. Be yourself.`;
     // force a retry against the next model).
     const minAnswerLen = answerLength === "long" ? 500 : answerLength === "short" ? 30 : 150;
 
+    // Every thrown error is prefixed with the model name and, where possible,
+    // the response body text. This is the difference between a future total
+    // failure being a mystery ("all N models failed") and being diagnosable
+    // in one glance ("23 of 26 said HTTP 429: rate limit exceeded for
+    // free-tier requests" — an ACCOUNT-level throttle, not a model problem).
     const callOR = async (model, msgs, maxTok) => {
-      if (!token) throw new Error("no key");
+      if (!token) throw new Error(model + ": no OPENROUTER_KEY configured");
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), 12000);
       try {
@@ -5592,21 +5597,65 @@ Respond naturally to the user's message. Be yourself.`;
           signal: c.signal,
         });
         clearTimeout(t);
-        if (!r.ok) throw new Error("HTTP " + r.status);
+        if (!r.ok) {
+          let bodyText = "";
+          try { bodyText = (await r.text()).slice(0, 180); } catch {}
+          throw new Error(model + ": HTTP " + r.status + (bodyText ? " — " + bodyText : ""));
+        }
         const j = await r.json();
         const txt = j?.choices?.[0]?.message?.content || "";
         const cleaned = cleanAIResponse(txt);
-        if (cleaned.length < minAnswerLen) throw new Error("too short");
+        if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short (" + cleaned.length + " chars)");
         return { answer: cleaned, model };
-      } catch (e) { clearTimeout(t); throw e; }
+      } catch (e) {
+        clearTimeout(t);
+        if (e && e.name === "AbortError") throw new Error(model + ": timed out");
+        throw e;
+      }
     };
 
     const callCF = async (model, msgs, maxTok) => {
-      if (!env.AI || typeof env.AI.run !== "function") throw new Error("no AI");
-      const out = await env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) });
-      const cleaned = cleanAIResponse((out && out.response) || "");
-      if (cleaned.length < minAnswerLen) throw new Error("too short");
-      return { answer: cleaned, model };
+      if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding (env.AI missing)");
+      try {
+        const out = await env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) });
+        const cleaned = cleanAIResponse((out && out.response) || "");
+        if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short");
+        return { answer: cleaned, model };
+      } catch (e) {
+        throw new Error(model + ": " + (e && e.message ? e.message : String(e)));
+      }
+    };
+
+    const pollinationsCall = async (modelParam) => {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 12000);
+      const tag = "pollinations:" + modelParam;
+      try {
+        const pRes = await fetch("https://text.pollinations.ai/", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [
+              { role: "system", content: "You are Cerebrum, a scientific research engine built by Vaticay. Answer naturally in English. Do NOT fabricate citations, DOIs, or author names. Be specific — name enzymes, genes, compounds. Bold key terms." },
+              { role: "user", content: query },
+            ],
+            model: modelParam,
+          }),
+          signal: c.signal,
+        });
+        clearTimeout(t);
+        if (!pRes.ok) {
+          let bodyText = "";
+          try { bodyText = (await pRes.text()).slice(0, 180); } catch {}
+          throw new Error(tag + ": HTTP " + pRes.status + (bodyText ? " — " + bodyText : ""));
+        }
+        const cleaned = cleanAIResponse(await pRes.text());
+        if (!cleaned || cleaned.length < 30) throw new Error(tag + ": response too short");
+        return { answer: cleaned, model: tag };
+      } catch (e) {
+        clearTimeout(t);
+        if (e && e.name === "AbortError") throw new Error(tag + ": timed out");
+        throw e;
+      }
     };
 
     // Check if we know the best model for this topic domain
@@ -5627,44 +5676,53 @@ Respond naturally to the user's message. Be yourself.`;
     }
 
     // ════════════════════════════════════════════════════════════════
-    // v6.1: MASSIVE MODEL REDUNDANCY
-    // Live production failure: a query hit "AI answer service is momentarily
-    // unavailable" — meaning EVERY tier failed simultaneously. Root cause:
-    // only 6 distinct OpenRouter models were ever attempted (3 raced + 3
-    // sequential fallback), 3 Workers AI models, and exactly 1 Pollinations
-    // call. Free-tier models get hammered by every app using them and 429 in
-    // bursts — a handful of attempts is a single point of failure waiting to
-    // happen, especially during high-traffic hours.
+    // v6.2: TRUE CROSS-PROVIDER PARALLEL RACING
+    // v6.1 added ~30 extra OpenRouter model names but kept them in
+    // SEQUENTIAL tiers (OR-primary → OR-fallback → Workers AI → Pollinations)
+    // — and it still failed on a live query. That's the tell: this was never
+    // just "not enough models". Two real structural problems:
     //
-    // Fix: expand the attempt pool to ~30 distinct models across 3 providers,
-    // and RACE the fallback pool all-at-once with Promise.any instead of
-    // trying models one at a time. Racing in parallel means total wall time
-    // for a fully-failed tier is bounded by ONE timeout window, not the SUM
-    // of every model's timeout — so this buys massive redundancy without
-    // making the pathological case (everything down) unreasonably slow.
-    // A stale/removed model ID just 400s near-instantly and costs nothing,
-    // so it's safe to overprovision this list generously.
+    // 1. OpenRouter's free (":free") models share ONE rate-limit bucket PER
+    //    API KEY, not per model-name. If the account-level bucket is what's
+    //    throttled, firing 30 different model NAMES through the SAME key
+    //    doesn't add capacity — they're all drawing from the same empty well.
+    // 2. Workers AI and Pollinations are genuinely independent of that key,
+    //    but the old sequential structure meant they never even got
+    //    ATTEMPTED until BOTH OpenRouter tiers had fully burned through their
+    //    timeouts — wasting 20-30+ seconds before a completely unaffected
+    //    provider got a chance.
+    //
+    // Fix: race a small set from EVERY provider TOGETHER in one wave, so an
+    // OpenRouter-side outage (of any kind) never blocks Workers AI /
+    // Pollinations from being tried at the same time. If wave 1 fully fails,
+    // wave 2 races a broader set, again across all providers at once.
+    //
+    // Also: every callOR/callCF/pollinationsCall failure above now carries
+    // the model name + actual HTTP status + response body text. Combined
+    // with Promise.any's AggregateError.errors (one entry per failed
+    // promise), this means a future total failure tells us EXACTLY what
+    // happened — e.g. "26/26 OpenRouter calls said HTTP 429: rate limit
+    // exceeded" (account-level throttle) vs "env.AI missing" (Workers AI was
+    // never actually bound to this Pages project) vs real provider outages —
+    // instead of the generic "all N models failed" that told us nothing.
     // ════════════════════════════════════════════════════════════════
 
-    const aiAttempts = []; // diagnostic trail — surfaced in _diag for debugging
+    const aiAttempts = []; // diagnostic trail — surfaced in _aiAttempts for debugging
     const recordWin = (model) => {
-      if (!env.DB) return;
+      if (!env.DB || !model || model.startsWith("pollinations:") || model.startsWith("@cf/")) return;
       env.DB.prepare(
         "INSERT INTO model_perf (domain, model, wins) VALUES (?, ?, 1) ON CONFLICT(domain, model) DO UPDATE SET wins = wins + 1"
       ).bind(domainKey, model).run().catch(() => {});
     };
+    const errMsgs = (agg) => (agg && agg.errors ? agg.errors.map((e) => String((e && e.message) || e)) : [String((agg && agg.message) || agg)]);
 
-    // Tier 1a: small, fast, historically-reliable set — tried first for speed
-    // in the common case where at least one of the "good" models is up.
-    const OR_PRIMARY = [
+    const OR_WAVE1 = [
       "deepseek/deepseek-chat-v3-0324:free",
       "google/gemini-2.0-flash-exp:free",
       "meta-llama/llama-3.3-70b-instruct:free",
       "qwen/qwen-2.5-72b-instruct:free",
     ];
-    // Tier 1b: everything else on OpenRouter's free tier. Only fires if 1a
-    // fully fails, but then races ALL of these simultaneously.
-    const OR_FALLBACK = [
+    const OR_WAVE2 = [
       "mistralai/mistral-small-3.1-24b-instruct:free",
       "deepseek/deepseek-r1:free",
       "deepseek/deepseek-r1-distill-llama-70b:free",
@@ -5679,103 +5737,77 @@ Respond naturally to the user's message. Be yourself.`;
       "google/gemma-2-9b-it:free",
       "qwen/qwq-32b:free",
       "qwen/qwen-2.5-coder-32b-instruct:free",
-      "qwen/qwen3-235b-a22b:free",
       "mistralai/mistral-7b-instruct:free",
       "microsoft/phi-3-medium-128k-instruct:free",
       "microsoft/phi-3-mini-128k-instruct:free",
-      "nousresearch/hermes-3-llama-3.1-70b:free",
       "openchat/openchat-7b:free",
       "huggingfaceh4/zephyr-7b-beta:free",
       "gryphe/mythomax-l2-13b:free",
       "cognitivecomputations/dolphin3.0-mistral-24b:free",
-      "rekaai/reka-flash-3:free",
-      "liquid/lfm-40b:free",
-      "thudm/glm-4-9b:free",
     ];
-
-    // Tier 1a: race the small, fast set
-    if (!aiOK && token) {
-      try {
-        const winner = await Promise.any(OR_PRIMARY.map((m) => callOR(m, messages, maxTokens)));
-        answer = winner.answer; aiOK = true;
-        aiAttempts.push({ tier: "1a", model: winner.model, ok: true });
-        recordWin(winner.model);
-      } catch {
-        aiAttempts.push({ tier: "1a", ok: false, error: "all " + OR_PRIMARY.length + " primary models failed/rate-limited" });
-      }
-    }
-
-    // Tier 1b: EVERY remaining free OpenRouter model, raced simultaneously.
-    // This is the actual fix for total AI unavailability — as long as ONE of
-    // ~26 models is up, the user gets a real answer instead of a raw dump.
-    if (!aiOK && token) {
-      try {
-        const winner = await Promise.any(OR_FALLBACK.map((m) => callOR(m, messages, maxTokens)));
-        answer = winner.answer; aiOK = true;
-        aiAttempts.push({ tier: "1b", model: winner.model, ok: true });
-        recordWin(winner.model);
-      } catch {
-        aiAttempts.push({ tier: "1b", ok: false, error: "all " + OR_FALLBACK.length + " fallback models failed/rate-limited" });
-      }
-    }
-
-    // TIER 2: Cloudflare Workers AI — race every available model simultaneously
-    const CF_MODELS = [
+    const CF_WAVE1 = [
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+    ];
+    const CF_WAVE2 = [
       "@cf/meta/llama-3.1-8b-instruct-fp8",
       "@cf/meta/llama-3.1-8b-instruct",
       "@cf/mistral/mistral-7b-instruct-v0.2",
       "@cf/qwen/qwen1.5-14b-chat-awq",
       "@cf/microsoft/phi-2",
     ];
-    if (!aiOK && env.AI && typeof env.AI.run === "function") {
+    const POLLINATIONS_WAVE1 = ["openai"];
+    const POLLINATIONS_WAVE2 = ["mistral", "llama", "qwen-coder"];
+
+    const cfBound = !!(env.AI && typeof env.AI.run === "function");
+
+    // WAVE 1: small, fast, historically-reliable set from EVERY provider,
+    // raced together. This is what actually fixes "OpenRouter-only outage
+    // blocks everything" — Workers AI and Pollinations are in flight from
+    // the very first attempt, not after two OpenRouter tiers exhaust.
+    if (!aiOK) {
+      const wave1Calls = [
+        ...(token ? OR_WAVE1.map((m) => callOR(m, messages, maxTokens)) : []),
+        ...(cfBound ? CF_WAVE1.map((m) => callCF(m, messages, maxTokens)) : []),
+        ...POLLINATIONS_WAVE1.map(pollinationsCall),
+      ];
       try {
-        const winner = await Promise.any(CF_MODELS.map((m) => callCF(m, messages, maxTokens)));
+        const winner = await Promise.any(wave1Calls);
         answer = winner.answer; aiOK = true;
-        aiAttempts.push({ tier: "2", model: winner.model, ok: true });
-      } catch {
-        aiAttempts.push({ tier: "2", ok: false, error: "all " + CF_MODELS.length + " Workers AI models failed" });
+        aiAttempts.push({ wave: 1, model: winner.model, ok: true });
+        recordWin(winner.model);
+      } catch (agg) {
+        aiAttempts.push({ wave: 1, ok: false, attempted: wave1Calls.length, errors: errMsgs(agg) });
       }
     }
 
-    // TIER 3: Pollinations — race multiple backend model params simultaneously
+    // WAVE 2: broader set from every provider, raced together. Only fires if
+    // wave 1 fully failed across ALL providers simultaneously.
     if (!aiOK) {
-      const pollinationsCall = async (modelParam) => {
-        const c = new AbortController();
-        const t = setTimeout(() => c.abort(), 9000);
+      const wave2Calls = [
+        ...(token ? OR_WAVE2.map((m) => callOR(m, messages, maxTokens)) : []),
+        ...(cfBound ? CF_WAVE2.map((m) => callCF(m, messages, maxTokens)) : []),
+        ...POLLINATIONS_WAVE2.map(pollinationsCall),
+      ];
+      if (wave2Calls.length > 0) {
         try {
-          const pRes = await fetch("https://text.pollinations.ai/", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messages: [
-                { role: "system", content: "You are Cerebrum, a scientific research engine built by Vaticay. Answer naturally in English. Do NOT fabricate citations, DOIs, or author names. Be specific — name enzymes, genes, compounds. Bold key terms." },
-                { role: "user", content: query },
-              ],
-              model: modelParam,
-            }),
-            signal: c.signal,
-          });
-          clearTimeout(t);
-          if (!pRes.ok) throw new Error("HTTP " + pRes.status);
-          const cleaned = cleanAIResponse(await pRes.text());
-          if (!cleaned || cleaned.length < 30) throw new Error("too short");
-          return { answer: cleaned, model: "pollinations:" + modelParam };
-        } catch (e) { clearTimeout(t); throw e; }
-      };
-      try {
-        const winner = await Promise.any(["openai", "mistral", "llama", "qwen-coder"].map(pollinationsCall));
-        answer = winner.answer; aiOK = true;
-        aiAttempts.push({ tier: "3", model: winner.model, ok: true });
-      } catch {
-        aiAttempts.push({ tier: "3", ok: false, error: "all Pollinations variants failed" });
+          const winner = await Promise.any(wave2Calls);
+          answer = winner.answer; aiOK = true;
+          aiAttempts.push({ wave: 2, model: winner.model, ok: true });
+          recordWin(winner.model);
+        } catch (agg) {
+          aiAttempts.push({ wave: 2, ok: false, attempted: wave2Calls.length, errors: errMsgs(agg) });
+        }
       }
     }
 
-    // Log the attempt trail so a future total-failure is diagnosable from
-    // Cloudflare's dashboard logs instead of requiring another live repro.
+    // Log the full attempt trail so a future total-failure is diagnosable
+    // from Cloudflare's dashboard logs instead of requiring another live
+    // repro from the user. This will show the ACTUAL reason — rate limit,
+    // missing binding, provider outage — not a guess.
     if (!aiOK) {
-      try { console.log("Cerebrum: ALL AI TIERS FAILED", JSON.stringify(aiAttempts)); } catch {}
+      aiAttempts.push({ diagnostics: { hasOpenRouterKey: !!token, workersAIBound: cfBound } });
+      try { console.log("Cerebrum: ALL AI PROVIDERS FAILED", JSON.stringify(aiAttempts)); } catch {}
     }
 
     // ============ v6.0: ANSWER QUALITY ENGINE ============
