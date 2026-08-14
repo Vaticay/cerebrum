@@ -1312,8 +1312,8 @@ function classifyIntent(query, history) {
 
   // Follow-up indicators
   const followupOpeners = /^(yes|no|but|and|so|okay|ok|right|hmm|well|wait|hey)\b/i;
-  const backReferences = /\b(that\s+(paper|study|research|work|finding|result|author|person|one)|this\s+(paper|study|research|work|finding|result)|the\s+(paper|study|research|work|finding|result|author|person|one|main\s+point|main\s+finding)|it|its|they|them|their|he|she|his|her|him)\b/i;
-  const metaAboutPrevious = /\b(you\s+(said|mentioned|wrote|missed|forgot|focused|talked)|main\s+point|main\s+finding|focus\s+on|more\s+about|tell\s+me\s+more|expand|elaborate|clarify|what\s+about|and\s+what|what\s+does|what\s+did|explain\s+more|dig\s+deeper|go\s+deeper)\b/i;
+  const backReferences = /\b(that\s+(papers?|stud(?:y|ies)|research|works?|findings?|results?|authors?|persons?|one)|this\s+(papers?|stud(?:y|ies)|research|works?|findings?|results?)|the\s+(papers?|stud(?:y|ies)|research|works?|findings?|results?|authors?|persons?|one|main\s+point|main\s+finding|sources?|citations?|references?)|it|its|they|them|their|he|she|his|her|him)\b/i;
+  const metaAboutPrevious = /\b(you\s+(said|mentioned|wrote|missed|forgot|focused|talked)|main\s+point|main\s+finding|focus\s+on|more\s+about|tell\s+me\s+more|expand|elaborate|clarify|what\s+about|and\s+what|what\s+does|what\s+did|explain\s+more|dig\s+deeper|go\s+deeper|where\s+(are|were)\s+the\s+(papers?|sources?|stud(?:y|ies)|citations?|references?)|show\s+me\s+the\s+(papers?|sources?|citations?)|list\s+the\s+(papers?|sources?|citations?)|what\s+(papers?|sources?|citations?)\s+(did|do|were|are))\b/i;
   const shortReply = wc <= 8;
 
   const hasBackRef = backReferences.test(q);
@@ -2303,6 +2303,391 @@ async function llmValidatePapers(rawQuery, papers, token) {
   } catch {
     return papers;
   }
+}
+
+
+// ============ LLM QUERY INTELLIGENCE ("THE BRAIN") ============
+// The conversational intelligence core. Instead of rigid regex-based intent
+// classification, we use a fast LLM call to UNDERSTAND what the user actually
+// means in context. This is what makes follow-ups like "where are the papers",
+// "tell me more about that enzyme", or "what about in humans?" work naturally.
+//
+// Runs in parallel with initial setup so it adds near-zero latency. Falls back
+// to the regex-based classifyIntent() if the LLM call fails or times out.
+
+const QUERY_RESOLVER_PROMPT =
+  "You are a query-understanding module for Cerebrum, a scientific literature search engine. " +
+  "Your job is to understand what the user ACTUALLY wants, given their message and conversation context.\n\n" +
+  "Respond with ONLY a JSON object — no markdown fences, no explanation:\n" +
+  '{\n  "intent": "<one of the types below>",\n  "needs_search": true/false,\n' +
+  '  "resolved_query": "<effective search query, or empty string if no search needed>",\n' +
+  '  "topic": "<the main scientific topic being discussed across the conversation>",\n' +
+  '  "reasoning": "<one sentence: why you classified it this way>"\n}\n\n' +
+  "INTENT TYPES:\n" +
+  '- "new_search": A brand-new scientific question unrelated to the conversation so far.\n' +
+  '- "followup_deeper": Wants more depth on the SAME topic. ("tell me more", "expand on that", "what\'s the mechanism?")\n' +
+  '- "followup_related": A related but different angle. ("what about in humans?" after discussing mice)\n' +
+  '- "followup_broader": Wants the topic covered more broadly. ("what about other organisms?", "how does this apply more generally?")\n' +
+  '- "correction": Correcting a mistake in the previous answer.\n' +
+  '- "meta_question": Asking ABOUT the conversation or existing results — NOT requesting new information. ' +
+  'Examples: "where are the papers", "what sources did you use", "can you list the citations", "summarize that", "what did you just say".\n' +
+  '- "source_request": Explicitly asking for MORE/NEW/ADDITIONAL papers. ("find more papers", "any other studies")\n' +
+  '- "conversational": Greetings, thanks, jokes, personal questions, off-topic chat.\n\n' +
+  "CRITICAL RULES:\n" +
+  '1. "where are the papers" / "show me the sources" / "what papers did you find" / "list the references" = meta_question. ' +
+  "The user wants you to PRESENT the sources already cited. needs_search: false.\n" +
+  '2. "find more papers" / "get more studies" / "any other research on this" = source_request. needs_search: true. ' +
+  "resolved_query = the original topic.\n" +
+  '3. "tell me more" / "go deeper" / "elaborate" = followup_deeper. needs_search: true. ' +
+  "resolved_query = the original topic + the specific angle they're asking about.\n" +
+  "4. If the message contains pronouns (he/she/it/they/that/this) without clear referents, resolve them from history.\n" +
+  '5. Short vague messages ("yes", "ok", "and?", "so?", "continue") after a previous answer = followup_deeper.\n' +
+  "6. If the current message lacks scientific terms but the conversation has an active topic, " +
+  "resolved_query should include that topic's key terms.\n" +
+  "7. For followup_deeper and followup_related, ALWAYS include the main topic in resolved_query " +
+  "even if the user didn't repeat it.\n" +
+  '8. A message that ONLY asks about papers/sources/citations without specifying "more" or "new" = meta_question, NOT source_request.';
+
+
+async function llmResolveQuery(query, history, prevSources, token) {
+  if (!token) return null;
+
+  const recentHistory = (history || []).slice(-8);
+  const historyText = recentHistory
+    .map((t) => {
+      const role = t.role === "user" ? "User" : "Cerebrum";
+      const content = String(t.content || "").slice(0, 400);
+      return role + ": " + content;
+    })
+    .join("\n");
+
+  const sourceList = (prevSources || [])
+    .slice(0, 6)
+    .map((s, i) => "[" + (i + 1) + '] "' + (s.title || "Untitled") + '"')
+    .join("\n");
+
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 4000);
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+        "HTTP-Referer": "https://askcerebrum.org",
+        "X-Title": "Cerebrum",
+      },
+      body: JSON.stringify({
+        model: "deepseek/deepseek-chat-v3-0324:free",
+        temperature: 0,
+        max_tokens: 250,
+        messages: [
+          { role: "system", content: QUERY_RESOLVER_PROMPT },
+          {
+            role: "user",
+            content:
+              "CONVERSATION:\n" +
+              (historyText || "(no history)") +
+              "\n\nSOURCES ALREADY CITED:\n" +
+              (sourceList || "(none)") +
+              '\n\nCURRENT MESSAGE: "' +
+              query +
+              '"',
+          },
+        ],
+      }),
+      signal: c.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const txt = (j?.choices?.[0]?.message?.content || "").trim();
+    try {
+      const clean = txt.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      if (parsed && typeof parsed.intent === "string") return parsed;
+    } catch {}
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+
+// Build a rich, compact summary of the conversation for the answer LLM.
+// This gives the model much better context than just raw history turns,
+// enabling it to write responses that feel like a continuous conversation.
+function buildConversationContext(history, prevSources) {
+  if (!Array.isArray(history) || !history.length) return null;
+
+  const userQuestions = [];
+  const assistantHighlights = [];
+  const allEntities = new Set();
+
+  for (const turn of history) {
+    const content = String(turn.content || "").trim();
+    if (!content) continue;
+
+    if (turn.role === "user" && content.length > 3) {
+      userQuestions.push(content.slice(0, 200));
+      const bin = extractBinomial(content);
+      if (bin) allEntities.add(bin.full);
+      // Extract capitalized terms that might be entities
+      content.split(/\s+/).forEach((w) => {
+        if (w.length > 4 && /^[A-Z][a-z]/.test(w) && !STOPWORDS.has(w.toLowerCase())) {
+          allEntities.add(w);
+        }
+      });
+    }
+
+    if (turn.role === "assistant" && content.length > 20) {
+      const firstSent = content.split(/[.!?]\s/)[0];
+      if (firstSent && firstSent.length > 10 && firstSent.length < 200) {
+        assistantHighlights.push(firstSent.slice(0, 150));
+      }
+    }
+  }
+
+  const sourceTitles = (prevSources || [])
+    .slice(0, 8)
+    .map((s, i) => "[" + (i + 1) + "] " + (s.title || "Untitled") + " (" + (s.year || "n/a") + ")");
+
+  const entities = [...allEntities].slice(0, 15);
+  const summary =
+    userQuestions.length > 0
+      ? "The user has asked " +
+        userQuestions.length +
+        ' question(s). Their investigation started with "' +
+        userQuestions[0].slice(0, 100) +
+        '"' +
+        (userQuestions.length > 1
+          ? ' and most recently asked "' + userQuestions[userQuestions.length - 1].slice(0, 100) + '"'
+          : "") +
+        (entities.length > 0
+          ? ". Key entities discussed: " + entities.slice(0, 8).join(", ")
+          : "") +
+        "."
+      : null;
+
+  return { userQuestions, assistantHighlights, entities, sourceTitles, turnCount: history.length, summary };
+}
+
+
+// Answer meta-questions (questions about the conversation itself, like "where
+// are the papers" or "what sources did you use"). These don't need a new search
+// — they need the LLM to reference the EXISTING conversation and sources.
+async function answerMetaQuestion(query, history, prevSources, conversationCtx, env) {
+  const token = env.OPENROUTER_KEY;
+  if (!token) return null;
+
+  const sourceList = (prevSources || [])
+    .map(
+      (s, i) =>
+        "[" + (i + 1) + '] "' + (s.title || "Untitled") + '" — ' +
+        (s.authors || "Unknown") + ", " + (s.journal || "Unknown") +
+        ", " + (s.year || "n/a") +
+        (s.url ? "\n    URL: " + s.url : "")
+    )
+    .join("\n");
+
+  const historyText = (history || [])
+    .slice(-6)
+    .map((t) => {
+      const role = t.role === "user" ? "User" : "Cerebrum";
+      return role + ": " + String(t.content || "").slice(0, 600);
+    })
+    .join("\n\n");
+
+  const ctxNote = conversationCtx && conversationCtx.summary ? "\n\nCONVERSATION SUMMARY: " + conversationCtx.summary : "";
+
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are Cerebrum, a scientific research engine built by Vaticay. " +
+        "The user is asking a question about your PREVIOUS response or the sources you already found. " +
+        "Answer based on the conversation history and source list below.\n\n" +
+        "RULES:\n" +
+        "- Reference specific papers by their citation number [1], [2], etc.\n" +
+        '- If they ask "where are the papers" or "what sources", list the papers you cited with brief descriptions of what each one covers.\n' +
+        '- If they ask to "summarize" or "recap", give a concise summary of what you\'ve discussed.\n' +
+        "- If they ask about specific claims, reference which paper(s) supported them.\n" +
+        "- Be conversational and direct — don't re-search, don't apologize, don't hedge.\n" +
+        "- If there are no previous sources, say so honestly and offer to search for them.\n" +
+        "- Keep species names italicized: _E. coli_, _H. illucens_.\n" +
+        "- Bold **key terms** for readability.\n" +
+        "- NEVER fabricate papers or citations. Only reference what's in the source list below.\n\n" +
+        "CONVERSATION SO FAR:\n" +
+        (historyText || "(first message)") +
+        "\n\nSOURCES PREVIOUSLY CITED:\n" +
+        (sourceList || "(no sources cited yet)") +
+        ctxNote,
+    },
+    { role: "user", content: query },
+  ];
+
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 10000);
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+        "HTTP-Referer": "https://askcerebrum.org",
+        "X-Title": "Cerebrum",
+      },
+      body: JSON.stringify({
+        model: "deepseek/deepseek-chat-v3-0324:free",
+        temperature: 0.3,
+        max_tokens: 1200,
+        messages,
+      }),
+      signal: c.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const txt = (j?.choices?.[0]?.message?.content || "").trim();
+    if (txt.length > 20) return cleanAIResponse(txt);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+
+// Self-reasoning chain: before the main search, the system reasons about what
+// to search for and why. This is the "asks itself things" capability — the system
+// decomposes complex questions, identifies sub-questions, and plans the most
+// effective search strategy. The reasoning output enriches both the search
+// queries and the final answer's system prompt.
+async function selfReason(query, history, token) {
+  if (!token) return null;
+
+  const historyText = (history || [])
+    .slice(-4)
+    .map((t) =>
+      (t.role === "user" ? "User" : "Cerebrum") + ": " + String(t.content || "").slice(0, 200)
+    )
+    .join("\n");
+
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 4000);
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+        "HTTP-Referer": "https://askcerebrum.org",
+        "X-Title": "Cerebrum",
+      },
+      body: JSON.stringify({
+        model: "deepseek/deepseek-chat-v3-0324:free",
+        temperature: 0.1,
+        max_tokens: 300,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are the reasoning module of a scientific search engine. Think step-by-step about how to best answer this query.\n\n" +
+              "Output ONLY a JSON object:\n" +
+              "{\n" +
+              '  "sub_questions": ["list of 2-4 specific sub-questions to investigate"],\n' +
+              '  "search_strategy": "one sentence describing the best search approach",\n' +
+              '  "key_terms": ["5-8 specific scientific search terms, using proper nomenclature"],\n' +
+              '  "expected_fields": ["which scientific fields/disciplines are relevant"],\n' +
+              '  "complexity": "simple" | "moderate" | "complex" | "multi_domain",\n' +
+              '  "needs_comparison": false,\n' +
+              '  "organisms": ["any specific organisms to search for, using binomial names"]\n' +
+              "}",
+          },
+          {
+            role: "user",
+            content:
+              (historyText ? "Conversation context:\n" + historyText + "\n\n" : "") +
+              'Current question: "' + query + '"',
+          },
+        ],
+      }),
+      signal: c.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const txt = (j?.choices?.[0]?.message?.content || "").trim();
+    try {
+      return JSON.parse(txt.replace(/```json|```/g, "").trim());
+    } catch {}
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+
+// D1-backed query intelligence: check if we've seen a similar query before
+// and know its resolved form. This makes the system faster over time — cached
+// resolutions are instant and don't need an LLM call.
+async function checkQueryIntelligence(queryKey, db) {
+  if (!db) return null;
+  try {
+    const row = await db
+      .prepare(
+        "SELECT resolved_query, intent, topic, entities, success_count " +
+        "FROM query_intelligence WHERE query_hash = ? AND success_count >= 1 LIMIT 1"
+      )
+      .bind(queryKey)
+      .first();
+    if (row && row.resolved_query) {
+      return {
+        resolved_query: row.resolved_query,
+        intent: row.intent,
+        topic: row.topic,
+        entities: row.entities ? JSON.parse(row.entities) : [],
+        confidence: Math.min(row.success_count / 3, 1), // 3+ successes = full confidence
+      };
+    }
+  } catch {}
+  return null;
+}
+
+// Store a successful query resolution for future use
+async function storeQueryIntelligence(queryKey, rawQuery, resolvedQuery, intent, topic, entities, db) {
+  if (!db || !queryKey) return;
+  try {
+    await db
+      .prepare(
+        "INSERT INTO query_intelligence (query_hash, raw_query, resolved_query, intent, topic, entities, success_count, created_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, 1, ?) " +
+        "ON CONFLICT(query_hash) DO UPDATE SET " +
+        "success_count = success_count + 1, resolved_query = excluded.resolved_query, updated_at = excluded.created_at"
+      )
+      .bind(queryKey, rawQuery.slice(0, 500), resolvedQuery.slice(0, 500), intent, topic || "", JSON.stringify(entities || []), Date.now())
+      .run();
+  } catch {}
+}
+
+// Store topic co-occurrence data for smarter related-query suggestions
+async function updateTopicMemory(topic, searchTerms, paperCount, db) {
+  if (!db || !topic) return;
+  const topicKey = topic.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
+  if (!topicKey) return;
+  try {
+    await db
+      .prepare(
+        "INSERT INTO topic_memory (topic_key, related_terms, best_search_terms, avg_paper_count, search_count, updated_at) " +
+        "VALUES (?, ?, ?, ?, 1, ?) " +
+        "ON CONFLICT(topic_key) DO UPDATE SET " +
+        "search_count = search_count + 1, " +
+        "avg_paper_count = (avg_paper_count * search_count + excluded.avg_paper_count) / (search_count + 1), " +
+        "best_search_terms = CASE WHEN excluded.avg_paper_count > avg_paper_count THEN excluded.best_search_terms ELSE best_search_terms END, " +
+        "updated_at = excluded.updated_at"
+      )
+      .bind(topicKey, JSON.stringify([]), JSON.stringify(searchTerms || []), paperCount || 0, Date.now())
+      .run();
+  } catch {}
 }
 
 
@@ -3555,6 +3940,37 @@ Respond naturally to the user's message. Be yourself.`;
     // block the answer waiting for YouTube. Return empty array here.
     const videos = [];
 
+    // ════════════════════════════════════════════════════════════════
+    // CONVERSATIONAL INTELLIGENCE — launch LLM understanding IN PARALLEL
+    // with everything else. These calls cost zero extra latency because
+    // they resolve while we're doing pronoun detection, intent
+    // classification, and initial search setup.
+    // ════════════════════════════════════════════════════════════════
+    const prevAssistantForResolver = Array.isArray(body.history)
+      ? [...body.history].reverse().find((t) => t && t.role === "assistant")
+      : null;
+    const prevSourcesForResolver =
+      (prevAssistantForResolver && Array.isArray(prevAssistantForResolver.sources))
+        ? prevAssistantForResolver.sources
+        : [];
+
+    // 1. LLM Query Resolver — understands what the user actually means
+    const resolverPromise = llmResolveQuery(
+      query, body.history || [], prevSourcesForResolver, env.OPENROUTER_KEY
+    ).catch(() => null);
+
+    // 2. Self-Reasoning Chain — decomposes complex queries
+    const reasoningPromise = selfReason(
+      query, body.history || [], env.OPENROUTER_KEY
+    ).catch(() => null);
+
+    // 3. Build conversation context for later use in system prompt
+    const conversationCtx = buildConversationContext(body.history || [], prevSourcesForResolver);
+
+    // 4. Check D1 for previously successful query resolutions
+    const queryKey = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    const cachedIntelligence = await checkQueryIntelligence(queryKey, env.DB).catch(() => null);
+
     // Pronoun / continuation follow-up detection: "he has papers from...",
     // "she also wrote...", "does he work on...", "what about her research".
     // If the current query doesn't itself look like a name but clearly refers
@@ -3612,7 +4028,7 @@ Respond naturally to the user's message. Be yourself.`;
       && !/\b(more|additional|other|new|different|further)\b/i.test(query);
 
     // Detect explicit requests for MORE papers/sources — these MUST trigger a fresh search
-    const wantsMorePapers = /\b(find\s+more|get\s+more|show\s+more|more|additional|other|further)\s+\w*\s*(papers?|sources?|studies|articles?|references?)\b/i.test(query)
+    let wantsMorePapers = /\b(find\s+more|get\s+more|show\s+more|more|additional|other|further)\s+\w*\s*(papers?|sources?|studies|articles?|references?)\b/i.test(query)
       || /\b(what else|anything else|dig deeper|keep searching|search again|search more|find related)\b/i.test(query);
 
     const hasNewSubstance = (() => {
@@ -3646,10 +4062,177 @@ Respond naturally to the user's message. Be yourself.`;
     // explicit "more papers" request still forces a fresh search either way
     // (those are unambiguous regardless of phrasing).
     const strongFollowupSignal = intent.kind === "correction" || (intent.kind === "followup" && intent.meta === true);
-    const forceNewSearch = !asksAboutExistingSources && (!!embeddedNameInFollowup || (hasNewSubstance && !strongFollowupSignal) || wantsMorePapers);
-    const isFollowupMode = !forceNewSearch
+    let forceNewSearch = !asksAboutExistingSources && (!!embeddedNameInFollowup || (hasNewSubstance && !strongFollowupSignal) || wantsMorePapers);
+    let isFollowupMode = !forceNewSearch
       && (intent.kind === "followup" || intent.kind === "correction")
       && (prevSources.length > 0 || pinnedSources.length > 0);
+
+    // ════════════════════════════════════════════════════════════════
+    // LLM QUERY RESOLVER INTEGRATION
+    //
+    // The LLM resolver was launched in parallel above. Now we await
+    // its result and use it to override or refine the regex-based
+    // decisions. This is the "brain" that makes conversations work
+    // naturally — it understands context, resolves references, and
+    // knows whether to search or answer from existing context.
+    //
+    // If the resolver fails/times out, the regex-based decisions
+    // above serve as the fallback — zero regression risk.
+    // ════════════════════════════════════════════════════════════════
+    const resolverResult = await resolverPromise;
+    let resolvedSearchQuery = null; // LLM-resolved query to search with
+    let llmResolvedTopic = null;    // The topic the LLM identified
+
+    if (resolverResult) {
+      llmResolvedTopic = resolverResult.topic || null;
+
+      switch (resolverResult.intent) {
+        case "meta_question": {
+          // ═══ META-QUESTION: "where are the papers", "what sources", etc. ═══
+          // Answer from existing context WITHOUT doing a new search.
+          // This is the #1 fix — previously these got searched literally.
+          const allMetaSources = [...pinnedSources, ...prevSources];
+          const metaAnswer = await answerMetaQuestion(
+            query, body.history || [], allMetaSources, conversationCtx, env
+          );
+          if (metaAnswer) {
+            const metaAnswerId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+            return new Response(
+              JSON.stringify({
+                answer: metaAnswer,
+                answerId: metaAnswerId,
+                sources: allMetaSources.length > 0 ? allMetaSources.map(
+                  ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType }) => ({
+                    title, url, journal, authors, year, citations,
+                    relevance: relevance == null ? null : relevance,
+                    type: type || "Reference", tldr: tldr || null,
+                    retracted: !!retracted, concern: !!concern,
+                    updateType: updateType || null,
+                  })
+                ) : [],
+                videos,
+                factCheck: null,
+                related: [],
+                source: "Conversation context",
+                _resolverUsed: true,
+                _resolverIntent: "meta_question",
+              }),
+              { status: 200, headers: cors }
+            );
+          }
+          // If meta-answer generation failed, fall through to followup mode
+          if (prevSources.length > 0 || pinnedSources.length > 0) {
+            isFollowupMode = true;
+            forceNewSearch = false;
+          }
+          break;
+        }
+
+        case "source_request": {
+          // ═══ SOURCE REQUEST: "find more papers", "other studies" ═══
+          wantsMorePapers = true;
+          forceNewSearch = true;
+          isFollowupMode = false;
+          if (resolverResult.resolved_query && resolverResult.resolved_query.length > 5) {
+            resolvedSearchQuery = resolverResult.resolved_query;
+          }
+          break;
+        }
+
+        case "followup_deeper":
+        case "followup_related":
+        case "followup_broader": {
+          // ═══ FOLLOW-UP: deeper / related / broader ═══
+          if (resolverResult.needs_search && resolverResult.resolved_query && resolverResult.resolved_query.length > 5) {
+            // The resolver gave us a concrete search query — use it
+            resolvedSearchQuery = resolverResult.resolved_query;
+          }
+          // Treat as follow-up mode if we have previous sources
+          if (prevSources.length > 0 || pinnedSources.length > 0) {
+            isFollowupMode = true;
+            forceNewSearch = false;
+          } else if (resolverResult.needs_search) {
+            // No previous sources but needs search — do a fresh search with the resolved query
+            forceNewSearch = true;
+            isFollowupMode = false;
+          }
+          break;
+        }
+
+        case "correction": {
+          // ═══ CORRECTION: "that's wrong", "actually it's..." ═══
+          if (prevSources.length > 0 || pinnedSources.length > 0) {
+            isFollowupMode = true;
+            forceNewSearch = false;
+          }
+          // Override intent for downstream prompt selection
+          intent.kind = "correction";
+          break;
+        }
+
+        case "new_search": {
+          // ═══ NEW SEARCH: completely new topic ═══
+          forceNewSearch = true;
+          isFollowupMode = false;
+          if (resolverResult.resolved_query && resolverResult.resolved_query.length > 5) {
+            resolvedSearchQuery = resolverResult.resolved_query;
+          }
+          break;
+        }
+
+        case "conversational": {
+          // Should have been caught by CONVERSATIONAL_PATTERNS above.
+          // If it wasn't (edge case), handle it here.
+          break;
+        }
+      }
+    } else if (asksAboutExistingSources && (prevSources.length > 0 || pinnedSources.length > 0)) {
+      // ═══ REGEX FALLBACK for meta-questions ═══
+      // The LLM resolver failed/timed out, but the regex detected a meta-question.
+      // This is the safety net that catches "where are the papers" even without the LLM.
+      const allMetaSourcesFb = [...pinnedSources, ...prevSources];
+      const metaAnswer = await answerMetaQuestion(
+        query, body.history || [], allMetaSourcesFb, conversationCtx, env
+      );
+      if (metaAnswer) {
+        const metaAnswerIdFb = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        return new Response(
+          JSON.stringify({
+            answer: metaAnswer,
+            answerId: metaAnswerIdFb,
+            sources: allMetaSourcesFb.map(
+              ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType }) => ({
+                title, url, journal, authors, year, citations,
+                relevance: relevance == null ? null : relevance,
+                type: type || "Reference", tldr: tldr || null,
+                retracted: !!retracted, concern: !!concern,
+                updateType: updateType || null,
+              })
+            ),
+            videos,
+            factCheck: null,
+            related: [],
+            source: "Conversation context",
+            _resolverUsed: false,
+            _regexFallback: "asksAboutExistingSources",
+          }),
+          { status: 200, headers: cors }
+        );
+      }
+      // If meta-answer generation failed, treat as followup
+      isFollowupMode = true;
+      forceNewSearch = false;
+    }
+
+    // Also use cached D1 intelligence if available and resolver didn't fire
+    if (!resolverResult && cachedIntelligence && cachedIntelligence.confidence >= 0.5) {
+      if (cachedIntelligence.intent === "meta_question" && (prevSources.length > 0 || pinnedSources.length > 0)) {
+        isFollowupMode = true;
+        forceNewSearch = false;
+      } else if (cachedIntelligence.resolved_query && cachedIntelligence.resolved_query.length > 5) {
+        resolvedSearchQuery = cachedIntelligence.resolved_query;
+      }
+    }
 
     let gResult;
     if (isFollowupMode) {
@@ -3681,8 +4264,11 @@ Respond naturally to the user's message. Be yourself.`;
         });
       }
 
-      // Build an expanded search query from the follow-up + original topic
-      let deepQuery = query;
+      // Build an expanded search query from the follow-up + original topic.
+      // If the LLM resolver gave us a resolved query, prefer it — it already
+      // includes context from the conversation and is semantically richer than
+      // mechanical word-merging.
+      let deepQuery = resolvedSearchQuery || query;
       if (Array.isArray(body.history)) {
         const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 8);
         if (prevUser) {
@@ -3734,11 +4320,11 @@ Respond naturally to the user's message. Be yourself.`;
         _deepSearchFound: deepPapers.length,
       };
     } else {
-      // Fresh search. If the intent classifier thought this was a follow-up
-      // but we overrode it (because the user named an author or introduced
-      // genuinely new search terms), search the user's actual message — do NOT
-      // merge with the previous failed query.
-      let searchQuery = query;
+      // Fresh search. If the LLM resolver gave us a resolved query, prefer
+      // that — it includes context from the conversation (e.g., "tell me more"
+      // resolved to "BSFL gut microbiome mechanism detail"). Otherwise fall back
+      // to the user's raw message.
+      let searchQuery = resolvedSearchQuery || query;
       
       // If user is asking for MORE papers, use the ORIGINAL topic as the search query
       if (wantsMorePapers && Array.isArray(body.history)) {
@@ -4110,7 +4696,9 @@ Respond naturally to the user's message. Be yourself.`;
           .join("\n\n")
       : "";
 
-    // ============ CEREBRUM INTELLIGENCE CORE v4.1 ============
+    // ============ CEREBRUM INTELLIGENCE CORE v5.0 ============
+    // v5.0: Enhanced with conversation awareness, self-reasoning context,
+    // and topic continuity for Claude-level conversational intelligence.
     const VOICE =
       "VOICE & STRUCTURE — these rules are absolute. Violating them makes the answer useless.\n\n" +
       "ZERO PREFACING: Your first sentence MUST be a direct scientific claim or finding. " +
@@ -4142,10 +4730,22 @@ Respond naturally to the user's message. Be yourself.`;
 
     const CONTEXT =
       "CONTEXT & CONTINUITY:\n" +
-      "You are in a live conversation. Resolve pronouns from history. Accept corrections without defensiveness. " +
-      "Follow-ups go DEEPER — never repeat background.\n\n" +
+      "You are in a live, multi-turn conversation. You REMEMBER everything discussed. Rules:\n" +
+      "1. RESOLVE ALL REFERENCES: 'it', 'they', 'that', 'the enzyme', 'the paper' — these refer to things from previous turns. " +
+      "NEVER treat them as literal search terms. Use conversation history to resolve what they mean.\n" +
+      "2. NEVER REPEAT YOURSELF: If you already explained a mechanism, go deeper on a follow-up, don't restart.\n" +
+      "3. ACCEPT CORRECTIONS: If the user says you're wrong, they probably are right. Correct yourself without defensiveness.\n" +
+      "4. BUILD ON CONTEXT: Each answer should advance the conversation. Reference what you've already established.\n" +
+      "5. ANTICIPATE: If you notice the user's line of questioning leads somewhere, mention relevant connections proactively.\n\n" +
       "HANDLING GAPS: If retrieved sources don't fully answer the question, state what they cover in ONE sentence, " +
-      "then seamlessly extend with your broader knowledge. Never refuse. Never apologize more than once.\n\n" +
+      "then seamlessly extend with your broader knowledge. Never refuse. Never apologize more than once. " +
+      "Your knowledge IS the ceiling — papers are evidence anchors, not limits.\n\n" +
+      "CONVERSATIONAL INTELLIGENCE:\n" +
+      "- If the user asks a vague follow-up ('what about that?', 'and the other one?'), infer the referent from context.\n" +
+      "- If they ask 'where are the papers' or 'show me the sources', list the papers you cited with brief summaries.\n" +
+      "- If they say 'tell me more', go deeper on the most interesting aspect of your last answer.\n" +
+      "- If they ask about something tangentially related, bridge from the current topic naturally.\n" +
+      "- If you're unsure what they mean, make your best guess and state what you're interpreting it as.\n\n" +
       "GRAD-STUDENT FORMATTING: Your audience is researchers. Format accordingly:\n" +
       "- For long answers, use **bold section headers** to organize (e.g., **Mechanism**, **Evidence**, **Limitations**)\n" +
       "- Always mention **study design**: was it _in vitro_, _in vivo_, a clinical trial, a meta-analysis, a computational model? This matters enormously.\n" +
@@ -4215,6 +4815,63 @@ Respond naturally to the user's message. Be yourself.`;
     }
 
     const messages = [{ role: "system", content: systemPrompt }];
+
+    // ════════════════════════════════════════════════════════════════
+    // CONVERSATION AWARENESS INJECTION
+    // Give the LLM a rich understanding of the conversation context.
+    // This is what makes it feel like talking to Claude — it knows
+    // what's been discussed, what entities are in play, and what the
+    // user's investigation trajectory looks like.
+    // ════════════════════════════════════════════════════════════════
+    if (conversationCtx && conversationCtx.summary) {
+      let contextBlock = "CONVERSATION CONTEXT (use this to maintain continuity):\n" + conversationCtx.summary;
+      if (conversationCtx.entities.length > 0) {
+        contextBlock += "\nKey entities in this conversation: " + conversationCtx.entities.join(", ");
+      }
+      if (conversationCtx.sourceTitles.length > 0) {
+        contextBlock += "\nPapers already cited in this conversation: " + conversationCtx.sourceTitles.join("; ");
+      }
+      messages.push({ role: "system", content: contextBlock });
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // SELF-REASONING INJECTION
+    // If the self-reasoning chain completed, inject its analysis into
+    // the system prompt. This gives the answer LLM a "pre-thought"
+    // understanding of the question's structure, complexity, and the
+    // best way to approach it — the system "asked itself things" and
+    // now shares its internal reasoning with the answer generator.
+    // ════════════════════════════════════════════════════════════════
+    const selfReasonResult = await reasoningPromise;
+    if (selfReasonResult) {
+      let reasoningBlock = "INTERNAL ANALYSIS (Cerebrum's reasoning about this question):\n";
+      if (selfReasonResult.sub_questions && selfReasonResult.sub_questions.length > 0) {
+        reasoningBlock += "Sub-questions to address: " + selfReasonResult.sub_questions.join("; ") + "\n";
+      }
+      if (selfReasonResult.search_strategy) {
+        reasoningBlock += "Search strategy: " + selfReasonResult.search_strategy + "\n";
+      }
+      if (selfReasonResult.key_terms && selfReasonResult.key_terms.length > 0) {
+        reasoningBlock += "Key scientific terms: " + selfReasonResult.key_terms.join(", ") + "\n";
+      }
+      if (selfReasonResult.complexity) {
+        reasoningBlock += "Complexity: " + selfReasonResult.complexity + "\n";
+      }
+      if (selfReasonResult.expected_fields && selfReasonResult.expected_fields.length > 0) {
+        reasoningBlock += "Relevant fields: " + selfReasonResult.expected_fields.join(", ") + "\n";
+      }
+      reasoningBlock += "\nUse this analysis to structure your answer. Address the sub-questions. Use the key terms. " +
+        "If the question is complex or multi-domain, organize your answer accordingly.";
+      messages.push({ role: "system", content: reasoningBlock });
+    }
+
+    // If the LLM resolver identified the topic, tell the answer LLM
+    if (llmResolvedTopic && !isFollowupMode) {
+      messages.push({
+        role: "system",
+        content: "TOPIC IDENTIFIED: " + llmResolvedTopic + ". Stay focused on this topic throughout your answer.",
+      });
+    }
 
     // If the user has provided corrections in previous turns, thread those into
     // the system message as authoritative facts the AI must respect. This makes
@@ -4516,6 +5173,29 @@ Respond naturally to the user's message. Be yourself.`;
       }
     }
 
+    // ============ D1 QUERY INTELLIGENCE LEARNING ============
+    // Store the successful query resolution so future similar queries
+    // can skip the LLM resolver entirely. This is how the system
+    // "learns and grows" — every successful answer makes the next
+    // similar query faster and more accurate.
+    if (env.DB && aiOK && answer.length > 100) {
+      const resolvedTopic = llmResolvedTopic || (resolverResult && resolverResult.topic) || null;
+      const finalSearchQuery = resolvedSearchQuery || query;
+      const intentUsed = resolverResult ? resolverResult.intent : intent.kind;
+      storeQueryIntelligence(
+        queryKey, query, finalSearchQuery, intentUsed, resolvedTopic,
+        conversationCtx ? conversationCtx.entities : [], env.DB
+      ).catch(() => {});
+
+      // Also update topic memory with search performance data
+      if (resolvedTopic && papers.length > 0) {
+        const searchTerms = selfReasonResult && selfReasonResult.key_terms
+          ? selfReasonResult.key_terms
+          : [];
+        updateTopicMemory(resolvedTopic, searchTerms, papers.length, env.DB).catch(() => {});
+      }
+    }
+
     // TIER 4: If we STILL have no answer but we have papers, show them with an honest note.
     if (!aiOK) {
       if (useEvidence && papers.length) {
@@ -4617,6 +5297,17 @@ Respond naturally to the user's message. Be yourself.`;
             ? "General knowledge (AI)"
             : dbUsed,
         _diag: gResult && gResult._diag ? gResult._diag : null,
+        _resolver: resolverResult ? {
+          intent: resolverResult.intent,
+          topic: resolverResult.topic,
+          reasoning: resolverResult.reasoning,
+          resolvedQuery: resolvedSearchQuery,
+        } : null,
+        _selfReasoning: selfReasonResult ? {
+          complexity: selfReasonResult.complexity,
+          subQuestions: selfReasonResult.sub_questions,
+          keyTerms: selfReasonResult.key_terms,
+        } : null,
       }),
       { status: 200, headers: cors }
     );
