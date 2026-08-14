@@ -5626,47 +5626,156 @@ Respond naturally to the user's message. Be yourself.`;
       try { const r = await callOR(preferredModel, messages, maxTokens); answer = r.answer; aiOK = true; } catch {}
     }
 
-    // Race path: 3 models in parallel, first good answer wins
+    // ════════════════════════════════════════════════════════════════
+    // v6.1: MASSIVE MODEL REDUNDANCY
+    // Live production failure: a query hit "AI answer service is momentarily
+    // unavailable" — meaning EVERY tier failed simultaneously. Root cause:
+    // only 6 distinct OpenRouter models were ever attempted (3 raced + 3
+    // sequential fallback), 3 Workers AI models, and exactly 1 Pollinations
+    // call. Free-tier models get hammered by every app using them and 429 in
+    // bursts — a handful of attempts is a single point of failure waiting to
+    // happen, especially during high-traffic hours.
+    //
+    // Fix: expand the attempt pool to ~30 distinct models across 3 providers,
+    // and RACE the fallback pool all-at-once with Promise.any instead of
+    // trying models one at a time. Racing in parallel means total wall time
+    // for a fully-failed tier is bounded by ONE timeout window, not the SUM
+    // of every model's timeout — so this buys massive redundancy without
+    // making the pathological case (everything down) unreasonably slow.
+    // A stale/removed model ID just 400s near-instantly and costs nothing,
+    // so it's safe to overprovision this list generously.
+    // ════════════════════════════════════════════════════════════════
+
+    const aiAttempts = []; // diagnostic trail — surfaced in _diag for debugging
+    const recordWin = (model) => {
+      if (!env.DB) return;
+      env.DB.prepare(
+        "INSERT INTO model_perf (domain, model, wins) VALUES (?, ?, 1) ON CONFLICT(domain, model) DO UPDATE SET wins = wins + 1"
+      ).bind(domainKey, model).run().catch(() => {});
+    };
+
+    // Tier 1a: small, fast, historically-reliable set — tried first for speed
+    // in the common case where at least one of the "good" models is up.
+    const OR_PRIMARY = [
+      "deepseek/deepseek-chat-v3-0324:free",
+      "google/gemini-2.0-flash-exp:free",
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "qwen/qwen-2.5-72b-instruct:free",
+    ];
+    // Tier 1b: everything else on OpenRouter's free tier. Only fires if 1a
+    // fully fails, but then races ALL of these simultaneously.
+    const OR_FALLBACK = [
+      "mistralai/mistral-small-3.1-24b-instruct:free",
+      "deepseek/deepseek-r1:free",
+      "deepseek/deepseek-r1-distill-llama-70b:free",
+      "deepseek/deepseek-r1-distill-qwen-32b:free",
+      "nousresearch/hermes-3-llama-3.1-405b:free",
+      "meta-llama/llama-3.1-8b-instruct:free",
+      "meta-llama/llama-3.2-11b-vision-instruct:free",
+      "meta-llama/llama-3.2-3b-instruct:free",
+      "meta-llama/llama-4-scout:free",
+      "meta-llama/llama-4-maverick:free",
+      "google/gemma-3-27b-it:free",
+      "google/gemma-2-9b-it:free",
+      "qwen/qwq-32b:free",
+      "qwen/qwen-2.5-coder-32b-instruct:free",
+      "qwen/qwen3-235b-a22b:free",
+      "mistralai/mistral-7b-instruct:free",
+      "microsoft/phi-3-medium-128k-instruct:free",
+      "microsoft/phi-3-mini-128k-instruct:free",
+      "nousresearch/hermes-3-llama-3.1-70b:free",
+      "openchat/openchat-7b:free",
+      "huggingfaceh4/zephyr-7b-beta:free",
+      "gryphe/mythomax-l2-13b:free",
+      "cognitivecomputations/dolphin3.0-mistral-24b:free",
+      "rekaai/reka-flash-3:free",
+      "liquid/lfm-40b:free",
+      "thudm/glm-4-9b:free",
+    ];
+
+    // Tier 1a: race the small, fast set
     if (!aiOK && token) {
       try {
-        const winner = await Promise.any([
-          callOR("deepseek/deepseek-chat-v3-0324:free", messages, maxTokens),
-          callOR("google/gemini-2.0-flash-exp:free", messages, maxTokens),
-          callOR("meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens),
-        ]);
+        const winner = await Promise.any(OR_PRIMARY.map((m) => callOR(m, messages, maxTokens)));
         answer = winner.answer; aiOK = true;
-        if (env.DB) {
-          try { await env.DB.prepare("INSERT INTO model_perf (domain, model, wins) VALUES (?, ?, 1) ON CONFLICT(domain, model) DO UPDATE SET wins = wins + 1").bind(domainKey, winner.model).run(); } catch {}
-        }
+        aiAttempts.push({ tier: "1a", model: winner.model, ok: true });
+        recordWin(winner.model);
       } catch {
-        for (const m of ["qwen/qwen-2.5-72b-instruct:free", "mistralai/mistral-small-3.1-24b-instruct:free", "meta-llama/llama-3.1-8b-instruct:free"]) {
-          try { const r = await callOR(m, messages, maxTokens); answer = r.answer; aiOK = true; break; } catch {}
-        }
+        aiAttempts.push({ tier: "1a", ok: false, error: "all " + OR_PRIMARY.length + " primary models failed/rate-limited" });
       }
     }
 
-    // TIER 2: Workers AI race
+    // Tier 1b: EVERY remaining free OpenRouter model, raced simultaneously.
+    // This is the actual fix for total AI unavailability — as long as ONE of
+    // ~26 models is up, the user gets a real answer instead of a raw dump.
+    if (!aiOK && token) {
+      try {
+        const winner = await Promise.any(OR_FALLBACK.map((m) => callOR(m, messages, maxTokens)));
+        answer = winner.answer; aiOK = true;
+        aiAttempts.push({ tier: "1b", model: winner.model, ok: true });
+        recordWin(winner.model);
+      } catch {
+        aiAttempts.push({ tier: "1b", ok: false, error: "all " + OR_FALLBACK.length + " fallback models failed/rate-limited" });
+      }
+    }
+
+    // TIER 2: Cloudflare Workers AI — race every available model simultaneously
+    const CF_MODELS = [
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+      "@cf/meta/llama-3.1-8b-instruct-fp8",
+      "@cf/meta/llama-3.1-8b-instruct",
+      "@cf/mistral/mistral-7b-instruct-v0.2",
+      "@cf/qwen/qwen1.5-14b-chat-awq",
+      "@cf/microsoft/phi-2",
+    ];
     if (!aiOK && env.AI && typeof env.AI.run === "function") {
       try {
-        const winner = await Promise.any([
-          callCF("@cf/meta/llama-3.3-70b-instruct-fp8-fast", messages, maxTokens),
-          callCF("@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", messages, maxTokens),
-        ]);
+        const winner = await Promise.any(CF_MODELS.map((m) => callCF(m, messages, maxTokens)));
         answer = winner.answer; aiOK = true;
+        aiAttempts.push({ tier: "2", model: winner.model, ok: true });
       } catch {
-        try { const r = await callCF("@cf/meta/llama-3.1-8b-instruct", messages, maxTokens); answer = r.answer; aiOK = true; } catch {}
+        aiAttempts.push({ tier: "2", ok: false, error: "all " + CF_MODELS.length + " Workers AI models failed" });
       }
     }
 
-    // TIER 3: Pollinations
+    // TIER 3: Pollinations — race multiple backend model params simultaneously
     if (!aiOK) {
+      const pollinationsCall = async (modelParam) => {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 9000);
+        try {
+          const pRes = await fetch("https://text.pollinations.ai/", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: [
+                { role: "system", content: "You are Cerebrum, a scientific research engine built by Vaticay. Answer naturally in English. Do NOT fabricate citations, DOIs, or author names. Be specific — name enzymes, genes, compounds. Bold key terms." },
+                { role: "user", content: query },
+              ],
+              model: modelParam,
+            }),
+            signal: c.signal,
+          });
+          clearTimeout(t);
+          if (!pRes.ok) throw new Error("HTTP " + pRes.status);
+          const cleaned = cleanAIResponse(await pRes.text());
+          if (!cleaned || cleaned.length < 30) throw new Error("too short");
+          return { answer: cleaned, model: "pollinations:" + modelParam };
+        } catch (e) { clearTimeout(t); throw e; }
+      };
       try {
-        const pRes = await fetch("https://text.pollinations.ai/", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: [{ role: "system", content: "You are Cerebrum, a scientific research engine built by Vaticay. Answer naturally in English. Do NOT fabricate citations, DOIs, or author names. Be specific — name enzymes, genes, compounds. Bold key terms." }, { role: "user", content: query }], model: "openai" }),
-        });
-        if (pRes.ok) { let c = cleanAIResponse(await pRes.text()); if (c && c.length > 30) { answer = c; aiOK = true; } }
-      } catch {}
+        const winner = await Promise.any(["openai", "mistral", "llama", "qwen-coder"].map(pollinationsCall));
+        answer = winner.answer; aiOK = true;
+        aiAttempts.push({ tier: "3", model: winner.model, ok: true });
+      } catch {
+        aiAttempts.push({ tier: "3", ok: false, error: "all Pollinations variants failed" });
+      }
+    }
+
+    // Log the attempt trail so a future total-failure is diagnosable from
+    // Cloudflare's dashboard logs instead of requiring another live repro.
+    if (!aiOK) {
+      try { console.log("Cerebrum: ALL AI TIERS FAILED", JSON.stringify(aiAttempts)); } catch {}
     }
 
     // ============ v6.0: ANSWER QUALITY ENGINE ============
@@ -5929,6 +6038,10 @@ Respond naturally to the user's message. Be yourself.`;
           subQuestions: selfReasonResult.sub_questions,
           keyTerms: selfReasonResult.key_terms,
         } : null,
+        // v6.1: which models were attempted and which one (if any) won —
+        // lets a future total-failure be diagnosed from the response itself
+        // instead of requiring a live repro + dashboard log dig.
+        _aiAttempts: typeof aiAttempts !== "undefined" ? aiAttempts : null,
       }),
       { status: 200, headers: cors }
     );
