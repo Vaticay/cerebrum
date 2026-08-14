@@ -56,3 +56,34 @@ CREATE TABLE IF NOT EXISTS paper_cache (
   PRIMARY KEY (query_key, title)
 );
 CREATE INDEX IF NOT EXISTS idx_paper_cache_query ON paper_cache(query_key);
+
+-- NEW v5.0: Query Intelligence — stores successful query resolutions so the
+-- LLM resolver can be skipped for known queries. This is how Cerebrum "learns
+-- and grows" — every successful answer makes the next similar query faster.
+-- The query_hash is the normalized lowercase query stripped of punctuation.
+-- success_count increases when an answer using this resolution gets upvoted.
+CREATE TABLE IF NOT EXISTS query_intelligence (
+  query_hash      TEXT NOT NULL PRIMARY KEY,
+  raw_query       TEXT NOT NULL,
+  resolved_query  TEXT NOT NULL,
+  intent          TEXT NOT NULL,
+  topic           TEXT,
+  entities        TEXT,         -- JSON array of extracted entities
+  success_count   INTEGER NOT NULL DEFAULT 1,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_qi_intent ON query_intelligence(intent);
+
+-- NEW v5.0: Topic Memory — tracks topics discussed across all sessions,
+-- which search terms work best for each topic, and average paper yield.
+-- This helps Cerebrum learn which search strategies are most effective
+-- for each scientific domain.
+CREATE TABLE IF NOT EXISTS topic_memory (
+  topic_key         TEXT NOT NULL PRIMARY KEY,
+  related_terms     TEXT,        -- JSON array
+  best_search_terms TEXT,        -- JSON array of most effective search terms
+  avg_paper_count   INTEGER DEFAULT 0,
+  search_count      INTEGER DEFAULT 0,
+  updated_at        INTEGER NOT NULL
+);
