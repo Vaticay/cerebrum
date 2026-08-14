@@ -301,41 +301,72 @@ function cleanAIResponse(raw) {
   if (!raw) return "";
   let c = raw;
 
-  // 1. XML reasoning tags
+  // 1. XML reasoning tags (multiple formats used by different models)
   c = c.replace(/<think>[\s\S]*?<\/think>/gi, "");
   c = c.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "");
+  c = c.replace(/<internal>[\s\S]*?<\/internal>/gi, "");
+  c = c.replace(/<analysis>[\s\S]*?<\/analysis>/gi, "");
+  c = c.replace(/<planning>[\s\S]*?<\/planning>/gi, "");
 
   // 2. Code fences wrapping entire response
   c = c.replace(/^```(?:markdown)?\s*\n([\s\S]*?)\n```\s*$/i, "$1");
 
   // 3. System meta-talk
   c = c.replace(/^\s*User Safety:\s*safe\.?\s*/gim, "");
+  c = c.replace(/^\s*\[?(Safety|Content|Compliance)\s*(Rating|Check|Assessment)[:\s]*\w+\]?\s*/gim, "");
 
-  // 4. Kill meta-planning opening paragraphs
+  // 4. Kill meta-planning opening paragraphs (EXPANDED in v6.0)
   const badOpeners = [
     /^the user is asking/i,
     /^the user wants/i,
+    /^the user('s)? question/i,
     /^let me review/i,
     /^let me check/i,
     /^let me think/i,
+    /^let me analyze/i,
+    /^let me examine/i,
+    /^let me look at/i,
     /^i need to provide/i,
     /^i'll write/i,
     /^i will now/i,
+    /^i will provide/i,
+    /^i will analyze/i,
     /^let's analyze/i,
+    /^let's examine/i,
+    /^let's look at/i,
+    /^let's review/i,
     /^here is a summary of the papers/i,
+    /^here is (a|the|my) (comprehensive|detailed|thorough)/i,
+    /^here is what (we|the|i) know/i,
     /^first,? i'll/i,
+    /^first,? let me/i,
+    /^first,? let's/i,
     /^okay,? let me/i,
     /^to answer this/i,
+    /^to address this/i,
+    /^to respond to/i,
     /^now we need to/i,
+    /^now,? let me/i,
+    /^based on the (provided|available|given) (sources|papers|literature|research|evidence)/i,
+    /^the (provided|available|given) (sources|papers|literature|research|evidence)/i,
+    /^looking at the (provided|available|given)/i,
+    /^after (reviewing|examining|analyzing|reading)/i,
+    /^having (reviewed|examined|analyzed|read)/i,
+    /^upon (reviewing|examining|analyzing|reading)/i,
+    /^the research (shows|indicates|suggests|demonstrates)/i,
+    /^the (available )?literature (shows|indicates|suggests|demonstrates)/i,
+    /^several studies/i,
+    /^the available evidence/i,
+    /^recent research/i,
+    /^according to the sources/i,
   ];
 
-  // Strip self-introductions and acknowledgement filler mid-answer. The model
-  // was writing "That's correct, Cerebrum here." at the top of follow-ups.
-  // Prompt rules help but aren't reliable, so we also remove them mechanically.
+  // Strip self-introductions and acknowledgement filler
   c = c.replace(/^\s*(that'?s (correct|right)[,.]?\s*)?(cerebrum here|as cerebrum|i'?m cerebrum|this is cerebrum)[,.!]?\s*/i, "");
-  c = c.replace(/^\s*(great|good|excellent|interesting)\s+question[,.!]?\s*/i, "");
-  c = c.replace(/^\s*(sure|certainly|absolutely|of course)[,.!]\s*/i, "");
-  c = c.replace(/^\s*that'?s (correct|right)[,.]\s+/i, "");
+  c = c.replace(/^\s*(great|good|excellent|interesting|wonderful|fantastic)\s+question[,.!]?\s*/i, "");
+  c = c.replace(/^\s*(sure|certainly|absolutely|of course|indeed)[,.!]\s*/i, "");
+  c = c.replace(/^\s*that'?s (correct|right|a great|an excellent|an interesting)[,.]\s+/i, "");
+  c = c.replace(/^\s*thank you for (your|the|this)\s+/i, "");
   const paras = c.split(/\n{2,}/);
   while (paras.length > 1) {
     const first = paras[0].trim();
@@ -348,10 +379,17 @@ function cleanAIResponse(raw) {
   c = paras.join("\n\n").trim();
 
   // 5. Kill single-line prefix artifacts
-  c = c.replace(/^(here is the answer|here's the answer)[:\.]?\s*/i, "").trim();
+  c = c.replace(/^(here is the answer|here's the answer|here's my (analysis|response|answer))[:\.]?\s*/i, "").trim();
+  c = c.replace(/^(to summarize|to sum up|in short)[,:]?\s*/i, "").trim();
 
   // 6. Strip "Paper 1 discusses...Paper 2 discusses..." robotic patterns from the opening
   c = c.replace(/^(paper\s+\d+[:\s][^\n]+\n+){2,}/i, "").trim();
+  // Also catch "Source [1] discusses..." patterns
+  c = c.replace(/^(source\s+\[\d+\][:\s][^\n]+\n+){2,}/i, "").trim();
+
+  // 7. Strip trailing filler conclusions (v6.0)
+  // Many free models add a "In conclusion, further research is needed" paragraph
+  c = c.replace(/\n\n(In conclusion|In summary|To conclude|To summarize|Overall),?\s+[^\n]+$/i, "").trim();
 
   return c;
 }
@@ -2259,15 +2297,185 @@ async function llmGenerateSearchQueries(rawQuery, token) {
 // the user's question. This prevents the #1 failure mode: the AI confidently
 // citing a tsetse fly paper as if it's about BSF gut microbiome.
 // Returns filtered array of papers that are genuinely relevant.
+// ============ ORGANISM-AWARE PAPER HARD-FILTER ============
+// Programmatic pre-filter that runs BEFORE the LLM validator. This catches
+// the most obvious wrong-organism contamination with zero latency and zero
+// API cost. The LLM validator then runs on the survivors for nuanced cases.
+//
+// The key insight: if the user asks about "BSFL microbiome" (Hermetia illucens),
+// a paper whose title+abstract contains "millipede" / "Diplopoda" / "Julida"
+// but NEVER mentions "Hermetia" or "black soldier fly" is categorically wrong.
+// No LLM judgment needed — it's a hard taxonomic mismatch.
+
+// Common organism names that, if found in a paper but NOT in the query,
+// indicate the paper is about the WRONG organism. Each entry maps to taxa
+// that would be a clear mismatch for queries about other organisms.
+const CONTAMINANT_ORGANISMS = [
+  // Arthropods that are NOT black soldier fly
+  { patterns: [/\bmillipede/i, /\bdiplopoda/i, /\bjulida\b/i, /\bmyriapod/i], label: "millipede" },
+  { patterns: [/\bcentipede/i, /\bchilopoda/i], label: "centipede" },
+  { patterns: [/\bcockroach/i, /\bblattodea/i, /\bperiplaneta/i, /\bblattella/i], label: "cockroach" },
+  { patterns: [/\btsetse/i, /\bglossina\b/i], label: "tsetse fly" },
+  { patterns: [/\bmosquito/i, /\banopheles\b/i, /\baedes\b/i, /\bculex\b/i], label: "mosquito" },
+  { patterns: [/\bsilkworm/i, /\bbombyx\b/i], label: "silkworm" },
+  { patterns: [/\bspruce budworm/i, /\bchoristoneura/i], label: "spruce budworm" },
+  { patterns: [/\bcricket/i, /\bacheta\b/i, /\bgryllus\b/i], label: "cricket" },
+  { patterns: [/\bmealworm/i, /\btenebrio\b/i], label: "mealworm" },
+  { patterns: [/\bwaxworm/i, /\bgalleria\b/i], label: "waxworm" },
+  { patterns: [/\btermite/i, /\bisoptera/i, /\breticulitermes/i], label: "termite" },
+  { patterns: [/\bbeetle\b/i, /\bcoleoptera/i], label: "beetle" },
+  { patterns: [/\bbutterfly/i, /\blepidoptera/i, /\bmonarch\b/i], label: "butterfly" },
+  { patterns: [/\bant\b/i, /\bformicidae/i], label: "ant" },
+  // Vertebrates
+  { patterns: [/\btilapia\b/i, /\boreochromis\b/i], label: "tilapia" },
+  { patterns: [/\bsalmon\b/i, /\bsalmo\b/i, /\boncorhynchus/i], label: "salmon" },
+  { patterns: [/\bshrimp\b/i, /\bpenaeus\b/i, /\blitopenaeus/i], label: "shrimp" },
+  { patterns: [/\bpoultry\b/i, /\bbroiler/i, /\bgallus\b/i], label: "poultry" },
+  { patterns: [/\bswine\b/i, /\bpig\b/i, /\bsus scrofa/i, /\bporcine/i], label: "swine" },
+];
+
+// Map common names / abbreviations to their scientific genus for matching
+const QUERY_ORGANISM_IDENTIFIERS = {
+  "bsfl": ["hermetia", "black soldier fly"],
+  "bsf": ["hermetia", "black soldier fly"],
+  "black soldier fly": ["hermetia"],
+  "honey bee": ["apis"],
+  "honeybee": ["apis"],
+  "fruit fly": ["drosophila"],
+  "zebrafish": ["danio"],
+  "roundworm": ["caenorhabditis", "c. elegans"],
+  "e. coli": ["escherichia"],
+  "e coli": ["escherichia"],
+};
+
+function programmaticPaperFilter(rawQuery, papers) {
+  if (!papers.length) return papers;
+  const qLower = rawQuery.toLowerCase();
+
+  // Step 1: Identify what organism the USER is asking about
+  const queryOrganisms = new Set();
+  for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
+    if (qLower.includes(name)) {
+      identifiers.forEach(id => queryOrganisms.add(id.toLowerCase()));
+      queryOrganisms.add(name.toLowerCase());
+    }
+  }
+  // Also detect any binomial in the query
+  const qBinomial = extractBinomial(rawQuery);
+  if (qBinomial) {
+    queryOrganisms.add(qBinomial.genus.toLowerCase());
+    queryOrganisms.add(qBinomial.full.toLowerCase());
+  }
+
+  // If we can't identify a specific organism query, skip this filter
+  if (queryOrganisms.size === 0) return papers;
+
+  // Step 2: For each paper, check if it's about a DIFFERENT organism
+  return papers.filter(p => {
+    const haystack = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+
+    // First check: does the paper mention the TARGET organism at all?
+    const mentionsTarget = [...queryOrganisms].some(org => haystack.includes(org));
+
+    // If it doesn't even mention the target organism, flag it
+    if (!mentionsTarget) {
+      // Check if it mentions a KNOWN contaminant organism
+      for (const contam of CONTAMINANT_ORGANISMS) {
+        const mentionsContam = contam.patterns.some(re => re.test(haystack));
+        // Is this contaminant organism NOT what the user asked about?
+        const contamIsTarget = [...queryOrganisms].some(org =>
+          contam.label.toLowerCase().includes(org) || org.includes(contam.label.toLowerCase())
+        );
+        if (mentionsContam && !contamIsTarget) {
+          // Paper is about a contaminant organism and doesn't mention target → REJECT
+          p._filteredReason = `Paper is about ${contam.label}, not the queried organism`;
+          return false;
+        }
+      }
+    }
+
+    // Special check for "fed with X" papers — e.g., tilapia fed BSFL is about
+    // tilapia nutrition, NOT about BSFL biology/microbiome
+    if (queryOrganisms.has("hermetia") || queryOrganisms.has("black soldier fly") || qLower.includes("bsfl") || qLower.includes("bsf")) {
+      // If the query is about BSFL microbiome/biology but the paper is about
+      // another animal FED with BSFL, it's tangential at best
+      const isBSFLBiologyQuery = /\b(microbiome|microbiota|gut\s*(bacteria|flora|microb)|larva[el]?\s*(gut|microb|digest)|digest|metab|enzyme|proteome|transcriptome|genome|gene\s*express)/i.test(rawQuery);
+      if (isBSFLBiologyQuery) {
+        // Check if paper is about feeding BSFL TO another animal
+        const fedPattern = /\b(fed\s+(with\s+)?|diet(ary)?\s+(contain|includ|supplement)|meal\s+(from|replac)|as\s+(feed|protein\s+source)|fish\s+meal\s+replac|feed\s+(ingredient|formul|additive))/i.test(haystack);
+        const aboutOtherAnimal = CONTAMINANT_ORGANISMS.some(c =>
+          c.patterns.some(re => re.test(haystack)) && !([...queryOrganisms].some(org => c.label.toLowerCase().includes(org)))
+        );
+        if (fedPattern && aboutOtherAnimal && !mentionsTarget) {
+          p._filteredReason = "Paper is about feeding BSFL to another animal, not BSFL biology";
+          return false;
+        }
+        // Even if it mentions BSFL, if the primary subject is clearly another animal
+        // (title starts with the other animal's name), downgrade significantly
+        const titleLower = (p.title || "").toLowerCase();
+        for (const contam of CONTAMINANT_ORGANISMS) {
+          if (contam.patterns.some(re => re.test(titleLower)) && fedPattern) {
+            // Title mentions a non-target animal + feeding context → likely wrong focus
+            if (!(titleLower.includes("hermetia") || titleLower.includes("black soldier fly") || titleLower.includes("bsf"))) {
+              p._filteredReason = `Paper primarily about ${contam.label} fed with BSFL`;
+              return false;
+            }
+          }
+        }
+      }
+    }
+
+    return true;
+  });
+}
+
+// ============ LLM PAPER VALIDATION (v6.0 — DRAMATICALLY STRENGTHENED) ============
+// The previous validator was too lenient — it used a single vague prompt and
+// accepted any paper the LLM didn't explicitly reject. This version:
+// 1. Runs programmatic hard-filter FIRST (zero cost, catches obvious mismatches)
+// 2. Uses a MUCH more specific LLM prompt with organism-awareness
+// 3. Requires explicit relevance scoring, not just YES/NO
+// 4. Handles up to 15 papers (not just 10)
+// 5. Has TWO-PASS validation for organism-specific queries
+
 async function llmValidatePapers(rawQuery, papers, token) {
-  if (!token || !papers.length) return papers;
-  // Only validate if we have few papers (expensive otherwise)
-  if (papers.length > 10) return papers;
+  if (!papers.length) return papers;
+
+  // PASS 1: Programmatic hard-filter (free, instant)
+  let survivors = programmaticPaperFilter(rawQuery, papers);
+
+  // If programmatic filter removed everything, keep at least the top-scored original papers
+  if (survivors.length === 0 && papers.length > 0) {
+    survivors = papers.slice(0, 3);
+  }
+
+  // PASS 2: LLM validation on survivors
+  if (!token || survivors.length > 15) return survivors;
+
+  // Detect the primary organism from the query for the LLM prompt
+  const qLower = rawQuery.toLowerCase();
+  let targetOrganism = "";
+  for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
+    if (qLower.includes(name)) {
+      targetOrganism = identifiers[0] || name;
+      break;
+    }
+  }
+  const qBinomial = extractBinomial(rawQuery);
+  if (qBinomial && !targetOrganism) targetOrganism = qBinomial.full;
+
+  const organismClause = targetOrganism
+    ? `\n\nCRITICAL — ORGANISM GATE: The user is asking about "${targetOrganism}". ` +
+      `A paper MUST be specifically about this organism (or directly about its biology/ecology/microbiome) to score RELEVANT. ` +
+      `Papers about DIFFERENT organisms (even related ones) that don't study ${targetOrganism} specifically = IRRELEVANT. ` +
+      `Papers about feeding ${targetOrganism} TO other animals (e.g., fish/poultry fed with insect meal) are about the OTHER animal's nutrition, NOT about ${targetOrganism} biology = IRRELEVANT unless the query specifically asks about ${targetOrganism} as feed.`
+    : "";
+
   try {
     const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 5000);
-    const paperList = papers.map((p, i) =>
-      `[${i + 1}] "${p.title}" (${p.journal || "unknown"}, ${p.year || "n/a"})\nAbstract snippet: ${(p.abstract || "").slice(0, 200)}`
+    const t = setTimeout(() => c.abort(), 7000);
+    const paperList = survivors.map((p, i) =>
+      `[${i + 1}] "${p.title}" (${p.journal || "unknown"}, ${p.year || "n/a"})\nAbstract: ${(p.abstract || "").slice(0, 350)}`
     ).join("\n\n");
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -2275,34 +2483,328 @@ async function llmValidatePapers(rawQuery, papers, token) {
       body: JSON.stringify({
         model: "deepseek/deepseek-chat-v3-0324:free",
         temperature: 0,
-        max_tokens: 200,
+        max_tokens: 400,
         messages: [{
           role: "system",
-          content: "You verify whether retrieved papers actually answer a user's scientific question. For each paper, respond YES if it directly addresses the question's topic/organism/mechanism, or NO if it's about a different organism, different process, or unrelated. Output ONLY a JSON array of the paper numbers that are relevant. Example: [1, 3, 5]. No explanation."
+          content: "You are a strict scientific paper relevance validator. For EACH paper, determine if it DIRECTLY addresses the user's specific question.\n\n" +
+            "Scoring rules:\n" +
+            "- RELEVANT: Paper is directly about the specific organism/topic/mechanism asked about\n" +
+            "- TANGENTIAL: Paper is related but about a different organism, different mechanism, or only touches the topic indirectly (e.g., paper about feeding insect X to fish Y when the question is about insect X's own biology)\n" +
+            "- IRRELEVANT: Paper is about a completely different organism or topic\n\n" +
+            "DEFAULT TO REJECTION. A paper must EARN its RELEVANT score — don't be generous.\n" +
+            "A paper that studies organism A and only MENTIONS organism B in passing is NOT relevant to a query about organism B.\n" +
+            "A paper about organism A's gut microbiome is NOT evidence for organism B's gut microbiome, even if A and B are both insects." +
+            organismClause +
+            "\n\nOutput ONLY a JSON array of objects: [{\"id\": 1, \"verdict\": \"RELEVANT\"}, {\"id\": 2, \"verdict\": \"TANGENTIAL\"}, ...]. No markdown fences, no explanation."
         }, {
           role: "user",
-          content: "Question: " + rawQuery + "\n\nPapers:\n" + paperList
+          content: "Scientific question: " + rawQuery + "\n\nPapers to evaluate:\n" + paperList
         }]
       }),
       signal: c.signal,
     });
     clearTimeout(t);
-    if (!r.ok) return papers;
+    if (!r.ok) return survivors;
     const j = await r.json();
     const txt = (j?.choices?.[0]?.message?.content || "").trim();
     try {
-      const valid = JSON.parse(txt.replace(/```json|```/g, "").trim());
-      if (Array.isArray(valid) && valid.length > 0) {
-        const validSet = new Set(valid.map(n => typeof n === "number" ? n : parseInt(n, 10)));
-        const filtered = papers.filter((_, i) => validSet.has(i + 1));
+      const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const validIds = new Set();
+        const tangentialIds = new Set();
+        for (const entry of parsed) {
+          const id = typeof entry === "number" ? entry : (entry.id || entry.number || entry.n);
+          const verdict = typeof entry === "string" ? "RELEVANT" : (entry.verdict || entry.score || "RELEVANT");
+          const idNum = typeof id === "number" ? id : parseInt(id, 10);
+          if (isNaN(idNum)) continue;
+          if (/^relevant$/i.test(verdict)) validIds.add(idNum);
+          else if (/^tangential$/i.test(verdict)) tangentialIds.add(idNum);
+          // IRRELEVANT papers are simply not added
+        }
+        // Keep RELEVANT papers as-is, mark TANGENTIAL ones with a flag
+        const filtered = survivors.filter((p, i) => {
+          const num = i + 1;
+          if (validIds.has(num)) return true;
+          if (tangentialIds.has(num)) {
+            p._tangential = true;
+            // Only keep tangential papers if we don't have enough relevant ones
+            return validIds.size < 3;
+          }
+          return false;
+        });
         // Only use filtered if it kept at least 1 paper
+        if (filtered.length > 0) return filtered;
+        // If LLM rejected everything but we had survivors, keep top 2
+        return survivors.slice(0, 2);
+      }
+    } catch {}
+    // If LLM returned something unparseable, still try the simple array format
+    try {
+      const simple = JSON.parse(txt.replace(/```json|```/g, "").trim());
+      if (Array.isArray(simple) && simple.every(n => typeof n === "number")) {
+        const validSet = new Set(simple);
+        const filtered = survivors.filter((_, i) => validSet.has(i + 1));
         if (filtered.length > 0) return filtered;
       }
     } catch {}
-    return papers;
+    return survivors;
   } catch {
-    return papers;
+    return survivors;
   }
+}
+
+
+// ============ ANSWER QUALITY ENGINE (v6.0) ============
+// Post-generation processing that catches and fixes the most common
+// quality failures from free-tier models:
+// 1. Repetitive paragraphs (entire sections copy-pasted)
+// 2. Banned phrases that the model ignored in the prompt
+// 3. Source-listing patterns ("Paper 1 found X. Paper 2 found Y.")
+// 4. Excessive verbosity and filler
+// 5. Wrong-organism citations (the AI knows it's wrong but cites anyway)
+
+const BANNED_PHRASES_RE = [
+  /\bfurther research is needed\b/gi,
+  /\bfurther research is necessary\b/gi,
+  /\bfurther research is required\b/gi,
+  /\bfurther research is warranted\b/gi,
+  /\bfurther (studies|investigation|understanding) (is|are) (needed|necessary|required|warranted)\b/gi,
+  /\bmore research is needed\b/gi,
+  /\bplays a (critical|crucial|vital|pivotal|key|important|significant) role\b/gi,
+  /\bit is (important|worth|critical|crucial) to note\b/gi,
+  /\bit should be noted\b/gi,
+  /\bit is worth mentioning\b/gi,
+  /\bin recent years\b/gi,
+  /\ba growing body of evidence\b/gi,
+  /\bsheds? light on\b/gi,
+  /\bpaves? the way for\b/gi,
+  /\bthe exact mechanism remains unclear\b/gi,
+  /\bwhile the provided sources do not directly\b/gi,
+  /\bnone of these papers directly\b/gi,
+  /\balthough this study does not specifically\b/gi,
+  /\bin conclusion\b/gi,
+  /\bin summary\b/gi,
+  /\boverall,?\s/gi,
+  /\bit is clear that\b/gi,
+  /\bholistic understanding\b/gi,
+  /\bholistic approach\b/gi,
+  /\bmultifaceted\b/gi,
+  /\bunderscore(s)? the (importance|need|significance)\b/gi,
+  /\bhighlight(s)? the (importance|need|significance)\b/gi,
+  /\bthe (landscape|field) of\b/gi,
+  /\bin the realm of\b/gi,
+  /\bat the forefront of\b/gi,
+  /\ba testament to\b/gi,
+  /\bin the context of\b/gi,
+  /\bthis underscores\b/gi,
+];
+
+// Detect and remove repetitive content: paragraphs or sentences that
+// appear more than once (common with free-tier models that "loop")
+function deduplicateContent(text) {
+  if (!text) return text;
+
+  // Split into paragraphs
+  const paragraphs = text.split(/\n{2,}/);
+  if (paragraphs.length < 2) return text;
+
+  // Pass 1: Remove exact duplicate paragraphs
+  const seen = new Set();
+  let deduped = [];
+  for (const para of paragraphs) {
+    const normalized = para.trim().toLowerCase().replace(/\s+/g, " ");
+    if (normalized.length < 20) { deduped.push(para); continue; } // Keep short lines
+    if (seen.has(normalized)) continue; // Skip exact duplicate
+    seen.add(normalized);
+    deduped.push(para);
+  }
+
+  // Pass 2: Remove near-duplicate paragraphs (>80% overlap)
+  const final = [];
+  for (let i = 0; i < deduped.length; i++) {
+    const current = deduped[i].trim().toLowerCase().replace(/\s+/g, " ");
+    if (current.length < 30) { final.push(deduped[i]); continue; }
+    let isDupe = false;
+    for (let j = 0; j < i; j++) {
+      const prev = deduped[j].trim().toLowerCase().replace(/\s+/g, " ");
+      if (prev.length < 30) continue;
+      // Check if >80% of current paragraph's words appear in a previous one
+      const currentWords = new Set(current.split(/\s+/));
+      const prevWords = new Set(prev.split(/\s+/));
+      let overlap = 0;
+      for (const w of currentWords) { if (prevWords.has(w)) overlap++; }
+      const overlapRatio = overlap / currentWords.size;
+      if (overlapRatio > 0.80 && currentWords.size > 10) {
+        isDupe = true;
+        break;
+      }
+    }
+    if (!isDupe) final.push(deduped[i]);
+  }
+
+  // Pass 3: Remove duplicate sentences within paragraphs
+  const result = final.map(para => {
+    const sentences = para.split(/(?<=[.!?])\s+/);
+    if (sentences.length < 2) return para;
+    const seenSentences = new Set();
+    const uniqueSentences = [];
+    for (const sent of sentences) {
+      const norm = sent.trim().toLowerCase().replace(/\s+/g, " ");
+      if (norm.length < 15) { uniqueSentences.push(sent); continue; }
+      if (seenSentences.has(norm)) continue;
+      seenSentences.add(norm);
+      uniqueSentences.push(sent);
+    }
+    return uniqueSentences.join(" ");
+  });
+
+  return result.join("\n\n");
+}
+
+// Strip banned phrases from the answer
+function stripBannedPhrases(text) {
+  if (!text) return text;
+  let cleaned = text;
+  for (const re of BANNED_PHRASES_RE) {
+    // Reset the regex's lastIndex for global regexes
+    re.lastIndex = 0;
+    cleaned = cleaned.replace(re, (match) => {
+      // Some of these are mid-sentence — try to clean up gracefully
+      return "";
+    });
+  }
+  // Clean up artifacts from removal: double spaces, orphaned commas, etc.
+  cleaned = cleaned.replace(/\s{2,}/g, " ");
+  cleaned = cleaned.replace(/,\s*,/g, ",");
+  cleaned = cleaned.replace(/\.\s*\./g, ".");
+  cleaned = cleaned.replace(/\s+\./g, ".");
+  cleaned = cleaned.replace(/\s+,/g, ",");
+  cleaned = cleaned.replace(/^\s*[,;]\s*/gm, "");
+  // Remove sentences that became empty or near-empty after stripping
+  cleaned = cleaned.replace(/(?:^|\.\s+)[A-Z][a-z]{0,3}\s*\.(?=\s|$)/g, ".");
+  return cleaned.trim();
+}
+
+// Detect source-listing patterns and flag them
+// Returns a score: 0 = good synthesis, 100 = pure source-listing
+function detectSourceListing(text) {
+  if (!text) return 0;
+  const patterns = [
+    /\bsource \[\d+\] (discusses|examines|explores|investigates|reports|found|shows|demonstrates)/gi,
+    /\baccording to \[\d+\]/gi,
+    /\b(the|a) study (by|in|from) \[\d+\]/gi,
+    /\bpaper \[\d+\] (found|showed|demonstrated|reported|examined|investigated)/gi,
+    /\b\[\d+\] (found|showed|demonstrated|reported|examined|investigated|suggests?|indicates?)/gi,
+    /\b(the|a) (first|second|third|fourth|fifth|sixth|seventh) (study|paper|source|article)/gi,
+    /\b(study|paper) \d+ (found|showed|reported)/gi,
+    /^[\s-]*\[?\d+\]?\s*[\w\s]+(found|showed|demonstrated|reported)/gim,
+  ];
+  let listingScore = 0;
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    const matches = text.match(re);
+    if (matches) listingScore += matches.length * 15;
+  }
+  return Math.min(100, listingScore);
+}
+
+// Detect wrong-organism acknowledgment — when the AI KNOWS a paper is about
+// the wrong organism but cites it anyway. This is the "millipede in BSFL query" bug.
+function detectWrongOrganismCitations(text) {
+  const patterns = [
+    /this study was conducted on (\w+),?\s*not\b/gi,
+    /this (paper|study|research) (is|was) (about|on|conducted on) (\w+),?\s*(rather than|not|instead of)\b/gi,
+    /although (this|the) (study|paper|research) (focused|focuses) on (\w+)\b/gi,
+    /while (this|the) (study|paper|research) (examined|investigat|studied) (\w+),?\s*(not|rather than|instead of)\b/gi,
+    /(\w+) (rather than|instead of|not) [A-Z][a-z]+ [a-z]+/g,
+    /however,?\s*this (study|paper) (was|is) (conducted|performed|done) (on|in|with) (\w+)/gi,
+  ];
+  const violations = [];
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      violations.push(m[0]);
+    }
+  }
+  return violations;
+}
+
+// Master post-processing function — runs ALL quality passes
+function postProcessAnswer(rawAnswer) {
+  if (!rawAnswer) return rawAnswer;
+
+  let answer = rawAnswer;
+
+  // 1. Deduplicate repetitive content
+  answer = deduplicateContent(answer);
+
+  // 2. Strip banned phrases
+  answer = stripBannedPhrases(answer);
+
+  // 3. Remove wrong-organism acknowledgment passages
+  // If the AI says "this study was about millipedes, not Hermetia" — that
+  // entire passage should be removed, because the paper shouldn't have
+  // been cited at all
+  const wrongOrgViolations = detectWrongOrganismCitations(answer);
+  if (wrongOrgViolations.length > 0) {
+    for (const violation of wrongOrgViolations) {
+      // Remove the sentence containing this violation
+      const escaped = violation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const sentenceRe = new RegExp('[^.!?]*' + escaped + '[^.!?]*[.!?]\\s*', 'gi');
+      answer = answer.replace(sentenceRe, '');
+    }
+  }
+
+  // 4. Clean up any artifacts
+  answer = answer.replace(/\n{3,}/g, "\n\n").trim();
+  answer = answer.replace(/^\s+/gm, (match) => match); // Preserve intentional indentation
+
+  return answer;
+}
+
+// Score the overall quality of an answer (0-100, higher = better)
+function scoreAnswerQuality(answer, query) {
+  if (!answer) return 0;
+  let score = 50; // Start at neutral
+
+  // Length check
+  if (answer.length < 100) score -= 20;
+  else if (answer.length > 300) score += 10;
+
+  // Banned phrases penalty
+  let bannedCount = 0;
+  for (const re of BANNED_PHRASES_RE) {
+    re.lastIndex = 0;
+    const matches = answer.match(re);
+    if (matches) bannedCount += matches.length;
+  }
+  score -= bannedCount * 8;
+
+  // Source-listing penalty
+  const listingScore = detectSourceListing(answer);
+  score -= listingScore * 0.3;
+
+  // Repetition penalty — count unique vs total paragraphs
+  const paras = answer.split(/\n{2,}/).filter(p => p.trim().length > 20);
+  if (paras.length > 1) {
+    const uniqueParas = new Set(paras.map(p => p.trim().toLowerCase().replace(/\s+/g, " ")));
+    const repetitionRatio = 1 - (uniqueParas.size / paras.length);
+    score -= repetitionRatio * 40;
+  }
+
+  // Wrong-organism penalty
+  const wrongOrg = detectWrongOrganismCitations(answer);
+  score -= wrongOrg.length * 15;
+
+  // Bonus for good synthesis markers
+  if (/\bconsistent(ly)? (with|across)\b/i.test(answer)) score += 3;
+  if (/\bin contrast\b/i.test(answer)) score += 3;
+  if (/\b\d+%|\bp\s*[<>=]\s*0\.\d/i.test(answer)) score += 5; // Quantitative data
+  if (/\bn\s*=\s*\d/i.test(answer)) score += 3; // Sample sizes
+  if (/_([\w.]+\s+[\w]+)_/i.test(answer)) score += 3; // Italicized species names
+
+  return Math.max(0, Math.min(100, score));
 }
 
 
@@ -4588,7 +5090,11 @@ Respond naturally to the user's message. Be yourself.`;
     // about BSF, or citing a spruce budworm paper for a photosynthesis
     // query. The validator runs on a fast model with a 5s timeout.
     // ═══════════════════════════════════════════════════════════════
-    if (!isNameSearch && !isFollowupMode && evidencePapers.length > 0 && evidencePapers.length <= 10) {
+    // v6.0: Validation now runs on up to 15 papers (was 10) and also runs
+    // in followup mode to prevent wrong-organism contamination in deep searches.
+    // The programmatic pre-filter inside llmValidatePapers is free and instant,
+    // so even without an API key, organism filtering still works.
+    if (!isNameSearch && evidencePapers.length > 0) {
       try {
         const validated = await llmValidatePapers(query, evidencePapers, env.OPENROUTER_KEY);
         evidencePapers = validated;
@@ -4700,33 +5206,74 @@ Respond naturally to the user's message. Be yourself.`;
     // v5.0: Enhanced with conversation awareness, self-reasoning context,
     // and topic continuity for Claude-level conversational intelligence.
     const VOICE =
-      "VOICE & STRUCTURE — these rules are absolute. Violating them makes the answer useless.\n\n" +
-      "ZERO PREFACING: Your first sentence MUST be a direct scientific claim or finding. " +
-      "NEVER start with: 'Based on the provided sources', 'The research shows', 'Let me explain', 'Here is what we know', " +
-      "'While the provided sources do not directly address', 'To answer your question', 'In conclusion', 'In summary', 'Let\\'s break this down'. " +
-      "These are HARD BANNED. If your first sentence contains any of these patterns, the entire response is worthless.\n\n" +
-      "NEVER LIST SOURCES: This is the #1 failure mode. NEVER write 'Author et al. found X [1]. Author et al. also found Y [2].' " +
-      "NEVER structure paragraphs as 'The study by X...', 'The protocol by Y...', 'Z et al. also...'. " +
-      "This reads like a student book report, not a research synthesis. Instead, SYNTHESIZE: " +
-      "'qPCR-based quantification of gut bacteria shows consistent section-specific gradients in dipteran larvae, " +
-      "with the highest bacterial loads in the hindgut [1][3] and markedly lower counts in the midgut [2].' " +
-      "The reader should never feel like you're going through a list. Weave all citations into unified analytical sentences.\n\n" +
-      "PEER TONE: Write like a brilliant postdoc explaining to a colleague. Use contractions. " +
+      "VOICE & STRUCTURE — these rules override everything else. You WILL be mechanically checked.\n\n" +
+
+      "═══ RULE 1: ZERO PREFACING (HARD-ENFORCED) ═══\n" +
+      "Your FIRST WORD must begin a direct scientific claim. " +
+      "HARD-BANNED openers (if detected, your ENTIRE response is deleted and regenerated): " +
+      "'Based on', 'The research shows', 'Let me explain', 'Here is what we know', " +
+      "'While the provided sources', 'To answer your question', 'In conclusion', 'In summary', " +
+      "'Let\\'s break this down', 'The provided sources', 'Looking at the', 'Several studies', " +
+      "'The available evidence', 'Recent research', 'The literature suggests', 'According to the sources'. " +
+      "CORRECT opening: '_Hermetia illucens_ larvae harbor a gut microbiome dominated by **Firmicutes** and **Proteobacteria** [1][3]...'\n\n" +
+
+      "═══ RULE 2: SYNTHESIZE, NEVER LIST (HARD-ENFORCED) ═══\n" +
+      "This is your #1 failure mode and it WILL be mechanically detected.\n" +
+      "FORBIDDEN pattern (instant fail): 'Source [1] found X. Source [2] showed Y. Source [3] demonstrated Z.'\n" +
+      "FORBIDDEN pattern (instant fail): 'The first study... The second study... Another study...'\n" +
+      "FORBIDDEN pattern (instant fail): 'According to [1]... According to [2]... According to [3]...'\n" +
+      "FORBIDDEN pattern (instant fail): '[1] found... [2] showed... [3] reported...'\n" +
+      "FORBIDDEN: Starting ANY sentence with a citation number.\n" +
+      "FORBIDDEN: Devoting a separate paragraph to each source.\n\n" +
+      "CORRECT pattern: Make a scientific CLAIM, then cite multiple sources that support it:\n" +
+      "'Gut bacterial loads show consistent section-specific gradients in dipteran larvae, " +
+      "with 10^8–10^9 CFU/g in the hindgut [1][3] vs. 10^5–10^6 in the midgut [2], " +
+      "driven primarily by pH gradients and oxygen tension [4].'\n" +
+      "ONE claim, MULTIPLE citations woven in. The reader NEVER feels like you're going through a list.\n\n" +
+
+      "═══ RULE 3: ORGANISM ACCURACY (HARD-ENFORCED) ═══\n" +
+      "NEVER cite a paper about organism A as evidence for organism B.\n" +
+      "If a paper is about millipedes, do NOT cite it in an answer about black soldier fly.\n" +
+      "If a paper is about tilapia fed with BSFL, that is a tilapia nutrition paper — do NOT cite it as BSFL microbiome evidence.\n" +
+      "NEVER write 'this study was conducted on [wrong organism], not [queried organism]' — if you find yourself writing that, DELETE the citation entirely.\n" +
+      "An answer with 0 citations that is scientifically accurate is INFINITELY better than an answer that cites wrong-organism papers.\n" +
+      "CHECK EVERY PAPER'S ABSTRACT before citing it. Ask: 'Is this paper ACTUALLY about the organism the user asked about?'\n\n" +
+
+      "═══ RULE 4: ZERO REPETITION (HARD-ENFORCED) ═══\n" +
+      "NEVER repeat a sentence, paragraph, or idea you already stated.\n" +
+      "NEVER rephrase the same finding in different words.\n" +
+      "NEVER write a conclusion that restates your introduction.\n" +
+      "If you've said it once, it's said. Move forward.\n" +
+      "Your response will be mechanically scanned for repeated content — any detected duplication means your response fails.\n\n" +
+
+      "═══ RULE 5: PEER TONE ═══\n" +
+      "Write like a brilliant postdoc explaining to a colleague. Use contractions. " +
       "Vary rhythm — long analytical sentence, then a short punch. Bold **key terms**. " +
       "If a result is surprising, say so. If evidence is weak, call it out bluntly. " +
       "If two papers disagree, pick who has better methodology and say why.\n\n" +
-      "SPECIES NAMES: Always italicize species and genus names using underscores: _E. coli_, _Hermetia illucens_, _C. tropicalis_. " +
-      "This is standard scientific convention and is non-negotiable.\n\n" +
-      "SPECIFICITY: Name the exact enzyme, gene, compound, organism. Never say 'certain bacteria' — say _Lactobacillus_ or _Enterobacteriaceae_. " +
+
+      "═══ RULE 6: PRECISION ═══\n" +
+      "Always italicize species names: _E. coli_, _Hermetia illucens_, _C. tropicalis_.\n" +
+      "Name the exact enzyme, gene, compound, organism. Never say 'certain bacteria' — say _Lactobacillus_ or _Enterobacteriaceae_.\n" +
       "Quantify everything. 'Significant' is banned — give the number and p-value.\n\n" +
-      "RELEVANCE HONESTY: If the retrieved papers are tangentially related but don't directly answer the question, " +
-      "say so in ONE sentence at the start, then give the best answer you can from the sources AND your broader knowledge. " +
-      "Don't pretend irrelevant papers answer the question. Don't pad with filler. Be honest, then be helpful.\n\n" +
-      "BANNED PHRASES (using any of these = failed response): " +
-      "'it\\'s important to note', 'it\\'s worth mentioning', 'plays a crucial role', 'further research is needed', " +
-      "'it should be noted', 'in recent years', 'a growing body of evidence', 'sheds light on', 'paves the way for', " +
-      "'the exact mechanism remains unclear', 'while the provided sources do not directly', 'in conclusion', 'in summary', " +
-      "'none of these papers directly assess', 'although this study does not specifically investigate'.\n\n";
+
+      "═══ RULE 7: RELEVANCE HONESTY ═══\n" +
+      "If papers are tangential, say so in ONE sentence, then answer from your knowledge.\n" +
+      "Don't pretend irrelevant papers answer the question.\n\n" +
+
+      "═══ BANNED PHRASES (mechanical detection — using ANY = failed response) ═══\n" +
+      "'further research is needed', 'further research is necessary', 'further research is warranted', " +
+      "'further studies are needed', 'more research is needed', " +
+      "'plays a critical role', 'plays a crucial role', 'plays a vital role', 'plays a pivotal role', " +
+      "'it is important to note', 'it is worth mentioning', 'it should be noted', " +
+      "'in recent years', 'a growing body of evidence', 'sheds light on', 'paves the way for', " +
+      "'the exact mechanism remains unclear', 'while the provided sources do not directly', " +
+      "'in conclusion', 'in summary', 'Overall,', 'overall,', " +
+      "'none of these papers directly', 'although this study does not specifically investigate', " +
+      "'holistic understanding', 'holistic approach', 'multifaceted', " +
+      "'underscores the importance', 'highlights the need', 'in the realm of', " +
+      "'at the forefront of', 'a testament to', 'it is clear that'.\n" +
+      "These will be MECHANICALLY STRIPPED from your answer. Don't waste tokens writing them.\n\n";
 
     const CONTEXT =
       "CONTEXT & CONTINUITY:\n" +
@@ -4784,20 +5331,26 @@ Respond naturally to the user's message. Be yourself.`;
     } else if (useEvidence && isNameSearch) {
       systemPrompt = ID + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence) {
-      systemPrompt = ID + "You have " + evidencePapers.length + " papers below. READ EACH ONE CAREFULLY before answering.\n\n" +
-        "CRITICAL RULES FOR USING SOURCES:\n" +
-        "1. RELEVANCE CHECK: Before citing ANY paper, verify it actually discusses the SPECIFIC organism, mechanism, or topic asked about. " +
-        "A paper about tsetse fly midgut is NOT evidence about black soldier fly midgut. A paper about spruce budworm is NOT evidence about BSF. " +
-        "Different organism = DO NOT CITE as direct evidence for the asked organism.\n" +
-        "2. CITE ONLY WHAT'S REAL: Only cite a paper [N] if its abstract DIRECTLY supports the specific claim you're making. " +
-        "If a paper is about a different organism or different process, DO NOT cite it. Leaving it uncited is correct.\n" +
-        "3. YOUR KNOWLEDGE IS PRIMARY: You are an expert. Give a COMPLETE, accurate answer to the question using your scientific knowledge. " +
-        "Papers are supporting evidence — they ANCHOR your answer but they are NOT the ceiling. " +
-        "If the papers are weak or tangential, say so in one sentence and then give your full authoritative answer anyway.\n" +
-        "4. NEVER FABRICATE CONNECTIONS: If a paper doesn't actually say what you're claiming, don't cite it. " +
-        "An uncited sentence backed by your knowledge is infinitely better than a cited sentence that misrepresents a paper.\n" +
-        "5. HONESTY > CITATION COUNT: An answer with 0 citations that's scientifically correct beats an answer with 5 citations that misattributes findings. " +
-        "If none of the papers below address the question, state that plainly and answer from knowledge.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+      systemPrompt = ID + "You have " + evidencePapers.length + " papers below. READ EACH ABSTRACT before answering.\n\n" +
+        "═══ PAPER USAGE PROTOCOL (HARD-ENFORCED) ═══\n\n" +
+        "STEP 1 — ORGANISM/TOPIC AUDIT: For EACH paper, check:\n" +
+        "  • Does this paper study the EXACT organism the user asked about?\n" +
+        "  • Does this paper address the EXACT mechanism/topic the user asked about?\n" +
+        "  • If the answer to either is NO → mark that paper as UNCITABLE.\n" +
+        "  Examples of UNCITABLE papers:\n" +
+        "  - User asks about BSFL microbiome → paper about millipede gut bacteria = UNCITABLE\n" +
+        "  - User asks about BSFL microbiome → paper about tilapia fed with BSFL = UNCITABLE (that's tilapia nutrition, not BSFL biology)\n" +
+        "  - User asks about honeybee immunity → paper about bumblebee immunity = UNCITABLE (different species)\n" +
+        "  NEVER write 'although this study was conducted on [X] rather than [Y]' — that means YOU KNOW it's the wrong paper. Just don't cite it.\n\n" +
+        "STEP 2 — SYNTHESIZE (mandatory):\n" +
+        "  Make CLAIMS, not lists. State scientific findings and cite papers inline.\n" +
+        "  WRONG: 'Source [1] found that... Source [2] showed that... Source [3] demonstrated...'\n" +
+        "  RIGHT: 'Larval gut pH varies from 6.2 in the foregut to 8.5 in the hindgut [1][3], creating distinct niches that select for different bacterial phyla [2].'\n\n" +
+        "STEP 3 — YOUR KNOWLEDGE IS PRIMARY:\n" +
+        "  You are an expert. Give a COMPLETE answer using your scientific knowledge.\n" +
+        "  Papers ANCHOR your answer but are NOT the ceiling.\n" +
+        "  If all papers are weak/tangential, say so in ONE sentence, then answer from knowledge.\n" +
+        "  0 citations + correct science > 5 citations + wrong organisms.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useWeb) {
       systemPrompt = ID + "No peer-reviewed papers matched this specific query, but reference sources were found. " +
         "IMPORTANT: Do NOT start with an apology or 'no papers found' disclaimer. Start with a direct, substantive answer. " +
@@ -4952,14 +5505,24 @@ Respond naturally to the user's message. Be yourself.`;
       useEvidence || useWeb
         ? "Sources:\n\n" + evidence + "\n\n---\nQuestion: " + query
         : query;
-    // Reinforce banned phrases at user level - free models often ignore system prompts
+    // Reinforce ALL rules at user level — free models routinely ignore system prompts.
+    // This is the last thing the model sees before generating, so it has maximum weight.
     const enforcer = useEvidence
-      ? "\n\n[CRITICAL: Cite papers ONLY when they directly support your specific claim about the EXACT topic asked. " +
-        "A paper about a DIFFERENT organism or DIFFERENT process must NOT be cited as evidence — leave it uncited. " +
-        "An accurate answer with 0 citations is better than a wrong answer with 5. " +
-        "Do NOT use: 'further research is needed', 'plays a critical role', 'plays a crucial role', 'it is clear that', 'in conclusion', 'in summary', 'sheds light on'. " +
-        "Do NOT list sources one by one. Synthesize. Italicize species names: _E. coli_.]"
-      : "\n\n[CRITICAL: Do NOT use these phrases: 'further research is needed', 'plays a critical role', 'it is clear that', 'in conclusion', 'in summary', 'sheds light on'. Italicize species names: _E. coli_.]";
+      ? "\n\n[MECHANICAL ENFORCEMENT — your response is post-processed and these are checked:\n" +
+        "1. ORGANISM CHECK: Cite papers ONLY if they study the EXACT organism asked about. " +
+        "A paper about a DIFFERENT organism = DO NOT CITE. If you write 'this study was on [X], not [Y]' your response FAILS.\n" +
+        "2. NO SOURCE LISTING: Do NOT write 'Source [1] found X. Source [2] found Y.' — SYNTHESIZE into unified claims with inline citations.\n" +
+        "3. NO REPETITION: Every sentence must say something NEW. Repeating an idea in different words = FAIL.\n" +
+        "4. BANNED PHRASES (mechanically stripped — don't waste tokens): 'further research is needed', 'plays a crucial/critical role', " +
+        "'in conclusion', 'in summary', 'Overall', 'it is important to note', 'sheds light on', 'it should be noted', " +
+        "'holistic', 'multifaceted', 'underscores the importance'.\n" +
+        "5. START with a direct scientific claim. No 'Based on the sources' or 'The research shows'.\n" +
+        "6. Italicize species: _E. coli_, _H. illucens_.\n" +
+        "7. Your answer will be QUALITY-SCORED. Score < 40 = regenerated with a different model.]"
+      : "\n\n[MECHANICAL ENFORCEMENT — your response is post-processed:\n" +
+        "1. BANNED PHRASES (stripped): 'further research is needed', 'plays a crucial role', 'in conclusion', 'in summary', " +
+        "'Overall', 'it is clear that', 'sheds light on'.\n" +
+        "2. NO REPETITION. 3. START with a direct claim. 4. Italicize species: _E. coli_.]";
     messages.push({ role: "user", content: userContent + enforcer });
 
     // ============ D1 ANSWER CACHE ============
@@ -5106,6 +5669,61 @@ Respond naturally to the user's message. Be yourself.`;
       } catch {}
     }
 
+    // ============ v6.0: ANSWER QUALITY ENGINE ============
+    // Post-process EVERY answer through the quality engine. This catches
+    // repetition, banned phrases, source-listing, and wrong-organism
+    // acknowledgments that the model wrote despite being told not to.
+    // This is a MECHANICAL fix — we don't rely on the model to follow rules.
+    if (aiOK) {
+      answer = postProcessAnswer(answer);
+    }
+
+    // ============ v6.0: QUALITY-GATED RETRY ============
+    // Score the answer after post-processing. If it's still bad (score < 35),
+    // retry with a different model using a MUCH stricter prompt that includes
+    // examples of what NOT to do. This is the "intelligence amplifier" — even
+    // if the first model produces garbage, we catch it and try again.
+    if (aiOK && useEvidence && evidencePapers.length > 0) {
+      const qualityScore = scoreAnswerQuality(answer, query);
+      if (qualityScore < 35 && token) {
+        // Build a retry prompt that's EXTREMELY explicit about what went wrong
+        const retrySystemPrompt =
+          "You are a scientific expert writing a research synthesis. CRITICAL RULES:\n\n" +
+          "1. SYNTHESIZE — do NOT list papers one by one. Make claims and cite multiple sources inline.\n" +
+          "   BAD: '[1] found X. [2] showed Y. [3] demonstrated Z.'\n" +
+          "   GOOD: 'Gut microbiome composition varies significantly by larval instar, with early instars dominated by _Proteobacteria_ [1][3] while late instars shift toward _Firmicutes_ [2].'\n\n" +
+          "2. ORGANISM ACCURACY — only cite papers about the EXACT organism asked about.\n" +
+          "   If a paper studies a DIFFERENT organism, DO NOT CITE IT. Zero citations is better than wrong citations.\n\n" +
+          "3. NO REPETITION — every sentence must add new information. Never rephrase.\n\n" +
+          "4. NO FILLER — banned: 'further research is needed', 'plays a crucial role', 'in conclusion', " +
+          "'Overall', 'it is important to note', 'sheds light on'.\n\n" +
+          "5. START with a direct scientific claim. No 'Based on...' or 'The research shows...'.\n\n" +
+          "6. Italicize species: _E. coli_. Quantify: give numbers, not 'significant'.";
+
+        const retryMsgs = [
+          { role: "system", content: retrySystemPrompt },
+          { role: "user", content: "Sources:\n\n" + evidence + "\n\n---\nQuestion: " + query +
+            "\n\n[Your answer will be quality-scored. Previous attempt scored " + qualityScore + "/100. Beat it.]" },
+        ];
+        const retryModels = [
+          "google/gemini-2.0-flash-exp:free",
+          "deepseek/deepseek-chat-v3-0324:free",
+          "meta-llama/llama-3.3-70b-instruct:free",
+        ];
+        for (const m of retryModels) {
+          try {
+            const r = await callOR(m, retryMsgs, maxTokens);
+            const retryProcessed = postProcessAnswer(r.answer);
+            const retryScore = scoreAnswerQuality(retryProcessed, query);
+            if (retryScore > qualityScore) {
+              answer = retryProcessed;
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+
     // ============ CITATION QUALITY CHECK ============
     // If the answer has zero citations but we gave it papers, that's often
     // CORRECT — the papers may not have been relevant. Only retry if the answer
@@ -5116,18 +5734,21 @@ Respond naturally to the user's message. Be yourself.`;
       // have given up rather than engaging with the papers)
       if (!hasCitations && answer.length < 200) {
         try {
-          const retryMsgs = [
-            { role: "system", content: "You are a scientific expert. You will be given papers and a question. Write a thorough, accurate answer. " +
-              "Cite papers ONLY if they directly address the question's specific topic. " +
-              "If none of the papers are relevant, say so briefly and answer from your scientific knowledge instead. " +
-              "An accurate uncited answer is better than a cited answer that misattributes findings." },
+          const retryMsgs2 = [
+            { role: "system", content: "You are a scientific expert. Write a thorough, accurate answer. " +
+              "Cite papers ONLY if they directly address the question's specific topic and organism. " +
+              "If none of the papers are relevant, say so briefly and answer from your knowledge. " +
+              "An accurate uncited answer is better than wrong citations. SYNTHESIZE — do not list sources." },
             { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query },
           ];
-          const retryModels = ["deepseek/deepseek-chat-v3-0324:free", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free"];
-          for (const m of retryModels) {
+          const retryModels2 = ["deepseek/deepseek-chat-v3-0324:free", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free"];
+          for (const m of retryModels2) {
             try {
-              const r = await callOR(m, retryMsgs, maxTokens);
-              if (r.answer.length > answer.length) { answer = r.answer; break; }
+              const r = await callOR(m, retryMsgs2, maxTokens);
+              if (r.answer.length > answer.length) {
+                answer = postProcessAnswer(r.answer);
+                break;
+              }
             } catch {}
           }
         } catch {}
