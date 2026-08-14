@@ -441,6 +441,12 @@ const SCIENTIFIC_COMPOUNDS = [
 // compounds, so downstream code sees the canonical form.
 function preprocessQuery(raw) {
   let q = " " + (raw || "").toLowerCase() + " ";
+  // Binomial typo correction before anything else — fixes voice-dictation
+  // mangling like "Hermetia illucens" -> "Hermia illusions" so the organism
+  // detector below (which needs the correct spelling) actually recognizes
+  // the species instead of silently falling through to a generic keyword
+  // search across every field that happens to mention "microbiome".
+  q = " " + correctBinomialTypos(q.trim()) + " ";
   // Spelling correction FIRST — otherwise a misspelled half of a compound
   // ("co occurance") won't match the compound pattern (which expects the
   // correct spelling).
@@ -638,6 +644,10 @@ const SYNONYMS = {
   "lab mouse": ["mus musculus"],
   "roundworm": ["caenorhabditis elegans"],
   "zebrafish": ["danio rerio"],
+  "honey bee": ["apis mellifera"],
+  "honey bees": ["apis mellifera"],
+  "honeybee": ["apis mellifera"],
+  "honeybees": ["apis mellifera"],
   "baker's yeast": ["saccharomyces cerevisiae"],
   "brewer's yeast": ["saccharomyces cerevisiae"],
   "e coli": ["escherichia coli"],
@@ -723,6 +733,88 @@ const SYNONYMS = {
   metagenomics: ["metagenomic", "shotgun sequencing", "microbiome sequencing"],
 };
 
+// Every two-word Latin binomial this app already knows about (derived from
+// SYNONYMS' values, so it stays in sync automatically as that list grows).
+// NOTE: this MUST be defined after SYNONYMS above, not before — it reads
+// SYNONYMS at module-evaluation time.
+const KNOWN_BINOMIALS = [...new Set(
+  Object.values(SYNONYMS).flat().filter((s) => /^[a-z]+ [a-z]+$/i.test(s))
+)];
+
+// A NARROWER, hand-curated subset of KNOWN_BINOMIALS restricted to entries
+// that are genuinely organism species names. KNOWN_BINOMIALS above is fine
+// for typo-correction (correctBinomialTypos gates on length >= 5 AND a close
+// fuzzy match on BOTH words, which a generic phrase like "gene editing"
+// virtually never survives), but it also picks up non-organism two-word
+// SYNONYMS values purely because they happen to be two lowercase words —
+// "gene editing" (from crispr), "mass spectrometry", "flow cytometry", etc.
+// Anything doing a bare membership check for "is this actually a species" —
+// like the multi-organism comparison detection below — must use this list
+// instead, or a query mentioning CRISPR alongside a real organism triggers a
+// bogus extra search for "Gene editing" as if it were a second species.
+const ORGANISM_BINOMIALS = new Set([
+  "hermetia illucens", "drosophila melanogaster", "mus musculus",
+  "rattus norvegicus", "caenorhabditis elegans", "danio rerio",
+  "saccharomyces cerevisiae", "escherichia coli", "staphylococcus aureus",
+  "mycobacterium tuberculosis", "plasmodium falciparum", "apis mellifera",
+]);
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[m][n];
+}
+
+// Correct voice-dictation / typo mangling of a known scientific binomial —
+// e.g. "Hermetia illucens" transcribed as "Hermia illusions" — by finding
+// two ADJACENT query words that are each independently close (within ~1 edit
+// per 3 characters) to a known genus and species word. Deliberately requires
+// BOTH words to match: a single fuzzy word match alone is far too easy to
+// collide with an unrelated real English word ("illusions" is a real word on
+// its own — a lone match would corrupt a genuine query about, say, optical
+// illusions — but "genus-shaped word" immediately followed by
+// "species-shaped word", both close to a real binomial, is a strong signal
+// nothing else produces by coincidence).
+function correctBinomialTypos(query) {
+  const toks = query.split(/\s+/);
+  const clean = toks.map((t) => t.toLowerCase().replace(/[^a-z]/g, ""));
+  for (const binomial of KNOWN_BINOMIALS) {
+    const [genus, species] = binomial.split(" ");
+    if (genus.length < 5 || species.length < 5) continue; // too short to fuzzy-match safely
+    // ceil, not floor: floor(8/3)=2 rejects the actual repro case ("illusions"
+    // is edit-distance 3 from "illucens") — verified numerically against the
+    // real voice-dictation mangling this function exists to catch.
+    const gThresh = Math.max(1, Math.ceil(genus.length / 3));
+    const sThresh = Math.max(1, Math.ceil(species.length / 3));
+    for (let i = 0; i + 1 < clean.length; i++) {
+      const w1 = clean[i], w2 = clean[i + 1];
+      if (w1.length < 4 || w2.length < 4) continue;
+      const dG = levenshtein(w1, genus), dS = levenshtein(w2, species);
+      // Already an exact match — leave the original text (and the user's own
+      // capitalization) untouched. Rewriting a correctly-typed "Hermetia
+      // illucens" down to a lowercase canonical form served no purpose here
+      // and had a real side effect: it stripped the capitalization that
+      // extractBinomial() elsewhere relies on to recognize a deliberately-
+      // typed scientific name.
+      if (dG === 0 && dS === 0) continue;
+      if (dG <= gThresh && dS <= sThresh) {
+        const before = toks.slice(0, i).join(" ");
+        const after = toks.slice(i + 2).join(" ");
+        return [before, genus + " " + species, after].filter(Boolean).join(" ");
+      }
+    }
+  }
+  return query;
+}
+
 function expansionsFor(tokens) {
   const out = [];
   // Check individual tokens
@@ -746,9 +838,17 @@ const ORGANISM_PHRASES = [
   "black soldier fly larvae",
   "black soldier fly",
   "hermetia illucens",
+  // Comparison queries ("BSFL vs honey bee gut microbiome") are the most
+  // common real-world use case that names a second organism alongside BSFL,
+  // so it's the first one wired in below. See the multi-organism retrieval
+  // block in gatherPapers() for how a second named organism gets its own
+  // search pass instead of being silently dropped.
+  "honey bee",
+  "honey bees",
 ];
 const ORGANISM_WORDS = new Set([
   "black", "soldier", "fly", "larvae", "larva", "larval", "hermetia", "illucens",
+  "honey", "bee", "bees", "honeybee", "honeybees", "apis", "mellifera",
 ]);
 
 function splitOrganismTopic(query) {
@@ -1121,6 +1221,18 @@ function extractBinomial(raw) {
   while ((m = re.exec(s)) !== null) {
     const test = m[0].toLowerCase();
     if (commonNonTaxonomic.has(test)) continue;
+    // Reject ordinary English words even when sentence-initial capitalization
+    // makes them LOOK taxonomic. Without this guard, every question starting
+    // "Can you...", "Compare the...", "Does the..." etc. (i.e. nearly every
+    // question a user types) matches the FIRST word pair, is treated as a
+    // genus+species, and permanently hijacks organism detection before the
+    // regex ever reaches the real binomial later in the sentence. This was a
+    // live production bug: "Compare the microbial diversity ... in Hermetia
+    // illucens ..." returned {genus:"Compare", species:"the"} and searched
+    // every engine for the literal phrase "Compare the" instead of the
+    // organism, then passed its own broken species-gate because "the"
+    // appears in virtually every abstract ever written.
+    if (STOPWORDS.has(m[1].toLowerCase()) || STOPWORDS.has(m[2].toLowerCase())) continue;
     const looksTaxonomic = /^[A-Z]/.test(m[1]) || hasTaxMarker;
     if (!looksTaxonomic) continue;
     const genus = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
@@ -1223,10 +1335,18 @@ function classifyIntent(query, history) {
 
   if (introducesNewTopic) return { kind: "new" };
 
+  // `meta: true` marks the highest-confidence followup signal — the user is
+  // explicitly commenting on the PREVIOUS turn ("you forgot...", "you
+  // missed...", "focus on...", "tell me more"), not stating a new topic.
+  // Downstream, this is used to stop a cruder word-overlap heuristic from
+  // overriding this classification just because the complaint's wording
+  // happens to share few words with the original query — which it usually
+  // will, since "you forgot to provide BSFL papers" is ABOUT the omission,
+  // not a restatement of the topic.
   if (isMeta || (hasBackRef && (isFollowupOpener || shortReply))) {
-    return { kind: "followup" };
+    return { kind: "followup", meta: isMeta };
   }
-  if (isFollowupOpener && shortReply) return { kind: "followup" };
+  if (isFollowupOpener && shortReply) return { kind: "followup", meta: false };
 
   return { kind: "new" };
 }
@@ -2203,7 +2323,16 @@ async function gatherPapers(rawQuery, opts) {
   const embeddedName = extractPersonNameFromQuery(rawQuery);
   const isNameQuery = !!resolvedPersonName || !!embeddedName;
   const effectiveName = resolvedPersonName || embeddedName || rawQuery.trim();
-  const binomial = extractBinomial(rawQuery);
+  // Run typo-correction BEFORE binomial extraction, not just on the separate
+  // `query` variable below. Previously this used rawQuery verbatim, so a
+  // voice-dictation typo like "Hermia illusions" still LOOKED taxonomic
+  // (capitalized two-word pair) and got captured as `binomial` — which takes
+  // priority over the properly-typo-corrected/SYNONYMS-resolved organism
+  // detection below, silently reintroducing the exact bug the typo-corrector
+  // exists to fix. correctBinomialTypos() only rewrites genuine typos (see
+  // its own exact-match skip) so a correctly-typed binomial like "Escherichia
+  // coli" or "Populus angustifolia" is untouched and still detected here.
+  const binomial = extractBinomial(correctBinomialTypos(rawQuery));
 
   // AUTHOR QUERY: single clean path. Query the primary sources directly (they
   // have the freshest data — aggregators lag weeks to months), extract the
@@ -2348,7 +2477,15 @@ async function gatherPapers(rawQuery, opts) {
     // Previous bugs: (1) regex was case-sensitive so lowercase SYNONYMS values
     // like "hermetia illucens" never matched; (2) fell back to bare common name
     // "black soldier fly" which search engines split into 3 common words.
-    const expanded = orgInfo.orgPhrases.flatMap((p) => SYNONYMS[p.toLowerCase()] || []);
+    // (3) a phrase that IS ALREADY a binomial (e.g. "hermetia illucens",
+    // matched directly via ORGANISM_PHRASES rather than through a common-name
+    // SYNONYMS key) was never included here — SYNONYMS["hermetia illucens"]
+    // is undefined, since it's only ever a dictionary VALUE, never a KEY — so
+    // a query that names the scientific name directly, alongside some OTHER
+    // organism's common name, could resolve to the wrong organism entirely.
+    const expanded = orgInfo.orgPhrases.flatMap((p) =>
+      ORGANISM_BINOMIALS.has(p.toLowerCase()) ? [p] : (SYNONYMS[p.toLowerCase()] || [])
+    );
     // Case-INSENSITIVE binomial detection, then capitalize properly
     const sciRaw = expanded.find((e) => /^[a-z]+ [a-z]+$/i.test(e) && e.split(" ").length === 2);
     if (sciRaw) {
@@ -2364,6 +2501,37 @@ async function gatherPapers(rawQuery, opts) {
       organismTerm = '"' + orgInfo.orgPhrases[0] + '"';
     }
   }
+
+  // MULTI-ORGANISM COMPARISON: `organismTerm` above is a single value — the
+  // first organism found — but a comparison query ("Hermetia illucens vs
+  // honey bee", "BSFL and honeybee gut microbiome") names TWO. Without this,
+  // the entire retrieval ladder below only ever searches for whichever
+  // organism happened to win the single pick, and the other is silently
+  // dropped from every source query. Collect every distinct scientific name
+  // detected (properly capitalized, same resolution rules as organismTerm
+  // above) so a later block can fire one extra, engine-dialect-correct
+  // search pass per additional organism.
+  const allOrganismSciNames = (() => {
+    // Restrict to KNOWN_BINOMIALS specifically, not just "any two-word
+    // SYNONYMS value" — SYNONYMS has plenty of non-organism two-word entries
+    // (e.g. "crispr" expands to, among other things, "gene editing"), and
+    // this list drives real extra network calls per entry, so a shape-only
+    // regex here would fire a bogus supplementary search for "Gene editing"
+    // as if it were a second organism whenever a query mentioned CRISPR
+    // alongside a real species.
+    const raw = orgInfo.orgPhrases.flatMap((p) => {
+      if (ORGANISM_BINOMIALS.has(p.toLowerCase())) return [p];
+      return (SYNONYMS[p.toLowerCase()] || []).filter((e) => ORGANISM_BINOMIALS.has(e.toLowerCase()));
+    });
+    if (binomial) raw.push(binomial.full.toLowerCase());
+    const capitalized = raw.map((sciRaw) => {
+      const parts = sciRaw.split(" ");
+      return parts[0][0].toUpperCase() + parts[0].slice(1).toLowerCase() + " " + parts[1].toLowerCase();
+    });
+    return [...new Set(capitalized)];
+  })();
+  const primaryOrganismName = organismTerm ? organismTerm.replace(/"/g, "") : null;
+  const secondaryOrganisms = allOrganismSciNames.filter((n) => n !== primaryOrganismName).slice(0, 2);
 
   const booleanQuery = buildStructuredQuery(query);
   const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
@@ -2607,6 +2775,41 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // SECONDARY ORGANISM RETRIEVAL: everything above only ever searched for
+  // ONE organism (`organismTerm`). A comparison query names a second one
+  // (`secondaryOrganisms`, computed earlier from the same detection that
+  // built `organismTerm`) that has had zero queries fired for it so far —
+  // not "too few", literally zero, because every rung above unconditionally
+  // AND'd the primary organism into the query. This fires once per
+  // additional organism (capped at 2), using the same per-engine dialect
+  // rules as fanout() above: boolean AND for EPMC/PubMed, plain
+  // concatenation for keyword engines. Always runs when a second organism is
+  // detected — the primary ladder already having "enough" total results
+  // says nothing about whether the SECOND organism is represented at all,
+  // which is exactly the bug this fixes.
+  // ═══════════════════════════════════════════════════════════════
+  if (secondaryOrganisms.length) {
+    const topicStr2 = ranked.slice(0, 3).join(" ") || query;
+    for (const sciName of secondaryOrganisms) {
+      const orgQuoted2 = '"' + sciName + '"';
+      try {
+        const secResults = await Promise.allSettled([
+          europePMC(orgQuoted2 + " AND (" + topicStr2 + ")", 10),
+          pubmed(orgQuoted2 + " AND (" + topicStr2 + ")", 10, ncbiKey),
+          openAlex(sciName + " " + topicStr2, 10, openAlexKey),
+          crossref(sciName + " " + topicStr2, 8),
+          semanticScholar(sciName + " " + topicStr2, 10),
+          doaj(sciName + " " + topicStr2, 6),
+          biorxiv(sciName + " " + topicStr2, 6),
+        ]);
+        results = results.concat(secResults);
+        diag["secondaryOrganism:" + sciName] = secResults.reduce(
+          (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
+      } catch {}
+    }
+  }
+
   const merged = [];
   const seen = new Set();
   for (const res of results) {
@@ -2765,7 +2968,7 @@ async function gatherPapers(rawQuery, opts) {
         // Words that are too generic to count alone
         const GENERIC_ORG_WORDS = new Set(["fly", "black", "red", "blue", "white", "green",
           "brown", "common", "small", "large", "big", "long", "short", "wild", "mouse",
-          "rat", "fish", "worm", "bug", "bee", "ant", "cat", "dog", "bird", "tree"]);
+          "rat", "fish", "worm", "bug", "bee", "ant", "cat", "dog", "bird", "tree", "honey"]);
         const specificHits = orgWordsInPaper.filter(w => !GENERIC_ORG_WORDS.has(w));
         // If we have specific hits (like "hermetia" or "illucens"), one is enough
         if (specificHits.length >= 1) return true;
@@ -2875,7 +3078,16 @@ async function gatherPapers(rawQuery, opts) {
         // Also accept abbreviated form like "P. angustifolia"
         const abbrev = binomial.genus[0].toLowerCase() + ". " + binomial.species;
         const hasAbbrev = hay.indexOf(abbrev) !== -1;
-        if (!hasBinomial && !hasSpeciesWord && !hasAbbrev) return false;
+        // Comparison queries name a SECOND organism (secondaryOrganisms,
+        // computed earlier) that this strict single-species gate would
+        // otherwise wipe out entirely — a paper about honeybee gut microbiota
+        // correctly has zero mentions of "illucens" and would fail every
+        // check above even though it's exactly what a comparison query asked
+        // for. Accept it too.
+        const hasSecondaryOrganism = secondaryOrganisms.some(
+          (name) => hay.indexOf(name.toLowerCase()) !== -1
+        );
+        if (!hasBinomial && !hasSpeciesWord && !hasAbbrev && !hasSecondaryOrganism) return false;
       }
       // Name queries: keep everything relevance-sorted, don't apply topic gate.
       if (isNameQuery) return true;
@@ -3417,7 +3629,24 @@ Respond naturally to the user's message. Be yourself.`;
       return newTerms.length >= 2;
     })();
 
-    const forceNewSearch = !asksAboutExistingSources && (!!embeddedNameInFollowup || hasNewSubstance || wantsMorePapers);
+    // Bug: hasNewSubstance is a blunt word-overlap heuristic (2+ words not
+    // seen in the previous turn = "new topic"), meant to catch cases the
+    // classifier misreads as a followup (e.g. naming a brand-new author).
+    // But it was unconditionally allowed to override classifyIntent's
+    // HIGHEST-confidence signals too — an explicit correction ("that's
+    // wrong, it's actually...") or meta-comment about the previous answer
+    // ("you forgot to provide BSFL papers"). Those almost always share few
+    // words with the prior turn precisely because they're commenting ON it
+    // rather than restating the topic, so hasNewSubstance fired essentially
+    // every time, threw away all prior context, and sent the raw complaint
+    // sentence ("you forgot to provide BSFL papers") into the retrieval
+    // ladder as if it were the actual search query — which is how a
+    // complaint about missing BSFL papers returned a bibliography of essays
+    // about human memory and forgetting. A named embedded person or an
+    // explicit "more papers" request still forces a fresh search either way
+    // (those are unambiguous regardless of phrasing).
+    const strongFollowupSignal = intent.kind === "correction" || (intent.kind === "followup" && intent.meta === true);
+    const forceNewSearch = !asksAboutExistingSources && (!!embeddedNameInFollowup || (hasNewSubstance && !strongFollowupSignal) || wantsMorePapers);
     const isFollowupMode = !forceNewSearch
       && (intent.kind === "followup" || intent.kind === "correction")
       && (prevSources.length > 0 || pinnedSources.length > 0);
