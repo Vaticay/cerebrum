@@ -1208,7 +1208,11 @@ function InfoPage({ page }) {
 function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   const [copied, setCopied] = useState(false);
   const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
-  const copyAll = () => { navigator.clipboard.writeText(formatBibliography(sources, citationStyle)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); };
+  const copyAll = () => {
+    copyToClipboard(formatBibliography(sources, citationStyle), "Bibliography copied").then((ok) => {
+      if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    });
+  };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   return (
     <div style={{ marginTop: 24, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 14, padding: "20px 24px", background: P.dark ? "rgba(5,8,22,0.6)" : withAlpha(P.surface, 0.8), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
@@ -1302,8 +1306,33 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         )}
         {done && t.answer && (
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-            <button onClick={(e) => { navigator.clipboard.writeText(t.answer).then(() => { const btn = e.currentTarget; btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "Copy answer", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Copy answer</button>
-            <button onClick={(e) => { const url = window.location.origin + "/?q=" + encodeURIComponent(t.q); navigator.clipboard.writeText(url).then(() => { const btn = e.currentTarget; btn.textContent = "Link copied!"; setTimeout(() => btn.textContent = "Share", 1500); }); }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Share</button>
+            <button onClick={(e) => {
+              const btn = e.currentTarget;
+              copyToClipboard(t.answer, "Answer copied").then((ok) => {
+                if (ok) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Copy answer"; }, 1500); }
+              });
+            }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Copy answer</button>
+            <button onClick={async (e) => {
+              const btn = e.currentTarget;
+              const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
+              // Prefer the native share sheet (real "sharing" — Messages, Mail,
+              // social apps — on mobile and supporting desktop browsers).
+              // navigator.share() requires a secure context and can throw
+              // AbortError when the user just dismisses the sheet, which is
+              // not a failure and shouldn't show an error toast.
+              if (navigator.share && window.isSecureContext) {
+                try {
+                  await navigator.share({ title: "Cerebrum", text: t.q, url });
+                  return;
+                } catch (err) {
+                  if (err && err.name === "AbortError") return; // user cancelled — not an error
+                  // Fall through to clipboard fallback below.
+                }
+              }
+              copyToClipboard(url, "Link copied").then((ok) => {
+                if (ok) { btn.textContent = "Link copied!"; setTimeout(() => { btn.textContent = "Share"; }, 1500); }
+              });
+            }} style={{ fontSize: 11, padding: "6px 14px", background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Share</button>
           </div>
         )}
         {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
@@ -1888,6 +1917,94 @@ function makeStyles(P, accent, at, isMobile = false) {
   };
 }
 
+/* ============================================================
+   TOAST NOTIFICATIONS
+   Lightweight, dependency-free confirmation toasts. Any component calls
+   toast("message") without prop-drilling — it dispatches a window
+   CustomEvent that <ToastHost/> (mounted once in App) listens for and
+   renders as a small floating notification. This replaces relying on a
+   button's own label swapping to "Copied!", which is easy to miss and, if
+   the underlying clipboard/share action silently fails (common: insecure
+   context, permission denial, focus loss), never appears at all — so
+   copyToClipboard() below always fires a toast on both success AND
+   failure, making failures visible instead of silent.
+   ============================================================ */
+let cbToastId = 0;
+function toast(message, opts = {}) {
+  try {
+    window.dispatchEvent(new CustomEvent("cb-toast", {
+      detail: { id: ++cbToastId, message, tone: opts.tone || "success" },
+    }));
+  } catch {}
+}
+
+// Robust clipboard write with a visible outcome either way. navigator.clipboard
+// can silently reject (insecure context, denied permission, lost focus) —
+// previously several buttons had no .catch() at all, so a failure looked
+// exactly like nothing happening. This always resolves to true/false and
+// always shows a toast, plus falls back to the legacy execCommand path for
+// browsers/contexts where the async Clipboard API is unavailable.
+async function copyToClipboard(text, successMessage) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      toast(successMessage || "Copied to clipboard");
+      return true;
+    }
+    throw new Error("Clipboard API unavailable");
+  } catch {
+    // Legacy fallback: a temporary offscreen textarea + document.execCommand.
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (ok) {
+        toast(successMessage || "Copied to clipboard");
+        return true;
+      }
+      throw new Error("execCommand copy failed");
+    } catch {
+      toast("Couldn't copy — try selecting the text manually", { tone: "error" });
+      return false;
+    }
+  }
+}
+
+function ToastHost({ P, accent }) {
+  const [toasts, setToasts] = useState([]);
+  useEffect(() => {
+    const onToast = (e) => {
+      const t = e.detail;
+      setToasts((prev) => [...prev, t]);
+      setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== t.id)), 2600);
+    };
+    window.addEventListener("cb-toast", onToast);
+    return () => window.removeEventListener("cb-toast", onToast);
+  }, []);
+  if (!toasts.length) return null;
+  return (
+    <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
+      {toasts.map((t) => (
+        <div key={t.id} className="cb-toast-pop" style={{
+          background: "rgba(18,20,32,0.96)", color: "#fff", padding: "10px 16px", borderRadius: 10,
+          fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-mono)", boxShadow: "0 8px 28px rgba(0,0,0,0.3)",
+          border: `1px solid ${t.tone === "error" ? "#e5484d" : withAlpha(accent, 0.45)}`,
+          display: "flex", alignItems: "center", gap: 8, maxWidth: "min(90vw, 420px)",
+        }}>
+          <span style={{ color: t.tone === "error" ? "#e5484d" : accent, fontWeight: 700 }}>{t.tone === "error" ? "⚠" : "✓"}</span>
+          <span>{t.message}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(() => { try { return getCookie("cb_entered_v4") === "1"; } catch { return false; } });
@@ -2219,6 +2336,7 @@ function App() {
       {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={sourceKey(s) || i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(s)))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, close: () => setSettingsOpen(false) }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
+      <ToastHost P={P} accent={accent} />
     </div>
   );
 }
@@ -2467,6 +2585,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background-clip: text;
   animation: cbGradientShift 8s ease infinite;
 }
+
+/* Toast notifications */
+@keyframes cbToastPop {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+.cb-toast-pop { animation: cbToastPop 0.22s var(--cb-ease-out, ease-out) both; }
 
 /* Range sliders */
 input[type="range"] { -webkit-appearance: none; height: 3px; border-radius: 2px; }
