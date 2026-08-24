@@ -40,6 +40,36 @@ function paperDedupeKey(p) {
   return title ? "title:" + title : "";
 }
 
+// v6.4: D1's answer_cache and paper_cache tables key rows off the literal
+// normalized query text, with NO awareness that the retrieval/filtering
+// pipeline itself changes over time. That made the caches "immune" to
+// bugfixes: a query that once returned a wrong-topic paper (e.g. an
+// off-field maize genomics paper cited for an insect-microbiome question)
+// would have that paper permanently written into paper_cache as a
+// "confirmed" result and force-re-injected at max relevance on every future
+// identical query, FOREVER — completely independent of how good the live
+// retrieval/filtering logic later became. Re-asking "the same thing" kept
+// reproducing the exact same bad paper even after the underlying filters
+// were fixed, because the fix never touched already-cached/learned rows.
+//
+// Fix: fold a schema version into the cache key itself. Bump
+// CACHE_SCHEMA_VERSION any time the retrieval, filtering, or paper-learning
+// logic changes in a way that could change which papers/answers are
+// correct — old rows simply stop matching (they're never deleted, just
+// orphaned) and every query starts learning fresh under the new pipeline.
+const CACHE_SCHEMA_VERSION = "v7";
+function versionedCacheKey(rawQuery) {
+  return (
+    CACHE_SCHEMA_VERSION +
+    "::" +
+    (rawQuery || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic — identifiable
 // requests with a User-Agent and mailto — to a faster, higher-quota pool than
@@ -2525,16 +2555,67 @@ function topicOverlapFilter(rawQuery, papers) {
   // Build the set of acceptable strings per core term: the term itself plus
   // every member of its concept group (so "microbe" also accepts a paper
   // that only ever says "microbiome" or "symbiont").
-  const acceptSets = coreQTerms.map((t) => {
+  const acceptSetsRaw = coreQTerms.map((t) => {
     const group = CONCEPT_LOOKUP.get(t);
-    return group ? [...group] : [t];
+    return group || new Set([t]);
   });
+
+  // v6.4: CONCEPT_GROUPS also contains multi-word phrases (e.g. "mobile
+  // genetic element", "horizontal gene transfer") registered under their
+  // FULL phrase as the CONCEPT_LOOKUP key. Single-word query tokenization
+  // above can never produce that multi-word key, so a query that says
+  // "mobile genetic elements" was silently unable to ever activate that
+  // concept group — the words "mobile"/"genetic"/"elements" only ever
+  // looked themselves up individually ("genetic" alone resolves to the much
+  // narrower gene/genes/genetic group). Directly scan the raw query text
+  // for any multi-word phrase from CONCEPT_GROUPS and pull in its group too.
+  for (const group of CONCEPT_GROUPS) {
+    for (const phrase of group) {
+      if (phrase.indexOf(" ") !== -1 && qLower.includes(phrase)) {
+        acceptSetsRaw.push(new Set(group));
+        break;
+      }
+    }
+  }
+
+  // v6.4: dedupe accept-sets that are literally the same concept-group
+  // object (multiple query terms mapping to one group, e.g. "gene" and
+  // "genetic" both hitting gene/genes/genetic) so it counts as ONE concept,
+  // not two — otherwise the "require 2+" check below is trivially satisfied
+  // by two words from the very same idea.
+  const seenSetRefs = new Set();
+  const acceptSets = [];
+  for (const s of acceptSetsRaw) {
+    if (!seenSetRefs.has(s)) { seenSetRefs.add(s); acceptSets.push(s); }
+  }
 
   const survivors = papers.filter((p) => {
     const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
-    const hitCount = acceptSets.filter((set) => set.some((term) => hay.includes(term))).length;
+    const hitCount = acceptSets.filter((set) => {
+      for (const term of set) if (hay.includes(term)) return true;
+      return false;
+    }).length;
     if (hitCount === 0) {
       p._filteredReason = "Paper shares none of the query's core topic terms — likely a different research field entirely";
+      return false;
+    }
+    // v6.4: a compound/multi-concept query (e.g. "insect-microbe
+    // associations regulated by mobile genetic elements" — organism +
+    // microbe + mechanism, genuinely distinct concepts) needs a paper to
+    // touch a real MAJORITY of its distinct concepts, not just a flat two.
+    // Tested against the live failure this was built for: a maize
+    // insect-resistance-gene paper naturally shares exactly TWO concepts
+    // with that query ("insect" + "gene/genetic") purely because those
+    // words are common in plant-breeding literature too, without the paper
+    // ever discussing microbes, symbiosis, or mobile genetic elements — a
+    // flat "requires 2" bar let it through untouched. Requiring roughly
+    // half of the query's distinct concepts (floor of 2 once there are 2+)
+    // means a paper has to genuinely engage with most of what the question
+    // is actually asking about, not just coincidentally share a couple of
+    // common words from a totally different field.
+    const required = acceptSets.length >= 2 ? Math.max(2, Math.ceil(acceptSets.length / 2)) : 1;
+    if (hitCount < required) {
+      p._filteredReason = `Paper only shares ${hitCount} of the query's ${acceptSets.length} distinct core topic concepts (needs ${required}) — likely coincidental keyword overlap from a different research field`;
       return false;
     }
     return true;
@@ -2572,8 +2653,17 @@ async function llmValidatePapers(rawQuery, papers, token) {
   // engages for organism-named queries.
   survivors = topicOverlapFilter(rawQuery, survivors);
 
-  // PASS 2: LLM validation on survivors
-  if (!token || survivors.length > 15) return survivors;
+  // PASS 2: LLM validation on survivors.
+  // v6.4: this cap used to be 15, but evidencePapers can hold up to 20
+  // candidates (maxEvidence when wantsMorePapers is true) — meaning the
+  // single most rigorous check in the whole pipeline (an LLM actually
+  // reading each abstract and judging relevance) was silently skipped
+  // exactly when there were the MOST candidates to sift through, i.e.
+  // exactly when a programmatic keyword filter is most likely to let
+  // something off-topic slip past. Raised to match the true max so
+  // validation always has a chance to run; the 7s AbortController timeout
+  // below already bounds worst-case latency regardless of paper count.
+  if (!token || survivors.length > 20) return survivors;
 
   // Detect the primary organism from the query for the LLM prompt
   const qLower = rawQuery.toLowerCase();
@@ -5151,7 +5241,7 @@ Respond naturally to the user's message. Be yourself.`;
     // what makes "the correct papers exist and Cerebrum should find them
     // every time" actually hold — a proven-correct paper never has to be
     // rediscovered by the retrieval ladder again.
-    const learnKey = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    const learnKey = versionedCacheKey(query);
     let learnedPapers = [];
     if (env.DB && learnKey) {
       try {
@@ -5701,7 +5791,7 @@ Respond naturally to the user's message. Be yourself.`;
     // Before calling any LLM, check if we have a cached answer for a similar
     // query that was previously upvoted or verified. This is free, instant,
     // and gets better as more people use the tool.
-    const cacheKey = query.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    const cacheKey = versionedCacheKey(query);
     let cachedAnswer = null;
     if (env.DB && sourceList.length > 0) {
       try {
