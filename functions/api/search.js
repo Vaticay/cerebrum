@@ -17,6 +17,29 @@ function decodeInverted(inv) {
   return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
+// Canonical dedup key for a paper. Prefer the DOI — extracted from `url`,
+// which every source stores as "https://doi.org/<doi>" — because DOI is
+// authoritative: two different source APIs (e.g. Crossref and OpenAlex) can
+// return the EXACT same work with slightly different title strings (a
+// trailing period, a subtitle, whitespace or HTML-entity differences), and a
+// plain normalized-title dedup misses that, letting the same paper appear
+// twice in the final bibliography under two different citation numbers.
+// Falls back to a normalized title (lowercased, whitespace-collapsed,
+// trailing punctuation stripped) only when no DOI is present.
+function paperDedupeKey(p) {
+  const url = (p && p.url) || "";
+  const doiMatch = url.match(/doi\.org\/(.+)$/i);
+  if (doiMatch && doiMatch[1]) {
+    return "doi:" + doiMatch[1].toLowerCase().replace(/\/+$/, "").trim();
+  }
+  const title = ((p && p.title) || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.\s]+$/, "");
+  return title ? "title:" + title : "";
+}
+
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic — identifiable
 // requests with a User-Agent and mailto — to a faster, higher-quota pool than
@@ -573,7 +596,28 @@ const CONCEPT_GROUPS = [
    "peritrophic membrane", "alimentary canal", "digestive tract"],
   ["saliva", "salivary", "secretion", "secretions", "oral", "labial"],
   ["cancer", "tumour", "tumor", "carcinoma", "neoplasm", "oncology", "malignant"],
-  ["gene", "genes", "genetic", "genomic", "genome", "transcript", "transcriptome"],
+  // Split from a single overly-broad ["gene","genes","genetic","genomic",
+  // "genome","transcript","transcriptome"] group. That group let a query
+  // term "genetic" (e.g. from "mobile genetic elements") count ANY paper
+  // mentioning "genome" or "transcriptome" as a match — which is how a
+  // canine reference-genome paper, a bovine genome-annotation paper, and a
+  // maize single-cell atlas all scored as relevant to a question about
+  // insect-microbe mobile genetic elements. "Gene-level", "genome-level",
+  // and "transcript-level" are related but genuinely different research
+  // topics/methods; conflating them causes false-topic query expansion.
+  ["gene", "genes", "genetic"],
+  ["genome", "genomic", "genomics"],
+  ["transcript", "transcripts", "transcriptome", "transcriptomic"],
+  // The ACTUAL concept behind "mobile genetic elements" — transposons,
+  // plasmids, phages/prophages, insertion sequences, integrons. Without
+  // this, "genetic" (from "mobile genetic elements") had no correct
+  // concept group to expand into and fell back to the generic gene group
+  // above, or worse, the old conflated genome/transcriptome group.
+  ["transposon", "transposons", "transposable element", "transposable elements",
+   "plasmid", "plasmids", "horizontal gene transfer", "prophage", "prophages",
+   "insertion sequence", "insertion sequences", "integron", "integrons",
+   "conjugative transposon", "mobile genetic element", "mobile genetic elements",
+   "bacteriophage", "bacteriophages", "phage", "phages"],
   ["protein", "proteins", "proteomic", "peptide", "peptides", "polypeptide"],
   ["climate", "warming", "temperature", "thermal", "heat"],
   ["neuron", "neurons", "neural", "neuronal", "brain", "cortical", "cerebral"],
@@ -975,10 +1019,18 @@ function buildStructuredQuery(query) {
   // question into (enzyme OR oxidase OR hydrolase...) AND (plastic OR
   // polyethylene OR PET...) AND (insect OR larvae OR Galleria...), which
   // actually retrieves the relevant literature.
+  //
+  // Split on hyphens as well as whitespace. A query like "insect-microbe
+  // associations" previously kept "insect-microbe" as ONE opaque token that
+  // matched neither the "insect" concept group nor the "microbe" one — so it
+  // scored no better than an unrelated word, while "genetic" (a real,
+  // single-word CONCEPT_LOOKUP hit) won the anchor race instead and dragged
+  // in unrelated genome/transcriptome papers. Splitting "insect-microbe" into
+  // "insect" + "microbe" lets both halves hit their correct concept groups.
   const qTerms = query
     .toLowerCase()
     .replace(/[^\w\s-]/g, " ")
-    .split(/\s+/)
+    .split(/[\s-]+/)
     .filter((t) => t.length > 2 && !STOPWORDS.has(t));
   if (!qTerms.length) return query;
 
@@ -2429,10 +2481,76 @@ function programmaticPaperFilter(rawQuery, papers) {
   });
 }
 
+// ============ v6.3: GENERAL TOPIC-OVERLAP FILTER ============
+// programmaticPaperFilter() above is organism-specific — it only engages
+// when the query names a specific organism (BSFL, honeybee, etc.), and
+// no-ops entirely for topic-only queries. That's the gap that let a canine
+// reference-genome paper, a bovine genome-annotation paper, a maize
+// single-cell atlas, a human oncology single-cell paper, and a human
+// sleep/andrology paper ALL score as relevant to "insect-microbe or
+// animal-microbe associations regulated by mobile genetic elements" — a
+// query that never named a specific organism, so the organism gate above
+// never fired, and every one of those papers happened to hit the (formerly
+// overly-broad) "genetic" concept group via mentioning "genome" somewhere.
+//
+// This filter is organism-agnostic: it extracts the query's own core/anchor
+// terms (same termSpecificity + CONCEPT_LOOKUP machinery used for search
+// query construction) and requires a paper to share at least ONE of them
+// (or a concept-equivalent) in its title/abstract. A paper about a
+// completely different field shares essentially nothing with the query's
+// actual anchor concepts, regardless of which specific unrelated field it's
+// in — so this generalizes far better than hardcoding a list of "bad
+// fields" the way CONTAMINANT_ORGANISMS does for organisms.
+function topicOverlapFilter(rawQuery, papers) {
+  if (!papers.length) return papers;
+
+  const qLower = rawQuery.toLowerCase();
+  const qTerms = qLower
+    .replace(/[^\w\s-]/g, " ")
+    .split(/[\s-]+/)
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
+  if (!qTerms.length) return papers;
+
+  const rankedQ = qTerms
+    .map((t) => ({ t, spec: termSpecificity(t) }))
+    .sort((a, b) => b.spec - a.spec);
+  // Core anchors: specificity >= 0.5, same bar used elsewhere in this file.
+  // If nothing clears that bar (very generic query), fall back to the top 3
+  // so this filter still has SOMETHING to gate on rather than skipping.
+  let coreQTerms = rankedQ.filter((x) => x.spec >= 0.5).map((x) => x.t);
+  if (coreQTerms.length === 0) coreQTerms = rankedQ.slice(0, 3).map((x) => x.t);
+  // Cap at 6 — beyond that we're just testing filler.
+  coreQTerms = coreQTerms.slice(0, 6);
+
+  // Build the set of acceptable strings per core term: the term itself plus
+  // every member of its concept group (so "microbe" also accepts a paper
+  // that only ever says "microbiome" or "symbiont").
+  const acceptSets = coreQTerms.map((t) => {
+    const group = CONCEPT_LOOKUP.get(t);
+    return group ? [...group] : [t];
+  });
+
+  const survivors = papers.filter((p) => {
+    const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+    const hitCount = acceptSets.filter((set) => set.some((term) => hay.includes(term))).length;
+    if (hitCount === 0) {
+      p._filteredReason = "Paper shares none of the query's core topic terms — likely a different research field entirely";
+      return false;
+    }
+    return true;
+  });
+
+  // If this filter would eliminate every paper (e.g. the query's own anchor
+  // extraction was itself off), don't blank the result set — fall back to
+  // whatever scored best originally rather than returning zero evidence.
+  if (survivors.length === 0) return papers.slice(0, 3);
+  return survivors;
+}
+
 // ============ LLM PAPER VALIDATION (v6.0 — DRAMATICALLY STRENGTHENED) ============
 // The previous validator was too lenient — it used a single vague prompt and
 // accepted any paper the LLM didn't explicitly reject. This version:
-// 1. Runs programmatic hard-filter FIRST (zero cost, catches obvious mismatches)
+// 1. Runs programmatic hard-filters FIRST (zero cost, catches obvious mismatches)
 // 2. Uses a MUCH more specific LLM prompt with organism-awareness
 // 3. Requires explicit relevance scoring, not just YES/NO
 // 4. Handles up to 15 papers (not just 10)
@@ -2441,13 +2559,18 @@ function programmaticPaperFilter(rawQuery, papers) {
 async function llmValidatePapers(rawQuery, papers, token) {
   if (!papers.length) return papers;
 
-  // PASS 1: Programmatic hard-filter (free, instant)
+  // PASS 1A: Organism-specific hard-filter (free, instant)
   let survivors = programmaticPaperFilter(rawQuery, papers);
 
   // If programmatic filter removed everything, keep at least the top-scored original papers
   if (survivors.length === 0 && papers.length > 0) {
     survivors = papers.slice(0, 3);
   }
+
+  // PASS 1B: General topic-overlap filter (free, instant) — catches
+  // off-topic-field contamination that PASS 1A can't see because it only
+  // engages for organism-named queries.
+  survivors = topicOverlapFilter(rawQuery, survivors);
 
   // PASS 2: LLM validation on survivors
   if (!token || survivors.length > 15) return survivors;
@@ -3350,8 +3473,13 @@ async function gatherPapers(rawQuery, opts) {
     for (const w of ORGANISM_WORDS) orgFragments.add(w);
   }
 
+  // Split on hyphens too — see the matching comment in buildStructuredQuery()
+  // above qTerms. Without this, "insect-microbe"/"animal-microbe" never hit
+  // the "insect"/"microbe" concept groups and lose the anchor race to
+  // unrelated single words like "genetic" that happen to hit a (previously
+  // overly broad) concept group by coincidence.
   const ranked = query
-    .split(/\s+/)
+    .split(/[\s-]+/)
     .filter((t) => t.length > 2 && !STOPWORDS.has(t) && !orgFragments.has(t))
     .map((t) => ({ t, spec: termSpecificity(t) }))
     .sort((a, b) => b.spec - a.spec)
@@ -3697,12 +3825,16 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
 
+  // v6.3: dedupe by DOI first, normalized title as fallback — see
+  // paperDedupeKey() for why a title-only key let the same paper (returned
+  // by two different source APIs with slightly different title formatting)
+  // through twice, ending up cited as both [1] and [6] in the same answer.
   const merged = [];
   const seen = new Set();
   for (const res of results) {
     if (res.status === "fulfilled" && Array.isArray(res.value)) {
       for (const p of res.value) {
-        const key = (p.title || "").toLowerCase().trim();
+        const key = paperDedupeKey(p);
         if (key && !seen.has(key)) {
           seen.add(key);
           merged.push(p);
@@ -3728,9 +3860,20 @@ async function gatherPapers(rawQuery, opts) {
   //      "point" all counted as content matches and inflated every score.
   //
   // Every one of those is fixed below.
+  //
+  // Split on hyphens too, same reasoning as buildStructuredQuery()'s qTerms
+  // and gatherPapers()'s `ranked` above: a hyphenated compound like
+  // "insect-microbe" needs to become "insect" + "microbe" so EACH half hits
+  // its correct concept group when scoring paper relevance below. Without
+  // this, a genuinely on-topic paper that separately says "insect" and
+  // "microbiome" (never the literal compound) scored as a MISS on this term,
+  // while an unrelated genome-annotation paper could score as a HIT on
+  // "genetic" via the (now-fixed) concept group — the exact combination that
+  // let a canine/bovine/maize genomics papers outscore real insect-microbiome
+  // papers for a mobile-genetic-elements query.
   const terms = query
     .toLowerCase()
-    .split(/\s+/)
+    .split(/[\s-]+/)
     .map((t) => t.replace(/[^a-z0-9\-]/g, ""))
     .filter((t) => t.length > 2 && !STOPWORDS.has(t));
   const expansions = expansionsFor(terms);
@@ -5117,6 +5260,26 @@ Respond naturally to the user's message. Be yourself.`;
       } catch {}
     }
 
+    // v6.3: FINAL DEDUP SAFETY NET. The same paper appeared twice in a live
+    // answer (once as [1], again as [6], identical DOI) despite upstream
+    // merge dedup — evidently reachable via more than one code path (e.g. a
+    // supplementary/secondary-organism fetch merging back in without a
+    // cross-check against papers already selected). Rather than chase every
+    // possible path, dedupe evidencePapers itself, order-preserving, right
+    // before it becomes the numbered bibliography. This can never make
+    // things worse and closes the gap regardless of which upstream path
+    // caused a given duplicate.
+    if (useEvidence && evidencePapers.length > 1) {
+      const seenKeys = new Set();
+      evidencePapers = evidencePapers.filter((p) => {
+        const key = paperDedupeKey(p);
+        if (!key) return true; // no title/DOI to key on — don't drop it blindly
+        if (seenKeys.has(key)) return false;
+        seenKeys.add(key);
+        return true;
+      });
+    }
+
     // CITATION ALIGNMENT: the bibliography the user sees MUST be the exact same
     // list, in the exact same order, that the AI was given. Otherwise the model
     // writes "[3]" meaning its third source while the UI renders a different
@@ -5256,6 +5419,15 @@ Respond naturally to the user's message. Be yourself.`;
       "Always italicize species names: _E. coli_, _Hermetia illucens_, _C. tropicalis_.\n" +
       "Name the exact enzyme, gene, compound, organism. Never say 'certain bacteria' — say _Lactobacillus_ or _Enterobacteriaceae_.\n" +
       "Quantify everything. 'Significant' is banned — give the number and p-value.\n\n" +
+
+      "═══ RULE 6B: WHEN THE USER SAYS 'SPECIFIC', GIVE SPECIFICS ═══\n" +
+      "If the question uses words like 'specific', 'particular', 'named', or 'which exact', a general-mechanism " +
+      "overview is a FAILED response even if it's accurate. You MUST name concrete instances: exact organism-pair " +
+      "names (not 'insects and bacteria' — say '_Hermetia illucens_ and _Providencia_ spp.'), exact mobile-element " +
+      "types (not 'mobile genetic elements' — say 'a Tn3-family transposon' or 'the P1 prophage'), exact gene or " +
+      "pathway names. If the sources only support the general mechanism and not a named instance, say that gap " +
+      "explicitly ('the sources describe the general mechanism but don't name a specific pair') rather than " +
+      "answering the general question the user didn't ask.\n\n" +
 
       "═══ RULE 7: RELEVANCE HONESTY ═══\n" +
       "If papers are tangential, say so in ONE sentence, then answer from your knowledge.\n" +
