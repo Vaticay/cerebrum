@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 
 /* ════════════════════════════════════════════════════════════════
@@ -458,14 +458,17 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   return clean.split(/\n{2,}/).map((para, pi) => {
     // Check for markdown headers
     const h2 = para.match(/^##\s+(.+)$/);
-    if (h2) return <h3 key={pi} style={{ fontSize: 17, fontWeight: 700, color: accent, margin: "28px 0 8px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)", borderBottom: `1px solid ${P.line}`, paddingBottom: 8 }}>{h2[1]}</h3>;
+    if (h2) return <h3 key={pi} style={{ fontSize: 19, fontWeight: 700, color: accent, margin: "32px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)", borderBottom: `1px solid ${P.line}`, paddingBottom: 10 }}>{h2[1]}</h3>;
     const h3 = para.match(/^###\s+(.+)$/);
-    if (h3) return <h4 key={pi} style={{ fontSize: 15, fontWeight: 600, color: P.ink, margin: "20px 0 6px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>{h3[1]}</h4>;
+    if (h3) return <h4 key={pi} style={{ fontSize: 16.5, fontWeight: 600, color: P.ink, margin: "22px 0 8px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>{h3[1]}</h4>;
     // Check for bold-line headers (e.g., "**Mechanism**")
     const boldHeader = para.match(/^\*\*([^*]+)\*\*\s*$/);
-    if (boldHeader) return <h4 key={pi} style={{ fontSize: 15, fontWeight: 700, color: accent, margin: "24px 0 6px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>{boldHeader[1]}</h4>;
+    if (boldHeader) return <h4 key={pi} style={{ fontSize: 16.5, fontWeight: 700, color: accent, margin: "26px 0 8px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>{boldHeader[1]}</h4>;
     return (
-    <p key={pi} style={{ fontSize: 16, lineHeight: 1.8, margin: "0 0 18px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 420 }}>
+    // v6.4: bumped from 16px/1.8 — the answer is the whole point of the
+    // product, and this makes long-form reading noticeably more comfortable
+    // without tipping into "large print" territory.
+    <p key={pi} style={{ fontSize: 17.5, lineHeight: 1.85, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 420 }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|\[\d+\])/g).map((seg, si) => {
@@ -898,8 +901,17 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
         effectRef.current = window.VANTA.HALO({
           el,
           THREE: window.THREE,
-          mouseControls: true,
-          touchControls: true,
+          // v6.4: mouse/touch camera controls were on for a purely decorative,
+          // pointer-events:none background. Vanta's touch controls bind their
+          // own touchstart/touchmove listeners (independent of CSS
+          // pointer-events) to interpret drag/pinch gestures as camera
+          // movement, which competes with the browser's native pinch-zoom and
+          // the page's own touch-scroll — a well-documented class of Vanta.js
+          // bug where scrolling "locks up" after a pinch gesture. This
+          // background isn't meant to be touched or dragged, so disable all
+          // pointer-driven camera control entirely.
+          mouseControls: false,
+          touchControls: false,
           gyroControls: false,
           minHeight: 200, minWidth: 200,
           backgroundColor: 0x050816,
@@ -914,7 +926,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
         // Fallback: NET at very low density
         effectRef.current = window.VANTA.NET({
           el, THREE: window.THREE,
-          mouseControls: true, touchControls: true, gyroControls: false,
+          mouseControls: false, touchControls: false, gyroControls: false, // see HALO note above
           minHeight: 200, minWidth: 200, scale: 1.0, scaleMobile: 1.0,
           color: accentInt,
           backgroundColor: 0x050816,
@@ -925,7 +937,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
         // Light mode: NET barely visible
         effectRef.current = window.VANTA.NET({
           el, THREE: window.THREE,
-          mouseControls: true, touchControls: true, gyroControls: false,
+          mouseControls: false, touchControls: false, gyroControls: false, // see HALO note above
           minHeight: 200, minWidth: 200, scale: 1.0, scaleMobile: 1.0,
           color: accentInt,
           backgroundColor: parseInt(P.bg.replace("#",""), 16) || 0xf8f9fc,
@@ -943,6 +955,24 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
     if (!effectRef.current) return;
     if (paused) { try { effectRef.current.setOptions({ speed: 0 }); } catch {} }
     else { try { effectRef.current.setOptions({ speed: speed * (P.dark ? 0.8 : 0.6) }); } catch {} }
+  }, [paused, speed, P.dark]);
+
+  // v6.4 perf: this is a continuously-rendering WebGL scene running behind
+  // the entire app. Previously it only paused while the settings panel was
+  // open — it kept burning GPU/CPU (and mobile battery) at full tilt even
+  // while the browser tab was minimized or in a background tab, which the
+  // user never sees. Pause it whenever the tab isn't visible and resume at
+  // its normal speed when it comes back.
+  useEffect(() => {
+    const onVis = () => {
+      if (!effectRef.current) return;
+      try {
+        if (document.hidden) effectRef.current.setOptions({ speed: 0 });
+        else if (!paused) effectRef.current.setOptions({ speed: speed * (P.dark ? 0.8 : 0.6) });
+      } catch {}
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [paused, speed, P.dark]);
 
   return (
@@ -1215,22 +1245,22 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   return (
-    <div style={{ marginTop: 24, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 14, padding: "20px 24px", background: P.dark ? "rgba(5,8,22,0.6)" : withAlpha(P.surface, 0.8), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 16, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap", paddingBottom: 16, borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 3, height: 16, background: accent, borderRadius: 2 }} />
-          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", color: P.ink, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>Bibliography</div>
-          <div style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>{sources.length}</div>
+          <div style={{ width: 3, height: 18, background: accent, borderRadius: 2 }} />
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.04em", color: P.ink, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>Bibliography</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", background: withAlpha(P.faint, 0.1), padding: "1px 8px", borderRadius: 20 }}>{sources.length}</div>
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} style={{ padding: "5px 8px", fontSize: 11.5, fontWeight: 500, background: P.bg, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", outline: "none" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} style={{ padding: "6px 10px", fontSize: 11.5, fontWeight: 500, background: P.bg, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", outline: "none" }}>
             {styleOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
           </select>
-          <button onClick={copyAll} style={bibBtn(P, accent)}>{copied ? "✓" : "Copy"}</button>
+          <button onClick={copyAll} style={bibBtn(P, accent)}>{copied ? "✓ Copied" : "Copy all"}</button>
           <button onClick={downloadFile} style={bibBtn(P, accent)}>Download</button>
         </div>
       </div>
-      <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none" }}>
+      <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10, paddingBottom: 14 }}>
         {sources.map((src, i) => <BibEntry key={i} source={src} index={i + 1} P={P} accent={accent} style={citationStyle} className="cb-fade" />)}
       </ol>
     </div>
@@ -1241,31 +1271,55 @@ function BibEntry({ source, index, P, accent, style, className }) {
   const [hover, setHover] = useState(false);
   const formatted = formatCitation(source, style, index);
   return (
-    <li id={`ref-${index}`} className={className} style={{ padding: "12px 4px", borderTop: index === 1 ? "none" : `1px solid ${P.line}`, display: "flex", gap: 12, alignItems: "flex-start", background: hover ? withAlpha(accent, 0.03) : "transparent", borderRadius: 6, opacity: 0 }}
+    <li id={`ref-${index}`} className={className}
+      style={{
+        padding: "16px 18px", display: "flex", gap: 14, alignItems: "flex-start",
+        background: hover ? withAlpha(accent, 0.05) : (P.dark ? "rgba(255,255,255,0.02)" : withAlpha(P.line, 0.25)),
+        border: `1px solid ${hover ? withAlpha(accent, 0.3) : P.line}`,
+        borderRadius: 12, opacity: 0, transition: "background 0.15s ease, border-color 0.15s ease",
+      }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <div style={{ flexShrink: 0, minWidth: 24, color: accent, fontWeight: 600, fontSize: 11, fontFamily: "var(--cb-mono)", paddingTop: 2 }}>{index}.</div>
+      <div style={{
+        flexShrink: 0, width: 26, height: 26, borderRadius: "50%",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: accent, fontWeight: 700, fontSize: 11.5, fontFamily: "var(--cb-mono)",
+        background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`,
+      }}>{index}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", marginBottom: 6, background: source.retracted ? "rgba(229, 72, 77, 0.12)" : "rgba(217, 165, 32, 0.14)", border: `1px solid ${source.retracted ? "#e5484d" : "#d9a520"}`, borderRadius: 6, fontSize: 10, fontWeight: 700, color: source.retracted ? "#e5484d" : "#d9a520", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", marginBottom: 8, background: source.retracted ? "rgba(229, 72, 77, 0.12)" : "rgba(217, 165, 32, 0.14)", border: `1px solid ${source.retracted ? "#e5484d" : "#d9a520"}`, borderRadius: 6, fontSize: 10, fontWeight: 700, color: source.retracted ? "#e5484d" : "#d9a520", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" }}>
             <span>⚠</span><span>{source.retracted ? "RETRACTED" : "EXPRESSION OF CONCERN"}</span>
           </div>
         )}
         {style === "bibtex" ? (
           <pre style={{ fontSize: 11.5, fontFamily: "var(--cb-mono)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
         ) : (
-          <div style={{ fontSize: 13, lineHeight: 1.55, color: P.ink }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted).replace(/\*([^*]+)\*/g, '<em style="font-style: italic;">$1</em>').replace(/\n/g, "<br>") }} />
+          <div style={{ fontSize: 13.5, lineHeight: 1.6, color: P.ink, fontWeight: 500 }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted).replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
+        )}
+        {(source.citations != null || source.type) && (
+          <div style={{ fontSize: 11, color: P.faint, marginTop: 6, display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--cb-mono)" }}>
+            {source.type && <span style={{ fontWeight: 600, color: P.ink2 }}>{source.type}</span>}
+            {source.type && source.citations != null && <span style={{ opacity: 0.5 }}>·</span>}
+            {source.citations != null && <span>{source.citations.toLocaleString()} citation{source.citations === 1 ? "" : "s"}</span>}
+          </div>
         )}
         {source.tldr && (
-          <div style={{ fontSize: 12, color: P.ink2, marginTop: 8, padding: "8px 12px", background: withAlpha(accent, 0.04), borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, borderRadius: 4, lineHeight: 1.55, fontStyle: "italic" }}>
+          <div style={{ fontSize: 12.5, color: P.ink2, marginTop: 10, padding: "10px 14px", background: withAlpha(accent, 0.05), borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, borderRadius: "4px 8px 8px 4px", lineHeight: 1.55, fontStyle: "italic" }}>
             <span style={{ fontWeight: 600, fontStyle: "normal", color: accent, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 6, fontFamily: "var(--cb-mono)" }}>TL;DR</span>{source.tldr}
           </div>
         )}
-        {source.url && <a href={safeHref(source.url)} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: accent, textDecoration: "none", marginTop: 6, display: "inline-block", wordBreak: "break-all", fontFamily: "var(--cb-mono)" }}>{source.url.replace(/^https?:\/\//, "").slice(0, 55)}{source.url.length > 55 ? "…" : ""} ↗</a>}
-        {(source.citations != null || source.type) && (
-          <div style={{ fontSize: 10.5, color: P.faint, marginTop: 4, display: "flex", gap: 10, fontFamily: "var(--cb-mono)" }}>
-            {source.type && <span>{source.type}</span>}
-            {source.citations != null && <span>{source.citations.toLocaleString()} citation{source.citations === 1 ? "" : "s"}</span>}
-          </div>
+        {source.url && (
+          <a href={safeHref(source.url)} target="_blank" rel="noreferrer"
+            style={{
+              fontSize: 11, color: accent, textDecoration: "none", marginTop: 10,
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "4px 10px", borderRadius: 20, background: withAlpha(accent, 0.08),
+              border: `1px solid ${withAlpha(accent, 0.2)}`, fontFamily: "var(--cb-mono)",
+              maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{source.url.replace(/^https?:\/\//, "").slice(0, 50)}{source.url.length > 50 ? "…" : ""}</span>
+            <span style={{ flexShrink: 0 }}>↗</span>
+          </a>
         )}
       </div>
     </li>
@@ -1684,8 +1738,23 @@ function makeStyles(P, accent, at, isMobile = false) {
     : `1px solid ${P.line2}`;
 
   return {
-    /* ── Page shell ── */
-    page: { minHeight: "100dvh", height: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", position: "fixed", inset: 0, overflow: "hidden", touchAction: "pan-y", overscrollBehavior: "none" },
+    /* ── Page shell ──
+       v6.4: this used to be `position: fixed; height: 100dvh; overflow:
+       hidden` with a single inner `.scroll` div doing all the scrolling —
+       a classic "app-shell" pattern. That pattern is fragile against ANY
+       zoom: after a pinch-zoom (mobile) or ctrl+scroll/trackpad zoom
+       (desktop), the fixed shell's relationship to the browser's visual
+       viewport can end up mismatched, and touch/wheel scroll gestures over
+       the inner scrollable stop reaching it — "scrolling breaks after you
+       zoom in," reported live. InfoPage (the /about, /privacy, etc. pages)
+       never had this problem because it just lets the real document
+       scroll. Bringing the main app in line with that same natural-scroll
+       model removes this entire class of bug rather than patching it: the
+       browser's own scroll/zoom handling is used unmodified, on both
+       desktop and mobile. See the matching `scroll` key below, and the
+       window-based scroll listeners in App() that replaced threadRef's div
+       scrollTop/scrollHeight reads. */
+    page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
     /* ── Header: dark glass bar, minimal ── */
@@ -1709,7 +1778,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     countPill: { fontSize: 10, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 20, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
 
     /* ── Scroll area ── */
-    scroll: { flex: 1, overflowY: "auto", overflowX: "hidden", paddingBottom: isMobile ? 88 : 0, WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" },
+    // No longer a scroll container itself (see `page` note above) — the
+    // real document scrolls now. `flex: 1` still lets it fill remaining
+    // height below the sticky header on short pages, and the bottom padding
+    // still clears the floating mobile "Sources" FAB.
+    scroll: { flex: 1, paddingBottom: isMobile ? 88 : 0 },
     container: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
 
     /* ── Hero: LEFT-ALIGNED editorial layout ── */
@@ -1791,8 +1864,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: 11, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
 
-    /* ── Workspace: single-column editorial flow ── */
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "24px 0" : "40px 0", flex: 1, maxWidth: 760, margin: "0 auto", width: "100%" },
+    /* ── Workspace: single-column editorial flow ──
+       v6.4: widened from 760 to give the answer more room to breathe —
+       previously the reading column was noticeably narrower than the answer
+       card's own generous padding suggested it should be. */
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "24px 0" : "40px 0", flex: 1, maxWidth: 860, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     thread: { minWidth: 0 },
 
@@ -1816,14 +1892,14 @@ function makeStyles(P, accent, at, isMobile = false) {
        Semi-transparent dark glass panel that separates 
        content from the animated background. The single 
        biggest premium upgrade. ── */
-    answerCard: { 
-      background: P.dark ? "rgba(5,8,22,0.92)" : "rgba(255,255,255,0.85)", 
+    answerCard: {
+      background: P.dark ? "rgba(5,8,22,0.92)" : "rgba(255,255,255,0.85)",
       backdropFilter: "blur(12px) saturate(1.1)",
       WebkitBackdropFilter: "blur(12px) saturate(1.1)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`,
-      borderRadius: 16, 
-      padding: isMobile ? "24px 20px" : "32px 36px", 
-      boxShadow: P.dark 
+      borderRadius: 18,
+      padding: isMobile ? "28px 22px" : "44px 52px",
+      boxShadow: P.dark
         ? "0 0 0 0.5px rgba(255,255,255,0.04) inset, 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3)"
         : P.shadow,
     },
@@ -2018,7 +2094,6 @@ function App() {
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
   const [savedOpen, setSavedOpen] = useState(false);
   const [sessions, setSessions] = useState([]);
-  const [panelOpen, setPanelOpen] = useState(true);
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
   useEffect(() => {
@@ -2066,23 +2141,31 @@ function App() {
   const P = PALETTES[paletteName] || PALETTES.Dark;
   const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (ACCENTS[accentName] || ACCENTS.Emerald);
   const at = accentText(accent);
-  const S = makeStyles(P, accent, at, isMobile);
+  // v6.4 perf: makeStyles() builds a large tree of inline-style objects —
+  // previously rebuilt from scratch on every single render (every keystroke
+  // in the search box, every hover-state change, every busy tick during a
+  // typewriter animation). Memoizing it means that work only happens when
+  // something it actually depends on changes.
+  const S = useMemo(() => makeStyles(P, accent, at, isMobile), [P, accent, at, isMobile]);
   const sfx = () => { if (!mutedRef.current) Audio.click(); };
   const easterEgg = BrainEasterEgg({ accent, P, S });
 
   // Scroll progress bar
+  // v6.4: reads window/document scroll now instead of a dedicated inner
+  // scroll div — see the `page`/`scroll` style notes in makeStyles() for why.
   const [scrollProg, setScrollProg] = useState(0);
   const [showScrollTop, setShowScrollTop] = useState(false);
   useEffect(() => {
-    const el = threadRef.current;
-    if (!el) return;
     const onScroll = () => {
-      const max = el.scrollHeight - el.clientHeight;
-      setScrollProg(max > 0 ? el.scrollTop / max : 0);
-      setShowScrollTop(el.scrollTop > 400);
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - doc.clientHeight;
+      const top = window.scrollY || doc.scrollTop || 0;
+      setScrollProg(max > 0 ? top / max : 0);
+      setShowScrollTop(top > 400);
     };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
   }, [entered]);
 
   const ask = useCallback(async (q, opts = {}) => {
@@ -2121,9 +2204,25 @@ function App() {
   }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile]);
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
-  useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; if (window.AOS) window.AOS.refresh(); }, [turns, busy]);
+  // v6.4: was threadRef.current.scrollTop = threadRef.current.scrollHeight —
+  // the document itself scrolls now, so scroll the window instead.
+  useEffect(() => { window.scrollTo(0, document.documentElement.scrollHeight); if (window.AOS) window.AOS.refresh(); }, [turns, busy]);
   useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
   useEffect(() => { document.body.style.background = P.bg; }, [P]);
+  // v6.4: the page now uses natural document scrolling (see makeStyles'
+  // `page` note) instead of a fixed non-scrolling shell. The old fixed
+  // shell had a free side effect: the background could never scroll behind
+  // an open modal/overlay, because it never scrolled at all. Now that the
+  // document genuinely scrolls, an open modal needs its own explicit
+  // scroll-lock or the page behind it will scroll along with touch/wheel
+  // input that misses the modal's own content.
+  useEffect(() => {
+    const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel;
+    if (!anyOverlayOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prevOverflow; };
+  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -2253,7 +2352,7 @@ function App() {
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
       <div style={S.grain} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
-      {showScrollTop && <button onClick={() => threadRef.current?.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: 16 }}>↑</button>}
+      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: 16 }}>↑</button>}
       <header style={S.header}>
         <div style={S.headInner}>
           <div style={{ ...S.brandRow, position: "relative" }}>
@@ -2672,9 +2771,13 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
   outline-offset: 3px !important;
 }
 
-/* ── Scroll progress bar ── */
+/* ── Scroll progress bar ──
+   v6.4: had no explicit width, and with only left:0 set (not right:0)
+   under position:fixed, a contentless empty div shrinks-to-fit to ~0 width
+   per spec — this bar was rendering at zero width regardless of scrollProg.
+   Explicit width fixes it. */
 .cb-scroll-progress {
-  position: fixed; top: 0; left: 0; height: 2px; z-index: 100;
+  position: fixed; top: 0; left: 0; width: 100%; height: 2px; z-index: 100;
   background: var(--cb-accent, #34d399);
   transform-origin: left; transition: transform 0.1s linear;
   pointer-events: none;
