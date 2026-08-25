@@ -2,6 +2,22 @@
 // Full rewrite for stability. Queries 14 scholarly databases in parallel,
 // races video proxies, synthesizes answers with sanitization.
 
+// Domain-knowledge module: controlled-vocabulary query expansion, evidence-
+// hierarchy classification, journal-quality signals, predatory-publisher
+// detection, and deterministic entity extraction. See functions/lib/knowledge.js
+// for the full rationale — kept as a separate module because it's almost
+// entirely reference data, not orchestration logic, and grows independently
+// of how search.js fetches/merges/ranks.
+import {
+  expandViaMesh,
+  classifyStudyType,
+  scoreJournalTier,
+  predatoryPenalty,
+  extractEntities,
+  classifyResearchIntent,
+  intentEvidenceBonus,
+} from "../lib/knowledge.js";
+
 // ============ CORE UTILITIES ============
 
 function stripTags(s) {
@@ -3686,7 +3702,7 @@ async function selfReason(query, history, token) {
 
   try {
     const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 4000);
+    const t = setTimeout(() => c.abort(), 5000);
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -3698,17 +3714,28 @@ async function selfReason(query, history, token) {
       body: JSON.stringify({
         model: "deepseek/deepseek-chat-v3-0324:free",
         temperature: 0.1,
-        max_tokens: 300,
+        max_tokens: 420,
         messages: [
           {
             role: "system",
             content:
-              "You are the reasoning module of Cerebrum, a scientific literature search engine that queries 14 scholarly databases in parallel. " +
-              "Think step-by-step about how to best answer this query. Consider: what is the user ACTUALLY asking? " +
-              "What domain knowledge do they need? Are there hidden assumptions or ambiguities in their question?\n\n" +
-              "Output ONLY a JSON object:\n" +
+              // This is Cerebrum Intelligence — the reasoning pass that runs
+              // before a single database is queried. Its job is to think
+              // about the question the way a genuinely excellent scientist
+              // would before going to the literature: not "what keywords
+              // match this," but "what is actually being asked, what would
+              // change my mind, and what's the rival explanation I'd need to
+              // rule out." That framing — thinking about disconfirming
+              // evidence and alternative hypotheses up front, not just
+              // confirming ones — is what separates a genuinely rigorous
+              // first pass from a keyword-extraction pass wearing a lab coat.
+              "You are Cerebrum Intelligence — the reasoning core of Cerebrum, a scientific literature search engine that queries 14 scholarly " +
+              "databases in parallel. Before a single database is queried, you think about the question the way an exceptional, first-principles " +
+              "scientist would: not pattern-matching to keywords, but asking what is ACTUALLY being asked, what would distinguish a right answer " +
+              "from a plausible-but-wrong one, and what rival explanation a rigorous person would need to rule out before accepting the obvious one.\n\n" +
+              "Think step by step, silently, then output ONLY a JSON object — no prose before or after it:\n" +
               "{\n" +
-              '  "sub_questions": ["list of 2-4 specific sub-questions to investigate"],\n' +
+              '  "sub_questions": ["2-4 specific sub-questions that together fully cover what\'s being asked"],\n' +
               '  "search_strategy": "one sentence describing the best search approach",\n' +
               '  "key_terms": ["5-8 specific scientific search terms, using proper nomenclature — include MeSH terms, gene names, pathway names where applicable"],\n' +
               '  "expected_fields": ["which scientific fields/disciplines are relevant"],\n' +
@@ -3716,6 +3743,8 @@ async function selfReason(query, history, token) {
               '  "needs_comparison": false,\n' +
               '  "organisms": ["any specific organisms to search for, using binomial names"],\n' +
               '  "temporal_focus": "any" | "recent" | "historical" | "longitudinal",\n' +
+              '  "alternative_explanations": ["1-3 rival explanations or confounds a rigorous answer needs to address or rule out, if any apply — empty array if the question genuinely has none (don\'t invent one just to fill this)"],\n' +
+              '  "what_would_change_the_answer": "one sentence: what finding, if the literature reported it, would flip or substantially qualify the obvious answer — forces genuine engagement with uncertainty instead of false confidence",\n' +
               '  "answer_approach": "one sentence on how to structure the answer for maximum clarity"\n' +
               "}",
           },
@@ -3742,6 +3771,73 @@ async function selfReason(query, history, token) {
   }
 }
 
+
+// ============ VISION: IMAGE COMPREHENSION ============
+// Lets a user attach an image (a figure from a paper, a screenshot of a
+// chart, a photo of a specimen, a diagram from a textbook) alongside their
+// question. Rather than threading image bytes through the entire 7000-line
+// retrieval/ranking/answer pipeline below — which only knows how to work
+// with plain text — this runs ONE vision-capable LLM call up front that
+// converts the image into a precise text description, which then flows into
+// the exact same pipeline as if the user had typed that description
+// themselves. Every downstream system (MeSH expansion, organism detection,
+// evidence scoring, citation synthesis) works unmodified because as far as
+// it's concerned, it's still just looking at text.
+async function describeImage(dataUrl, question, token) {
+  if (!token || !dataUrl) return null;
+  const visionModels = [
+    "google/gemini-2.0-flash-exp:free",
+    "meta-llama/llama-3.2-11b-vision-instruct:free",
+    "qwen/qwen2.5-vl-32b-instruct:free",
+  ];
+  for (const model of visionModels) {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 9000);
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+          "HTTP-Referer": "https://askcerebrum.org",
+          "X-Title": "Cerebrum",
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          max_tokens: 500,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are the vision module of a scientific literature search engine. A user attached an image alongside a question. " +
+                "Describe, with scientific precision, exactly what the image shows — a chart's axes and the trend it depicts, a diagram's " +
+                "labeled structures, a specimen's identifying morphological features, a table's key figures, an equation, a gel/blot's bands. " +
+                "Read and transcribe any text, numbers, axis labels, or captions visible in the image verbatim. Do NOT speculate about what " +
+                "isn't visible. Do NOT answer the user's question — only describe the image. Be dense and factual, not conversational.",
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: question ? `The user's question: "${question}". Describe this image.` : "Describe this image." },
+                { type: "image_url", image_url: { url: dataUrl } },
+              ],
+            },
+          ],
+        }),
+        signal: c.signal,
+      });
+      clearTimeout(t);
+      if (!r.ok) continue;
+      const j = await r.json();
+      const txt = (j?.choices?.[0]?.message?.content || "").trim();
+      if (txt && txt.length > 10) return txt.slice(0, 2000);
+    } catch {
+      // try next model
+    }
+  }
+  return null;
+}
 
 // D1-backed query intelligence: check if we've seen a similar query before
 // and know its resolved form. This makes the system faster over time — cached
@@ -4261,6 +4357,20 @@ async function gatherPapers(rawQuery, opts) {
       }
     }
 
+    // MeSH-style expansion: CONCEPT_LOOKUP above is search.js's own hand-
+    // built synonym table and only covers terms someone thought to add. The
+    // controlled-vocabulary table in knowledge.js is the complementary,
+    // much broader net — plain-language phrasing ("heart attack", "sugar
+    // disease") mapped to how MEDLINE actually indexes it ("myocardial
+    // infarction", "diabetes mellitus"). Run it against the ORIGINAL query,
+    // not the already-stripped `query`/`ranked` terms, since it matches on
+    // multi-word phrases that term-splitting would have destroyed.
+    const meshSyns = expandViaMesh(rawQuery).slice(0, 4);
+    for (const syn of meshSyns) {
+      const q = organismTerm ? organismTerm.replace(/"/g, "") + " " + syn : syn;
+      expandedQueries.add(q.trim());
+    }
+
     // Fire expanded queries in parallel across the most reliable engines
     const expandedArr = [...expandedQueries].slice(0, 6);
     if (expandedArr.length) {
@@ -4430,6 +4540,16 @@ async function gatherPapers(rawQuery, opts) {
     .map((t) => t.replace(/[^a-z0-9\-]/g, ""))
     .filter((t) => t.length > 2 && !STOPWORDS.has(t));
   const expansions = expansionsFor(terms);
+
+  // Which KIND of question is this (mechanism, treatment, etiology,
+  // comparison, ...)? Drives which study designs get a ranking bonus below
+  // via intentEvidenceBonus() — a treatment question should surface RCTs
+  // over a case report even when both are equally "on topic". Computed once
+  // per request; classifyResearchIntent() returns [] for questions that
+  // don't fit a clean evidence-based-medicine category, which is the common
+  // case for pure biology/ecology/methods questions and is treated as "no
+  // bias" rather than an error.
+  const researchIntents = classifyResearchIntent(rawQuery);
 
   // Neutral (organism) words vs content (topic) words
   const neutralWords = new Set(terms.filter((t) => SYNONYMS[t]));
@@ -4621,6 +4741,27 @@ async function gatherPapers(rawQuery, opts) {
         else if (age <= 20) quality += 1;
       }
 
+      // ---- Domain-knowledge signals (functions/lib/knowledge.js) ----
+      // Three independent adjustments layered on top of topical relevance:
+      // (1) which journal it's in, (2) what kind of study it is and whether
+      // that design actually answers the kind of question being asked, and
+      // (3) a soft penalty if the venue matches a known predatory-publishing
+      // pattern. None of these can make a topically-irrelevant paper rank
+      // higher than a relevant one — `match` still dominates the total —
+      // they only break ties among papers that already passed the topic
+      // gate, the same way citation count and recency already do above.
+      const journalBonus = scoreJournalTier(p.journal);
+      quality += journalBonus;
+      const predPenalty = predatoryPenalty(p.journal, p.url);
+      quality += predPenalty;
+      const studyType = classifyStudyType(title, abstract);
+      let evidenceBonus = 0;
+      if (studyType) {
+        evidenceBonus += studyType.weight;
+        evidenceBonus += intentEvidenceBonus(studyType.key, researchIntents);
+      }
+      quality += evidenceBonus;
+
       const score = match + quality;
 
       return {
@@ -4628,6 +4769,9 @@ async function gatherPapers(rawQuery, opts) {
         score,
         matchScore: match,       // 0-70, pure topical relevance
         qualityScore: quality,   // 0-30, source quality signals
+        journalTier: journalBonus > 0 ? journalBonus : undefined,
+        studyType: studyType ? studyType.label : undefined,
+        flaggedPublisher: predPenalty < 0 || undefined,
         contentHits,
         titleContentHits,
         contentCoverage,
@@ -4934,12 +5078,17 @@ export async function onRequest(context) {
   try {
     const body = await request.json().catch(() => ({}));
     let query = (body.query || "").trim();
-    if (!query) {
+    // An attached image can carry the whole question on its own (a photo of
+    // a specimen with no typed text at all) — only reject the request if
+    // there's neither a typed query NOR an image to fall back to.
+    const hasImage = typeof body.image === "string" && body.image.startsWith("data:image/");
+    if (!query && !hasImage) {
       return new Response(JSON.stringify({ error: "No query provided." }), {
         status: 400,
         headers: secureCors,
       });
     }
+    if (!query && hasImage) query = "Identify and explain what this image shows, scientifically.";
     // Reject oversized input (cost control + abuse).
     if (query.length > MAX_QUERY_LEN) {
       query = query.slice(0, MAX_QUERY_LEN);
@@ -4950,6 +5099,22 @@ export async function onRequest(context) {
     }
     // Rebind cors to the secured version for the rest of the handler.
     const cors = secureCors;
+
+    // ════════════════════════════════════════════════════════════════
+    // IMAGE COMPREHENSION — see describeImage() above. A hard size cap
+    // (~6MB base64, comfortably above any reasonable photo/screenshot but
+    // well short of what could be used to abuse the endpoint) guards
+    // against a crafted request trying to burn vision-model time on
+    // something absurd. Failure here is silent-and-continue: if the vision
+    // call fails or isn't configured, the request still proceeds as a
+    // normal text-only search rather than erroring out.
+    let imageContext = null;
+    if (hasImage && body.image.length < 8_000_000 && env.OPENROUTER_KEY) {
+      imageContext = await describeImage(body.image, query, env.OPENROUTER_KEY).catch(() => null);
+      if (imageContext) {
+        query = (query + " " + imageContext).slice(0, MAX_QUERY_LEN);
+      }
+    }
 
     // Special query shortcuts — small moments of personality.
     // These must catch EVERY non-science query before it reaches the search
@@ -5934,10 +6099,20 @@ Respond naturally to the user's message. Be yourself.`;
             const isPre = /biorxiv|medrxiv|arxiv|preprint/i.test(p.journal || "");
             const preTag = isPre ? " [PREPRINT — not yet peer-reviewed]" : "";
             const citCount = typeof p.citations === "number" ? ` [Cited by ${p.citations}]` : "";
+            // Evidence-hierarchy tag from knowledge.js's classifyStudyType(),
+            // computed once during ranking and carried on the paper object as
+            // p.studyType. Surfacing it here — rather than making the LLM
+            // re-infer study design from abstract prose alone — is what lets
+            // the model write "a randomized trial found..." vs "a single case
+            // report noted..." reliably instead of treating every citation as
+            // equally authoritative.
+            const studyTag = p.studyType ? " [" + p.studyType + "]" : "";
+            const tierTag = p.journalTier ? " [established venue]" : "";
+            const flagTag = p.flaggedPublisher ? " [⚠ venue matches a known low-integrity publishing pattern — weight this source cautiously]" : "";
             return (
               "[" + (i + 1) + "] " + p.title +
               " (Authors: " + (p.authors || "n/a") + ", " +
-              p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag + preTag + citCount +
+              p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag + preTag + citCount + studyTag + tierTag + flagTag +
               tldrLine +
               "\nAbstract: " + (p.abstract || "(no abstract available)")
             );
@@ -6074,20 +6249,46 @@ Respond naturally to the user's message. Be yourself.`;
       "You were built by Vaticay. You are not a general assistant — you are a precision instrument for scientific literature. " +
       "ALWAYS respond in English regardless of the language of the source papers.\n\n";
 
+    // ── PERSONALITY ──
+    // Everything below RULE 1-7 in VOICE is a mechanical constraint on
+    // FORMAT. This is about voice — who is actually talking. Without it the
+    // model defaults to generic "helpful AI assistant" register even while
+    // technically obeying every formatting rule, and the result reads like
+    // it was written by a committee. A real research answer, written by a
+    // sharp person who actually finds this stuff interesting, reads
+    // differently — has have opinions about which evidence is more
+    // convincing, gets genuinely interested when a result is surprising,
+    // doesn't hedge things that aren't actually uncertain.
+    const PERSONALITY =
+      "PERSONALITY — this is who is writing, not just a formatting rule:\n" +
+      "You're a sharp, curious researcher who actually finds this stuff interesting — not a customer-support bot summarizing " +
+      "documents. You have a point of view. When the evidence is genuinely convincing, say so plainly instead of hedging out " +
+      "of politeness. When it's thin, say that plainly too — don't split the difference to sound balanced. If a finding is " +
+      "surprising or counterintuitive, let that show ('this is the opposite of what you'd expect from...') rather than " +
+      "reporting it in the same flat register as everything else. If two papers disagree, don't just present both sides — " +
+      "have a read on which one's methodology you trust more and say why. Dry wit is welcome where it fits naturally; never " +
+      "forced, never a joke for its own sake, never at the expense of accuracy. Write like you're explaining this to a " +
+      "colleague whose time you respect, not lecturing a student or reassuring a customer. Contractions are normal. " +
+      "Sentence rhythm should vary — a real person doesn't write eight consecutive sentences of identical length and " +
+      "structure. You're allowed to find a question dull, a mechanism elegant, or a result underwhelming, and to say so in " +
+      "one honest clause, as long as the science underneath stays exact. Never perform enthusiasm you don't have — a mildly " +
+      "interesting incremental finding doesn't need to be dressed up as a breakthrough. The goal is a person who happens to " +
+      "have read everything, not a machine performing the ritual of scientific caution.\n\n";
+
     let systemPrompt;
     if (wantsMorePapers && useEvidence) {
-      systemPrompt = ID + "The user wants ADDITIONAL papers on this topic. You have " + evidencePapers.length + " papers that are NEW (not shown before). " +
+      systemPrompt = ID + PERSONALITY + "The user wants ADDITIONAL papers on this topic. You have " + evidencePapers.length + " papers that are NEW (not shown before). " +
         "Present them as a curated research digest. For each paper:\n" +
         "1. State the key finding in one sentence with the citation [N]\n" +
         "2. Note why it's relevant to their investigation\n" +
         "Group related papers together thematically. Bold the paper topics. " +
         "End with a one-sentence synthesis of what these additional sources add to the picture.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence && speciesSearch) {
-      systemPrompt = ID + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+      systemPrompt = ID + PERSONALITY + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence && isNameSearch) {
-      systemPrompt = ID + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+      systemPrompt = ID + PERSONALITY + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence) {
-      systemPrompt = ID + "You have " + evidencePapers.length + " papers below. READ EACH ABSTRACT before answering.\n\n" +
+      systemPrompt = ID + PERSONALITY + "You have " + evidencePapers.length + " papers below. READ EACH ABSTRACT before answering.\n\n" +
         "═══ PAPER USAGE PROTOCOL (HARD-ENFORCED) ═══\n\n" +
         "STEP 1 — ORGANISM/TOPIC AUDIT: For EACH paper, check:\n" +
         "  • Does this paper study the EXACT organism the user asked about?\n" +
@@ -6108,13 +6309,13 @@ Respond naturally to the user's message. Be yourself.`;
         "  If all papers are weak/tangential, say so in ONE sentence, then answer from knowledge.\n" +
         "  0 citations + correct science > 5 citations + wrong organisms.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useWeb) {
-      systemPrompt = ID + "No peer-reviewed papers matched this specific query, but reference sources were found. " +
+      systemPrompt = ID + PERSONALITY + "No peer-reviewed papers matched this specific query, but reference sources were found. " +
         "IMPORTANT: Do NOT start with an apology or 'no papers found' disclaimer. Start with a direct, substantive answer. " +
         "Draw on both the reference sources below AND your scientific knowledge. " +
         "If you know relevant papers exist on this topic (from your training), mention the general findings and suggest " +
         "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else {
-      systemPrompt = ID + "The literature search didn't surface papers for this specific phrasing, but you absolutely know this topic. " +
+      systemPrompt = ID + PERSONALITY + "The literature search didn't surface papers for this specific phrasing, but you absolutely know this topic. " +
         "IMPORTANT: Do NOT start with 'no papers retrieved' or any disclaimer. Start with a direct, authoritative scientific answer. " +
         "Give an excellent, comprehensive answer drawing on your full scientific knowledge. Be specific — name enzymes, genes, organisms, mechanisms, " +
         "quantify where possible, and cite the key researchers and landmark studies you know about in plain text (e.g., 'Work by [name] demonstrated...'). " +
@@ -6124,6 +6325,55 @@ Respond naturally to the user's message. Be yourself.`;
     }
 
     const messages = [{ role: "system", content: systemPrompt }];
+
+    if (imageContext) {
+      messages.push({
+        role: "system",
+        content:
+          "The user attached an image with this question. Here is exactly what it shows (from the vision module): " +
+          imageContext +
+          "\nReference it naturally if relevant ('the image shows...', 'as pictured...') — don't just ignore that it exists, but don't over-describe it either if the papers already answer the question.",
+      });
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // EVIDENCE-STRENGTH PROFILE
+    // Tallies the study-design mix of the papers actually being handed to
+    // the model (evidencePapers already carries p.studyType from
+    // classifyStudyType() in knowledge.js, computed once during ranking).
+    // Without this, the model has no way to know whether "the literature
+    // shows X" rests on three meta-analyses or one uncontrolled case
+    // report — both look identical as a bare citation list. This makes the
+    // actual evidence composition explicit so confidence language in the
+    // answer tracks real evidence strength instead of citation COUNT alone.
+    // ════════════════════════════════════════════════════════════════
+    if (useEvidence && evidencePapers.length > 0) {
+      const tierCounts = {};
+      for (const p of evidencePapers) {
+        const key = p.studyType || "Unclassified";
+        tierCounts[key] = (tierCounts[key] || 0) + 1;
+      }
+      const strongTiers = ["Systematic review / meta-analysis", "Randomized controlled trial"];
+      const strongCount = strongTiers.reduce((n, k) => n + (tierCounts[k] || 0), 0);
+      const weakTiers = ["Case report / case series", "Preclinical (animal / in vitro / in silico)"];
+      const weakCount = weakTiers.reduce((n, k) => n + (tierCounts[k] || 0), 0);
+      const breakdown = Object.entries(tierCounts)
+        .map(([k, n]) => `${n}× ${k}`)
+        .join(", ");
+      let confidenceNote;
+      if (strongCount >= 2) {
+        confidenceNote = "Multiple higher-tier sources (meta-analysis/RCT) are present — state findings with direct confidence where they agree.";
+      } else if (weakCount > 0 && strongCount === 0) {
+        confidenceNote = "The available evidence here is preclinical/case-level only — use appropriately hedged language ('an early study suggests...', 'in a mouse model...') rather than presenting it as settled.";
+      } else {
+        confidenceNote = "Evidence is mixed-tier — calibrate confidence per claim to the specific source backing it, not uniformly across the whole answer.";
+      }
+      messages.push({
+        role: "system",
+        content:
+          "EVIDENCE PROFILE for the sources below: " + breakdown + ". " + confidenceNote,
+      });
+    }
 
     // ════════════════════════════════════════════════════════════════
     // CONVERSATION AWARENESS INJECTION
@@ -6151,7 +6401,23 @@ Respond naturally to the user's message. Be yourself.`;
     // best way to approach it — the system "asked itself things" and
     // now shares its internal reasoning with the answer generator.
     // ════════════════════════════════════════════════════════════════
-    const selfReasonResult = await reasoningPromise;
+    let selfReasonResult = await reasoningPromise;
+    // The LLM reasoning call above has a 4s timeout and depends on an
+    // OpenRouter token being configured — it can legitimately return null on
+    // any given request. Rather than losing key-term/entity extraction
+    // entirely on those requests, fall back to the deterministic,
+    // zero-latency extractor in knowledge.js. It won't produce sub-questions
+    // or a search strategy (those need real reasoning), but it reliably
+    // recovers drug names, pathway names, and gene symbols mentioned
+    // verbatim in the question — exactly the kind of precise vocabulary a
+    // plain term-split otherwise throws away.
+    if (!selfReasonResult) {
+      const fallbackEntities = extractEntities(query);
+      const fallbackTerms = [...fallbackEntities.drugs, ...fallbackEntities.pathways, ...fallbackEntities.genes];
+      if (fallbackTerms.length) {
+        selfReasonResult = { key_terms: fallbackTerms, organisms: [], sub_questions: [], search_strategy: null };
+      }
+    }
     if (selfReasonResult) {
       let reasoningBlock = "INTERNAL ANALYSIS (Cerebrum's reasoning about this question):\n";
       if (selfReasonResult.sub_questions && selfReasonResult.sub_questions.length > 0) {
@@ -6169,7 +6435,14 @@ Respond naturally to the user's message. Be yourself.`;
       if (selfReasonResult.expected_fields && selfReasonResult.expected_fields.length > 0) {
         reasoningBlock += "Relevant fields: " + selfReasonResult.expected_fields.join(", ") + "\n";
       }
+      if (selfReasonResult.alternative_explanations && selfReasonResult.alternative_explanations.length > 0) {
+        reasoningBlock += "Rival explanations/confounds to address before accepting the obvious answer: " + selfReasonResult.alternative_explanations.join("; ") + "\n";
+      }
+      if (selfReasonResult.what_would_change_the_answer) {
+        reasoningBlock += "What would change this answer: " + selfReasonResult.what_would_change_the_answer + "\n";
+      }
       reasoningBlock += "\nUse this analysis to structure your answer. Address the sub-questions. Use the key terms. " +
+        "If a rival explanation was flagged, don't just present the obvious answer — note briefly why the alternative doesn't hold (or does, if the sources actually support it). " +
         "If the question is complex or multi-domain, organize your answer accordingly.";
       messages.push({ role: "system", content: reasoningBlock });
     }
