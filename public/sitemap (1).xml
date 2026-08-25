@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://askcerebrum.org/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <!-- Bug: these used to point at .html URLs, but this app is a client-side
+       routed SPA — every route (including these) serves the same index.html
+       and renders via InfoPage in src/main.jsx. The real, canonical URLs
+       have no extension (see index.html's own <noscript> fallback links and
+       each page's <link rel="canonical">), so the sitemap was sending a
+       conflicting canonicalization signal. Also: this file used to live at
+       the repo root, which Vite never copies into the build output —
+       moved into public/ so it's actually served at /sitemap.xml. -->
+  <url>
+    <loc>https://askcerebrum.org/about</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://askcerebrum.org/privacy</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://askcerebrum.org/terms</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://askcerebrum.org/contact</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+</urlset>

@@ -1,0 +1,10 @@
+# security.txt — https://securitytxt.org
+# Standard published location for security researchers to report vulnerabilities.
+# The presence of this file is itself a positive signal to reputation systems:
+# it identifies the site as one that follows security best practices.
+
+Contact: mailto:contact@askcerebrum.org
+Expires: 2027-12-31T23:59:59.000Z
+Preferred-Languages: en
+Canonical: https://askcerebrum.org/.well-known/security.txt
+Policy: https://askcerebrum.org/terms

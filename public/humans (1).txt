@@ -1,0 +1,15 @@
+/* TEAM */
+Cerebrum: a free scientific literature search engine.
+Contact: contact@askcerebrum.org
+Site: https://askcerebrum.org
+
+/* THANKS */
+Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv,
+medRxiv, DOAJ, PLOS, Zenodo — for maintaining free, open access to the
+scientific literature.
+
+/* SITE */
+Standards: HTML5, CSS3, JavaScript (ES2020+)
+Components: React, Vite
+Hosted on: Cloudflare Pages
+Language: English
