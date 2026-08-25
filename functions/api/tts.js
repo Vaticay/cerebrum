@@ -67,7 +67,13 @@ export async function onRequest(context) {
     return new Response(null, { status: 204, headers: cors });
   }
   if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: cors });
+    // Bug: this used to return a bare string with no Content-Type at all
+    // (this file's `cors` object doesn't include one — jsonErr()/
+    // audioResponse() each add their own), unlike every other error path in
+    // this file which uses the JSON-shaped jsonErr(). A frontend that
+    // always does res.json() on a non-2xx response would break specifically
+    // on this one path.
+    return jsonErr(cors, 405, "Method not allowed");
   }
   if (!originAllowed(request)) {
     return jsonErr(cors, 403, "Origin not allowed");
@@ -89,6 +95,16 @@ export async function onRequest(context) {
   catch {
     return jsonErr(cors, 400, "Bad JSON");
   }
+  // Bug: a request body of the literal 4 bytes `null` is valid JSON, so it
+  // parses successfully to `body = null` with no exception — the catch
+  // above never fires. The next line used to dereference `.text` on that
+  // null unguarded, throwing a TypeError with no try/catch around it, so
+  // the client got Cloudflare's generic platform error page (no CORS
+  // headers attached, since those are only added by this file's own
+  // Response construction) instead of this file's normal JSON error shape.
+  if (!body || typeof body !== "object") {
+    return jsonErr(cors, 400, "Bad request body");
+  }
 
   // Cap the RAW input before any processing — see hardening note above.
   const raw = (body.text || "").toString().trim().slice(0, 6000);
@@ -109,11 +125,10 @@ export async function onRequest(context) {
     // Try it first, fall through to MeloTTS if the model isn't available.
     try {
       const auraSpeaker = voice || "aura-asteria-en"; // female warm; alt: aura-luna-en, aura-orion-en (male)
-      const auraRes = await env.AI.run("@cf/deepgram/aura-1", {
-        text: cap,
-        speaker: auraSpeaker,
-        encoding: "mp3",
-      });
+      const auraRes = await withTimeout(
+        env.AI.run("@cf/deepgram/aura-1", { text: cap, speaker: auraSpeaker, encoding: "mp3" }),
+        8000, "Aura"
+      );
       const audioBytes = await extractAudioBytes(auraRes);
       if (audioBytes && audioBytes.length > 500) {
         return audioResponse(cors, audioBytes);
@@ -122,10 +137,10 @@ export async function onRequest(context) {
 
     // MeloTTS fallback
     try {
-      const meloRes = await env.AI.run("@cf/myshell-ai/melotts", {
-        prompt: cap,
-        lang: "en",
-      });
+      const meloRes = await withTimeout(
+        env.AI.run("@cf/myshell-ai/melotts", { prompt: cap, lang: "en" }),
+        8000, "MeloTTS"
+      );
       const audioBytes = await extractAudioBytes(meloRes);
       if (audioBytes && audioBytes.length > 500) {
         return audioResponse(cors, audioBytes);
@@ -136,11 +151,23 @@ export async function onRequest(context) {
   // StreamElements: keyless Amazon Polly proxy, no per-user quota. Voice
   // options include Brian (male UK), Amy (female UK), Joanna (female US),
   // Matthew (male US), Salli, Ivy, Kimberly. Brian is the classic choice.
+  // Bug: none of the three engines above had any timeout — env.AI.run()
+  // calls and this fetch could hang for the platform's full execution
+  // budget if an upstream (especially the free/unmonitored StreamElements
+  // proxy) stalled, leaving the request stuck instead of degrading
+  // gracefully to the next tier. All three are now time-bounded.
   try {
     const seVoice = mapVoiceToStreamElements(voice) || "Brian";
     const seUrl = "https://api.streamelements.com/kappa/v2/speech?" +
       new URLSearchParams({ voice: seVoice, text: cap });
-    const seRes = await fetch(seUrl, { method: "GET" });
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 8000);
+    let seRes;
+    try {
+      seRes = await fetch(seUrl, { method: "GET", signal: c.signal });
+    } finally {
+      clearTimeout(t);
+    }
     if (seRes.ok) {
       const buf = new Uint8Array(await seRes.arrayBuffer());
       if (buf.length > 500) return audioResponse(cors, buf);
@@ -151,6 +178,16 @@ export async function onRequest(context) {
 }
 
 // ---- helpers ----
+
+// Bounds a promise to `ms` milliseconds. Used for env.AI.run() calls, which
+// don't accept an AbortSignal the way fetch() does — Promise.race against a
+// rejecting timer is the only way to stop waiting on a stalled model.
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error((label || "operation") + ": timed out")), ms)),
+  ]);
+}
 
 function jsonErr(cors, status, msg, useBrowserFallback) {
   const body = { error: msg };
