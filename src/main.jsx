@@ -2219,6 +2219,15 @@ function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(() => { try { return getCookie("cb_entered_v4") === "1"; } catch { return false; } });
   const [input, setInput] = useState("");
+  // Previous conversations. This used to be dead state (`showHistory` was
+  // declared and never read anywhere — a stub from an earlier attempt at
+  // this exact feature that never got finished) while "New investigation"
+  // silently threw the entire thread away with no way to get it back. Now
+  // newSession() snapshots the outgoing thread here before clearing it.
+  // Declared up here (rather than down by newSession()) because the
+  // scroll-lock effect below reads historyOpen in its dependency array.
+  const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_history") || "[]"); } catch { return []; } });
+  const [historyOpen, setHistoryOpen] = useState(false);
   // Attached image (a figure, a screenshot of a chart, a photo of a
   // specimen) sent alongside the next question — see describeImage() on
   // the backend, which converts it to text via a vision model before it
@@ -2454,13 +2463,6 @@ function App() {
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Previous conversations. This used to be dead state (`showHistory` was
-  // declared and never read anywhere — a stub from an earlier attempt at
-  // this exact feature that never got finished) while "New investigation"
-  // silently threw the entire thread away with no way to get it back. Now
-  // newSession() snapshots the outgoing thread here before clearing it.
-  const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_history") || "[]"); } catch { return []; } });
-  const [historyOpen, setHistoryOpen] = useState(false);
   useEffect(() => { try { localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40))); } catch {} }, [history]);
   function newSession() {
     if (!mutedRef.current) Audio.click();
