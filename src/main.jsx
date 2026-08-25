@@ -2476,6 +2476,44 @@ function App() {
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Wheel scroll takeover. Two rounds of CSS-only fixes (compositor-layer
+  // promotion on the sticky header, then pulling backdrop-filter off the
+  // sticky element entirely) were the textbook remedies for the known
+  // Chromium "wheel dies over a sticky + backdrop-filter region, scrollbar
+  // drag still works" bug — and still left real wheel input dead over most
+  // of the page, only landing where it happened to hit a plain fixed
+  // element with no filter on it (the floating Sources button). That means
+  // the browser's native hit-test-driven scroll dispatch itself isn't
+  // reliable here, not just one element's compositing. So: stop depending on
+  // it. `wheel` events always reach `window` regardless of which element the
+  // browser decided was "under" the cursor for scrolling purposes — nothing
+  // in this file calls preventDefault on one — so drive scrolling from here
+  // explicitly instead of hoping the native path picks the right target.
+  useEffect(() => {
+    const isScrollable = (el) => {
+      const cs = window.getComputedStyle(el);
+      const y = /(auto|scroll|overlay)/.test(cs.overflowY);
+      const x = /(auto|scroll|overlay)/.test(cs.overflowX);
+      return (y && el.scrollHeight > el.clientHeight) || (x && el.scrollWidth > el.clientWidth);
+    };
+    const onWheel = (e) => {
+      // Pinch-zoom on a trackpad arrives as wheel + ctrlKey — that's the
+      // browser's page-zoom gesture, not a scroll, and must reach it untouched.
+      if (e.ctrlKey) return;
+      let node = e.target instanceof Element ? e.target : null;
+      let target = null;
+      while (node && node !== document.body) {
+        if (isScrollable(node)) { target = node; break; }
+        node = node.parentElement;
+      }
+      e.preventDefault();
+      if (target) target.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
+      else (document.scrollingElement || document.documentElement).scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
+    };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, []);
+
   useEffect(() => { try { localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40))); } catch {} }, [history]);
   function newSession() {
     if (!mutedRef.current) Audio.click();
