@@ -84,7 +84,7 @@ const LOADING_MESSAGES = [
   "Consulting the ghost of Carl Sagan",
   "Sagan says: billions and billions of results",
   "Rolling for initiative against the paywall",
-  "Sharpening the Occam's razor",
+  "Sharpening Occam's razor",
   "Applying Occam's razor. Ouch",
   "Dividing by n-1 out of respect",
   "Correcting for multiple comparisons, reluctantly",
@@ -204,8 +204,6 @@ async function saveToZotero(sources, apiKey, userId) {
   if (!res.ok) throw new Error(`Zotero ${res.status}`);
   return res.json();
 }
-function readingTime(text) { const w = (text || "").trim().split(/\s+/).length; const m = Math.max(1, Math.round(w / 220)); return `${m} min read`; }
-
 // Paper metadata (title, authors, journal) comes from external scholarly APIs
 // — several of which (Zenodo, DOAJ, CORE, BASE, OpenAIRE) index self-deposited
 // records with no HTML sanitization on the backend. Any of those fields can
@@ -354,9 +352,15 @@ const Audio = (() => {
    ════════════════════════════════════════════════════════════════ */
 
 const PALETTES = {
-  Dark:  { dark: true,  bg: "#050816", surface: "#0c1222", raised: "#131c30", ink: "#f0f2f8", ink2: "#94a0b8", faint: "#4e5a70", line: "rgba(148,160,184,0.07)", line2: "rgba(148,160,184,0.12)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.5)", grain: 0.01, skel: "linear-gradient(90deg, #0c1222 25%, #131c30 50%, #0c1222 75%)" },
-  Mid:   { dark: true,  bg: "#0a0d15", surface: "#111827", raised: "#1f2937", ink: "#f3f4f6", ink2: "#9ca3af", faint: "#4b5563", line: "rgba(156,163,175,0.08)", line2: "rgba(156,163,175,0.13)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.014, skel: "linear-gradient(90deg, #111827 25%, #1f2937 50%, #111827 75%)" },
-  Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#94a3b8", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.07)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
+  // Bug: all three themes' `faint` color failed WCAG AA contrast against
+  // their own `bg` (Dark 2.87:1, Mid 2.57:1, Light 2.44:1 — all below even
+  // the 3:1 large-text floor, let alone the 4.5:1 normal-text floor), yet
+  // it's used at 10-12px throughout: byline text, footer/copyright, "N min
+  // read" labels, timestamps, source metadata. Adjusted each to the closest
+  // value on the same hue that clears 4.5:1.
+  Dark:  { dark: true,  bg: "#050816", surface: "#0c1222", raised: "#131c30", ink: "#f0f2f8", ink2: "#94a0b8", faint: "#7688a5", line: "rgba(148,160,184,0.07)", line2: "rgba(148,160,184,0.12)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.5)", grain: 0.01, skel: "linear-gradient(90deg, #0c1222 25%, #131c30 50%, #0c1222 75%)" },
+  Mid:   { dark: true,  bg: "#0a0d15", surface: "#111827", raised: "#1f2937", ink: "#f3f4f6", ink2: "#9ca3af", faint: "#78818c", line: "rgba(156,163,175,0.08)", line2: "rgba(156,163,175,0.13)", shadow: "0 2px 4px rgba(0,0,0,0.4), 0 16px 56px rgba(0,0,0,0.5)", shadowSm: "0 1px 3px rgba(0,0,0,0.4)", grain: 0.014, skel: "linear-gradient(90deg, #111827 25%, #1f2937 50%, #111827 75%)" },
+  Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#5c6b80", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.07)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
 };
 const ACCENTS = { Emerald: "#34d399", Indigo: "#818cf8", Sky: "#38bdf8", Amber: "#fbbf24", Rose: "#fb7185", Violet: "#a78bfa", Teal: "#2dd4bf", Cyan: "#22d3ee" };
 
@@ -423,16 +427,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   let clean = (text || "")
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]")
-    // Bug: models frequently write grouped citations as "[1, 2]" or "[1,2]"
-    // in a single bracket (despite CITE_RULES asking for "[1], [2]" style)
-    // instead of "[1][2]". Only the parenthetical form "(1, 2)" below was
-    // being split into individual bracket tokens, so a bracketed group never
-    // matched the later `\[\d+\]` split regex and rendered as inert plain
-    // text instead of the superscript citation pill — this is very likely
-    // why sources are being returned but citations aren't superscripting in
-    // the answer body. Split any bracketed digit group into one token per
-    // number, same as the parenthetical case (a lone "[1]" round-trips
-    // through this unchanged, so it's safe to always run).
+    // Split grouped citations "[1, 2]" or "[1,2]" into individual "[1][2]"
     .replace(/\[([\d,\s]+)\]/g, (m, nums) => {
       const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
       return ds.length ? ds.map(n => "["+n+"]").join("") : m;
@@ -442,67 +437,60 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
       return ds.length ? ds.map(n => "["+n+"]").join("") : m;
     })
     .replace(/([a-z])\s+(\d(?:\s*,?\s*\d){0,8})\s*([.;,])(?!\d)/gi, (m, b, nums, p) => {
-      // Bug: without the trailing (?!\d), this matched the integer part of an
-      // ordinary decimal number — "increased 3.2-fold" was captured as
-      // b="d", nums="3", p=".", and rewritten to "increased [3].2-fold",
-      // fabricating a bogus citation link out of a measurement. The digit
-      // group can only be followed by a REAL end-of-clause "." if nothing
-      // comes right after it; a "." immediately followed by another digit
-      // means it's a decimal point, not sentence punctuation, so skip it.
       const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
       return ds.length >= 1 ? b + " " + ds.map(n => "["+n+"]").join("") + p : m;
     })
     .replace(/\n[-—]{2,}\s*\n/g, "\n\n")
     .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
     .trim();
+
   return clean.split(/\n{2,}/).map((para, pi) => {
-    // Check for markdown headers
+    // Markdown headers
     const h2 = para.match(/^##\s+(.+)$/);
-    if (h2) return <h3 key={pi} style={{ fontSize: 19, fontWeight: 700, color: accent, margin: "32px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)", borderBottom: `1px solid ${P.line}`, paddingBottom: 10 }}>{h2[1]}</h3>;
+    if (h2) return <h3 key={pi} style={{ fontSize: 20, fontWeight: 700, color: accent, margin: "36px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", borderBottom: `1px solid ${P.line}`, paddingBottom: 12, lineHeight: 1.3 }}>{h2[1]}</h3>;
     const h3 = para.match(/^###\s+(.+)$/);
-    if (h3) return <h4 key={pi} style={{ fontSize: 16.5, fontWeight: 600, color: P.ink, margin: "22px 0 8px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>{h3[1]}</h4>;
-    // Check for bold-line headers (e.g., "**Mechanism**")
+    if (h3) return <h4 key={pi} style={{ fontSize: 17, fontWeight: 600, color: P.ink, margin: "28px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{h3[1]}</h4>;
+    // Bold-line headers (e.g., "**Mechanism**")
     const boldHeader = para.match(/^\*\*([^*]+)\*\*\s*$/);
-    if (boldHeader) return <h4 key={pi} style={{ fontSize: 16.5, fontWeight: 700, color: accent, margin: "26px 0 8px", letterSpacing: "-0.01em", fontFamily: "var(--cb-body)" }}>{boldHeader[1]}</h4>;
+    if (boldHeader) return <h4 key={pi} style={{ fontSize: 17, fontWeight: 700, color: accent, margin: "30px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{boldHeader[1]}</h4>;
+
+    // Bullet lists: lines starting with "- " or "• "
+    const bulletMatch = para.match(/^(?:[•\-]\s+.+\n?)+$/m);
+    if (bulletMatch) {
+      const items = para.split("\n").filter(l => /^[•\-]\s+/.test(l)).map(l => l.replace(/^[•\-]\s+/, ""));
+      return (
+        <ul key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none" }}>
+          {items.map((item, ii) => (
+            <li key={ii} style={{ fontSize: 16.5, lineHeight: 1.8, color: P.ink, marginBottom: 8, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-body)", fontWeight: 420 }}>
+              <span style={{ position: "absolute", left: -12, top: "0.55em", width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.7 }} />
+              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite)}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+
+    // Numbered lists: lines starting with "1. ", "2. ", etc.
+    const numberedMatch = para.match(/^(?:\d+\.\s+.+\n?)+$/m);
+    if (numberedMatch) {
+      const items = para.split("\n").filter(l => /^\d+\.\s+/.test(l)).map(l => l.replace(/^\d+\.\s+/, ""));
+      return (
+        <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
+          {items.map((item, ii) => (
+            <li key={ii} style={{ fontSize: 16.5, lineHeight: 1.8, color: P.ink, marginBottom: 8, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-body)", fontWeight: 420, counterIncrement: "cb-list" }}>
+              <span style={{ position: "absolute", left: -8, top: 0, fontSize: 12, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", opacity: 0.8 }}>{ii + 1}.</span>
+              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite)}
+            </li>
+          ))}
+        </ol>
+      );
+    }
+
     return (
-    // v6.4: bumped from 16px/1.8 — the answer is the whole point of the
-    // product, and this makes long-form reading noticeably more comfortable
-    // without tipping into "large print" territory.
     <p key={pi} style={{ fontSize: 17.5, lineHeight: 1.85, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 420 }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
-          {line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|\[\d+\])/g).map((seg, si) => {
-            const b = seg.match(/^\*\*([^*]+)\*\*$/);
-            if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 600 }}>{b[1]}</strong>;
-            const it = seg.match(/^\*([^*\n]+)\*$/);
-            if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{it[1]}</em>;
-            const ul = seg.match(/^_([^_\n]+)_$/);
-            if (ul) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{ul[1]}</em>;
-            const c = seg.match(/^\[(\d+)\]$/);
-            if (c) {
-              const n = parseInt(c[1], 10); const src = sources[n - 1];
-              return <a key={si} href={`#ref-${n}`} title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)}
-                onClick={(e) => {
-                  e.preventDefault();
-                  const el = document.getElementById(`ref-${n}`);
-                  if (el) {
-                    el.scrollIntoView({ behavior: "smooth", block: "center" });
-                    el.style.transition = "background 0.3s";
-                    el.style.background = withAlpha(accent, 0.15);
-                    setTimeout(() => { el.style.background = "transparent"; }, 1400);
-                  }
-                }}
-                style={{
-                  fontSize: 10, verticalAlign: "super", color: accent,
-                  textDecoration: "none", fontWeight: 700,
-                  fontFamily: "var(--cb-mono)",
-                  padding: "1px 5px", borderRadius: 4,
-                  background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.08),
-                  transition: "background 0.15s ease", cursor: "pointer",
-                }}>{n}</a>;
-            }
-            return <span key={si}>{seg}</span>;
-          })}
+          {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)}
           {li < para.split("\n").length - 1 && <br />}
         </React.Fragment>
       ))}
@@ -510,7 +498,45 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     );
   });
 }
-function at2(a) { return a; }
+
+/** Inline segment renderer — handles bold, italic, underline, citations, and inline code */
+function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite) {
+  return line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[\d+\])/g).map((seg, si) => {
+    const b = seg.match(/^\*\*([^*]+)\*\*$/);
+    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 650 }}>{b[1]}</strong>;
+    const it = seg.match(/^\*([^*\n]+)\*$/);
+    if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{it[1]}</em>;
+    const ul = seg.match(/^_([^_\n]+)_$/);
+    if (ul) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{ul[1]}</em>;
+    // Inline code backticks
+    const code = seg.match(/^`([^`\n]+)`$/);
+    if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-mono)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: 4, color: accent }}>{code[1]}</code>;
+    const c = seg.match(/^\[(\d+)\]$/);
+    if (c) {
+      const n = parseInt(c[1], 10); const src = (sources || [])[n - 1];
+      return <a key={si} href={`#ref-${n}`} title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)}
+        onClick={(e) => {
+          e.preventDefault();
+          const el = document.getElementById(`ref-${n}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.style.transition = "background 0.3s";
+            el.style.background = withAlpha(accent, 0.15);
+            setTimeout(() => { el.style.background = "transparent"; }, 1400);
+          }
+        }}
+        style={{
+          fontSize: 10, verticalAlign: "super", color: accent,
+          textDecoration: "none", fontWeight: 700,
+          fontFamily: "var(--cb-mono)",
+          padding: "1px 5px", borderRadius: 4,
+          background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.08),
+          transition: "background 0.15s ease", cursor: "pointer",
+        }}>{n}</a>;
+    }
+    return <span key={si}>{seg}</span>;
+  });
+}
 
 
 /* ============================================================
@@ -564,11 +590,35 @@ function FactCheck({ fc, P, accent }) {
   );
 }
 
-function Skeleton({ P }) {
-  const bar = (w) => <div style={{ height: 12, width: w, borderRadius: 4, background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.3s infinite" }} />;
+function Skeleton({ P, accent }) {
+  const bar = (w, h = 12, delay = 0) => (
+    <div style={{
+      height: h, width: w, borderRadius: 6,
+      background: `linear-gradient(90deg, ${P.skel} 25%, ${P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} 50%, ${P.skel} 75%)`,
+      backgroundSize: "200% 100%",
+      animation: `cbShimmer 1.8s ease-in-out ${delay}ms infinite`,
+    }} />
+  );
   return (
-    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 14, padding: "24px 28px", display: "flex", flexDirection: "column", gap: 12 }}>
-      {bar("90%")}{bar("100%")}{bar("82%")}<div style={{ height: 4 }} />{bar("94%")}{bar("68%")}
+    <div style={{
+      background: P.dark ? "rgba(5,8,22,0.7)" : "rgba(255,255,255,0.7)",
+      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      border: P.dark ? "1px solid rgba(255,255,255,0.06)" : `1px solid ${P.line}`,
+      borderRadius: 18, padding: "32px 34px",
+      display: "flex", flexDirection: "column", gap: 14,
+    }}>
+      {/* Simulated header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        {bar("80px", 18, 0)}
+        {bar("50px", 18, 100)}
+      </div>
+      {/* Simulated paragraph */}
+      {bar("95%", 13, 150)}
+      {bar("100%", 13, 250)}
+      {bar("88%", 13, 350)}
+      <div style={{ height: 6 }} />
+      {bar("92%", 13, 450)}
+      {bar("76%", 13, 550)}
     </div>
   );
 }
@@ -582,12 +632,13 @@ function useIsMobile() {
 function LoadingLine({ P, accent, S }) {
   const [msg, setMsg] = useState(() => LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
   const [stage, setStage] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const STAGES = [
-    "Querying 16 indexes",
-    "Merging and de-duplicating",
-    "Scoring relevance",
-    "Checking for retractions",
-    "Writing the answer",
+    { label: "Querying 14 indexes", icon: "🔍" },
+    { label: "Merging and de-duplicating", icon: "🔗" },
+    { label: "Scoring relevance", icon: "📊" },
+    { label: "Checking for retractions", icon: "🛡" },
+    { label: "Writing the answer", icon: "✍" },
   ];
   useEffect(() => {
     const msgId = setInterval(() => {
@@ -600,13 +651,25 @@ function LoadingLine({ P, accent, S }) {
       });
     }, 2600);
     const stageId = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 1900);
-    return () => { clearInterval(msgId); clearInterval(stageId); };
+    const clockId = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => { clearInterval(msgId); clearInterval(stageId); clearInterval(clockId); };
   }, []);
+
+  const progress = Math.min(100, ((stage + 1) / STAGES.length) * 100);
 
   return (
     <div style={{ padding: "20px 0 4px" }}>
-      {/* Synapse loader */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+      {/* Progress bar */}
+      <div style={{ height: 3, borderRadius: 2, background: P.line, overflow: "hidden", marginBottom: 18 }}>
+        <div style={{
+          height: "100%", borderRadius: 2,
+          background: `linear-gradient(90deg, ${accent}, ${withAlpha(accent, 0.6)})`,
+          width: progress + "%",
+          transition: "width 800ms cubic-bezier(0.16,1,0.3,1)",
+        }} />
+      </div>
+      {/* Synapse loader + fun message */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }} aria-hidden="true">
           {[0, 1, 2].map((i) => (
             <span key={i} style={{
@@ -616,25 +679,44 @@ function LoadingLine({ P, accent, S }) {
             }} />
           ))}
         </div>
-        <span key={msg} className="cb-fade" style={{ fontSize: 13.5, color: P.ink2, letterSpacing: "-0.01em", fontWeight: 450, fontFamily: "var(--cb-body)" }}>
+        <span key={msg} className="cb-fade" style={{ fontSize: 13.5, color: P.ink2, letterSpacing: "-0.01em", fontWeight: 450, fontFamily: "var(--cb-body)", flex: 1 }}>
           {msg}
         </span>
-      </div>
-      {/* Stage progress */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 1 }}>
-        <div style={{ display: "flex", gap: 3 }} aria-hidden="true">
-          {STAGES.map((_, i) => (
-            <span key={i} style={{
-              width: i === stage ? 20 : 4, height: 3, borderRadius: 2,
-              background: i <= stage ? accent : P.line2,
-              opacity: i <= stage ? 1 : 0.5,
-              transition: "width 320ms cubic-bezier(0.16,1,0.3,1), background 320ms",
-            }} />
-          ))}
-        </div>
-        <span key={stage} className="cb-fade" style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>
-          {STAGES[stage]}
+        <span style={{ fontSize: 10, color: P.faint, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>
+          {elapsed}s
         </span>
+      </div>
+      {/* Stage steps */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 1 }}>
+        {STAGES.map((s, i) => (
+          <div key={i} style={{
+            display: "flex", alignItems: "center", gap: 10,
+            opacity: i <= stage ? 1 : 0.35,
+            transition: "opacity 400ms ease",
+          }}>
+            <span style={{
+              width: 18, height: 18, borderRadius: 5,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 10,
+              background: i < stage ? withAlpha(accent, 0.12) : i === stage ? withAlpha(accent, 0.2) : "transparent",
+              color: i <= stage ? accent : P.faint,
+              fontWeight: 700, fontFamily: "var(--cb-mono)",
+              border: i === stage ? `1px solid ${withAlpha(accent, 0.3)}` : "1px solid transparent",
+              transition: "all 400ms ease",
+            }}>
+              {i < stage ? "✓" : i === stage ? s.icon : "·"}
+            </span>
+            <span style={{
+              fontSize: 11.5,
+              color: i === stage ? P.ink : i < stage ? P.ink2 : P.faint,
+              fontFamily: "var(--cb-mono)", letterSpacing: "0.01em",
+              fontWeight: i === stage ? 600 : 400,
+              transition: "color 400ms ease, font-weight 400ms ease",
+            }}>
+              {s.label}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -819,7 +901,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
           filter: revealed ? "blur(0)" : "blur(6px)",
           transition: "all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.35s",
         }}>
-          Cerebrum searches 16 scholarly databases in parallel and writes
+          Cerebrum searches 14 scholarly databases in parallel and writes
           you an answer where every claim traces back to a real, citable source.
         </p>
 
@@ -862,7 +944,10 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
         {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE", "arXiv"].map((d) => (
           <span key={d} style={{ fontSize: 10, fontWeight: 500, color: "#6b7a90", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{d}</span>
         ))}
-        <span style={{ fontSize: 10, color: "#3d4a5c", fontFamily: "var(--cb-mono)", letterSpacing: "0.1em" }}>+10</span>
+        {/* Bug: said "+10" after 6 named databases (implying 16 total) —
+            the real backend fanout queries 14. See matching fix in the
+            trustRow strip elsewhere in this file. */}
+        <span style={{ fontSize: 10, color: "#3d4a5c", fontFamily: "var(--cb-mono)", letterSpacing: "0.1em" }}>+8</span>
       </div>
     </div>
   );
@@ -989,12 +1074,6 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
   );
 }
 
-function BrainEasterEgg() {
-  const [wiggleKey, setWiggleKey] = useState(0);
-  const trigger = () => setWiggleKey((k) => k + 1);
-  return { trigger, wiggleKey, render: null };
-}
-
 
 /* ════════════════════════════════════════════════════════════════
    UPGRADE 1: CUSTOM BLEND-MODE CURSOR
@@ -1075,7 +1154,29 @@ function AnswerPlayer({ text, accent, P }) {
   const [useElevenLabs, setUseElevenLabs] = useState(false);
   useEffect(() => { try { setUseElevenLabs(!!localStorage.getItem("cb_eleven_key")); } catch {} }, []);
   const stop = () => { if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } try { window.speechSynthesis.cancel(); } catch {} utterRef.current = null; setStatus("idle"); setProgress(0); };
-  const playBrowser = () => { if (!window.speechSynthesis) return; window.speechSynthesis.cancel(); const utter = new SpeechSynthesisUtterance(text); utter.rate = 1.0; utter.pitch = 1.0; const voices = window.speechSynthesis.getVoices(); const pref = voices.find((v) => /Google.*(US|English)|Samantha|Alex|Karen|Daniel/i.test(v.name)) || voices.find((v) => /en/i.test(v.lang)); if (pref) utter.voice = pref; utter.onstart = () => setStatus("playing"); utter.onend = () => { setStatus("idle"); setProgress(0); }; utter.onerror = () => { setStatus("idle"); setProgress(0); }; utter.onboundary = (e) => { if (e.charIndex && text.length) setProgress(e.charIndex / text.length); }; utterRef.current = utter; window.speechSynthesis.speak(utter); };
+  const playBrowser = () => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.0; utter.pitch = 1.0;
+    const voices = window.speechSynthesis.getVoices();
+    // Bug: this ignored the user's saved Male/Female preference
+    // (`cb_tts_voice`, set via TtsVoiceSetting and honored by
+    // playCerebrum()'s backend call) entirely — if the backend TTS call or
+    // ElevenLabs failed and this browser fallback engaged, the chosen voice
+    // was silently dropped for a fixed, gender-blind name guess.
+    let voicePref = "";
+    try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {}
+    const femaleNames = /Samantha|Karen|Victoria|Female/i;
+    const maleNames = /Alex|Daniel|David|Fred|Male/i;
+    const genderRe = voicePref === "male" ? maleNames : voicePref === "female" ? femaleNames : null;
+    const pref =
+      (genderRe && voices.find((v) => genderRe.test(v.name) && /en/i.test(v.lang))) ||
+      voices.find((v) => /Google.*(US|English)|Samantha|Alex|Karen|Daniel/i.test(v.name)) ||
+      voices.find((v) => /en/i.test(v.lang));
+    if (pref) utter.voice = pref;
+    utter.onstart = () => setStatus("playing"); utter.onend = () => { setStatus("idle"); setProgress(0); }; utter.onerror = () => { setStatus("idle"); setProgress(0); }; utter.onboundary = (e) => { if (e.charIndex && text.length) setProgress(e.charIndex / text.length); }; utterRef.current = utter; window.speechSynthesis.speak(utter);
+  };
   const playEleven = async () => {
     // Bug: unlike the sibling playCerebrum() below (which wraps its
     // localStorage read in try/catch), these two reads were unguarded.
@@ -1162,8 +1263,8 @@ function InfoPage({ page }) {
   const isMobile = useIsMobile();
   const goHome = () => { try { setCookie("cb_entered_v4", "1", 365); } catch {} window.location.href = "/"; };
   const PAGES = {
-    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no account, no selling data."] } ] },
-    privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible", lede: "No tracking pixels. No third-party analytics. No account. No selling data — there is nothing to sell.", updated: "Last updated August 2026", blocks: [ { h: "What we don't do", list: ["No tracking pixels, third-party analytics, or ad networks.", "No account, email, or personal information required.", "No selling, sharing, or profiling of user data.", "No tracking cookies. Preferences live in your browser's local storage and never leave your device."] }, { h: "What happens when you search", list: ["Your question is sent to Cerebrum's server to query databases and generate an answer.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others).", "The question is sent to a language-model provider (OpenRouter or Cloudflare Workers AI) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention.", "We do not permanently store your questions."] }, { h: "Local storage", p: "Saved articles, session history, and preferences (theme, motion, voice) are stored only in your browser via localStorage. Clearing your browser data removes them entirely." }, { h: "Children", p: "Cerebrum is not directed at children under 13." } ] },
+    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no account, no selling data."] } ] },
+    privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible", lede: "No tracking pixels. No third-party analytics. No account. No selling data — there is nothing to sell.", updated: "Last updated August 2026", blocks: [ { h: "What we don't do", list: ["No tracking pixels, third-party analytics, or ad networks.", "No account, email, or personal information required.", "No selling, sharing, or profiling of user data.", "No tracking cookies. Preferences live in your browser's local storage and never leave your device."] }, { h: "What happens when you search", list: ["Your question is sent to Cerebrum's server to query databases and generate an answer.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others).", "The question is sent to a language-model provider (OpenRouter, Cloudflare Workers AI, or Pollinations) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention.", "We do not permanently store your questions."] }, { h: "Local storage", p: "Saved articles, session history, and preferences (theme, motion, voice) are stored only in your browser via localStorage. Clearing your browser data removes them entirely." }, { h: "Optional integrations", p: "If you paste an ElevenLabs API key in Settings for higher-quality text-to-speech, that key is stored only in your browser's local storage and sent directly to ElevenLabs when you use the Listen feature — it never passes through Cerebrum's server." }, { h: "Children", p: "Cerebrum is not directed at children under 13." } ] },
     terms: { eyebrow: "Terms", title: "The rules that keep this usable for everyone", lede: "Cerebrum is a free tool provided as-is. Using it means agreeing to a few common-sense terms.", updated: "Last updated August 2026", blocks: [ { h: "What Cerebrum is", p: "A free scientific literature search tool that returns AI-generated summaries of retrieved peer-reviewed papers, provided as-is with no warranty." }, { h: "Accuracy is not guaranteed", p: "Answers are generated by a language model from retrieved abstracts. Models can misread or misattribute. Verify anything important against the cited sources. Cerebrum is not a substitute for a qualified professional." }, { h: "Acceptable use", list: ["Don't disrupt, degrade, or circumvent the service or its rate limits.", "Don't systematically scrape, mirror, or resell answers.", "Don't generate content meant to defraud, defame, harass, or endanger.", "Don't violate the terms of the upstream scholarly APIs."] }, { h: "Third-party content", p: "Cerebrum links to papers hosted by publishers and repositories. We aren't responsible for their content, availability, or licensing — follow each publisher's terms." }, { h: "Availability & liability", p: "Cerebrum is free and comes with no availability guarantee. To the maximum extent allowed by law, we aren't liable for damages arising from your use of the service." } ] },
     contact: { eyebrow: "Contact", title: "Tell us what's broken or missing", lede: "Bug reports, feature requests, feedback, security issues — all welcome.", blocks: [ { h: "Email", email: "contact@askcerebrum.org", p: "Include as much detail as you can. A bug report is far easier to act on with the exact query, your browser, and what you expected to see." }, { h: "Reporting a bad answer", p: "Found a wrong species, an invented citation, a misattributed finding? Email the exact question and a short description. This is how the system improves." }, { h: "Security", p: "Discovered a vulnerability? Email us with details and please hold off on public disclosure until we've had a chance to respond." }, { h: "Blocked at work?", p: "If your organization's web filter is blocking Cerebrum, email us — we can help get it recategorized correctly as Reference / Educational." } ] },
   };
@@ -1341,11 +1442,6 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
       {/* Answer card */}
       <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
         {t.sources && t.sources.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-            {t.answer && <span style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
-          </div>
-        )}
-        {t.sources && t.sources.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "3px 10px", borderRadius: 20, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
             {t.answer && <span style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
@@ -1462,7 +1558,7 @@ function HowItWorksModal({ P, accent, close }) {
     </ul>
   );
   return (
-    <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="How Cerebrum works" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 600, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}` }} className="cb-modal">
         <div style={{ position: "sticky", top: 0, background: P.bg, padding: "20px 24px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
@@ -1472,12 +1568,12 @@ function HowItWorksModal({ P, accent, close }) {
           <button onClick={close} style={{ background: "none", border: "none", fontSize: 20, color: P.faint, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
         </div>
         <div style={{ padding: "24px 24px 32px" }}>
-          <Section title="The retrieval layer">Every query fans out to 10-plus scholarly databases in parallel, all free and keyless.
-            <List items={[<><strong>Europe PMC</strong> — biomedical, includes preprints</>,<><strong>PubMed</strong> (NCBI E-utilities) — biomedical, automatic term mapping</>,<><strong>OpenAlex</strong> — cross-disciplinary, concept graph</>,<><strong>Crossref</strong> — DOI-registered works, checked for retraction status</>,<><strong>arXiv</strong> — physics, math, CS, quantitative biology</>,<><strong>Semantic Scholar</strong> — includes auto-generated TL;DR summaries</>,<><strong>bioRxiv</strong> preprints (via OpenAlex)</>,<><strong>DOAJ, PLOS, Zenodo, DataCite</strong> — additional coverage</>]} />
+          <Section title="The retrieval layer">Every query fans out to 14 scholarly databases in parallel, all free and keyless.
+            <List items={[<><strong>Europe PMC</strong> — biomedical, includes preprints</>,<><strong>PubMed</strong> (NCBI E-utilities) — biomedical, automatic term mapping</>,<><strong>OpenAlex</strong> — cross-disciplinary, concept graph</>,<><strong>Crossref</strong> — DOI-registered works, checked for retraction status</>,<><strong>arXiv</strong> — physics, math, CS, quantitative biology</>,<><strong>Semantic Scholar</strong> — includes auto-generated TL;DR summaries</>,<><strong>bioRxiv</strong> preprints (via OpenAlex)</>,<><strong>DOAJ, PLOS, Zenodo</strong> — additional open-access coverage</>,<><strong>CORE, BASE, PMC full-text, OpenAIRE</strong> — additional aggregator/repository coverage</>]} />
           </Section>
           <Section title="Query intelligence"><List items={[<><strong>Species queries</strong> are wrapped in quoted phrases with strict species-level filtering.</>,<><strong>Author queries</strong> hit OpenAlex's author disambiguation endpoint.</>,<><strong>Acronym expansion</strong> for common scientific abbreviations.</>,<><strong>Fallback ladder</strong>: if a strict query returns nothing, we retry looser, then plain.</>]} /></Section>
           <Section title="Trust and safety"><List items={[<><strong>Retraction flagging</strong> via Crossref's crossmark data.</>,<><strong>No fabricated citations</strong> — the AI is instructed to never invent DOIs, authors, or journal names.</>,<><strong>Honest hedging</strong> — when literature is thin, the model says so.</>]} /></Section>
-          <Section title="The AI layer">Answers are synthesized by free-tier language models, tried in order: OpenRouter free models (Gemini 2.0 Flash, Llama 3.3 70B, Qwen 2.5 72B, Mistral Small, DeepSeek Chat, Llama 3.1 8B), then Cloudflare Workers AI, then Pollinations as a keyless last resort.</Section>
+          <Section title="The AI layer">Answers are synthesized by free-tier language models. Dozens of models across three providers (OpenRouter, Cloudflare Workers AI, and Pollinations) are raced in parallel in two waves — whichever responds first with a good answer wins — so a slow or rate-limited provider can't stall the others.</Section>
           <Section title="Known limitations"><List items={["New preprints may not be indexed anywhere for hours or days.","The AI can misinterpret papers — verify claims.","Free AI models rate-limit under load.","Non-English literature is under-indexed."]} /></Section>
           <Section title="What Cerebrum is not"><List items={["Not a replacement for reading the actual papers","Not a systematic review tool","Not medical, legal, or financial advice","Not paywalled or ad-supported"]} /></Section>
           <div style={{ fontSize: 11, color: P.faint, marginTop: 24, paddingTop: 16, borderTop: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" }}>Cerebrum™ · Built by Vaticay</div>
@@ -1561,7 +1657,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
   );
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: P.dark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 }} onClick={close} className="cb-backdrop">
+    <div role="dialog" aria-modal="true" aria-label="Settings" style={{ position: "fixed", inset: 0, background: P.dark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 }} onClick={close} className="cb-backdrop">
       <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: sectionBg, borderRadius: isMobile ? 14 : 16, width: 500, maxWidth: "100%", maxHeight: isMobile ? "92dvh" : "85vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
 
         {/* Header */}
@@ -1594,16 +1690,24 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               } last />
             </Section>
 
-            <Section title="Search" footer="Cerebrum queries 16 scholarly databases including PubMed, Europe PMC, OpenAlex, and Semantic Scholar.">
-              <Row label="Auto-play search tone" desc="Ambient sound while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
+            <Section title="Search" footer="Cerebrum queries 14 scholarly databases including PubMed, Europe PMC, OpenAlex, and Semantic Scholar.">
+              {/* Bug: this switch is the exact same `muted` state as the "Sound
+                  effects" switch on the Audio tab below, but was labeled here
+                  as if it only controlled search ambience ("Auto-play search
+                  tone" / "Ambient sound while searching") — it actually mutes
+                  ALL UI sound (clicks, hovers, ambience alike). Relabeled to
+                  match what it actually does and to stop duplicating the
+                  "Search sound" row directly beneath it. */}
+              <Row label="Sound effects" desc="Click sounds and ambient search tones" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
               <Row label="Search sound" control={
                 <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Audio.preview(v); }} />
               } last />
             </Section>
 
             <Section title="Motion">
-              <Row label="Background effects" desc="Ambient particle animation" control={<Switch on={animationMode !== "off"} onChange={(v) => setAnimationMode(v ? "cinematic" : "off")} label="Animations" />} />
-              <Row label="Reduced motion" desc="Minimizes entrance animations" control={<Switch on={animationMode === "subtle"} onChange={(v) => setAnimationMode(v ? "subtle" : "cinematic")} label="Reduced motion" />} last />
+              <Row label="Animation" desc="Background particles and entrance effects" control={
+                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
+              } last />
             </Section>
           </>)}
 
@@ -1657,7 +1761,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
             </Section>
 
             <Section title="Motion">
-              <Row label="Reduce motion" desc="Disables background animations and entrance effects" control={<Switch on={animationMode === "off"} onChange={(v) => { sfx(); setAnimationMode(v ? "off" : "cinematic"); }} label="Reduce motion" />} last />
+              <Row label="Reduce motion" desc="Disables background animations and entrance effects" control={<Switch on={animationMode === "off"} onChange={(v) => { sfx(); setAnimationMode(v ? "off" : lastAnimModeRef.current); }} label="Reduce motion" />} last />
             </Section>
 
             <Section title="Voice">
@@ -1684,7 +1788,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
           </>)}
 
           {tab === "data" && (<>
-            <Section title="Storage" footer="All data is stored locally in your browser. Cerebrum never sends your data to external servers.">
+            <Section title="Storage" footer="Saved articles and preferences are stored locally in your browser. Your search queries are sent to Cerebrum's server to run the search — see the Privacy page for details.">
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} />
               <Row label="Clear all data" destructive control={
                 confirmClear
@@ -1799,16 +1903,16 @@ function makeStyles(P, accent, at, isMobile = false) {
       top: "-20%", left: "50%", transform: "translateX(-50%)", filter: "blur(100px)", pointerEvents: "none" 
     },
     heroMark: { marginBottom: 32, position: "relative" },
-    heroTitle: { 
-      fontSize: isMobile ? 48 : 80, fontWeight: 700, 
-      letterSpacing: "-0.05em", lineHeight: 0.95, 
-      color: P.ink, marginBottom: 20, position: "relative", 
+    heroTitle: {
+      fontSize: isMobile ? 52 : 84, fontWeight: 700,
+      letterSpacing: "-0.05em", lineHeight: 0.92,
+      color: P.ink, marginBottom: 24, position: "relative",
       fontFamily: "var(--cb-body)",
     },
-    heroSub: { 
-      fontSize: isMobile ? 16 : 18, color: P.ink2, 
-      maxWidth: 520, lineHeight: 1.6, marginBottom: 48, 
-      letterSpacing: "-0.01em", position: "relative", fontWeight: 400 
+    heroSub: {
+      fontSize: isMobile ? 16 : 19, color: P.ink2,
+      maxWidth: 540, lineHeight: 1.65, marginBottom: 52,
+      letterSpacing: "-0.01em", position: "relative", fontWeight: 400
     },
 
     /* ── Search bar: COMMAND CENTER ── */
@@ -1893,15 +1997,17 @@ function makeStyles(P, accent, at, isMobile = false) {
        content from the animated background. The single 
        biggest premium upgrade. ── */
     answerCard: {
-      background: P.dark ? "rgba(5,8,22,0.92)" : "rgba(255,255,255,0.85)",
-      backdropFilter: "blur(12px) saturate(1.1)",
-      WebkitBackdropFilter: "blur(12px) saturate(1.1)",
+      background: P.dark ? "rgba(5,8,22,0.94)" : "rgba(255,255,255,0.88)",
+      backdropFilter: "blur(16px) saturate(1.2)",
+      WebkitBackdropFilter: "blur(16px) saturate(1.2)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`,
-      borderRadius: 18,
-      padding: isMobile ? "28px 22px" : "44px 52px",
+      borderRadius: 20,
+      padding: isMobile ? "32px 24px" : "48px 56px",
       boxShadow: P.dark
-        ? "0 0 0 0.5px rgba(255,255,255,0.04) inset, 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3)"
-        : P.shadow,
+        ? "0 0 0 0.5px rgba(255,255,255,0.04) inset, 0 12px 48px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3)"
+        : `${P.shadow}, 0 0 0 0.5px rgba(0,0,0,0.03)`,
+      lineHeight: 1.75,
+      fontSize: isMobile ? 15 : 16,
     },
     byline: { 
       fontSize: 10, color: P.faint, 
@@ -1912,18 +2018,25 @@ function makeStyles(P, accent, at, isMobile = false) {
     aiTag: { fontSize: 10, color: P.faint, fontWeight: 500, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
-    error: { padding: "16px 20px", background: withAlpha("#e5484d", 0.08), color: "#e5484d", borderRadius: 12, fontSize: 14, border: `1px solid ${withAlpha("#e5484d", 0.2)}` },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(5,8,22,0.85)" : "rgba(255,255,255,0.9)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: glassBorder, borderRadius: 14, padding: "10px 10px 10px 20px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 16 },
-    relatedWrap: { marginTop: 28, paddingTop: 24, borderTop: `1px solid ${P.line}` },
-    relatedLabel: { fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 14, fontFamily: "var(--cb-mono)" },
-    relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 },
-    relatedBtn: { 
-      display: "flex", alignItems: "center", justifyContent: "space-between", 
-      gap: 12, textAlign: "left", padding: "12px 16px", 
-      fontSize: 13.5, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, color: P.ink2, 
-      border: glassBorder, borderRadius: 10, 
-      cursor: "pointer", fontFamily: font, 
-      transition: "all 0.25s ease", letterSpacing: "-0.01em" 
+    error: {
+      padding: "20px 24px", background: withAlpha("#e5484d", 0.06), color: "#e5484d",
+      borderRadius: 14, fontSize: 14, lineHeight: 1.6,
+      border: `1px solid ${withAlpha("#e5484d", 0.2)}`,
+      display: "flex", alignItems: "flex-start", gap: 12,
+      backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+    },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(5,8,22,0.85)" : "rgba(255,255,255,0.9)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: glassBorder, borderRadius: 14, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
+    relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
+    relatedLabel: { fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 8 },
+    relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
+    relatedBtn: {
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      gap: 12, textAlign: "left", padding: "14px 18px",
+      fontSize: 13.5, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, color: P.ink2,
+      border: glassBorder, borderRadius: 12,
+      cursor: "pointer", fontFamily: font,
+      transition: "all 0.25s ease", letterSpacing: "-0.01em",
+      lineHeight: 1.45,
     },
 
     /* ── Sources panel: dark glass sidebar ── */
@@ -1953,19 +2066,19 @@ function makeStyles(P, accent, at, isMobile = false) {
     zMsg: { fontSize: 11, color: accent, fontFamily: "var(--cb-mono)" },
     srcList: { display: "flex", flexDirection: "column", gap: 2 },
     empty: { fontSize: 13, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
-    srcItem: { padding: "14px 12px", margin: "0 -12px", borderRadius: 10, transition: "background 0.25s ease", borderBottom: `1px solid ${P.line}` },
-    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.4, fontWeight: 550, display: "block", marginBottom: 4, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
-    srcMeta: { fontSize: 11, color: P.ink2, lineHeight: 1.45, fontFamily: "var(--cb-mono)" },
+    srcItem: { padding: "16px 14px", margin: "0 -14px", borderRadius: 12, transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}` },
+    srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
+    srcMeta: { fontSize: 11, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-mono)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
     chipMini: { fontSize: 10.5, padding: "4px 10px", border: "1px solid", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, background: "transparent", transition: "all 0.2s ease" },
 
     /* ── Footer ── */
-    foot: { marginTop: "auto", padding: "20px 0 28px", textAlign: "center" },
+    foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
     footDbs: { fontSize: 10, letterSpacing: "0.06em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
 
     /* ── Mobile sources FAB ── */
-    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 12, padding: "12px 18px", fontSize: 12, fontWeight: 600, cursor: "pointer", boxShadow: `0 4px 20px ${withAlpha(accent, 0.35)}`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8 },
-    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 25 },
+    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 14, padding: "14px 20px", fontSize: 12, fontWeight: 600, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}, 0 2px 8px rgba(0,0,0,0.2)`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" },
+    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", zIndex: 25 },
 
     /* ── Command palette ── */
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh", zIndex: 50 },
@@ -2065,7 +2178,11 @@ function ToastHost({ P, accent }) {
   }, []);
   if (!toasts.length) return null;
   return (
-    <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
+    // Bug: toasts (including the clipboard-copy/share confirmations and
+    // failures) updated only visually — a screen-reader user got zero
+    // announcement for any of them. role="status" + aria-live="polite"
+    // makes assistive tech announce new toasts as they appear.
+    <div role="status" aria-live="polite" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
       {toasts.map((t) => (
         <div key={t.id} className="cb-toast-pop" style={{
           background: "rgba(18,20,32,0.96)", color: "#fff", padding: "10px 16px", borderRadius: 10,
@@ -2116,6 +2233,20 @@ function App() {
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
   const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim") || "cinematic");
+  // Bug: three independent binary Switches (General>Motion "Background
+  // effects", General>Motion "Reduced motion", Accessibility>Motion "Reduce
+  // motion") used to each control this same 3-way ("off"|"subtle"|
+  // "cinematic") value, but each only recognized two of the three states —
+  // so enabling one could silently clobber a choice made via another. E.g.
+  // Accessibility's "Reduce motion" (→"off") looked unchanged/unchecked on
+  // General's "Reduced motion" switch, and toggling THAT switch set the
+  // mode back to "subtle", silently re-enabling the animation the user had
+  // just turned off. Fixed by making General's motion control a single
+  // 3-way Picker (one authoritative control, no lossy binary projections),
+  // and having Accessibility's on/off shortcut restore the user's last
+  // non-off choice instead of hardcoding "cinematic" — tracked here.
+  const lastAnimModeRef = useRef(animationMode !== "off" ? animationMode : "cinematic");
+  useEffect(() => { if (animationMode !== "off") lastAnimModeRef.current = animationMode; }, [animationMode]);
   const [animPreset, setAnimPreset] = useState(() => getCookie("cb_animP") || "aurora");
   const [animDensity, setAnimDensity] = useState(() => parseFloat(getCookie("cb_animD") || "1"));
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
@@ -2148,7 +2279,6 @@ function App() {
   // something it actually depends on changes.
   const S = useMemo(() => makeStyles(P, accent, at, isMobile), [P, accent, at, isMobile]);
   const sfx = () => { if (!mutedRef.current) Audio.click(); };
-  const easterEgg = BrainEasterEgg({ accent, P, S });
 
   // Scroll progress bar
   // v6.4: reads window/document scroll now instead of a dedicated inner
@@ -2201,12 +2331,24 @@ function App() {
       videosPromise.then(({ videos }) => { if (videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
     } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
     finally { setBusy(false); }
-  }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile]);
+  }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections]);
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
   // v6.4: was threadRef.current.scrollTop = threadRef.current.scrollHeight —
-  // the document itself scrolls now, so scroll the window instead.
-  useEffect(() => { window.scrollTo(0, document.documentElement.scrollHeight); if (window.AOS) window.AOS.refresh(); }, [turns, busy]);
+  // unconditionally, on every new turn AND every busy toggle. That's a real
+  // regression on its own: if someone scrolls UP to re-read an earlier
+  // answer and then asks a follow-up (or the current answer just finishes
+  // streaming), this used to yank them all the way back down regardless of
+  // where they were reading — reported live as the page "jumping" out from
+  // under them. Standard chat-UI fix: only auto-scroll-to-latest if the
+  // user was ALREADY near the bottom (i.e. they were following along), so
+  // scrolling away to read something is respected instead of fought.
+  useEffect(() => {
+    const doc = document.documentElement;
+    const distanceFromBottom = doc.scrollHeight - (window.scrollY + doc.clientHeight);
+    const wasNearBottom = distanceFromBottom < 300;
+    if (wasNearBottom) window.scrollTo(0, doc.scrollHeight);
+  }, [turns, busy]);
   useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
   useEffect(() => { document.body.style.background = P.bg; }, [P]);
   // v6.4: the page now uses natural document scrolling (see makeStyles'
@@ -2216,12 +2358,31 @@ function App() {
   // document genuinely scrolls, an open modal needs its own explicit
   // scroll-lock or the page behind it will scroll along with touch/wheel
   // input that misses the modal's own content.
+  //
+  // v6.4 follow-up: a plain `body.style.overflow = "hidden"` toggle is a
+  // known-unreliable way to lock scroll — several browsers/engines don't
+  // reliably preserve the exact scroll offset across that toggle, which can
+  // present as the page snapping back to the top the moment a modal closes.
+  // Pin the body at its current visual scroll position explicitly instead
+  // (the standard robust scroll-lock pattern) and restore that exact
+  // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
     const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel;
     if (!anyOverlayOpen) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prevOverflow; };
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const prev = { overflow: body.style.overflow, position: body.style.position, top: body.style.top, width: body.style.width };
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    return () => {
+      body.style.overflow = prev.overflow;
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.width = prev.width;
+      window.scrollTo(0, scrollY);
+    };
   }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
@@ -2285,6 +2446,12 @@ function App() {
   const exportList = saved.length ? saved : allSources;
   const filteredSources = allSources.filter((s) => { if (!srcFilter.trim()) return true; const f = srcFilter.toLowerCase(); return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f); });
   const sortedSources = [...filteredSources].sort((a, b) => { if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0); if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || ""); return (b.relevance ?? 0) - (a.relevance ?? 0); });
+  // Bug: SourceCard's global index used to be looked up via
+  // `allSources.indexOf(s)` inside the render loop — O(n) per source, O(n²)
+  // for the whole list. `sortedSources`/`grouped` reorder the SAME object
+  // references as `allSources` (spread+sort, not a deep clone), so a single
+  // reference-keyed Map built once gives O(1) lookups instead.
+  const sourceIndexMap = new Map(allSources.map((s, i) => [s, i]));
   const grouped = (() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; })();
   const relColor = (r) => r >= 65 ? "#10b981" : r >= 45 ? "#d9a520" : "#9ca3af";
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
@@ -2330,7 +2497,7 @@ function App() {
       <div style={S.srcList} className="cb-stagger">
         {allSources.length === 0 ? <div style={S.empty} className="cb-fade">Sources appear here as you research.</div> :
           sortedSources.length === 0 ? <div style={S.empty} className="cb-fade">No sources match "{srcFilter}".</div> :
-          grouped ? grouped.map(([label, items]) => (<div key={label} className="cb-fade"><div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>{items.map((s, i) => SourceCard(s, allSources.indexOf(s)))}</div>)) : sortedSources.map((s) => SourceCard(s, allSources.indexOf(s)))}
+          grouped ? grouped.map(([label, items]) => (<div key={label} className="cb-fade"><div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>{items.map((s) => SourceCard(s, sourceIndexMap.get(s)))}</div>)) : sortedSources.map((s) => SourceCard(s, sourceIndexMap.get(s)))}
       </div>
     </>
   );
@@ -2358,11 +2525,9 @@ function App() {
           <div style={{ ...S.brandRow, position: "relative" }}>
             
               <div onClick={(e) => { e.stopPropagation(); try { document.cookie = "cb_entered_v4=; path=/; max-age=0"; } catch {} window.location.reload(); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); try { document.cookie = "cb_entered_v4=; path=/; max-age=0"; } catch {} window.location.reload(); } }} role="button" tabIndex={0} aria-label="Back to landing page" style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                <span key={easterEgg.wiggleKey} className={easterEgg.wiggleKey > 0 ? "cb-wiggle" : ""} style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
+                <span style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
                 <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
               </div>
-            
-            {easterEgg.render}
           </div>
           <div style={S.headActions}>
             {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
@@ -2396,16 +2561,22 @@ function App() {
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
               <div style={S.trustRow}>
+                {/* Bug: this said "+ 10 more" after 6 named databases (implying
+                    16 total), matching the stale "16 databases" figure that
+                    was hardcoded in several other places (index.html meta
+                    tags, Settings footer, HowItWorksModal) — the real backend
+                    fanout (functions/api/search.js's `sourceNames`) queries
+                    14. Corrected to match. */}
                 {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
-                <span style={{ ...S.trustItem, color: P.faint }}>+ 10 more</span>
+                <span style={{ ...S.trustItem, color: P.faint }}>+ 8 more</span>
               </div>
             </div>
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : {}) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />))}
+                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Searching</span></div><div style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)", margin: "8px 0 12px", letterSpacing: "0.03em", opacity: 0.7 }}>Querying PubMed · Europe PMC · OpenAlex · Semantic Scholar · Crossref · arXiv</div><Skeleton P={P} /><LoadingLine P={P} accent={accent} S={S} /></div>)}
-                {error && <div style={S.error}>{error}</div>}
+                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>⚠</span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: 12, fontWeight: 600, background: withAlpha("#e5484d", 0.15), color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
                     <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Follow up — I remember the whole thread" />
@@ -2430,9 +2601,9 @@ function App() {
         </div>
       </div>
       {started && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 20, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
-      {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
-      {cmdOpen && (<div style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
-      {savedOpen && (<div style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={sourceKey(s) || i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(s)))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
+      {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside role="dialog" aria-modal="true" aria-label="Sources" style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
+      {cmdOpen && (<div role="dialog" aria-modal="true" aria-label="Command palette" style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
+      {savedOpen && (<div role="dialog" aria-modal="true" aria-label="Saved articles" style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={sourceKey(s) || i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(s)))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, close: () => setSettingsOpen(false) }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
       <ToastHost P={P} accent={accent} />
@@ -2529,11 +2700,6 @@ summary::-webkit-details-marker { display: none; }
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-4px); }
 }
-@keyframes cb-wiggle {
-  0%, 100% { transform: rotate(0deg); }
-  30%      { transform: rotate(-4deg); }
-  70%      { transform: rotate(3deg); }
-}
 @keyframes cbGlowPulse {
   0%, 100% { opacity: 0.4; transform: scale(1); }
   50%      { opacity: 0.8; transform: scale(1.1); }
@@ -2560,7 +2726,6 @@ summary::-webkit-details-marker { display: none; }
 .cb-hero    { animation: cbHero  900ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 400ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
-.cb-wiggle  { animation: cb-wiggle 400ms var(--cb-ease); }
 .cb-answer-enter.cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
 
 /* ── Stagger cascade: slower delays ── */
@@ -2783,15 +2948,79 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
   pointer-events: none;
 }
 
+/* ── Answer content typography — premium scientific reading experience ── */
+.cb-answer-enter p { margin: 0 0 1em; }
+.cb-answer-enter p:last-child { margin-bottom: 0; }
+.cb-answer-enter strong { font-weight: 650; }
+.cb-answer-enter em { font-style: italic; }
+.cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 {
+  font-family: var(--cb-display);
+  letter-spacing: -0.02em;
+  margin: 1.5em 0 0.5em;
+  line-height: 1.3;
+}
+.cb-answer-enter h1:first-child, .cb-answer-enter h2:first-child, .cb-answer-enter h3:first-child { margin-top: 0; }
+
+/* Citation superscript links within answers */
+.cb-answer-enter a[href^="#ref-"] {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px;
+  font-size: 10px; font-weight: 700; font-family: var(--cb-mono);
+  text-decoration: none;
+  border-radius: 4px;
+  vertical-align: super;
+  padding: 0 3px;
+  margin: 0 1px;
+  transition: all 0.15s ease;
+}
+.cb-answer-enter a[href^="#ref-"]:hover {
+  transform: scale(1.1);
+}
+
+/* Smooth scroll for citation jumps */
+html { scroll-behavior: smooth; }
+
 /* ── Print-friendly ── */
 @media print {
   header, footer, .cb-fab-pulse, button { display: none !important; }
   body, div { background: white !important; color: black !important; }
   * { backdrop-filter: none !important; box-shadow: none !important; }
+  .cb-answer-enter { font-size: 12pt !important; line-height: 1.6 !important; }
+  .cb-answer-enter strong { font-weight: bold !important; }
 }
 
 /* ── Text selection accent ── */
 ::selection { background: rgba(52, 211, 153, 0.25); }
+
+/* ── Scroll-to-top button ── */
+.cb-scroll-top {
+  transition: opacity 0.3s ease, transform 0.3s ease !important;
+}
+.cb-scroll-top:hover {
+  transform: translateY(-2px) !important;
+  opacity: 1 !important;
+}
+
+/* ── Smooth theme transitions ── */
+body {
+  transition: background-color 0.4s ease;
+}
+
+/* ── Better mobile touch targets ── */
+@media (max-width: 900px) {
+  button, a, input, select {
+    min-height: 44px;
+  }
+  .cb-hbtn {
+    min-width: 44px !important;
+  }
+}
+
+/* ── Loading step checklist ── */
+@keyframes cbCheckIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
@@ -2821,16 +3050,12 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
     df.href = "https://fonts.cdnfonts.com/css/opendyslexic";
     document.head.appendChild(df);
   }
-  // AOS — scroll-triggered animations
-  if (!document.getElementById("cb-aos-css")) {
-    const aosCSS = document.createElement("link");
-    aosCSS.id = "cb-aos-css"; aosCSS.rel = "stylesheet";
-    aosCSS.href = "https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css";
-    document.head.appendChild(aosCSS);
-  }
-  loadCDN("https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js").then(() => {
-    if (window.AOS) window.AOS.init({ duration: 600, easing: "ease-out-cubic", once: true, offset: 60 });
-  }).catch(() => {});
+  // Bug/dead weight: this used to also load the AOS scroll-animation
+  // library (a stylesheet + script from a CDN, plus an init call and a
+  // refresh() on every turn/busy change elsewhere in this file) even though
+  // zero elements anywhere in this app carry a `data-aos` attribute — AOS
+  // had no effect on anything, it just cost two extra network round-trips
+  // and a JS init/refresh cycle on every page load. Removed entirely.
   // Preload Vanta dependencies
   ensureVanta().catch(() => {});
 })();
