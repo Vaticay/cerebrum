@@ -1,5 +1,5 @@
 // Cerebrum backend - Cloudflare Pages Function.
-// Full rewrite for stability. Queries 16 scholarly databases in parallel,
+// Full rewrite for stability. Queries 14 scholarly databases in parallel,
 // races video proxies, synthesizes answers with sanitization.
 
 // ============ CORE UTILITIES ============
@@ -28,10 +28,28 @@ function decodeInverted(inv) {
 // trailing punctuation stripped) only when no DOI is present.
 function paperDedupeKey(p) {
   const url = (p && p.url) || "";
+  // DOI is the strongest unique identifier
   const doiMatch = url.match(/doi\.org\/(.+)$/i);
   if (doiMatch && doiMatch[1]) {
     return "doi:" + doiMatch[1].toLowerCase().replace(/\/+$/, "").trim();
   }
+  // PMID from PubMed/Europe PMC URLs is a strong secondary identifier
+  const pmidMatch = url.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i) ||
+                    url.match(/europepmc\.org\/article\/med\/(\d+)/i);
+  if (pmidMatch && pmidMatch[1]) {
+    return "pmid:" + pmidMatch[1];
+  }
+  // PMC IDs
+  const pmcMatch = url.match(/ncbi\.nlm\.nih\.gov\/pmc\/articles\/(PMC\d+)/i);
+  if (pmcMatch && pmcMatch[1]) {
+    return "pmc:" + pmcMatch[1].toLowerCase();
+  }
+  // arXiv IDs
+  const arxivMatch = url.match(/arxiv\.org\/abs\/([\d.]+)/i);
+  if (arxivMatch && arxivMatch[1]) {
+    return "arxiv:" + arxivMatch[1];
+  }
+  // Normalized title fallback
   const title = ((p && p.title) || "")
     .toLowerCase()
     .trim()
@@ -79,41 +97,63 @@ function versionedCacheKey(rawQuery) {
 const POLITE_UA =
   "Cerebrum/1.0 (askcerebrum.org; a free scientific literature search; mailto:contact@askcerebrum.org)";
 
-async function getJSON(url, headers = {}, timeoutMs = 6500) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": POLITE_UA, Accept: "application/json", ...headers },
-      signal: c.signal,
-      cf: { cacheTtl: 60, cacheEverything: true },
-    });
-    clearTimeout(t);
-    if (res.status === 429) throw new Error("HTTP 429 rate-limited");
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.json();
-  } catch (e) {
-    clearTimeout(t);
-    throw e;
+async function getJSON(url, headers = {}, timeoutMs = 6500, retries = 1) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": POLITE_UA, Accept: "application/json", ...headers },
+        signal: c.signal,
+        cf: { cacheTtl: 60, cacheEverything: true },
+      });
+      clearTimeout(t);
+      if (res.status === 429) throw new Error("HTTP 429 rate-limited");
+      // Retry on 502/503/504 — transient upstream failures that often self-heal
+      if (res.status >= 502 && res.status <= 504 && attempt < retries) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+        continue;
+      }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    } catch (e) {
+      clearTimeout(t);
+      // Retry on abort (timeout) if we have attempts left
+      if (attempt < retries && (e.name === "AbortError" || (e.message && e.message.includes("502")))) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
   }
 }
 
-async function getText(url, headers = {}, timeoutMs = 6500) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": POLITE_UA, ...headers },
-      signal: c.signal,
-      cf: { cacheTtl: 60, cacheEverything: true },
-    });
-    clearTimeout(t);
-    if (res.status === 429) throw new Error("HTTP 429 rate-limited");
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.text();
-  } catch (e) {
-    clearTimeout(t);
-    throw e;
+async function getText(url, headers = {}, timeoutMs = 6500, retries = 1) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": POLITE_UA, ...headers },
+        signal: c.signal,
+        cf: { cacheTtl: 60, cacheEverything: true },
+      });
+      clearTimeout(t);
+      if (res.status === 429) throw new Error("HTTP 429 rate-limited");
+      if (res.status >= 502 && res.status <= 504 && attempt < retries) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+        continue;
+      }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.text();
+    } catch (e) {
+      clearTimeout(t);
+      if (attempt < retries && (e.name === "AbortError" || (e.message && e.message.includes("502")))) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
   }
 }
 
@@ -286,7 +326,15 @@ function stripFabricatedCitations(text, sourceCount) {
     t = t.replace(/(?:^|\s)According to\s+[A-Z][a-zA-Z\-']+(?:\s+(?:and|&)\s+[A-Z][a-zA-Z\-']+)?\s*\(\d{4}[a-z]?\)\s*,\s*/gi, " ");
 
     // 4. Strip superscript-style numeric refs left dangling after words.
-    t = t.replace(/([a-z])\s*\u00b9|\u00b2|\u00b3|[\u2070-\u2079]/g, "$1");
+    // Bug: `|` has lower precedence than the surrounding group, so this used
+    // to parse as three independent alternatives \u2014 `([a-z])\s*\u00b9` OR `\u00b2` OR
+    // `[\u2070-\u2079]` \u2014 not "a letter followed by any superscript digit." The last
+    // two alternatives matched a bare superscript character ANYWHERE with no
+    // captured group, so "$1" became an empty string: "10\u00b2 cells" -> "10
+    // cells" (two orders of magnitude silently lost), "E=mc\u00b2 famous
+    // equation" -> "E=mc famous equation". Fixed by putting every superscript
+    // character in ONE character class inside the alternative.
+    t = t.replace(/([a-z])\s*[\u00b9\u00b2\u00b3\u2070-\u2079]/g, "$1");
 
     // 5. Strip PROSE-form invented references. With no retrieved papers the
     //    model still writes things like "a 2002 study published in the Journal
@@ -444,6 +492,18 @@ function cleanAIResponse(raw) {
   // Many free models add a "In conclusion, further research is needed" paragraph
   c = c.replace(/\n\n(In conclusion|In summary|To conclude|To summarize|Overall),?\s+[^\n]+$/i, "").trim();
 
+  // 8. Strip disclaimer/caveat paragraphs (v7.0)
+  // Free models frequently append caveats like "It's important to note that..."
+  // or "Please consult a healthcare professional" at the end
+  c = c.replace(/\n\n(?:It(?:'s| is) (?:important|worth|crucial) to (?:note|mention|emphasize) that|Please (?:note|consult|be aware)|Note: |Disclaimer:)[^\n]+$/i, "").trim();
+
+  // 9. Strip numbered source recap blocks at end (v7.0)
+  // Some models append "Sources used: [1] Title, [2] Title..." at the end
+  c = c.replace(/\n\n(?:Sources? (?:used|cited|referenced|consulted):?\s*\n(?:\s*\[?\d+\]?[^\n]+\n?)+)$/i, "").trim();
+
+  // 10. Strip "I hope this helps" / "Let me know if you" closers (v7.0)
+  c = c.replace(/\n\n?(?:I hope this (?:helps|answers|provides|clarifies)|Let me know if you (?:have|need|want|would like)|Feel free to (?:ask|reach|let me know)|Happy to (?:elaborate|explain|help))[^\n]*$/i, "").trim();
+
   return c;
 }
 
@@ -506,6 +566,75 @@ const SPELLING_CORRECTIONS = {
   "symbotic": "symbiotic",
   "metabalic": "metabolic", "metablism": "metabolism",
   "pathogensis": "pathogenesis", "carcinognesis": "carcinogenesis",
+  // Neuroscience & psychology
+  "nueron": "neuron", "nueral": "neural", "nuerological": "neurological",
+  "serotonin": "serotonin", "seratonin": "serotonin",
+  "dopamine": "dopamine", "dopamin": "dopamine",
+  "alzheimers": "alzheimer's", "alzheimr": "alzheimer",
+  "parkinsons": "parkinson's", "parkinons": "parkinson",
+  "schizophrnia": "schizophrenia", "scizophrenia": "schizophrenia",
+  "epilepsey": "epilepsy", "epilepsey": "epilepsy",
+  // Genetics & genomics
+  "chromosone": "chromosome", "chromosones": "chromosomes",
+  "alelle": "allele", "aleles": "alleles",
+  "epigentic": "epigenetic", "epigenitics": "epigenetics",
+  "trancsription": "transcription", "transcripton": "transcription",
+  "replicaiton": "replication", "replicaton": "replication",
+  "homologus": "homologous", "homologue": "homolog",
+  // Immunology & medicine
+  "immunodeficency": "immunodeficiency", "immunedeficiency": "immunodeficiency",
+  "inflamation": "inflammation", "inflamatory": "inflammatory",
+  "antibioitc": "antibiotic", "antibioitcs": "antibiotics",
+  "anitmicrobial": "antimicrobial",
+  "vaccien": "vaccine", "vacine": "vaccine",
+  "theraputic": "therapeutic", "therapuetics": "therapeutics",
+  "hemorrhage": "hemorrhage", "haemorrage": "hemorrhage",
+  "anaemia": "anemia",
+  // Chemistry & biochemistry
+  "catalyist": "catalyst", "cataylst": "catalyst",
+  "sythesis": "synthesis", "syntehsis": "synthesis",
+  "chromatograhy": "chromatography", "chromotography": "chromatography",
+  "spectroscpy": "spectroscopy", "spetroscopy": "spectroscopy",
+  "stoichimoetry": "stoichiometry", "stoichometry": "stoichiometry",
+  "thermodynamcis": "thermodynamics", "thermodynmics": "thermodynamics",
+  "equilbrium": "equilibrium", "equilibirum": "equilibrium",
+  // Ecology & evolution
+  "biodiveristy": "biodiversity", "biodivsersity": "biodiversity",
+  "phylogentic": "phylogenetic", "phylogeny": "phylogeny",
+  "symboisis": "symbiosis", "symbiois": "symbiosis",
+  "mutualsim": "mutualism", "commensalism": "commensalism",
+  "adapation": "adaptation", "adaptaion": "adaptation",
+  "extinciton": "extinction", "extincton": "extinction",
+  "sedimentation": "sedimentation", "sedimention": "sedimentation",
+  // Cell biology
+  "mitotsis": "mitosis", "meitosis": "meiosis",
+  "apoptsis": "apoptosis", "apooptosis": "apoptosis",
+  "endocytsis": "endocytosis", "exocytsis": "exocytosis",
+  "cytoplam": "cytoplasm", "cytoplsm": "cytoplasm",
+  "ribosome": "ribosome", "ribsome": "ribosome",
+  // Physiology
+  "homeostatsis": "homeostasis", "homeostais": "homeostasis",
+  "metabolsim": "metabolism",
+  "angiogenisis": "angiogenesis", "angiogenisis": "angiogenesis",
+  "atherosclersis": "atherosclerosis", "atheriosclerosis": "atherosclerosis",
+  // Microbiology
+  "baterical": "bacterial", "bactiria": "bacteria",
+  "pathogneic": "pathogenic", "pathognic": "pathogenic",
+  "virulance": "virulence", "virlence": "virulence",
+  "antibitoic": "antibiotic", "anitbiotic": "antibiotic",
+  "biofilm": "biofilm", "biofim": "biofilm",
+  // Common general scientific typos
+  "hypotheiss": "hypothesis", "hypothsis": "hypothesis",
+  "experiement": "experiment", "expiriment": "experiment",
+  "laborotory": "laboratory", "labratory": "laboratory",
+  "phenomonon": "phenomenon", "phenomemon": "phenomenon",
+  "quantatative": "quantitative", "quanitative": "quantitative",
+  "qualatative": "qualitative", "qualitatve": "qualitative",
+  "signifcant": "significant", "signficant": "significant",
+  "concentraiton": "concentration", "concentartion": "concentration",
+  "tempurature": "temperature", "temperture": "temperature",
+  "moleclue": "molecule", "molecuel": "molecule",
+  "algorithem": "algorithm", "algorithim": "algorithm",
 };
 
 // Multi-word scientific terms that must be preserved as a phrase. Users type
@@ -526,6 +655,30 @@ const SCIENTIFIC_COMPOUNDS = [
   [/\bin[\s-]?vivo\b/gi, "in-vivo"],
   [/\bin[\s-]?vitro\b/gi, "in-vitro"],
   [/\bin[\s-]?silico\b/gi, "in-silico"],
+  [/\bdouble[\s-]?stranded?\b/gi, "double-stranded"],
+  [/\bsingle[\s-]?stranded?\b/gi, "single-stranded"],
+  [/\blong[\s-]?non[\s-]?coding\b/gi, "long-non-coding"],
+  [/\banti[\s-]?microbial\b/gi, "antimicrobial"],
+  [/\banti[\s-]?biotic\b/gi, "antibiotic"],
+  [/\banti[\s-]?fungal\b/gi, "antifungal"],
+  [/\banti[\s-]?viral\b/gi, "antiviral"],
+  [/\banti[\s-]?oxidant\b/gi, "antioxidant"],
+  [/\banti[\s-]?inflammatory\b/gi, "anti-inflammatory"],
+  [/\bmulti[\s-]?drug\b/gi, "multidrug"],
+  [/\bmulti[\s-]?omics\b/gi, "multi-omics"],
+  [/\bcrispr[\s-]?cas9?\b/gi, "CRISPR-Cas9"],
+  [/\bopen[\s-]?access\b/gi, "open-access"],
+  [/\blong[\s-]?term\b/gi, "long-term"],
+  [/\bshort[\s-]?term\b/gi, "short-term"],
+  [/\bdose[\s-]?response\b/gi, "dose-response"],
+  [/\bex[\s-]?vivo\b/gi, "ex-vivo"],
+  [/\bde[\s-]?novo\b/gi, "de-novo"],
+  [/\bgut[\s-]?brain\b/gi, "gut-brain"],
+  [/\bblood[\s-]?brain[\s-]?barrier\b/gi, "blood-brain-barrier"],
+  [/\bhost[\s-]?pathogen\b/gi, "host-pathogen"],
+  [/\bstructure[\s-]?activity\b/gi, "structure-activity"],
+  [/\bgenome[\s-]?editing\b/gi, "genome-editing"],
+  [/\bstem[\s-]?cell\b/gi, "stem-cell"],
 ];
 
 // Preprocess a raw query BEFORE term extraction. Fixes typos, joins scientific
@@ -570,6 +723,31 @@ function preprocessQuery(raw) {
     [/without\s+(?:photosynthesis|sunlight|light)/gi, "non-photosynthetic heterotrophic"],
     // Ecology / evolution
     [/(?:go|went)\s+extinct/gi, "extinction cause"],
+    [/why\s+(?:do|did)\s+dinosaurs?\s+(?:go|die)/gi, "dinosaur extinction Cretaceous-Paleogene"],
+    // Medicine / disease
+    [/cure\s+(?:for\s+)?diabetes/gi, "diabetes treatment therapy glycemic control"],
+    [/cure\s+(?:for\s+)?parkinson/gi, "Parkinson disease treatment therapy neuroprotection"],
+    [/cure\s+(?:for\s+)?depression/gi, "major depressive disorder treatment antidepressant therapy"],
+    [/side\s+effects?\s+of\s+(.+?)(?:\?|$)/gi, "$1 adverse effects toxicity safety"],
+    [/is\s+(.+?)\s+safe/gi, "$1 safety toxicity adverse effects"],
+    // Nutrition / biochemistry
+    [/(?:good|bad)\s+(?:for\s+)?(?:your?\s+)?health/gi, "health effects benefits risks"],
+    [/what\s+(?:does|do)\s+(.+?)\s+do\s+(?:to|in|for)\s+(?:the\s+)?body/gi, "$1 physiological effects mechanism of action"],
+    [/how\s+is\s+(.+?)\s+made/gi, "$1 biosynthesis production pathway"],
+    // Genetics
+    [/gene\s+for\s+(.+?)(?:\?|$)/gi, "$1 genetic basis gene locus"],
+    [/is\s+(.+?)\s+(?:hereditary|genetic|inherited)/gi, "$1 heritability genetic predisposition inheritance"],
+    // Neuroscience
+    [/how\s+(?:does|do)\s+(?:the\s+)?brain\s+(.+?)(?:\?|$)/gi, "brain $1 neural mechanism neuroscience"],
+    [/what\s+happens?\s+(?:to|in)\s+(?:the\s+)?brain\s+(?:when|during)\s+(.+?)(?:\?|$)/gi, "brain $1 neural activity neurophysiology"],
+    // Microbiology
+    [/(?:good|beneficial)\s+bacteria/gi, "probiotic commensal microbiome beneficial microbiota"],
+    [/(?:bad|harmful)\s+bacteria/gi, "pathogenic bacteria virulence infection"],
+    [/superbugs?/gi, "antimicrobial resistance multidrug-resistant bacteria"],
+    // Environment
+    [/(?:save|saving)\s+(?:the\s+)?(?:planet|earth|environment)/gi, "environmental conservation sustainability"],
+    [/clean\s+energy/gi, "renewable energy solar wind sustainable"],
+    [/greenhouse\s+gas(?:es)?/gi, "greenhouse gas emissions CO2 methane climate"],
   ];
   for (const [re, repl] of PARAPHRASES) {
     q = q.replace(re, repl);
@@ -694,6 +872,55 @@ const CONCEPT_GROUPS = [
   // Immunology
   ["immune", "immunity", "innate immunity", "adaptive immunity", "inflammatory",
    "inflammation", "cytokine", "chemokine", "lymphocyte"],
+  // Stem cells & regeneration
+  ["stem cell", "stem cells", "pluripotent", "multipotent", "ipsc", "ips cell",
+   "embryonic stem cell", "progenitor", "differentiation", "reprogramming"],
+  // Epigenetics
+  ["epigenetic", "epigenetics", "methylation", "histone", "chromatin",
+   "acetylation", "imprinting", "epigenome", "chromatin remodeling"],
+  // Drug / pharmacology
+  ["drug", "drugs", "pharmaceutical", "pharmacological", "therapeutic",
+   "therapy", "treatment", "medication", "compound", "inhibitor"],
+  // Apoptosis / cell death
+  ["apoptosis", "apoptotic", "programmed cell death", "necrosis", "necroptosis",
+   "pyroptosis", "ferroptosis", "autophagy", "autophagic", "cell death"],
+  // Metabolism
+  ["metabolism", "metabolic", "metabolite", "metabolites", "metabolome",
+   "glycolysis", "krebs cycle", "tca cycle", "oxidative phosphorylation",
+   "fatty acid oxidation", "beta oxidation"],
+  // Aging / senescence
+  ["aging", "ageing", "senescence", "senescent", "longevity", "lifespan",
+   "telomere", "telomerase", "gerontology"],
+  // Biofilm / microbial community
+  ["biofilm", "biofilms", "quorum sensing", "planktonic", "sessile",
+   "extracellular polymeric substance", "eps", "biofouling"],
+  // Antibiotic resistance
+  ["antibiotic resistance", "antimicrobial resistance", "amr", "multidrug resistant",
+   "mdr", "drug resistant", "beta-lactamase", "efflux pump", "resistance gene"],
+  // CRISPR & gene editing
+  ["crispr", "cas9", "cas12", "cas13", "gene editing", "genome editing",
+   "guide rna", "sgrna", "base editing", "prime editing"],
+  // Microscopy / imaging
+  ["microscopy", "microscope", "imaging", "fluorescence", "confocal",
+   "electron microscopy", "sem", "tem", "super-resolution", "cryo-em"],
+  // Bioinformatics / computation
+  ["bioinformatics", "computational biology", "sequence analysis", "alignment",
+   "phylogenetics", "homology", "blast", "pipeline", "annotation"],
+  // Diabetes / metabolic disease
+  ["diabetes", "diabetic", "insulin", "glucose", "glycemic", "hyperglycemia",
+   "type 2 diabetes", "type 1 diabetes", "insulin resistance", "metabolic syndrome"],
+  // Cardiovascular
+  ["cardiovascular", "cardiac", "heart", "myocardial", "coronary",
+   "atherosclerosis", "hypertension", "ischemia", "arrhythmia"],
+  // Respiratory
+  ["lung", "lungs", "pulmonary", "respiratory", "airway", "alveolar",
+   "bronchial", "asthma", "copd", "pneumonia"],
+  // Gut-brain axis
+  ["gut-brain", "gut brain axis", "microbiome brain", "enteric nervous system",
+   "vagus nerve", "psychobiotic", "neuroinflammation"],
+  // Food science / nutrition
+  ["nutrition", "nutritional", "dietary", "diet", "nutrient", "nutrients",
+   "bioavailability", "fortification", "supplementation", "nutraceutical"],
 ];
 
 // Build a fast lookup: term -> the full set of equivalent terms
@@ -843,6 +1070,89 @@ const SYNONYMS = {
   metabolomics: ["metabolome", "metabolite profiling"],
   proteomics: ["proteome", "protein profiling", "mass spectrometry"],
   metagenomics: ["metagenomic", "shotgun sequencing", "microbiome sequencing"],
+  // Additional organisms
+  "thale cress": ["arabidopsis thaliana"],
+  "arabidopsis": ["arabidopsis thaliana"],
+  "nematode": ["caenorhabditis elegans"],
+  "corn": ["zea mays", "maize"],
+  "maize": ["zea mays"],
+  "rice": ["oryza sativa"],
+  "wheat": ["triticum aestivum"],
+  "tobacco": ["nicotiana tabacum"],
+  "tomato": ["solanum lycopersicum"],
+  "potato": ["solanum tuberosum"],
+  "soybean": ["glycine max"],
+  "cotton": ["gossypium hirsutum"],
+  "silkworm": ["bombyx mori"],
+  "mosquito": ["aedes aegypti", "anopheles gambiae"],
+  "frog": ["xenopus laevis"],
+  "chicken": ["gallus gallus"],
+  "pig": ["sus scrofa"],
+  "cow": ["bos taurus"],
+  "sheep": ["ovis aries"],
+  "dog": ["canis lupus familiaris"],
+  "cat": ["felis catus"],
+  "chimpanzee": ["pan troglodytes"],
+  "rhesus macaque": ["macaca mulatta"],
+  // Additional technique acronyms
+  "cryo-em": ["cryo-electron microscopy", "cryogenic electron microscopy"],
+  "nmr": ["nuclear magnetic resonance", "nuclear magnetic resonance spectroscopy"],
+  "xrd": ["x-ray diffraction", "x-ray crystallography"],
+  "sem": ["scanning electron microscopy", "scanning electron microscope"],
+  "tem": ["transmission electron microscopy", "transmission electron microscope"],
+  "afm": ["atomic force microscopy", "atomic force microscope"],
+  "spd": ["severe plastic deformation"],
+  "hplc": ["high performance liquid chromatography"],
+  "gc-ms": ["gas chromatography mass spectrometry"],
+  "lc-ms": ["liquid chromatography mass spectrometry"],
+  "icp-ms": ["inductively coupled plasma mass spectrometry"],
+  "xps": ["x-ray photoelectron spectroscopy"],
+  // Clinical / medical acronyms
+  "rct": ["randomized controlled trial", "randomised controlled trial"],
+  "icu": ["intensive care unit"],
+  "cbc": ["complete blood count"],
+  "ct scan": ["computed tomography"],
+  "mri": ["magnetic resonance imaging"],
+  "pet scan": ["positron emission tomography"],
+  "ecg": ["electrocardiogram", "electrocardiography"],
+  "ekg": ["electrocardiogram", "electrocardiography"],
+  "gfr": ["glomerular filtration rate"],
+  "hba1c": ["glycated hemoglobin", "hemoglobin a1c"],
+  "alt": ["alanine aminotransferase", "alanine transaminase"],
+  "ast": ["aspartate aminotransferase", "aspartate transaminase"],
+  "crp": ["c-reactive protein"],
+  "esr": ["erythrocyte sedimentation rate"],
+  "psa": ["prostate specific antigen"],
+  // Bioinformatics
+  "pdb": ["protein data bank"],
+  "go": ["gene ontology"],
+  "kegg": ["kyoto encyclopedia of genes and genomes"],
+  "ncbi": ["national center for biotechnology information"],
+  // Ecology & environment
+  "gis": ["geographic information system", "geospatial"],
+  "enso": ["el nino southern oscillation"],
+  "ipcc": ["intergovernmental panel on climate change"],
+  "epa": ["environmental protection agency"],
+  // Genetics & genomics (additional)
+  "wgs": ["whole genome sequencing"],
+  "wes": ["whole exome sequencing"],
+  "ngs": ["next generation sequencing", "next-generation sequencing"],
+  "scrnaseq": ["single cell rna sequencing", "single-cell rna-seq"],
+  "chip": ["chromatin immunoprecipitation"],
+  "talen": ["transcription activator-like effector nuclease"],
+  "zfn": ["zinc finger nuclease"],
+  "ipsc": ["induced pluripotent stem cell", "induced pluripotent stem cells"],
+  "esc": ["embryonic stem cell", "embryonic stem cells"],
+  // Neuroscience (additional)
+  "tms": ["transcranial magnetic stimulation"],
+  "tdcs": ["transcranial direct current stimulation"],
+  "meg": ["magnetoencephalography"],
+  "pet": ["positron emission tomography"],
+  "bbb": ["blood brain barrier", "blood-brain barrier"],
+  "csf": ["cerebrospinal fluid"],
+  "cns": ["central nervous system"],
+  "pns": ["peripheral nervous system"],
+  "ans": ["autonomic nervous system"],
 };
 
 // Every two-word Latin binomial this app already knows about (derived from
@@ -869,6 +1179,23 @@ const ORGANISM_BINOMIALS = new Set([
   "rattus norvegicus", "caenorhabditis elegans", "danio rerio",
   "saccharomyces cerevisiae", "escherichia coli", "staphylococcus aureus",
   "mycobacterium tuberculosis", "plasmodium falciparum", "apis mellifera",
+  // Plants
+  "arabidopsis thaliana", "oryza sativa", "zea mays", "triticum aestivum",
+  "nicotiana tabacum", "solanum lycopersicum", "solanum tuberosum",
+  "glycine max", "gossypium hirsutum",
+  // Insects & invertebrates
+  "bombyx mori", "aedes aegypti", "anopheles gambiae", "tenebrio molitor",
+  "zophobas morio", "galleria mellonella", "tribolium castaneum",
+  "manduca sexta", "spodoptera frugiperda", "locusta migratoria",
+  // Vertebrate model organisms
+  "xenopus laevis", "xenopus tropicalis", "gallus gallus", "sus scrofa",
+  "bos taurus", "ovis aries", "canis lupus familiaris", "felis catus",
+  "pan troglodytes", "macaca mulatta", "oryzias latipes",
+  // Microorganisms
+  "bacillus subtilis", "pseudomonas aeruginosa", "salmonella typhimurium",
+  "vibrio cholerae", "clostridioides difficile", "helicobacter pylori",
+  "streptococcus pneumoniae", "candida albicans", "aspergillus niger",
+  "neurospora crassa", "schizosaccharomyces pombe",
 ]);
 
 function levenshtein(a, b) {
@@ -957,10 +1284,34 @@ const ORGANISM_PHRASES = [
   // search pass instead of being silently dropped.
   "honey bee",
   "honey bees",
+  // Additional organisms that users commonly search by common name
+  "fruit fly", "fruit flies",
+  "lab rat", "lab mouse",
+  "guinea pig",
+  "house mouse",
+  "baker's yeast", "brewer's yeast",
+  "thale cress",
+  "rhesus macaque",
+  "zebra fish", "zebrafish",
+  "roundworm", "nematode",
+  "silk worm", "silkworm",
+  "mealworm", "meal worm",
+  "wax worm", "waxworm",
 ];
 const ORGANISM_WORDS = new Set([
   "black", "soldier", "fly", "larvae", "larva", "larval", "hermetia", "illucens",
   "honey", "bee", "bees", "honeybee", "honeybees", "apis", "mellifera",
+  "fruit", "flies", "drosophila", "melanogaster",
+  "mouse", "mice", "mus", "musculus",
+  "rat", "rats", "rattus", "norvegicus",
+  "zebrafish", "danio", "rerio",
+  "roundworm", "nematode", "caenorhabditis", "elegans",
+  "silkworm", "bombyx", "mori",
+  "mealworm", "tenebrio", "molitor",
+  "waxworm", "galleria", "mellonella",
+  "mosquito", "aedes", "aegypti", "anopheles", "gambiae",
+  "arabidopsis", "thaliana",
+  "yeast", "saccharomyces", "cerevisiae",
 ]);
 
 function splitOrganismTopic(query) {
@@ -1223,7 +1574,7 @@ function parsePubmedXML(xmlText) {
 
 async function pubmed(query, limit = 10, apiKey = "") {
   const keyParam = apiKey ? "&api_key=" + apiKey : "";
-  const tool = "&tool=cerebrum&email=noreply@example.com" + keyParam;
+  const tool = "&tool=cerebrum&email=contact@askcerebrum.org" + keyParam;
   try {
     let ids = [];
 
@@ -1640,7 +1991,7 @@ async function openAlex(query, limit = 10, key = "") {
       per_page: String(limit),
       select:
         "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids",
-      mailto: "noreply@example.com",
+      mailto: "contact@askcerebrum.org",
     });
     if (key) params.set("api_key", key);
     const data = await getJSON("https://api.openalex.org/works?" + params);
@@ -1692,7 +2043,7 @@ async function crossref(query, limit = 8) {
         select:
           "title,author,container-title,published,DOI,abstract,is-referenced-by-count",
       }) +
-      "&mailto=cerebrum@example.com";
+      "&mailto=contact@askcerebrum.org";
     const data = await getJSON(url);
     const items = (data && data.message && data.message.items) || [];
     return items
@@ -1849,7 +2200,7 @@ async function biorxiv(query, limit = 6) {
       per_page: String(limit),
       select:
         "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
-      mailto: "noreply@example.com",
+      mailto: "contact@askcerebrum.org",
     });
     const data = await getJSON("https://api.openalex.org/works?" + params);
     const out = [];
@@ -2797,7 +3148,13 @@ const BANNED_PHRASES_RE = [
   /\balthough this study does not specifically\b/gi,
   /\bin conclusion\b/gi,
   /\bin summary\b/gi,
-  /\boverall,?\s/gi,
+  // Bug: `\boverall,?\s` matched "overall" ANYWHERE, not just as a
+  // sentence-opening filler ("Overall, further work is needed") — it also
+  // silently deleted "overall" from real clinical/scientific terms like
+  // "overall survival" and "overall response rate" (standard oncology
+  // endpoints, not filler), changing what the sentence claims. Now only
+  // matches the sentence-starter usage (must be followed by a comma).
+  /^overall,\s*/gim,
   /\bit is clear that\b/gi,
   /\bholistic understanding\b/gi,
   /\bholistic approach\b/gi,
@@ -2810,6 +3167,27 @@ const BANNED_PHRASES_RE = [
   /\ba testament to\b/gi,
   /\bin the context of\b/gi,
   /\bthis underscores\b/gi,
+  /\bwarrants further investigation\b/gi,
+  /\bopens (?:up )?new avenues\b/gi,
+  /\bremains (?:an )?area of active (?:research|investigation|study)\b/gi,
+  /\bhold(?:s)? great promise\b/gi,
+  /\bhas garnered (?:significant |considerable |increasing )?(?:attention|interest)\b/gi,
+  /\bhas emerged as a promising\b/gi,
+  /\bhas attracted (?:significant |considerable |growing )?(?:attention|interest)\b/gi,
+  /\btaken together,?\s*/gi,
+  /\bcollectively,?\s+these (?:findings|results|studies|data)\b/gi,
+  /\bnotwithstanding,?\s*/gi,
+  /\bin light of (?:the (?:above|foregoing)|these findings)\b/gi,
+  /\bparadigm shift\b/gi,
+  /\bgame[\s-]?changer\b/gi,
+  /\bcutting[\s-]?edge\b/gi,
+  /\bstate[\s-]?of[\s-]?the[\s-]?art\b/gi,
+  /\bgroundbreaking\b/gi,
+  /\brevolutionary\b/gi,
+  /\bpioneering\b/gi,
+  /\bunprecedented\b/gi,
+  /\bit (?:is|remains) (?:imperative|essential|crucial) (?:to|that)\b/gi,
+  /\bthe (?:present|current) (?:review|study) (?:aims|seeks) to\b/gi,
 ];
 
 // Detect and remove repetitive content: paragraphs or sentences that
@@ -2971,7 +3349,6 @@ function postProcessAnswer(rawAnswer) {
 
   // 4. Clean up any artifacts
   answer = answer.replace(/\n{3,}/g, "\n\n").trim();
-  answer = answer.replace(/^\s+/gm, (match) => match); // Preserve intentional indentation
 
   return answer;
 }
@@ -3013,9 +3390,29 @@ function scoreAnswerQuality(answer, query) {
   // Bonus for good synthesis markers
   if (/\bconsistent(ly)? (with|across)\b/i.test(answer)) score += 3;
   if (/\bin contrast\b/i.test(answer)) score += 3;
+  if (/\bhowever\b/i.test(answer)) score += 2; // Nuanced reasoning
+  if (/\bconversely\b/i.test(answer)) score += 2;
   if (/\b\d+%|\bp\s*[<>=]\s*0\.\d/i.test(answer)) score += 5; // Quantitative data
   if (/\bn\s*=\s*\d/i.test(answer)) score += 3; // Sample sizes
   if (/_([\w.]+\s+[\w]+)_/i.test(answer)) score += 3; // Italicized species names
+  if (/\b(in vitro|in vivo|ex vivo|in silico)\b/i.test(answer)) score += 2; // Study design mention
+  if (/\bmeta-analysis\b/i.test(answer)) score += 2;
+  if (/\b(preprint|bioRxiv|medRxiv|arXiv)\b/i.test(answer)) score += 3; // Preprint flagging
+  if (/\bk[Dd]a\b/.test(answer)) score += 2; // Proper scientific units
+  if (/\bμ[MmLl]\b/.test(answer)) score += 2;
+  if (/\b°C\b/.test(answer)) score += 1;
+
+  // Citation density bonus — good answers cite multiple sources per claim
+  const citMatches = answer.match(/\[\d+\]/g);
+  const citCount = citMatches ? citMatches.length : 0;
+  if (citCount >= 5 && citCount <= 30) score += 5;
+  else if (citCount >= 3) score += 3;
+  // Too many citations per paragraph is a listing pattern
+  if (citCount > 40) score -= 5;
+
+  // Multi-source synthesis bonus: [N][M] back-to-back = good synthesis
+  const multiCiteMatches = answer.match(/\[\d+\]\[\d+\]/g);
+  if (multiCiteMatches && multiCiteMatches.length >= 2) score += 5;
 
   return Math.max(0, Math.min(100, score));
 }
@@ -3306,16 +3703,20 @@ async function selfReason(query, history, token) {
           {
             role: "system",
             content:
-              "You are the reasoning module of a scientific search engine. Think step-by-step about how to best answer this query.\n\n" +
+              "You are the reasoning module of Cerebrum, a scientific literature search engine that queries 14 scholarly databases in parallel. " +
+              "Think step-by-step about how to best answer this query. Consider: what is the user ACTUALLY asking? " +
+              "What domain knowledge do they need? Are there hidden assumptions or ambiguities in their question?\n\n" +
               "Output ONLY a JSON object:\n" +
               "{\n" +
               '  "sub_questions": ["list of 2-4 specific sub-questions to investigate"],\n' +
               '  "search_strategy": "one sentence describing the best search approach",\n' +
-              '  "key_terms": ["5-8 specific scientific search terms, using proper nomenclature"],\n' +
+              '  "key_terms": ["5-8 specific scientific search terms, using proper nomenclature — include MeSH terms, gene names, pathway names where applicable"],\n' +
               '  "expected_fields": ["which scientific fields/disciplines are relevant"],\n' +
               '  "complexity": "simple" | "moderate" | "complex" | "multi_domain",\n' +
               '  "needs_comparison": false,\n' +
-              '  "organisms": ["any specific organisms to search for, using binomial names"]\n' +
+              '  "organisms": ["any specific organisms to search for, using binomial names"],\n' +
+              '  "temporal_focus": "any" | "recent" | "historical" | "longitudinal",\n' +
+              '  "answer_approach": "one sentence on how to structure the answer for maximum clarity"\n' +
               "}",
           },
           {
@@ -3403,6 +3804,38 @@ async function updateTopicMemory(topic, searchTerms, paperCount, db) {
       .bind(topicKey, JSON.stringify([]), JSON.stringify(searchTerms || []), paperCount || 0, Date.now())
       .run();
   } catch {}
+}
+
+// Read topic_memory to enrich search queries with previously successful terms.
+// This is the READ side of the topic_memory system — previously write-only.
+// When a user searches for a topic we've seen before, we can supplement their
+// query with the search terms that produced the most results last time.
+async function recallTopicMemory(topic, db) {
+  if (!db || !topic) return null;
+  const topicKey = topic.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
+  if (!topicKey) return null;
+  try {
+    const row = await db
+      .prepare(
+        "SELECT best_search_terms, avg_paper_count, search_count " +
+        "FROM topic_memory WHERE topic_key = ? AND search_count >= 2 LIMIT 1"
+      )
+      .bind(topicKey)
+      .first();
+    if (row && row.best_search_terms) {
+      try {
+        const terms = JSON.parse(row.best_search_terms);
+        if (Array.isArray(terms) && terms.length > 0) {
+          return {
+            bestTerms: terms,
+            avgPaperCount: row.avg_paper_count || 0,
+            searchCount: row.search_count || 0,
+          };
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
 }
 
 
@@ -3841,6 +4274,36 @@ async function gatherPapers(rawQuery, opts) {
       results = results.concat(expandedResults);
       diag.conceptExpanded = expandedArr;
       diag.conceptExpandedCount = expandedResults.reduce(
+        (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+      );
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // TOPIC MEMORY RECALL: if concept expansion didn't help enough, check
+  // if we've seen this topic before and have previously successful search
+  // terms cached in D1. This is the READ side of topic_memory — previously
+  // it was write-only, never consulted during search.
+  // ═══════════════════════════════════════════════════════════════
+  const totalAfterConcept = results.reduce(
+    (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+  );
+  if (totalAfterConcept < 5 && opts.db) {
+    const topicForRecall = orgInfo.hasOrganism
+      ? orgInfo.orgPhrases[0] + " " + ranked.slice(0, 3).join(" ")
+      : ranked.slice(0, 4).join(" ");
+    const recalled = await recallTopicMemory(topicForRecall, opts.db).catch(() => null);
+    if (recalled && recalled.bestTerms && recalled.bestTerms.length > 0) {
+      const recalledQueries = recalled.bestTerms.slice(0, 4);
+      const memResults = await Promise.allSettled(
+        recalledQueries.flatMap((eq) => [
+          europePMC(eq, 8),
+          semanticScholar(eq, 6),
+        ])
+      );
+      results = results.concat(memResults);
+      diag.topicMemoryRecall = recalledQueries;
+      diag.topicMemoryCount = memResults.reduce(
         (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
       );
     }
@@ -4349,10 +4812,20 @@ async function gatherPapers(rawQuery, opts) {
 
 // ============ MAIN HANDLER ============
 
-const cors = {
-  "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": "*",
-};
+// NOTE: there used to be a module-level wildcard `cors` object here, kept
+// "for the OPTIONS/early-return paths before secureCors was computed." It
+// was a live bug: `secureCors` (origin-locked, computed per-request below)
+// is declared with `const cors = secureCors;` *inside* the handler's `try`
+// block, so that binding only shadows the module-level one for code inside
+// the try. The `catch` block is a sibling scope, not a child of the try, so
+// `catch (e) { ...headers: cors... }` was silently resolving to THIS
+// wildcard object — meaning every genuine 500 (a real runtime exception)
+// was served with `Access-Control-Allow-Origin: "*"` and no `nosniff`,
+// undoing the origin-lock this whole section exists to enforce, while also
+// echoing `e.message` to any origin. Deleted the trap entirely; the catch
+// block now references `secureCors` directly (it's declared in the
+// enclosing function scope, before the try, so it's already reachable from
+// catch with no rebinding needed).
 
 // ---- SECURITY LAYER ----
 // Cerebrum is a free public endpoint, which makes it a target for abuse:
@@ -4569,7 +5042,7 @@ export async function onRequest(context) {
 
 IDENTITY:
 - Built by Vaticay (a 21-year-old developer from Knoxville, TN)
-- You search 16 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, DataCite, and OpenAIRE
+- You search 14 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, and OpenAIRE (medRxiv is additionally used for direct author lookups)
 - You use free-tier AI models (DeepSeek, Gemini Flash, Llama, Qwen, Mistral) — you race them and take the fastest good response
 - You mechanically strip any citation the AI fabricates — no fake DOIs ever
 - You have no account system, no ads, no paywall, no subscription
@@ -4739,8 +5212,21 @@ Respond naturally to the user's message. Be yourself.`;
       ? [...body.history].reverse().find((t) => t && t.role === "assistant")
       : null;
     const prevSources = (prevAssistantTurn && Array.isArray(prevAssistantTurn.sources)) ? prevAssistantTurn.sources : [];
-    const pinnedSources = Array.isArray(body.pinnedSources) ? body.pinnedSources : [];
-    const corrections = Array.isArray(body.corrections) ? body.corrections : [];
+    // Bug: unlike `query` (MAX_QUERY_LEN) and `history` (MAX_HISTORY_TURNS),
+    // these two request-body arrays were only checked with Array.isArray —
+    // no cap on array length or per-item string size. `corrections` gets
+    // concatenated wholesale into a system-prompt block below, and
+    // `pinnedSources` is spread into the evidence list; a crafted request
+    // with a huge array/huge strings here could inflate LLM prompt size
+    // (cost) or worker memory well beyond what the existing caps intend.
+    const MAX_CORRECTIONS = 15;
+    const MAX_CORRECTION_LEN = 400;
+    const MAX_PINNED_SOURCES = 20;
+    const pinnedSources = (Array.isArray(body.pinnedSources) ? body.pinnedSources : []).slice(0, MAX_PINNED_SOURCES);
+    const corrections = (Array.isArray(body.corrections) ? body.corrections : [])
+      .slice(0, MAX_CORRECTIONS)
+      .map((c) => String(c == null ? "" : c).slice(0, MAX_CORRECTION_LEN))
+      .filter(Boolean);
 
     // ---- SMART FOLLOW-UP LOGIC ----
     // When a user says "what about papers by Reese Saho" after a failed search,
@@ -5004,7 +5490,13 @@ Respond naturally to the user's message. Be yourself.`;
       // includes context from the conversation and is semantically richer than
       // mechanical word-merging.
       let deepQuery = resolvedSearchQuery || query;
-      if (Array.isArray(body.history)) {
+      // Bug: this block ran unconditionally whenever body.history had a
+      // usable previous user turn — the common case for any real follow-up
+      // — silently overwriting the LLM-resolved query the comment above
+      // says to prefer with a naive dedup-merge of raw previous+current
+      // text. Gated on !resolvedSearchQuery so the semantically-richer
+      // resolution actually wins when one exists.
+      if (!resolvedSearchQuery && Array.isArray(body.history)) {
         const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 8);
         if (prevUser) {
           const prevQ = String(prevUser.content).trim();
@@ -5031,6 +5523,7 @@ Respond naturally to the user's message. Be yourself.`;
             ncbiKey: env.NCBI_API_KEY || "",
             limit: 15,
             resolvedPersonName,
+            db: env.DB,
           }),
           new Promise((_, reject) => setTimeout(() => reject(new Error("deep search timeout")), 15000)),
         ]);
@@ -5124,6 +5617,7 @@ Respond naturally to the user's message. Be yourself.`;
         ncbiKey: env.NCBI_API_KEY || "",
         limit: wantsMorePapers ? 40 : 25,
         resolvedPersonName,
+        db: env.DB,
       }).catch((e) => ({
         papers: [],
         _diag: {
@@ -5576,7 +6070,7 @@ Respond naturally to the user's message. Be yourself.`;
       "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
       "- No <think> tags, no code fences, no meta-commentary about your process.\n";
 
-    const ID = "You are Cerebrum, a scientific research engine. You search 16+ open scholarly databases and write cited answers. " +
+    const ID = "You are Cerebrum, a scientific research engine. You search 14 open scholarly databases simultaneously and write cited, synthesis-grade answers. " +
       "You were built by Vaticay. You are not a general assistant — you are a precision instrument for scientific literature. " +
       "ALWAYS respond in English regardless of the language of the source papers.\n\n";
 
@@ -5888,7 +6382,18 @@ Respond naturally to the user's message. Be yourself.`;
       }
     };
 
-    const pollinationsCall = async (modelParam) => {
+    // Bug: this used to ignore the `msgs`/`maxTok` args entirely and send a
+    // hardcoded two-line prompt (system persona blurb + bare `query`) instead
+    // of the real `messages` array — the one that carries the retrieved
+    // papers, the VOICE/CITE_RULES system prompt, and conversation history.
+    // Since Promise.any (both racing waves below) takes whichever provider
+    // answers FIRST, any turn where a Pollinations model happened to win the
+    // race produced an answer with zero grounding in the sources Cerebrum
+    // just spent a whole retrieval pipeline finding — no [N] citation
+    // markers, no organism/relevance/retraction gating — while the UI still
+    // showed the full, now-disconnected bibliography. Fixed by giving this
+    // the same real `messages`/`maxTok` every other provider call gets.
+    const pollinationsCall = async (modelParam, msgs, maxTok) => {
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), 12000);
       const tag = "pollinations:" + modelParam;
@@ -5896,11 +6401,10 @@ Respond naturally to the user's message. Be yourself.`;
         const pRes = await fetch("https://text.pollinations.ai/", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            messages: [
-              { role: "system", content: "You are Cerebrum, a scientific research engine built by Vaticay. Answer naturally in English. Do NOT fabricate citations, DOIs, or author names. Be specific — name enzymes, genes, compounds. Bold key terms." },
-              { role: "user", content: query },
-            ],
+            messages: msgs,
             model: modelParam,
+            temperature: 0.3,
+            max_tokens: maxTok,
           }),
           signal: c.signal,
         });
@@ -6031,7 +6535,7 @@ Respond naturally to the user's message. Be yourself.`;
       const wave1Calls = [
         ...(token ? OR_WAVE1.map((m) => callOR(m, messages, maxTokens)) : []),
         ...(cfBound ? CF_WAVE1.map((m) => callCF(m, messages, maxTokens)) : []),
-        ...POLLINATIONS_WAVE1.map(pollinationsCall),
+        ...POLLINATIONS_WAVE1.map((m) => pollinationsCall(m, messages, maxTokens)),
       ];
       try {
         const winner = await Promise.any(wave1Calls);
@@ -6049,7 +6553,7 @@ Respond naturally to the user's message. Be yourself.`;
       const wave2Calls = [
         ...(token ? OR_WAVE2.map((m) => callOR(m, messages, maxTokens)) : []),
         ...(cfBound ? CF_WAVE2.map((m) => callCF(m, messages, maxTokens)) : []),
-        ...POLLINATIONS_WAVE2.map(pollinationsCall),
+        ...POLLINATIONS_WAVE2.map((m) => pollinationsCall(m, messages, maxTokens)),
       ];
       if (wave2Calls.length > 0) {
         try {
@@ -6340,9 +6844,26 @@ Respond naturally to the user's message. Be yourself.`;
       { status: 200, headers: cors }
     );
   } catch (e) {
+    // Classify the error for a more helpful user-facing message
+    const msg = (e.message || String(e)).toLowerCase();
+    let userMessage = "Something went wrong on our end. Please try again in a moment.";
+    let status = 500;
+    if (msg.includes("rate") || msg.includes("429") || msg.includes("quota")) {
+      userMessage = "Our AI providers are temporarily rate-limited. Try again in 30 seconds.";
+      status = 503;
+    } else if (msg.includes("timeout") || msg.includes("abort") || msg.includes("timed out")) {
+      userMessage = "The search took too long. Try a simpler query or try again shortly.";
+      status = 504;
+    } else if (msg.includes("network") || msg.includes("fetch")) {
+      userMessage = "Couldn't reach one of our data sources. Give it a moment and retry.";
+      status = 502;
+    }
     return new Response(
-      JSON.stringify({ error: "Runtime error: " + (e.message || String(e)) }),
-      { status: 500, headers: cors }
+      JSON.stringify({
+        error: userMessage,
+        _debug: e.message || String(e),
+      }),
+      { status, headers: secureCors }
     );
   }
 }
