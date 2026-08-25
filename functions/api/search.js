@@ -591,7 +591,7 @@ const SPELLING_CORRECTIONS = {
   "alzheimers": "alzheimer's", "alzheimr": "alzheimer",
   "parkinsons": "parkinson's", "parkinons": "parkinson",
   "schizophrnia": "schizophrenia", "scizophrenia": "schizophrenia",
-  "epilepsey": "epilepsy", "epilepsey": "epilepsy",
+  "epilepsey": "epilepsy",
   // Genetics & genomics
   "chromosone": "chromosome", "chromosones": "chromosomes",
   "alelle": "allele", "aleles": "alleles",
@@ -633,7 +633,7 @@ const SPELLING_CORRECTIONS = {
   // Physiology
   "homeostatsis": "homeostasis", "homeostais": "homeostasis",
   "metabolsim": "metabolism",
-  "angiogenisis": "angiogenesis", "angiogenisis": "angiogenesis",
+  "angiogenisis": "angiogenesis",
   "atherosclersis": "atherosclerosis", "atheriosclerosis": "atherosclerosis",
   // Microbiology
   "baterical": "bacterial", "bactiria": "bacteria",
@@ -1038,7 +1038,18 @@ const SYNONYMS = {
   hla: ["human leukocyte antigen", "mhc"],
   llps: ["liquid liquid phase separation", "biomolecular condensate"],
   // Biochemistry
-  pet: ["polyethylene terephthalate"],
+  // "PET" is a genuinely ambiguous acronym across fields — polyethylene
+  // terephthalate in materials/environmental science, positron emission
+  // tomography in neuroscience/oncology imaging. This used to be declared
+  // as two separate object keys ("pet" and later "pet" again down in the
+  // neuroscience section) — since both compiled to the exact same object
+  // key, the second silently clobbered the first at evaluation time and
+  // "polyethylene terephthalate" was permanently unreachable (any
+  // microplastics-related query using the bare acronym "PET" got zero
+  // benefit from this entry). Merged into one entry with both expansions;
+  // both are OR'd into the search either way, so this costs nothing and
+  // fixes the data loss.
+  pet: ["polyethylene terephthalate", "positron emission tomography"],
   pe: ["polyethylene"],
   pp: ["polypropylene"],
   nad: ["nicotinamide adenine dinucleotide"],
@@ -1165,7 +1176,8 @@ const SYNONYMS = {
   "tms": ["transcranial magnetic stimulation"],
   "tdcs": ["transcranial direct current stimulation"],
   "meg": ["magnetoencephalography"],
-  "pet": ["positron emission tomography"],
+  // "pet" (positron emission tomography) is merged into the single "pet"
+  // entry up in the Biochemistry section above — see the comment there.
   "bbb": ["blood brain barrier", "blood-brain barrier"],
   "csf": ["cerebrospinal fluid"],
   "cns": ["central nervous system"],
