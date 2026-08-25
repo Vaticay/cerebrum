@@ -93,7 +93,12 @@ export async function onRequest(context) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const { answerId, vote } = body;
+    // Bug: a request body of the literal 4 bytes `null` is valid JSON, so
+    // `.json()` resolves (not rejects) to `null` and the `.catch()` above
+    // never fires — the destructure below then threw on `null`, and the raw
+    // V8 message ("Cannot destructure property 'answerId' of 'null'...")
+    // was echoed straight to the client via the catch block's `e.message`.
+    const { answerId, vote } = body || {};
 
     if (!answerId || typeof answerId !== "string" || answerId.length > 100 || (vote !== "up" && vote !== "down")) {
       return new Response(
@@ -134,8 +139,12 @@ export async function onRequest(context) {
       { status: 200, headers: cors }
     );
   } catch (e) {
+    // Bug: this echoed the raw exception message to the client, which could
+    // leak D1 driver/schema detail (column/table names) on a genuine
+    // database failure. Log server-side, return a generic message.
+    console.error("Cerebrum vote endpoint error:", e);
     return new Response(
-      JSON.stringify({ error: e.message || "Vote failed" }),
+      JSON.stringify({ error: "Vote failed" }),
       { status: 500, headers: cors }
     );
   }
