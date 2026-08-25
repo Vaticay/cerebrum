@@ -7120,13 +7120,21 @@ Respond naturally to the user's message. Be yourself.`;
       // pathway isn't a failure to verify, it's just nothing to verify, and
       // showing an empty fact-check box for that case would be misleading.
       if (fc.checked) {
+        // A "thin" term (the acronym's own written-out definition shows up
+        // in a source even though the bare acronym never does — see
+        // findAcronymExpansions in knowledge.js) is real, if indirect,
+        // support: it should pull the overall verdict away from
+        // "unsupported", same as a solid match would, just rendered with its
+        // own lighter-weight status in the UI rather than collapsed into
+        // "supported" and losing that nuance.
         const overall = fc.unsupported.length === 0
           ? "supported"
-          : fc.supported.length === 0
-          ? "unsupported"
-          : "partly";
+          : (fc.supported.length > 0 || fc.thin.length > 0)
+          ? "partly"
+          : "unsupported";
         const claims = [
           ...fc.supported.map((term) => ({ claim: `References "${term}"`, status: "supported", note: "Appears in at least one cited source." })),
+          ...fc.thin.map((term) => ({ claim: `References "${term}"`, status: "thin", note: "The acronym itself isn't in a cited source's title or abstract, but the phrase the answer used to define it is." })),
           ...fc.unsupported.map((term) => ({ claim: `References "${term}"`, status: "unsupported", note: "Doesn't appear in any cited source's title or abstract — may be from general knowledge, or worth double-checking." })),
         ];
         factCheckResult = { overall, summary: fc.note, claims };
