@@ -399,6 +399,8 @@ function Icon({ name, size = 17, className, style }) {
     case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
     case "chevronDown": return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
     case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
+    case "history": return <svg {...common}><path d="M3 12a9 9 0 109-9 9 9 0 00-9 9z" /><path d="M12 7v5l3 3" /><path d="M3 3v6h6" /><path d="M3 9a9 9 0 011.5-3.5" /></svg>;
+    case "image": return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="2.5" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>;
     default: return null;
   }
 }
@@ -636,8 +638,9 @@ function LoadingLine({ P, accent, S }) {
   const STAGES = [
     { label: "Querying 14 indexes", icon: "🔍" },
     { label: "Merging and de-duplicating", icon: "🔗" },
-    { label: "Scoring relevance", icon: "📊" },
+    { label: "Scoring evidence quality", icon: "📊" },
     { label: "Checking for retractions", icon: "🛡" },
+    { label: "Cerebrum Intelligence reasoning", icon: "🧠" },
     { label: "Writing the answer", icon: "✍" },
   ];
   useEffect(() => {
@@ -839,7 +842,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
       fontFamily: "var(--cb-body)",
     }}>
       {/* Vanta background container */}
-      <div ref={vantaRef} style={{ position: "absolute", inset: 0, zIndex: 0 }} />
+      <div ref={vantaRef} className="cb-vanta-host" style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }} />
 
       {/* Dark overlay for readability */}
       <div style={{
@@ -1061,7 +1064,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
   }, [paused, speed, P.dark]);
 
   return (
-    <div ref={containerRef} style={{
+    <div ref={containerRef} className="cb-vanta-host" style={{
       position: "fixed", inset: 0, width: "100%", height: "100%",
       pointerEvents: "none", zIndex: 0,
       opacity: intensity === "subtle" ? 0.08 : 0.15,
@@ -1287,7 +1290,7 @@ function InfoPage({ page }) {
       <div style={{ position: "fixed", inset: 0, opacity: 0.4, pointerEvents: "none", zIndex: 0 }}>
         <LivingBackground accent={accent} P={P} intensity="subtle" preset="aurora" density={0.7} speed={0.6} opacity={0.7} paused={false} />
       </div>
-      <header style={{ position: "sticky", top: 0, zIndex: 10, background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}` }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 10, background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}`, transform: "translateZ(0)", willChange: "transform" }}>
         <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: 16, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
@@ -1438,7 +1441,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         <span style={S.qDot} />
         <span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Inquiry</span>
       </div>
-      <h2 style={S.headline}>{t.q}</h2>
+      <h2 style={S.headline}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
       {/* Answer card */}
       <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
         {t.sources && t.sources.length > 0 && (
@@ -1603,39 +1606,43 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
    SETTINGS v4 — Full iOS-style redesign
    Grouped sections, proper alignment, accessibility, real settings
    ════════════════════════════════════════════════════════════════ */
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, close }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState("general");
   const [confirmClear, setConfirmClear] = useState(false);
-
 
   const TABS = [
     ["general", "General"],
     ["appearance", "Appearance"],
     ["accessibility", "Accessibility"],
-    ["audio", "Audio"],
-    ["data", "Data & Privacy"],
+    ["audio", "Audio & Voice"],
+    ["data", "History & Data"],
   ];
 
-  /* ── iOS building blocks ── */
-  const bg = P.dark ? withAlpha(P.raised, 0.9) : "#fff";
-  const divider = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const sectionBg = P.dark ? P.surface : "#f2f2f7";
+  /* ── Building blocks — restyled to match Cerebrum's own glass/editorial
+     language (the version this replaced was a literal iOS Settings clone:
+     system-gray panels, iOS green switches, thin-weight system-font labels —
+     nothing here matched the rest of the app, which is dark glass, accent-
+     driven controls, and a deliberately weightier type scale). ── */
+  const bg = P.dark ? withAlpha(P.surface, 0.55) : P.surface;
+  const divider = P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
+  const sectionBg = "transparent";
+  const glassBorderS = P.dark ? `1px solid ${withAlpha("#8b95a8", 0.1)}` : `1px solid ${P.line2}`;
 
   const Section = ({ title, footer, children }) => (
-    <div style={{ marginBottom: 24 }}>
-      {title && <div style={{ fontSize: 13, fontWeight: 400, color: P.faint, marginBottom: 6, paddingLeft: 16, textTransform: "uppercase", fontFamily: "var(--cb-body)", letterSpacing: "0.02em" }}>{title}</div>}
-      <div style={{ background: bg, borderRadius: 12, overflow: "hidden" }}>{children}</div>
-      {footer && <div style={{ fontSize: 12, color: P.faint, marginTop: 6, paddingLeft: 16, lineHeight: 1.4 }}>{footer}</div>}
+    <div style={{ marginBottom: 22 }}>
+      {title && <div style={{ fontSize: 11, fontWeight: 600, color: P.faint, marginBottom: 8, paddingLeft: 2, textTransform: "uppercase", fontFamily: "var(--cb-mono)", letterSpacing: "0.08em" }}>{title}</div>}
+      <div style={{ background: bg, border: glassBorderS, borderRadius: 14, overflow: "hidden", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>{children}</div>
+      {footer && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 8, paddingLeft: 2, lineHeight: 1.5 }}>{footer}</div>}
     </div>
   );
 
   const Row = ({ icon, label, desc, control, onClick, last, destructive }) => (
-    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: onClick ? "pointer" : "default", borderBottom: last ? "none" : `0.5px solid ${divider}` }}>
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: onClick ? "pointer" : "default", borderBottom: last ? "none" : `1px solid ${divider}` }}>
       {icon && <span style={{ fontSize: 18, width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 16, color: destructive ? "#ff3b30" : P.ink, fontWeight: 400 }}>{label}</div>
-        {desc && <div style={{ fontSize: 13, color: P.faint, lineHeight: 1.35, marginTop: 1 }}>{desc}</div>}
+        <div style={{ fontSize: 14.5, color: destructive ? "#e5484d" : P.ink, fontWeight: 500, fontFamily: "var(--cb-body)", letterSpacing: "-0.01em" }}>{label}</div>
+        {desc && <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.4, marginTop: 2 }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
       {onClick && !control && <span style={{ color: P.faint, fontSize: 16 }}>›</span>}
@@ -1644,8 +1651,8 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
 
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
-      style={{ width: 51, height: 31, borderRadius: 16, position: "relative", background: on ? "#34c759" : P.dark ? "rgba(120,120,128,0.32)" : "rgba(120,120,128,0.16)", border: "none", cursor: "pointer", padding: 0, transition: "background 250ms ease" }}>
-      <span style={{ position: "absolute", top: 2, left: 2, width: 27, height: 27, borderRadius: "50%", background: "#fff", transform: on ? "translateX(20px)" : "translateX(0)", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 3px 8px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1)" }} />
+      style={{ width: 44, height: 26, borderRadius: 14, position: "relative", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", border: "none", cursor: "pointer", padding: 0, transition: "background 220ms ease" }}>
+      <span style={{ position: "absolute", top: 2, left: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)", transition: "transform 220ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 2px 6px rgba(0,0,0,0.25)" }} />
     </button>
   );
 
@@ -1658,20 +1665,22 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Settings" style={{ position: "fixed", inset: 0, background: P.dark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 }} onClick={close} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: sectionBg, borderRadius: isMobile ? 14 : 16, width: 500, maxWidth: "100%", maxHeight: isMobile ? "92dvh" : "85vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
+      <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: P.dark ? withAlpha(P.bg, 0.92) : withAlpha("#ffffff", 0.96), backdropFilter: "blur(28px) saturate(1.3)", WebkitBackdropFilter: "blur(28px) saturate(1.3)", border: glassBorderS, borderRadius: isMobile ? 16 : 18, width: 520, maxWidth: "100%", maxHeight: isMobile ? "92dvh" : "85vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
 
         {/* Header */}
-        <div style={{ padding: "16px 20px 0", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em" }}>Settings</div>
-            <button onClick={close} aria-label="Close" style={{ background: P.dark ? "rgba(120,120,128,0.24)" : "rgba(120,120,128,0.12)", border: "none", width: 30, height: 30, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: P.ink2, fontSize: 14, fontWeight: 600 }}>✕</button>
+        <div style={{ padding: "20px 22px 0", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ fontSize: 21, fontWeight: 600, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>Settings</div>
+            <button onClick={close} aria-label="Close" style={{ background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", border: "none", width: 30, height: 30, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: P.ink2, fontSize: 14, fontWeight: 600 }}>✕</button>
           </div>
 
-          {/* Tab bar — iOS segmented control style */}
-          <div style={{ display: "flex", background: P.dark ? "rgba(120,120,128,0.2)" : "rgba(120,120,128,0.1)", borderRadius: 9, padding: 2, marginBottom: 16, gap: 1 }}>
+          {/* Tab bar — same segmented-pill pattern as the rest of the app's
+              controls (see cmdHint/iconBtn), accent-driven active state
+              instead of a flat iOS system-gray fill. */}
+          <div style={{ display: "flex", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", borderRadius: 10, padding: 3, marginBottom: 18, gap: 2 }}>
             {TABS.map(([id, label]) => (
               <button key={id} onClick={() => { sfx(); setTab(id); }}
-                style={{ flex: 1, padding: "7px 4px", fontSize: isMobile ? 11 : 12, fontWeight: tab === id ? 600 : 500, background: tab === id ? (P.dark ? P.raised : "#fff") : "transparent", color: tab === id ? P.ink : P.faint, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", boxShadow: tab === id ? "0 1px 3px rgba(0,0,0,0.1)" : "none", transition: "all 200ms ease" }}>{label}</button>
+                style={{ flex: 1, padding: "7px 4px", fontSize: isMobile ? 10.5 : 11.5, fontWeight: 600, background: tab === id ? accent : "transparent", color: tab === id ? at : P.faint, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", boxShadow: tab === id ? `0 2px 10px ${withAlpha(accent, 0.35)}` : "none", transition: "all 200ms ease" }}>{label}</button>
             ))}
           </div>
         </div>
@@ -1684,31 +1693,13 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               <Row label="Answer length" control={
                 <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} />
               } />
-              <Row label="Animated typing" desc="Reveals answers progressively" control={<Switch on={typewriter} onChange={setTypewriter} label="Typing animation" />} />
+              <Row label="Fact-check pass" desc="Runs a second verification pass over claims before showing the answer" control={<Switch on={factCheck} onChange={(v) => { sfx(); setFactCheck(v); }} label="Fact-check pass" />} />
+              <Row label="Animated typing" desc="Reveals answers progressively as they're written" control={<Switch on={typewriter} onChange={setTypewriter} label="Typing animation" />} />
               <Row label="Citation format" control={
                 <Picker value={citationStyle} options={[["vancouver", "Vancouver"], ["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"], ["bibtex", "BibTeX"]]} onChange={setCitationStyle} />
               } last />
             </Section>
 
-            <Section title="Search" footer="Cerebrum queries 14 scholarly databases including PubMed, Europe PMC, OpenAlex, and Semantic Scholar.">
-              {/* Bug: this switch is the exact same `muted` state as the "Sound
-                  effects" switch on the Audio tab below, but was labeled here
-                  as if it only controlled search ambience ("Auto-play search
-                  tone" / "Ambient sound while searching") — it actually mutes
-                  ALL UI sound (clicks, hovers, ambience alike). Relabeled to
-                  match what it actually does and to stop duplicating the
-                  "Search sound" row directly beneath it. */}
-              <Row label="Sound effects" desc="Click sounds and ambient search tones" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
-              <Row label="Search sound" control={
-                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Audio.preview(v); }} />
-              } last />
-            </Section>
-
-            <Section title="Motion">
-              <Row label="Animation" desc="Background particles and entrance effects" control={
-                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
-              } last />
-            </Section>
           </>)}
 
           {tab === "appearance" && (<>
@@ -1721,7 +1712,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                       <span style={{ width: 22, height: 22, borderRadius: 6, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} />
                       <span style={{ width: 22, height: 22, borderRadius: 6, background: accent }} />
                     </div>
-                    <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: paletteName === pn ? 600 : 400 }}>{pn}</span>
+                    <span style={{ fontSize: 12, color: PALETTES[pn].ink, fontWeight: paletteName === pn ? 600 : 500, fontFamily: "var(--cb-body)" }}>{pn}</span>
                   </button>
                 ))}
               </div>
@@ -1739,6 +1730,17 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                 </label>
               </div>
             </Section>
+
+            {/* Motion lives here, once — it used to also have a duplicate
+                on/off toggle over on the Accessibility tab that read a ref
+                (`lastAnimModeRef`) never passed into this component, which
+                threw a ReferenceError the instant anyone touched it. One
+                control, one place, no crash. */}
+            <Section title="Motion" footer="Off disables the background entirely — the same effect the Accessibility tab's old 'Reduce motion' toggle was meant to give you.">
+              <Row label="Background animation" desc="Particles and entrance effects" control={
+                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
+              } last />
+            </Section>
           </>)}
 
           {tab === "accessibility" && (<>
@@ -1755,28 +1757,18 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
             </Section>
 
             <Section title="Reading" footer="OpenDyslexic is a typeface designed to increase readability for readers with dyslexia.">
-              <Row label="Dyslexia-friendly font" desc="Uses OpenDyslexic typeface for body text" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); setDyslexicFont(v); }} label="Dyslexic font" />} />
-              <Row label="Auto-read answers" desc="Reads answers aloud using text-to-speech" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto-read" />} />
-              <Row label="Animated typing" desc="Disable to show answers instantly" control={<Switch on={typewriter} onChange={(v) => { sfx(); setTypewriter(v); }} label="Typing animation" />} last />
+              <Row label="Dyslexia-friendly font" desc="Uses OpenDyslexic typeface for body text" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); setDyslexicFont(v); }} label="Dyslexic font" />} last />
             </Section>
 
-            <Section title="Motion">
-              <Row label="Reduce motion" desc="Disables background animations and entrance effects" control={<Switch on={animationMode === "off"} onChange={(v) => { sfx(); setAnimationMode(v ? "off" : lastAnimModeRef.current); }} label="Reduce motion" />} last />
-            </Section>
-
-            <Section title="Voice">
-              <div style={{ padding: "12px 16px" }}>
-                <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-                <div style={{ height: 8 }} />
-                <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-              </div>
+            <Section title="Audio assistance" footer="Voice and playback options live on the Audio & Voice tab.">
+              <Row label="Auto-read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto-read" />} last />
             </Section>
           </>)}
 
           {tab === "audio" && (<>
             <Section title="Interface sounds">
-              <Row label="Sound effects" desc="Subtle tones on click and hover" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
-              <Row label="Search ambience" desc="Background tone while searching" control={
+              <Row label="Sound effects" desc="Click sounds and ambient tones while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
+              <Row label="Search ambience" desc="Background tone while a search runs" control={
                 <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Audio.preview(v); }} />
               } last />
             </Section>
@@ -1788,23 +1780,32 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
           </>)}
 
           {tab === "data" && (<>
+            <Section title="Conversation history" footer="Previous investigations are stored locally in your browser and never leave your device unless you open them.">
+              <Row label="Saved conversations" desc={`${(history || []).length} conversation${(history || []).length === 1 ? "" : "s"} kept`} />
+              {(history || []).length > 0 && (
+                <Row label="Clear conversation history" destructive control={
+                  <button onClick={() => { setHistory([]); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, color: "#e5484d", background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-body)" }}>Clear</button>
+                } last />
+              )}
+            </Section>
+
             <Section title="Storage" footer="Saved articles and preferences are stored locally in your browser. Your search queries are sent to Cerebrum's server to run the search — see the Privacy page for details.">
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} />
               <Row label="Clear all data" destructive control={
                 confirmClear
                   ? <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => { setSessions([]); setSaved([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, fontWeight: 600, background: "#ff3b30", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Delete</button>
-                      <button onClick={() => setConfirmClear(false)} style={{ padding: "6px 14px", fontSize: 13, color: P.ink2, background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer" }}>Cancel</button>
+                      <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, fontWeight: 600, background: "#e5484d", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Delete</button>
+                      <button onClick={() => setConfirmClear(false)} style={{ padding: "6px 14px", fontSize: 13, color: P.ink2, background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Cancel</button>
                     </div>
-                  : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", fontSize: 13, color: "#ff3b30", background: "transparent", border: "none", cursor: "pointer", fontWeight: 500 }}>Clear...</button>
+                  : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", fontSize: 13, color: "#e5484d", background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-body)" }}>Clear…</button>
               } last />
             </Section>
 
             <Section title="Keyboard shortcuts">
               <div style={{ padding: "4px 0" }}>
                 {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], ["Esc", "Close panel"]].map(([key, desc], i, arr) => (
-                  <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `0.5px solid ${divider}` : "none" }}>
-                    <span style={{ fontSize: 15, color: P.ink }}>{desc}</span>
+                  <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${divider}` : "none" }}>
+                    <span style={{ fontSize: 14.5, color: P.ink, fontWeight: 500, fontFamily: "var(--cb-body)" }}>{desc}</span>
                     <kbd style={{ fontSize: 12, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 6, fontWeight: 500 }}>{key}</kbd>
                   </div>
                 ))}
@@ -1812,8 +1813,8 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
             </Section>
 
             <Section title="About">
-              <Row label="Version" control={<span style={{ fontSize: 15, color: P.faint }}>4.0</span>} />
-              <Row label="Built by" control={<span style={{ fontSize: 15, color: accent }}>Vaticay</span>} last />
+              <Row label="Version" control={<span style={{ fontSize: 14.5, color: P.faint, fontFamily: "var(--cb-mono)" }}>4.1</span>} />
+              <Row label="Built by" control={<span style={{ fontSize: 14.5, color: accent, fontWeight: 500 }}>Vaticay</span>} last />
             </Section>
           </>)}
 
@@ -1861,14 +1862,27 @@ function makeStyles(P, accent, at, isMobile = false) {
     page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
-    /* ── Header: dark glass bar, minimal ── */
-    header: { 
-      flexShrink: 0, 
-      borderBottom: glassBorder, 
-      background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85), 
-      backdropFilter: "blur(20px) saturate(1.3)", 
-      WebkitBackdropFilter: "blur(20px) saturate(1.3)", 
-      position: "sticky", top: 0, zIndex: 20 
+    /* ── Header: dark glass bar, minimal ──
+       `position: sticky` combined with `backdrop-filter` on the same element
+       is a known Chromium compositor trap: the filter forces its own paint
+       layer, and when that layer also has to track scroll offset for
+       stickiness, Chrome can mark the region under it as needing main-thread
+       scroll handling and then never promptly re-check that determination as
+       the page grows — mouse-wheel scroll goes dead over that region while a
+       manual scrollbar drag (a different, compositor-level code path) keeps
+       working fine. Pinning this element to its own explicit layer with
+       `translateZ(0)` + `will-change: transform` gives the compositor a
+       stable boundary up front instead of promoting/demoting it on the fly,
+       which is the standard fix for this exact "wheel dead, scrollbar fine"
+       symptom. */
+    header: {
+      flexShrink: 0,
+      borderBottom: glassBorder,
+      background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85),
+      backdropFilter: "blur(20px) saturate(1.3)",
+      WebkitBackdropFilter: "blur(20px) saturate(1.3)",
+      position: "sticky", top: 0, zIndex: 20,
+      transform: "translateZ(0)", willChange: "transform",
     },
     headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
@@ -1972,7 +1986,7 @@ function makeStyles(P, accent, at, isMobile = false) {
        v6.4: widened from 760 to give the answer more room to breathe —
        previously the reading column was noticeably narrower than the answer
        card's own generous padding suggested it should be. */
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "24px 0" : "40px 0", flex: 1, maxWidth: 860, margin: "0 auto", width: "100%" },
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "24px 0" : "40px 0", flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     thread: { minWidth: 0 },
 
@@ -2002,12 +2016,12 @@ function makeStyles(P, accent, at, isMobile = false) {
       WebkitBackdropFilter: "blur(16px) saturate(1.2)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`,
       borderRadius: 20,
-      padding: isMobile ? "32px 24px" : "48px 56px",
+      padding: isMobile ? "34px 24px" : "56px 64px",
       boxShadow: P.dark
         ? "0 0 0 0.5px rgba(255,255,255,0.04) inset, 0 12px 48px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3)"
         : `${P.shadow}, 0 0 0 0.5px rgba(0,0,0,0.03)`,
-      lineHeight: 1.75,
-      fontSize: isMobile ? 15 : 16,
+      lineHeight: 1.85,
+      fontSize: isMobile ? 16.5 : 18,
     },
     byline: { 
       fontSize: 10, color: P.faint, 
@@ -2039,15 +2053,18 @@ function makeStyles(P, accent, at, isMobile = false) {
       lineHeight: 1.45,
     },
 
-    /* ── Sources panel: dark glass sidebar ── */
-    panel: { 
-      position: "sticky", top: 24, 
-      background: glass, 
-      backdropFilter: "blur(20px) saturate(1.15)", 
-      WebkitBackdropFilter: "blur(20px) saturate(1.15)", 
-      border: glassBorder, borderRadius: 16, 
-      padding: "20px", boxShadow: P.shadow, 
-      maxHeight: "calc(100dvh - 110px)", overflowY: "auto" 
+    /* ── Sources panel: dark glass sidebar ──
+       Same sticky + backdrop-filter compositor isolation as `header` above —
+       see that comment for why translateZ(0)/will-change matter here. */
+    panel: {
+      position: "sticky", top: 24,
+      background: glass,
+      backdropFilter: "blur(20px) saturate(1.15)",
+      WebkitBackdropFilter: "blur(20px) saturate(1.15)",
+      border: glassBorder, borderRadius: 16,
+      padding: "20px", boxShadow: P.shadow,
+      maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
+      transform: "translateZ(0)", willChange: "transform",
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
@@ -2202,6 +2219,24 @@ function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(() => { try { return getCookie("cb_entered_v4") === "1"; } catch { return false; } });
   const [input, setInput] = useState("");
+  // Attached image (a figure, a screenshot of a chart, a photo of a
+  // specimen) sent alongside the next question — see describeImage() on
+  // the backend, which converts it to text via a vision model before it
+  // ever reaches the retrieval pipeline.
+  const [attachedImage, setAttachedImage] = useState(null); // data: URL
+  const [attachedImageName, setAttachedImageName] = useState("");
+  const imageInputRef = useRef(null);
+  function onImagePicked(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setError("That file isn't an image."); return; }
+    if (file.size > 8_000_000) { setError("That image is too large — try one under 8MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => { setAttachedImage(reader.result); setAttachedImageName(file.name); };
+    reader.onerror = () => setError("Couldn't read that image — try another file.");
+    reader.readAsDataURL(file);
+  }
   const [turns, setTurns] = useState([]);
   const [pinnedSources, setPinnedSources] = useState([]);
   const [corrections, setCorrections] = useState([]);
@@ -2300,16 +2335,17 @@ function App() {
 
   const ask = useCallback(async (q, opts = {}) => {
     const question = (q ?? input).trim();
-    if (!question || busy) return;
+    const imageToSend = attachedImage;
+    if ((!question && !imageToSend) || busy) return;
     if (!mutedRef.current) Audio.click();
-    setInput(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
-      const videosPromise = fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, history: prior, settings: { answerLength, factCheck }, pinnedSources, corrections }) });
+      const videosPromise = imageToSend ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck }, pinnedSources, corrections }) });
       // Bug: res.json() throwing on a malformed/empty/non-JSON body (still
       // possible on a 200, e.g. an edge timeout truncating the response) used
       // to fall straight into the outer catch below, which reports "Couldn't
@@ -2321,7 +2357,7 @@ function App() {
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (!res.ok) { setError(data.error || "Something went sideways. Try that again?"); setBusy(false); return; }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, q: question, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      const nt = { id: turnId, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       setTurns((t) => [...t, nt]);
@@ -2331,7 +2367,7 @@ function App() {
       videosPromise.then(({ videos }) => { if (videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
     } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
     finally { setBusy(false); }
-  }, [input, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections]);
+  }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections]);
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
   // v6.4: was threadRef.current.scrollTop = threadRef.current.scrollHeight —
@@ -2367,7 +2403,7 @@ function App() {
   // (the standard robust scroll-lock pattern) and restore that exact
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
-    const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel;
+    const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel || historyOpen;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -2383,7 +2419,7 @@ function App() {
       body.style.width = prev.width;
       window.scrollTo(0, scrollY);
     };
-  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel]);
+  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -2409,7 +2445,7 @@ function App() {
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
-      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); setSavedOpen(false); }
+      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); setSavedOpen(false); setHistoryOpen(false); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "d") { e.preventDefault(); setPaletteName(P.dark ? "Light" : "Dark"); }
@@ -2418,8 +2454,33 @@ function App() {
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const [showHistory, setShowHistory] = useState(false);
-  function newSession() { if (!mutedRef.current) Audio.click(); setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50); }
+  // Previous conversations. This used to be dead state (`showHistory` was
+  // declared and never read anywhere — a stub from an earlier attempt at
+  // this exact feature that never got finished) while "New investigation"
+  // silently threw the entire thread away with no way to get it back. Now
+  // newSession() snapshots the outgoing thread here before clearing it.
+  const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_history") || "[]"); } catch { return []; } });
+  const [historyOpen, setHistoryOpen] = useState(false);
+  useEffect(() => { try { localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40))); } catch {} }, [history]);
+  function newSession() {
+    if (!mutedRef.current) Audio.click();
+    if (turns.length > 0) {
+      const firstQ = turns[0]?.q || input || "Untitled investigation";
+      setHistory((h) => [
+        { id: "h" + Date.now(), title: firstQ.slice(0, 140), ts: Date.now(), turns, allSources },
+        ...h.filter((entry) => entry.turns?.[0]?.id !== turns[0]?.id),
+      ].slice(0, 40));
+    }
+    setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50);
+  }
+  function openHistoryItem(entry) {
+    sfx();
+    setTurns(entry.turns || []);
+    setAllSources(entry.allSources || []);
+    setPinnedSources([]); setCorrections([]); setError("");
+    setHistoryOpen(false);
+    setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 60);
+  }
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
   function isPinned(s) { const k = sourceKey(s); return pinnedSources.some((x) => sourceKey(x) === k); }
   function togglePin(s) { sfx(); setPinnedSources((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
@@ -2429,6 +2490,7 @@ function App() {
   const commands = [
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
     { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
+    { label: "Open previous conversations", run: () => { setCmdOpen(false); setHistoryOpen(true); } },
     { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Toggle light / dark", run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
@@ -2532,6 +2594,7 @@ function App() {
           <div style={S.headActions}>
             {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button>
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setHistoryOpen(true); }} title="Previous conversations" aria-label={`Previous conversations${history.length ? `, ${history.length}` : ""}`}><Icon name="history" size={16} />{!isMobile && <span style={S.iconBtnLabel}>History</span>}</button>
             <button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}><Icon name={muted ? "volumeOff" : "volumeOn"} size={16} /></button>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button>
@@ -2550,10 +2613,19 @@ function App() {
               <div style={S.heroGlow} />
               <div style={S.heroMark}><Mark size={44} accent={accent} glow={P.dark} /></div>
               <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
-              <p style={S.heroSub}>Ask a question. We search the real literature and write you an answer with sources you can verify.</p>
+              <p style={S.heroSub}>Ask a real research question. We'll dig through the actual literature and give you a straight answer — every citation checkable, nothing invented.</p>
+              <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
+              {attachedImage && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 10, maxWidth: "fit-content" }}>
+                  <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} />
+                  <span style={{ fontSize: 12.5, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
+                  <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: 14, padding: 2, lineHeight: 1 }}>✕</button>
+                </div>
+              )}
               <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700, borderRadius: 14 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
                   <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
+                  <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button style={S.searchBtn} onClick={() => ask()}>Search</button>
               </div>
@@ -2577,13 +2649,21 @@ function App() {
                 {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Searching</span></div><div style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)", margin: "8px 0 12px", letterSpacing: "0.03em", opacity: 0.7 }}>Querying PubMed · Europe PMC · OpenAlex · Semantic Scholar · Crossref · arXiv</div><Skeleton P={P} /><LoadingLine P={P} accent={accent} S={S} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>⚠</span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: 12, fontWeight: 600, background: withAlpha("#e5484d", 0.15), color: "#e5484d", border: `1px solid ${withAlpha("#e5484d", 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
-                {turns.length > 0 && !busy && (
+                {turns.length > 0 && !busy && (<>
+                  {attachedImage && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 10, maxWidth: "fit-content" }}>
+                      <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} />
+                      <span style={{ fontSize: 12.5, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
+                      <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: 14, padding: 2, lineHeight: 1 }}>✕</button>
+                    </div>
+                  )}
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
                     <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Follow up — I remember the whole thread" />
+                    <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
                   </div>
-                )}
+                </>)}
               </div>
             </div>
           )}
@@ -2604,7 +2684,8 @@ function App() {
       {started && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside role="dialog" aria-modal="true" aria-label="Sources" style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14 }} onClick={() => setMobilePanel(false)}>✕ Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div role="dialog" aria-modal="true" aria-label="Command palette" style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { if (cmdSuggest.length) ask(cmdSuggest[0]); else if (filteredCmds[0]) filteredCmds[0].run(); } }} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s) => (<button key={s} style={S.cmdItem} onClick={() => ask(s)} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c) => (<button key={c.label} style={S.cmdItem} onClick={c.run} onMouseEnter={(e) => e.currentTarget.style.background = withAlpha(accent, 0.08)} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>))}</div></div></div>)}
       {savedOpen && (<div role="dialog" aria-modal="true" aria-label="Saved articles" style={S.modalWrap} onClick={() => setSavedOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>{saved.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No saved articles yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Tap ☆ Save on any source to keep it here.</span></div>) : (<><div style={{ display: "flex", gap: 8, marginBottom: 16 }}><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button><button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button><button style={{ ...S.sBtn, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => { if (confirm("Remove all saved articles?")) setSaved([]); }}>Clear all</button></div><div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>{saved.map((s, i) => (<div key={sourceKey(s) || i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}><a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: 14 }}>{s.title || s.url}</a><div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div><div style={S.srcRow}><button style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(s)))}>Remove</button>{s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}</div></div>))}</div></>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setSavedOpen(false)}>Done</button></div></div>)}
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, close: () => setSettingsOpen(false) }} />}
+      {historyOpen && (<div role="dialog" aria-modal="true" aria-label="Previous conversations" style={S.modalWrap} onClick={() => setHistoryOpen(false)} className="cb-backdrop"><div style={{ ...S.modal, width: 560 }} onClick={(e) => e.stopPropagation()} className="cb-modal"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Previous conversations</div><span style={S.srcCount}>{history.length}</span></div>{history.length === 0 ? (<div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>Nothing here yet.<br /><span style={{ fontSize: 12.5, color: P.faint }}>Starting a new investigation keeps the last one here so you can come back to it.</span></div>) : (<div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "60vh", overflowY: "auto" }}>{history.map((h) => (<div key={h.id} style={{ padding: "13px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}><button onClick={() => openHistoryItem(h)} style={{ flex: 1, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}><div style={{ fontSize: 14.5, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>{h.title}</div><div style={{ fontSize: 12, color: P.faint, marginTop: 3 }}>{(h.turns || []).length} exchange{(h.turns || []).length === 1 ? "" : "s"} · {new Date(h.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</div></button><button onClick={() => setHistory((prev) => prev.filter((x) => x.id !== h.id))} aria-label="Delete conversation" style={{ ...S.chipMini, color: "#e5484d", borderColor: withAlpha("#e5484d", 0.35), flexShrink: 0 }}>Delete</button></div>))}</div>)}<button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => setHistoryOpen(false)}>Done</button></div></div>)}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, close: () => setSettingsOpen(false) }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
       <ToastHost P={P} accent={accent} />
     </div>
@@ -2634,6 +2715,19 @@ const CSS = `
   -moz-osx-font-smoothing: grayscale;
 }
 html, body { margin: 0; overflow-x: hidden; overscroll-behavior-y: contain; }
+
+/* Vanta.js (WebGL decorative background) injects its own <canvas> at runtime
+   and, on some builds, stamps that canvas with its own inline pointer-events
+   / touch-action so its (disabled) camera-drag controls still have something
+   to bind to. An inline style with no !important loses to an author
+   stylesheet rule that DOES carry !important, so this is a hard guarantee —
+   independent of whatever Vanta sets on the element directly — that the
+   decorative canvas can never sit in the hit-test path for wheel, touch, or
+   click input meant for the real page underneath it. */
+.cb-vanta-host, .cb-vanta-host canvas {
+  pointer-events: none !important;
+  touch-action: pan-y !important;
+}
 @supports (padding: max(0px)) {
   body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
 }
