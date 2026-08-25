@@ -73,7 +73,7 @@ const VIDEO_STOPWORDS = new Set([
   "our","you","your","i","me","my","mine","about","into","out","over","under",
   "again","further","then","once","here","there","all","any","both","each",
   "few","more","most","other","some","such","only","own","same","so","than",
-  "too","very","just","forgot","also","phase","when","things","stuff","get",
+  "too","very","just","forgot","also","phase","things","stuff","get",
 ]);
 
 function shortenQueryForVideos(raw) {
@@ -184,13 +184,20 @@ async function tryProxy(inst, query) {
   try {
     const r = await fetch(url, { signal: c.signal, headers: { "User-Agent": "Mozilla/5.0" } });
     clearTimeout(t);
-    if (!r.ok) throw 0;
+    if (!r.ok) throw new Error(inst.url + ": HTTP " + r.status);
     const data = await r.json();
     const items = Array.isArray(data) ? data : (data.items || []);
     const out = [];
+    // Bug: `id`/`title`/`author` come from community-run, third-party-operated
+    // Piped/Invidious instances Cerebrum doesn't control, and were forwarded
+    // to the client with no validation. A real YouTube video ID is always
+    // exactly 11 URL-safe characters — reject anything else so a compromised
+    // or malicious proxy instance can't inject an arbitrary string into a
+    // field the frontend renders.
+    const YT_ID_RE = /^[\w-]{11}$/;
     for (const it of items) {
       let id = it.videoId || (it.url && it.url.replace(/^.*\/watch\?v=/, "").split("&")[0]);
-      if (!id) continue;
+      if (!id || !YT_ID_RE.test(id)) continue;
       out.push({
         title: it.title || "Video",
         url: "https://www.youtube.com/watch?v=" + id,
@@ -200,7 +207,7 @@ async function tryProxy(inst, query) {
       });
       if (out.length >= 6) break;
     }
-    if (!out.length) throw 0;
+    if (!out.length) throw new Error(inst.url + ": no usable results");
     return out;
   } catch (e) { clearTimeout(t); throw e; }
 }
@@ -251,6 +258,10 @@ export async function onRequest(context) {
     const videos = await Promise.race([doFetch(), timedRace]);
     return new Response(JSON.stringify({ videos }), { status: 200, headers: cors });
   } catch (e) {
-    return new Response(JSON.stringify({ videos: [], error: String(e) }), { status: 200, headers: cors });
+    // Bug: this used to echo the raw exception (`String(e)`) straight to the
+    // client — a genuine internal failure could leak implementation detail.
+    // Log server-side, return a static message to the client.
+    console.error("Cerebrum videos endpoint error:", e);
+    return new Response(JSON.stringify({ videos: [], error: "Video search unavailable." }), { status: 200, headers: cors });
   }
 }
