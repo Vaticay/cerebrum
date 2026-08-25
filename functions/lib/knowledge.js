@@ -710,6 +710,16 @@ const GENE_SYMBOL_STOPLIST = new Set([
   "USA", "USD", "DNA", "RNA", "PCR", "PhD", "MRI", "CT", "MD", "PET", "III",
   "IV", "II", "VI", "VII", "VIII", "IX", "XI", "XII", "NIH", "FDA", "WHO",
   "CDC", "EU", "UK", "US", "IL", "TNF", "IFN", "IGF",
+  // Chemical formulas share gene symbols' exact shape — a capital letter
+  // followed by a short run of caps/digits — so any earth-science, climate,
+  // or chemistry answer trips the heuristic constantly (an ocean-acidification
+  // answer that says "CO2" was flagged as an unverifiable "gene" and tanked
+  // the fact-check score to 0% on an otherwise well-cited answer). These are
+  // the atmospheric/aqueous formulas most likely to show up outside a
+  // genetics context; real gene symbols never coincide with them.
+  "CO2", "CO", "H2O", "O2", "O3", "N2", "N2O", "NO", "NO2", "NO3", "SO2",
+  "SO3", "SO4", "NH3", "NH4", "CH4", "H2S", "H2O2", "HCL", "HNO3", "NAOH",
+  "KOH", "CACO3", "NACL", "MGCL2", "CACL2", "C2H4", "C6H12O6",
 ]);
 const GENE_SYMBOL_RE = /^[A-Z][A-Z0-9]{1,6}$/;
 
