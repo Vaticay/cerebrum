@@ -950,39 +950,98 @@ export function detectStatisticalRigor(abstract) {
 // This stays honest about that scope in what it returns.
 // ════════════════════════════════════════════════════════════════════════
 
+// An answer routinely defines its own acronym inline — "liquid-liquid phase
+// separation (LLPS)" — and then keeps using the short form afterward. The
+// bare acronym almost never appears verbatim in a paper's title/abstract
+// even when the underlying concept obviously does (the paper says the words
+// out; the answer just abbreviates them), so checking only the literal
+// 4-letter token systematically misreads that as unsupported. This isn't
+// full Schwartz-Hearst-style acronym alignment — it doesn't try to match
+// the acronym's letters to the phrase's initials — it just grabs the run of
+// words immediately before "(XXXX)" and treats it as a phrase to look up
+// too, trying it and its trailing sub-phrases until one lands. Cheap, and
+// it's exactly the case that actually shows up in these answers.
+const ACRONYM_DEF_RE = /([a-z][a-z\- ]{2,80}?)\s*\(([A-Z]{2,8})\)/gi;
+
+function findAcronymExpansions(text) {
+  const map = new Map(); // ACRONYM -> phrase as written just before it
+  let m;
+  ACRONYM_DEF_RE.lastIndex = 0;
+  while ((m = ACRONYM_DEF_RE.exec(text || ""))) {
+    const acronym = m[2].toUpperCase();
+    if (!map.has(acronym)) map.set(acronym, m[1].trim());
+  }
+  return map;
+}
+
+/** Does a trailing sub-phrase of `rawPhrase` (long to short) show up verbatim
+ *  in `haystackLower`? Trimming from the front handles the defining phrase
+ *  having swept in extra preceding words (the regex above has no way to know
+ *  exactly where the phrase "starts") — the clean core phrase is still in
+ *  there as a suffix, so shrinking the window from the front finds it. */
+function phraseFoundInText(rawPhrase, haystackLower) {
+  const words = rawPhrase.toLowerCase().split(/\s+/).filter(Boolean);
+  const maxWin = Math.min(8, words.length);
+  for (let n = maxWin; n >= 2; n--) {
+    const phrase = words.slice(-n).join(" ");
+    if (phrase.length >= 6 && haystackLower.includes(phrase)) return true;
+  }
+  return false;
+}
+
 /**
  * Cross-checks entities named in a drafted answer against the entities
  * actually present in its cited source papers. Returns:
- *   { checked: bool, unsupported: [...], supported: [...], note: string }
+ *   { checked: bool, supported: [...], thin: [...], unsupported: [...], note }
  * `checked: false` means there wasn't enough material to check (no entities
  * detected in the answer at all, or no sources to check against) — this is
  * a normal, common outcome for a purely conceptual/mechanistic answer that
- * never names a specific drug/gene/pathway, NOT a failure.
+ * never names a specific drug/gene/pathway, NOT a failure. `thin` entries are
+ * ones only supported indirectly — the acronym itself isn't in any source,
+ * but the phrase the answer used to define it is.
  */
 export function verifyAnswerAgainstSources(answerText, papers) {
-  const answerEntities = extractEntities(answerText || "");
+  const text = answerText || "";
+  const answerEntities = extractEntities(text);
   const namedInAnswer = [...answerEntities.drugs, ...answerEntities.pathways, ...answerEntities.genes];
   if (namedInAnswer.length === 0) {
-    return { checked: false, unsupported: [], supported: [], note: "Answer doesn't name specific drugs, genes, or pathways to check." };
+    return { checked: false, unsupported: [], supported: [], thin: [], note: "Answer doesn't name specific drugs, genes, or pathways to check." };
   }
   if (!papers || papers.length === 0) {
-    return { checked: false, unsupported: [], supported: [], note: "No sources to check the answer against." };
+    return { checked: false, unsupported: [], supported: [], thin: [], note: "No sources to check the answer against." };
   }
+  // NOT lowercased before extraction: extractEntities()'s gene/acronym
+  // detection only fires on a token that's ALL CAPS in the text as written
+  // (that's the whole signal separating "SARS" from an ordinary word) —
+  // lowercase the string first and every acronym vanishes before it's ever
+  // looked at, so a source titled "SARS-CoV-2 nucleocapsid protein forms
+  // condensates..." would never register as supporting a claim about SARS.
+  // extractEntities() already lowercases internally for its drug/pathway
+  // matching, and the set comparison below is already case-insensitive, so
+  // preserving case here only helps the gene/acronym side — it doesn't cost
+  // the other two.
   const sourceText = papers
     .map((p) => ((p && p.title) || "") + " " + ((p && p.abstract) || ""))
-    .join(" ")
-    .toLowerCase();
+    .join(" ");
   const sourceEntities = extractEntities(sourceText);
   const sourceSet = new Set([...sourceEntities.drugs, ...sourceEntities.pathways, ...sourceEntities.genes].map((e) => e.toLowerCase()));
+  const sourceTextLower = sourceText.toLowerCase();
+  const acronymPhrases = findAcronymExpansions(text);
 
   const unsupported = [];
   const supported = [];
+  const thin = [];
   for (const entity of new Set(namedInAnswer)) {
-    if (sourceSet.has(entity.toLowerCase())) supported.push(entity);
-    else unsupported.push(entity);
+    if (sourceSet.has(entity.toLowerCase())) { supported.push(entity); continue; }
+    const phrase = acronymPhrases.get(entity.toUpperCase());
+    if (phrase && phraseFoundInText(phrase, sourceTextLower)) { thin.push(entity); continue; }
+    unsupported.push(entity);
   }
-  const note = unsupported.length
-    ? `${unsupported.length} term${unsupported.length === 1 ? "" : "s"} in the answer (${unsupported.slice(0, 5).join(", ")}) ${unsupported.length === 1 ? "doesn't" : "don't"} appear in any cited source — may come from general knowledge rather than these specific papers, or may be a citation error worth double-checking.`
+  const parts = [];
+  if (unsupported.length) parts.push(`${unsupported.length} term${unsupported.length === 1 ? "" : "s"} (${unsupported.slice(0, 5).join(", ")}) ${unsupported.length === 1 ? "doesn't" : "don't"} appear in any cited source — may come from general knowledge rather than these specific papers, or may be a citation error worth double-checking`);
+  if (thin.length) parts.push(`${thin.length} term${thin.length === 1 ? "" : "s"} (${thin.slice(0, 5).join(", ")}) ${thin.length === 1 ? "isn't" : "aren't"} named directly, but the phrase the answer used to define ${thin.length === 1 ? "it" : "them"} is in a cited source`);
+  const note = parts.length
+    ? parts.join("; ") + "."
     : `All ${supported.length} specific term${supported.length === 1 ? "" : "s"} named in the answer appear in the cited sources.`;
-  return { checked: true, unsupported, supported, note };
+  return { checked: true, unsupported, supported, thin, note };
 }
