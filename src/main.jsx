@@ -1290,7 +1290,12 @@ function InfoPage({ page }) {
       <div style={{ position: "fixed", inset: 0, opacity: 0.4, pointerEvents: "none", zIndex: 0 }}>
         <LivingBackground accent={accent} P={P} intensity="subtle" preset="aurora" density={0.7} speed={0.6} opacity={0.7} paused={false} />
       </div>
-      <header style={{ position: "sticky", top: 0, zIndex: 10, background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}`, transform: "translateZ(0)", willChange: "transform" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 10, transform: "translateZ(0)", willChange: "transform" }}>
+        {/* Blur lives on its own layer behind the content instead of on the
+            sticky element itself — see the `headerGlass` comment in the main
+            app styles for why that split, not just translateZ(0), is what
+            actually keeps mouse-wheel scrolling alive over this bar. */}
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}` }} />
         <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: 16, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
@@ -1870,19 +1875,24 @@ function makeStyles(P, accent, at, isMobile = false) {
        scroll handling and then never promptly re-check that determination as
        the page grows — mouse-wheel scroll goes dead over that region while a
        manual scrollbar drag (a different, compositor-level code path) keeps
-       working fine. Pinning this element to its own explicit layer with
-       `translateZ(0)` + `will-change: transform` gives the compositor a
-       stable boundary up front instead of promoting/demoting it on the fly,
-       which is the standard fix for this exact "wheel dead, scrollbar fine"
-       symptom. */
+       working fine. `translateZ(0)` + `will-change: transform` alone weren't
+       enough to keep it off the main thread in practice, so the sticky
+       element itself no longer carries the filter at all: it's just a plain
+       positioned box now, and the blur lives on a separate `headerGlass`
+       layer stacked behind the content with `pointer-events: none`. Splitting
+       them means the thing that's actually `position: sticky` never triggers
+       Chrome's filter-plus-stickiness repaint path in the first place. */
     header: {
       flexShrink: 0,
+      position: "sticky", top: 0, zIndex: 20,
+      transform: "translateZ(0)", willChange: "transform",
+    },
+    headerGlass: {
+      position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none",
       borderBottom: glassBorder,
       background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85),
       backdropFilter: "blur(20px) saturate(1.3)",
       WebkitBackdropFilter: "blur(20px) saturate(1.3)",
-      position: "sticky", top: 0, zIndex: 20,
-      transform: "translateZ(0)", willChange: "transform",
     },
     headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
@@ -2054,13 +2064,16 @@ function makeStyles(P, accent, at, isMobile = false) {
     },
 
     /* ── Sources panel: dark glass sidebar ──
-       Same sticky + backdrop-filter compositor isolation as `header` above —
-       see that comment for why translateZ(0)/will-change matter here. */
+       Same sticky + backdrop-filter compositor trap as `header` above, same
+       fix: no filter on the sticky box itself, background/border/blur is a
+       plain non-positioned wash instead. This one isn't inset-absolute like
+       headerGlass because the panel's own height is content-driven (it's not
+       a fixed-height bar), so a solid painted background on the box itself —
+       just without `backdrop-filter` — sidesteps the bug without needing a
+       separate layer. */
     panel: {
       position: "sticky", top: 24,
-      background: glass,
-      backdropFilter: "blur(20px) saturate(1.15)",
-      WebkitBackdropFilter: "blur(20px) saturate(1.15)",
+      background: P.dark ? withAlpha(P.bg, 0.92) : withAlpha(P.bg, 0.97),
       border: glassBorder, borderRadius: 16,
       padding: "20px", boxShadow: P.shadow,
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
@@ -2585,6 +2598,7 @@ function App() {
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: 16 }}>↑</button>}
       <header style={S.header}>
+        <div style={S.headerGlass} aria-hidden="true" />
         <div style={S.headInner}>
           <div style={{ ...S.brandRow, position: "relative" }}>
             
