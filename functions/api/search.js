@@ -16,6 +16,8 @@ import {
   extractEntities,
   classifyResearchIntent,
   intentEvidenceBonus,
+  detectStatisticalRigor,
+  verifyAnswerAgainstSources,
 } from "../lib/knowledge.js";
 
 // ============ CORE UTILITIES ============
@@ -4761,6 +4763,13 @@ async function gatherPapers(rawQuery, opts) {
         evidenceBonus += intentEvidenceBonus(studyType.key, researchIntents);
       }
       quality += evidenceBonus;
+      // A result that actually reports its numbers (n=, p=, a confidence
+      // interval, an effect size) is more checkable — and in practice
+      // usually more careful — than one that only asserts a finding in
+      // prose. Small bonus, capped low enough it can never outweigh topical
+      // relevance or evidence tier on its own.
+      const rigor = detectStatisticalRigor(abstract);
+      quality += rigor.rigorBonus;
 
       const score = match + quality;
 
@@ -7081,12 +7090,43 @@ Respond naturally to the user's message. Be yourself.`;
       } catch {} // Cache write failure is not critical — don't block the response
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // FACT-CHECK PASS (the real implementation — see verifyAnswerAgainstSources
+    // in knowledge.js). Every response path in this file used to hardcode
+    // `factCheck: null` regardless of the request's settings.factCheck flag —
+    // the frontend's toggle and FactCheck display component existed but had
+    // nothing on the backend to ever populate them. This is deterministic and
+    // effectively free (no network call), so it's computed for every answer
+    // that has real sources behind it; only sent to the client when the user
+    // actually has the setting on, so the UI stays exactly as opt-in as the
+    // toggle promises.
+    let factCheckResult = null;
+    if (settings.factCheck && useEvidence && evidencePapers.length > 0) {
+      const fc = verifyAnswerAgainstSources(answer, evidencePapers);
+      // Only surface the panel when there was actually something to check —
+      // a purely mechanistic answer that never names a specific drug/gene/
+      // pathway isn't a failure to verify, it's just nothing to verify, and
+      // showing an empty fact-check box for that case would be misleading.
+      if (fc.checked) {
+        const overall = fc.unsupported.length === 0
+          ? "supported"
+          : fc.supported.length === 0
+          ? "unsupported"
+          : "partly";
+        const claims = [
+          ...fc.supported.map((term) => ({ claim: `References "${term}"`, status: "supported", note: "Appears in at least one cited source." })),
+          ...fc.unsupported.map((term) => ({ claim: `References "${term}"`, status: "unsupported", note: "Doesn't appear in any cited source's title or abstract — may be from general knowledge, or worth double-checking." })),
+        ];
+        factCheckResult = { overall, summary: fc.note, claims };
+      }
+    }
+
     return new Response(
       JSON.stringify({
         answer,
         sources: sourceList,
         videos,
-        factCheck: null,
+        factCheck: factCheckResult,
         related: [],
         answerId, // frontend can use this for upvote/downvote
         source:
