@@ -975,4 +975,4 @@ export function verifyAnswerAgainstSources(answerText, papers) {
     ? `${unsupported.length} term${unsupported.length === 1 ? "" : "s"} in the answer (${unsupported.slice(0, 5).join(", ")}) ${unsupported.length === 1 ? "doesn't" : "don't"} appear in any cited source — may come from general knowledge rather than these specific papers, or may be a citation error worth double-checking.`
     : `All ${supported.length} specific term${supported.length === 1 ? "" : "s"} named in the answer appear in the cited sources.`;
   return { checked: true, unsupported, supported, note };
-}.
+}
