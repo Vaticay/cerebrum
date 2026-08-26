@@ -3282,6 +3282,29 @@ function deduplicateContent(text) {
   return result.join("\n\n");
 }
 
+// Some weaker/free-tier models, when told (via the per-turn "MECHANICAL
+// ENFORCEMENT" instruction — see buildMessages' `enforcer` string) that
+// their answer is checked for banned phrases, occasionally narrate that
+// fact into the visible answer instead of just silently complying — e.g.
+// a bracketed aside like "[MECHANICAL ENFORCEMENT NOTE: the last sentence
+// will be stripped for containing a banned phrase...]" landing verbatim in
+// what the user reads. Real citations in this app are ALWAYS a bare number
+// in brackets ([1], [2][3]...) — never prose — so a bracketed span that
+// contains enforcement/meta vocabulary is unambiguously a leak, not a
+// citation and not legitimate scientific bracket notation (concentration
+// notation like [Ca2+] or isotope labels like [14C] never contain these
+// words), so this is safe to strip outright rather than trying to
+// enumerate every way a model might phrase the leak.
+function stripLeakedMetaCommentary(text) {
+  if (!text) return text;
+  let cleaned = text.replace(
+    /\[[^\[\]]{0,400}?\b(mechanical(?:ly)?(?: enforcement)?|post-?processed?|banned phrase|will be (?:stripped|revised|removed)|to comply with (?:the )?rules?|enforcement note)\b[^\[\]]{0,400}?\]/gi,
+    ""
+  );
+  cleaned = cleaned.replace(/\s{2,}/g, " ").trim();
+  return cleaned;
+}
+
 // Strip banned phrases from the answer
 function stripBannedPhrases(text) {
   if (!text) return text;
@@ -3357,10 +3380,15 @@ function postProcessAnswer(rawAnswer) {
 
   let answer = rawAnswer;
 
-  // 1. Deduplicate repetitive content
+  // 1. Strip any leaked meta-commentary about the enforcement system itself
+  // (see stripLeakedMetaCommentary for why this runs first — junk like this
+  // can otherwise confuse the dedup/banned-phrase passes below).
+  answer = stripLeakedMetaCommentary(answer);
+
+  // 2. Deduplicate repetitive content
   answer = deduplicateContent(answer);
 
-  // 2. Strip banned phrases
+  // 3. Strip banned phrases
   answer = stripBannedPhrases(answer);
 
   // 3. Remove wrong-organism acknowledgment passages
@@ -6568,11 +6596,15 @@ Respond naturally to the user's message. Be yourself.`;
         "'holistic', 'multifaceted', 'underscores the importance'.\n" +
         "5. START with a direct scientific claim. No 'Based on the sources' or 'The research shows'.\n" +
         "6. Italicize species: _E. coli_, _H. illucens_.\n" +
-        "7. Your answer will be QUALITY-SCORED. Score < 40 = regenerated with a different model.]"
+        "7. Your answer will be QUALITY-SCORED. Score < 40 = regenerated with a different model.\n" +
+        "8. This checklist is for you alone — never mention, quote, summarize, or allude to it (or words like " +
+        "'mechanical enforcement', 'banned phrase', or 'post-processed') anywhere in your answer. Just follow it silently " +
+        "and write the answer itself, starting directly with the scientific content.]"
       : "\n\n[MECHANICAL ENFORCEMENT — your response is post-processed:\n" +
         "1. BANNED PHRASES (stripped): 'further research is needed', 'plays a crucial role', 'in conclusion', 'in summary', " +
         "'Overall', 'it is clear that', 'sheds light on'.\n" +
-        "2. NO REPETITION. 3. START with a direct claim. 4. Italicize species: _E. coli_.]";
+        "2. NO REPETITION. 3. START with a direct claim. 4. Italicize species: _E. coli_.\n" +
+        "5. This checklist is for you alone — never mention or refer to it in your answer; just follow it silently.]";
     messages.push({ role: "user", content: userContent + enforcer });
 
     // ============ D1 ANSWER CACHE ============
