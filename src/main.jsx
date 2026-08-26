@@ -1495,6 +1495,14 @@ function InfoPage({ page }) {
         .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16,1,0.3,1) both; }
         @keyframes cbInfoFade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
       `}</style>
+      <div aria-hidden="true" className="cb-ambient" style={{
+        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
+        background: [
+          `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.2 : 0.1)}, transparent 60%)`,
+          `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(ACCENTS.Violet, P.dark ? 0.16 : 0.07)}, transparent 55%)`,
+          `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(ACCENTS.Teal, P.dark ? 0.14 : 0.06)}, transparent 60%)`,
+        ].join(", "),
+      }} />
       <div style={{ position: "fixed", inset: 0, opacity: 0.4, pointerEvents: "none", zIndex: 0 }}>
         <LivingBackground accent={accent} P={P} intensity="subtle" preset="aurora" density={0.7} speed={0.6} opacity={0.7} paused={false} />
       </div>
@@ -2872,6 +2880,31 @@ function makeStyles(P, accent, at, isMobile = false) {
     page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
+    /* ── Ambient wash: the always-on depth layer ──
+       LivingBackground (Vanta/three.js) is a real, nice effect, but it's
+       fetched from four separate CDN scripts at runtime (cdnjs + jsdelivr)
+       and its own loader swallows any failure with a silent `.catch(() =>
+       {})`. On a blocked/slow/offline connection — a corporate proxy, a
+       privacy extension, a flaky mobile network — that whole effect just
+       never appears, with nothing standing in for it. Screenshotting the
+       app in a sandboxed environment with no route to those CDNs is exactly
+       that failure mode, and what it showed was a plain flat black page:
+       no glow, no depth, a bordered box floating in a void. That's almost
+       certainly a real slice of production traffic too, and it lines up
+       with "it still looks the same" far better than any single component
+       does. This is the fix: a pure-CSS radial-gradient wash, built from
+       colors already in memory (no network, no script tag, can't fail),
+       that IS the baseline "next gen" atmosphere. Vanta layers on top of
+       it when it loads; this is what's there when it doesn't. */
+    ambient: {
+      position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
+      background: [
+        `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.24 : 0.12)}, transparent 60%)`,
+        `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(ACCENTS.Violet, P.dark ? 0.20 : 0.09)}, transparent 55%)`,
+        `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(ACCENTS.Teal, P.dark ? 0.18 : 0.08)}, transparent 60%)`,
+      ].join(", "),
+    },
+
     /* ── Header: dark glass bar, minimal ──
        `position: sticky` combined with `backdrop-filter` on the same element
        is a known Chromium compositor trap: the filter forces its own paint
@@ -3530,12 +3563,35 @@ function App() {
   // under them. Standard chat-UI fix: only auto-scroll-to-latest if the
   // user was ALREADY near the bottom (i.e. they were following along), so
   // scrolling away to read something is respected instead of fought.
+  // v6.5: this depended on the whole `turns` array, not just its length —
+  // so ANY in-place patch to an existing turn (e.g. the delayed
+  // `videosPromise.then()` above attaching videos to a turn well after its
+  // answer already finished rendering) produced a new array reference and
+  // re-ran this effect. If the reader was anywhere near the bottom at that
+  // moment — which they almost always are, having just watched the answer
+  // finish — it silently yanked them back down mid-read, felt from the
+  // outside like "I can't scroll up after it answers." The fix: only care
+  // about turns.length (a real new turn was appended) and busy (streaming
+  // started/stopped) — not incidental field mutations on existing turns.
   useEffect(() => {
     const doc = document.documentElement;
     const distanceFromBottom = doc.scrollHeight - (window.scrollY + doc.clientHeight);
     const wasNearBottom = distanceFromBottom < 300;
-    if (wasNearBottom) window.scrollTo(0, doc.scrollHeight);
-  }, [turns, busy]);
+    // v6.5: `window.scrollTo(x, y)` (the two-number form) resolves its
+    // scroll behavior from the `scroll-behavior` CSS property on <html> —
+    // and this file sets `html { scroll-behavior: smooth }` globally. That
+    // means this "snap to the latest turn" call was never actually instant:
+    // it kicked off a ~300-500ms animated glide every time. If the user
+    // picked up the wheel during that glide — which is exactly when
+    // they're most likely to, right as an answer finishes — their wheel
+    // input and the browser's own smooth-scroll animation fought each
+    // other, and it read as "the page won't scroll." Passing an explicit
+    // `behavior: "instant"` bypasses the CSS smooth-scroll entirely for
+    // this programmatic correction, so it can never fight live input; the
+    // CSS smooth-scroll still applies everywhere it's supposed to (the
+    // "back to top" button below, anchor links, etc).
+    if (wasNearBottom) window.scrollTo({ top: doc.scrollHeight, left: 0, behavior: "instant" });
+  }, [turns.length, busy]);
   useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
   useEffect(() => { document.body.style.background = P.bg; }, [P]);
   // v6.4: the page now uses natural document scrolling (see makeStyles'
@@ -3569,7 +3625,11 @@ function App() {
       body.style.position = prev.position;
       body.style.top = prev.top;
       body.style.width = prev.width;
-      window.scrollTo(0, scrollY);
+      // Same CSS smooth-scroll gotcha as the auto-follow effect above: this
+      // is a silent technical restore (putting the page back exactly where
+      // it was before a modal locked it), not a user-facing glide — it
+      // should be invisible, not animated.
+      window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
   }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
@@ -3671,7 +3731,7 @@ function App() {
     setAllSources(entry.allSources || []);
     setPinnedSources([]); setCorrections([]); setError("");
     setHistoryOpen(false);
-    setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 60);
+    setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, left: 0, behavior: "instant" }), 60);
   }
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
   function isPinned(s) { const k = sourceKey(s); return pinnedSources.some((x) => sourceKey(x) === k); }
@@ -3779,7 +3839,20 @@ function App() {
   const typeColor = (t) => t === "Preprint" ? ACCENTS.Amber : t === "Reference" ? ACCENTS.Violet : t === "Dataset" ? ACCENTS.Sky : accent;
 
   const SourceCard = (s, i) => (
-    <div key={i} className="cb-fade" style={{ ...S.srcItem, background: hover === "src" + i ? withAlpha(accent, 0.05) : hoverCite === i + 1 ? withAlpha(accent, 0.06) : "transparent", transform: hover === "src" + i ? "translate3d(0, -1px, 0)" : "translate3d(0, 0, 0)" }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
+    <div key={i} className="cb-fade" style={{
+      ...S.srcItem,
+      // v6.5: every source used to be an identical bordered rectangle —
+      // the whole sidebar read as one grey block with no way to scan it at
+      // a glance. A thin relevance-colored rail down the left edge (the
+      // same good/warn/faint tiering `relColor` already computes for the
+      // percentage badge) gives each card its own visual weight before you
+      // even read the number, and a soft lift + glow on hover replaces the
+      // flat background-tint-only hover state with actual depth.
+      borderLeft: `2px solid ${withAlpha(relColor(s.relevance ?? 0), 0.5)}`,
+      background: hover === "src" + i ? withAlpha(accent, 0.06) : hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent",
+      boxShadow: hover === "src" + i ? `0 6px 20px ${withAlpha(accent, 0.1)}` : "none",
+      transform: hover === "src" + i ? "translate3d(2px, -1px, 0)" : "translate3d(0, 0, 0)",
+    }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
         {s.type && <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.type}</span>}
         {/* v5: the "strong/partial/weak" word already existed (relLabel)
@@ -3841,6 +3914,7 @@ function App() {
 
   return (
     <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
+      <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} preset={animPreset} density={animDensity} speed={animSpeed} opacity={animOpacity} paused={settingsOpen} />}
       <div style={S.grain} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
@@ -4130,6 +4204,18 @@ summary::-webkit-details-marker { display: none; }
 /* ── Keyframes: all blur-to-focus, slow, intentional ── */
 @keyframes cbspin { to { transform: rotate(360deg); } }
 @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Ambient wash drift — see the ambient style comment above for why this
+   layer exists at all. Slow, large-radius, barely-there motion: it should read as
+   "the page is alive" out of the corner of your eye, never as something
+   you'd consciously watch. prefers-reduced-motion is handled by the global
+   rule further down (it collapses every animation-duration to ~0). */
+.cb-ambient { animation: cbAmbientDrift 34s ease-in-out infinite alternate; will-change: transform; }
+@keyframes cbAmbientDrift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(-2.5%, 2%, 0) scale(1.05); }
+  100% { transform: translate3d(2%, -2.5%, 0) scale(1.08); }
+}
 
 @keyframes cbEnter {
   from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
