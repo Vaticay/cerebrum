@@ -1324,7 +1324,51 @@ function looksLikeFollowupText(q) {
   return /^(but|and|also|what about|how about|explain|tell me more|more on|also,|actually|wait|no,)/i.test(s)
       || /\b(you (forgot|missed)|the (paper|study|source|answer)|that (paper|study|source|answer)|this (paper|study))\b/i.test(s);
 }
+// Shared wheel-scroll takeover — used by both InfoPage() and App() so a real
+// scroll bug can't quietly hit one of them and not the other, which is
+// exactly what happened before this was extracted: InfoPage never had this
+// fix at all (only App() did), so its own sticky + backdrop-filter header
+// was still exposed to the native Chromium bug this exists to work around
+// (see the long history in the App()-side comment this used to live next to).
+//
+// isScrollable() checks the element's own inline `style` properties instead
+// of calling getComputedStyle(). Every genuinely scrollable container in
+// this app sets its overflow via inline style (every `overflowY: "auto"` in
+// this file is inline, not a CSS class), so this is an equally-correct,
+// dramatically cheaper check — getComputedStyle forces a synchronous style
+// recalculation, and doing that for every ancestor of e.target on every one
+// of the dozens of wheel events a single trackpad swipe fires was real,
+// measurable jank, and got worse as more nested UI (the sidebar, Collections,
+// Compare, the network graph) deepened the average DOM path this has to walk.
+function useWheelScrollTakeover() {
+  useEffect(() => {
+    const isScrollable = (el) => {
+      const oy = el.style.overflowY, ox = el.style.overflowX;
+      const y = oy === "auto" || oy === "scroll" || oy === "overlay";
+      const x = ox === "auto" || ox === "scroll" || ox === "overlay";
+      return (y && el.scrollHeight > el.clientHeight) || (x && el.scrollWidth > el.clientWidth);
+    };
+    const onWheel = (e) => {
+      // Pinch-zoom on a trackpad arrives as wheel + ctrlKey — that's the
+      // browser's page-zoom gesture, not a scroll, and must reach it untouched.
+      if (e.ctrlKey) return;
+      let node = e.target instanceof Element ? e.target : null;
+      let target = null;
+      while (node && node !== document.body) {
+        if (isScrollable(node)) { target = node; break; }
+        node = node.parentElement;
+      }
+      e.preventDefault();
+      if (target) target.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
+      else (document.scrollingElement || document.documentElement).scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
+    };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, []);
+}
+
 function InfoPage({ page }) {
+  useWheelScrollTakeover();
   const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
   const P = PALETTES[paletteName] || PALETTES.Dark;
   const accentName = (() => { try { return getCookie("cb_accent") || "Emerald"; } catch { return "Emerald"; } })();
@@ -1689,11 +1733,11 @@ function V5AnnouncementModal({ P, accent, at, close }) {
     { icon: "printer", title: "Print & export", body: "A proper Print / Save as PDF button, right where you'd look for it, next to Copy and Share." },
   ];
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="What's new in Cerebrum V5" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="What's new in Cerebrum DP" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 520, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}` }} className="cb-modal">
         <div style={{ padding: "28px 28px 8px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", borderRadius: 20, background: withAlpha(accent, 0.12), color: accent, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", marginBottom: 16 }}>
-            <Icon name="sparkle" size={12} /> V5 · NOW LIVE
+            <Icon name="sparkle" size={12} /> DP · NOW LIVE
           </div>
           <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", marginBottom: 8 }}>Cerebrum just got a serious upgrade.</div>
           <div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>The biggest update since launch — cleaner everywhere, and a fact-checker that actually understands the papers it's checking against.</div>
@@ -1913,8 +1957,14 @@ function buildNetworkLayout(sources) {
 function SourceNetworkGraph({ P, accent, at, sources, close }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const [hoverIdx, setHoverIdx] = useState(null);
-  const capped = sources.slice(0, 18); // keep the layout legible; a 40-node force graph in one screen is noise, not insight
-  const { nodes, edges } = useMemo(() => buildNetworkLayout(capped), [capped]);
+  // Slicing happens INSIDE the memo callback, keyed on `sources` itself —
+  // `sources.slice(...)` returns a new array reference every render, and a
+  // useMemo keyed on that recomputes every time regardless, silently
+  // defeating the whole point of memoizing a 140-iteration force layout
+  // (it was re-running on every hoverIdx change, i.e. every mouse move over
+  // a node). Keying on the actual `sources` prop — stable across renders
+  // that don't change which sources are shown — fixes that.
+  const { nodes, edges } = useMemo(() => buildNetworkLayout(sources.slice(0, 18)), [sources]);
   const sizeFor = (s) => 8 + Math.min(14, (s.relevance || 40) / 100 * 16);
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Source relevance network" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
@@ -3053,7 +3103,8 @@ function App() {
   // (the standard robust scroll-lock pattern) and restore that exact
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
-    const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel || historyOpen;
+    const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel || historyOpen
+      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!importPrompt || v5Open;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -3069,7 +3120,7 @@ function App() {
       body.style.width = prev.width;
       window.scrollTo(0, scrollY);
     };
-  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen]);
+  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, importPrompt, v5Open]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -3118,43 +3169,11 @@ function App() {
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Wheel scroll takeover. Two rounds of CSS-only fixes (compositor-layer
-  // promotion on the sticky header, then pulling backdrop-filter off the
-  // sticky element entirely) were the textbook remedies for the known
-  // Chromium "wheel dies over a sticky + backdrop-filter region, scrollbar
-  // drag still works" bug — and still left real wheel input dead over most
-  // of the page, only landing where it happened to hit a plain fixed
-  // element with no filter on it (the floating Sources button). That means
-  // the browser's native hit-test-driven scroll dispatch itself isn't
-  // reliable here, not just one element's compositing. So: stop depending on
-  // it. `wheel` events always reach `window` regardless of which element the
-  // browser decided was "under" the cursor for scrolling purposes — nothing
-  // in this file calls preventDefault on one — so drive scrolling from here
-  // explicitly instead of hoping the native path picks the right target.
-  useEffect(() => {
-    const isScrollable = (el) => {
-      const cs = window.getComputedStyle(el);
-      const y = /(auto|scroll|overlay)/.test(cs.overflowY);
-      const x = /(auto|scroll|overlay)/.test(cs.overflowX);
-      return (y && el.scrollHeight > el.clientHeight) || (x && el.scrollWidth > el.clientWidth);
-    };
-    const onWheel = (e) => {
-      // Pinch-zoom on a trackpad arrives as wheel + ctrlKey — that's the
-      // browser's page-zoom gesture, not a scroll, and must reach it untouched.
-      if (e.ctrlKey) return;
-      let node = e.target instanceof Element ? e.target : null;
-      let target = null;
-      while (node && node !== document.body) {
-        if (isScrollable(node)) { target = node; break; }
-        node = node.parentElement;
-      }
-      e.preventDefault();
-      if (target) target.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
-      else (document.scrollingElement || document.documentElement).scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
-    };
-    window.addEventListener("wheel", onWheel, { passive: false });
-    return () => window.removeEventListener("wheel", onWheel);
-  }, []);
+  // Wheel scroll takeover — see useWheelScrollTakeover() above InfoPage()
+  // for the full history and why isScrollable() checks inline style instead
+  // of getComputedStyle. Shared with InfoPage() so the fix can't silently
+  // apply to only one of them again.
+  useWheelScrollTakeover();
 
   useEffect(() => { try { localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40))); } catch {} }, [history]);
   const historySyncTimer = useRef(null);
@@ -3360,7 +3379,7 @@ function App() {
               </div>
               {/* Reopens the "what's new" modal on demand — otherwise it's a
                   one-time popup nobody could get back to once dismissed. */}
-              <button onClick={(e) => { e.stopPropagation(); sfx(); setV5Open(true); }} title="What's new in V5" aria-label="What's new in Cerebrum V5" style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}>V5</button>
+              <button onClick={(e) => { e.stopPropagation(); sfx(); setV5Open(true); }} title="What's new in DP" aria-label="What's new in Cerebrum DP" style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}>DP</button>
           </div>
           <div style={S.headActions}>
             {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
