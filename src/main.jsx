@@ -1884,11 +1884,11 @@ function V5AnnouncementModal({ P, accent, at, close }) {
     { icon: "history", title: "Accounts that follow you", body: "An optional account syncs saved sources, collections, and past investigations across every device — guest mode still works exactly as before, with nothing stored on our servers." },
   ];
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="What's new in Cerebrum DP" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="What's new in Cerebrum V5" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 520, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ padding: "28px 28px 8px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", borderRadius: 20, background: withAlpha(accent, 0.12), color: accent, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", marginBottom: 16 }}>
-            <Icon name="sparkle" size={12} /> DP · NOW LIVE
+            <Icon name="sparkle" size={12} /> V5 · NOW LIVE
           </div>
           <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", marginBottom: 8 }}>Cerebrum is now an all-in-one research instrument.</div>
           <div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>Not just a question box anymore — compare investigations, map and time-trace your sources, and generate a concept illustration, all without leaving the app.</div>
@@ -2936,7 +2936,14 @@ function makeStyles(P, accent, at, isMobile = false) {
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
     brand: { fontWeight: 700, fontSize: 18, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-body)" },
     headActions: { display: "flex", alignItems: "center", gap: isMobile ? 1 : 4 },
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "var(--cb-mono)", boxShadow: P.shadowSm, marginRight: 4 },
+    // v6.6: this whole pill — including the plain word "Search" — was set in
+    // --cb-mono (a JetBrains-Mono-first stack), which reads as a dev-tool/
+    // terminal typeface for what's actually the single most-used control in
+    // the header. Mono still belongs on the `Ctrl+K` shortcut chip itself
+    // (that's the normal, expected convention — see `kbd` below, which sets
+    // its own fontFamily independently and is untouched by this), just not
+    // on the word next to it.
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13.5, fontFamily: font, fontWeight: 500, letterSpacing: "-0.01em", boxShadow: P.shadowSm, marginRight: 4 },
     kbd: { fontSize: 10, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 4, padding: "2px 6px", fontWeight: 500 },
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13.5, fontWeight: 500, fontFamily: font },
     iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-body)", position: "relative" },
@@ -3034,7 +3041,14 @@ function makeStyles(P, accent, at, isMobile = false) {
        v6.4: widened from 760 to give the answer more room to breathe —
        previously the reading column was noticeably narrower than the answer
        card's own generous padding suggested it should be. */
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "24px 0" : "40px 0", flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
+    // v6.6: the top gap was only 40px on desktop — right under a 56px sticky
+    // header, that put the eyebrow/headline close enough to the chrome above
+    // it that the two read as one crowded block instead of "header, then a
+    // clear new zone for the question." Given real room to breathe before
+    // anything else starts, plus a matching bump below (see `headline` and
+    // `qLabel` next to this) so the eyebrow → headline → answer-card rhythm
+    // opens up gradually instead of everything landing within a few px.
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -3048,17 +3062,17 @@ function makeStyles(P, accent, at, isMobile = false) {
 
     /* ── Turn: clean editorial brief ── */
     turn: { marginBottom: isMobile ? 40 : 56 },
-    qLabel: { 
-      fontSize: 10, fontWeight: 600, letterSpacing: "0.14em", 
-      textTransform: "uppercase", color: accent, 
-      marginBottom: 14, display: "flex", alignItems: "center", gap: 8,
+    qLabel: {
+      fontSize: 10, fontWeight: 600, letterSpacing: "0.14em",
+      textTransform: "uppercase", color: accent,
+      marginBottom: isMobile ? 16 : 20, display: "flex", alignItems: "center", gap: 8,
       fontFamily: "var(--cb-mono)",
     },
     qDot: { width: 4, height: 4, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${withAlpha(accent, 0.5)}` },
-    headline: { 
-      fontWeight: 600, fontSize: isMobile ? 24 : 34, 
-      lineHeight: 1.2, marginBottom: isMobile ? 20 : 28, 
-      color: P.ink, letterSpacing: "-0.03em", 
+    headline: {
+      fontWeight: 600, fontSize: isMobile ? 24 : 34,
+      lineHeight: 1.25, marginBottom: isMobile ? 28 : 40,
+      color: P.ink, letterSpacing: "-0.03em",
       fontFamily: "var(--cb-display)",
     },
 
@@ -3436,7 +3450,30 @@ function App() {
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
   const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
-  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim") || "cinematic");
+  // v6.6: this defaulted every first-time visitor into "cinematic" — a
+  // continuously-rendering WebGL scene (see LivingBackground/Vanta) running
+  // behind a page that ALSO leans hard on `backdrop-filter: blur(...)` for
+  // the header, answer card, search bar, and chips. Those two together are
+  // a well-known perf collision: every frame the WebGL canvas changes, every
+  // blurred element sitting over it has to recompute its blur from scratch,
+  // continuously, whether or not anyone's even scrolling. This sandbox could
+  // never catch that in testing — its network can't reach the CDN Vanta
+  // loads from, so the effect never actually ran here — but it lines up
+  // exactly with a real, repeated report of laggy, unresponsive wheel-scroll
+  // that only a scrollbar drag could get past (wheel-driven scroll updates
+  // starve behind a busy main thread; a scrollbar drag is handled closer to
+  // the compositor and keeps moving even when the page is janky). The new
+  // CSS-only `ambient` wash (see makeStyles) already gives every visitor a
+  // real sense of depth/atmosphere at effectively zero cost — no canvas, no
+  // continuous repaint — so the heavy WebGL layer no longer needs to carry
+  // that job by default. It's still one click away in Settings → Appearance
+  // for anyone who wants it and has the hardware to spare.
+  // Cookie key bumped cb_anim -> cb_anim2: anyone who already has a stored
+  // preference (including everyone who was silently defaulted into
+  // "cinematic" before today) starts fresh on the new safe default instead
+  // of being stuck on the old one forever. An explicit future choice here
+  // persists normally under the new key from now on.
+  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim2") || "off");
   // v5: this used to swap the chip row's content out from under the user
   // every 8s unconditionally — a real interaction hazard, not just a CSS
   // animation, since a keyboard user who tabs to a chip and takes >8s to
@@ -3484,6 +3521,14 @@ function App() {
   const [hoverCite, setHoverCite] = useState(0);
   const inputRef = useRef(null);
   const cmdRef = useRef(null);
+  // A quiet tribute, not a feature: the version badge used to read "DP" —
+  // a private nod to Dolly Parton, kept as an initialism nobody would think
+  // twice about. Now that it's spelled out as a real version number, five
+  // quick clicks on the badge still surfaces the tribute directly, for
+  // anyone curious enough to mash a version badge. Doesn't touch any other
+  // state, doesn't persist anything, resets itself if the clicks aren't
+  // rapid — genuinely just for whoever finds it.
+  const dpEggRef = useRef({ count: 0, last: 0 });
   const threadRef = useRef(null);
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
@@ -3638,7 +3683,7 @@ function App() {
   useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
   useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
   useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
-  useEffect(() => { setCookie("cb_anim", animationMode); }, [animationMode]);
+  useEffect(() => { setCookie("cb_anim2", animationMode); }, [animationMode]);
   useEffect(() => { setCookie("cb_animP", animPreset); }, [animPreset]);
   useEffect(() => { const t = setTimeout(() => setCookie("cb_animD", String(animDensity)), 500); return () => clearTimeout(t); }, [animDensity]);
   useEffect(() => { const t = setTimeout(() => setCookie("cb_animS", String(animSpeed)), 500); return () => clearTimeout(t); }, [animSpeed]);
@@ -3935,7 +3980,26 @@ function App() {
               </div>
               {/* Reopens the "what's new" modal on demand — otherwise it's a
                   one-time popup nobody could get back to once dismissed. */}
-              <button onClick={(e) => { e.stopPropagation(); sfx(); setV5Open(true); }} title="What's new in DP" aria-label="What's new in Cerebrum DP" style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}>DP</button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation(); sfx(); setV5Open(true);
+                  // Five clicks within 600ms of each other reveals the
+                  // tribute; anything slower just resets the count, so
+                  // ordinary single clicks (which still open the modal
+                  // above, unchanged) never trip it by accident.
+                  const now = Date.now();
+                  const eg = dpEggRef.current;
+                  eg.count = (now - eg.last < 600) ? eg.count + 1 : 1;
+                  eg.last = now;
+                  if (eg.count >= 5) {
+                    eg.count = 0;
+                    toast("Science loved Dolly 🦋", { tone: "success" });
+                  }
+                }}
+                title="What's new in V5"
+                aria-label="What's new in Cerebrum V5"
+                style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}
+              >V5</button>
           </div>
           <div style={S.headActions}>
             {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
@@ -4205,17 +4269,16 @@ summary::-webkit-details-marker { display: none; }
 @keyframes cbspin { to { transform: rotate(360deg); } }
 @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
-/* Ambient wash drift — see the ambient style comment above for why this
-   layer exists at all. Slow, large-radius, barely-there motion: it should read as
-   "the page is alive" out of the corner of your eye, never as something
-   you'd consciously watch. prefers-reduced-motion is handled by the global
-   rule further down (it collapses every animation-duration to ~0). */
-.cb-ambient { animation: cbAmbientDrift 34s ease-in-out infinite alternate; will-change: transform; }
-@keyframes cbAmbientDrift {
-  0%   { transform: translate3d(0, 0, 0) scale(1); }
-  50%  { transform: translate3d(-2.5%, 2%, 0) scale(1.05); }
-  100% { transform: translate3d(2%, -2.5%, 0) scale(1.08); }
-}
+/* v6.6: this used to drift via a continuous 34s transform animation. Given
+   a live, repeated report of laggy/unresponsive scrolling, that's a risk not
+   worth taking: this layer sits directly behind the header, answer card,
+   search bar, and chips, every one of which uses a backdrop blur filter —
+   and a blurred surface has to recompute its blur every single frame its
+   backdrop changes, even from a "barely-there" transform. Static costs
+   nothing (painted once, cached); animated costs a continuous repaint tax on
+   every blurred element in the app, for a decorative effect that was never
+   meant to be consciously noticed anyway. Depth without the tax. */
+.cb-ambient { /* intentionally static — see comment above */ }
 
 @keyframes cbEnter {
   from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
