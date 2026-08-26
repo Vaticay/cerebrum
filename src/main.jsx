@@ -985,6 +985,25 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
       {/* Vanta background container */}
       <div ref={vantaRef} className="cb-vanta-host" style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }} />
 
+      {/* v6.7: this is a genuinely separate screen from the main app and
+          InfoPage — it was never touched by the ambient-wash fix added for
+          those, and it has always leaned entirely on Vanta CELLS (a CDN
+          effect) for any sense of atmosphere. Now that animationMode
+          defaults to "off" everywhere (see App()'s state — the fix for the
+          laggy-scroll report), Intro's Vanta also skips by default, and
+          without this it would render as literally nothing but flat navy:
+          the very first thing anyone sees, looking the flattest of all. The
+          same static, zero-cost, zero-network gradient wash used elsewhere
+          fixes that here too. */}
+      <div aria-hidden="true" className="cb-ambient" style={{
+        position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
+        background: [
+          `radial-gradient(ellipse 900px 700px at 8% -10%, ${withAlpha(accent, 0.28)}, transparent 60%)`,
+          `radial-gradient(ellipse 820px 820px at 108% 15%, ${withAlpha(ACCENTS.Violet, 0.22)}, transparent 55%)`,
+          `radial-gradient(ellipse 760px 920px at 46% 115%, ${withAlpha(ACCENTS.Teal, 0.2)}, transparent 60%)`,
+        ].join(", "),
+      }} />
+
       {/* Dark overlay for readability */}
       <div style={{
         position: "absolute", inset: 0, zIndex: 1,
@@ -1462,6 +1481,13 @@ function InfoPage({ page }) {
   const accent = customAccent || ACCENTS[accentName] || ACCENTS.Emerald;
   const at = accentText(accent);
   const isMobile = useIsMobile();
+  // v6.8: this page runs as its own standalone route, outside App()'s tree,
+  // so it never picked up the animationMode fix that made the heavy WebGL
+  // background opt-in there — it always rendered LivingBackground here,
+  // fully ignoring whatever the visitor chose (or didn't choose) in
+  // Settings. Reading the same persisted cookie App() writes to keeps the
+  // two in sync instead of this page being a silent exception to the fix.
+  const animationMode = (() => { try { return getCookie("cb_anim2") || "off"; } catch { return "off"; } })();
   const goHome = () => { try { setCookie("cb_entered_v5", "1", 365); } catch {} window.location.href = "/"; };
   const PAGES = {
     about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
@@ -1498,14 +1524,16 @@ function InfoPage({ page }) {
       <div aria-hidden="true" className="cb-ambient" style={{
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
         background: [
-          `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.2 : 0.1)}, transparent 60%)`,
-          `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(ACCENTS.Violet, P.dark ? 0.16 : 0.07)}, transparent 55%)`,
-          `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(ACCENTS.Teal, P.dark ? 0.14 : 0.06)}, transparent 60%)`,
+          `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.2 : 0.17)}, transparent 60%)`,
+          `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(ACCENTS.Violet, P.dark ? 0.16 : 0.13)}, transparent 55%)`,
+          `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(ACCENTS.Teal, P.dark ? 0.14 : 0.11)}, transparent 60%)`,
         ].join(", "),
       }} />
-      <div style={{ position: "fixed", inset: 0, opacity: 0.4, pointerEvents: "none", zIndex: 0 }}>
-        <LivingBackground accent={accent} P={P} intensity="subtle" preset="aurora" density={0.7} speed={0.6} opacity={0.7} paused={false} />
-      </div>
+      {animationMode !== "off" && (
+        <div style={{ position: "fixed", inset: 0, opacity: 0.4, pointerEvents: "none", zIndex: 0 }}>
+          <LivingBackground accent={accent} P={P} intensity="subtle" preset="aurora" density={0.7} speed={0.6} opacity={0.7} paused={false} />
+        </div>
+      )}
       <header style={{ position: "sticky", top: 0, zIndex: 10, transform: "translateZ(0)", willChange: "transform" }}>
         {/* Blur lives on its own layer behind the content instead of on the
             sticky element itself — see the `headerGlass` comment in the main
@@ -2568,6 +2596,27 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
   const [pwMsg, setPwMsg] = useState("");
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
   const [delBusy, setDelBusy] = useState(false);
+  // v6.7: the tab bar's sliding underline used to assume all 6 tabs were
+  // equal width (`left`/`width` as `index/count` and `1/count` percentages)
+  // — true on desktop, where flex:1 with enough room does divide them
+  // evenly, but on a narrow phone viewport there isn't enough width for
+  // "Audio & Voice"/"History & Data" to fit at their natural size, and the
+  // fixed `flex:1` sizing plus no way to scroll meant the bar just
+  // overflowed the dialog with the last tab ("History & Data") clipped
+  // clean off the edge — genuinely unreachable, not just visually off.
+  // Making the bar horizontally scrollable fixes reachability; measuring
+  // the active tab's real DOM position (instead of assuming equal widths)
+  // keeps the underline correct at both sizes instead of just re-breaking
+  // it for the scrollable case.
+  const tabBtnRefs = useRef({});
+  const [tabUnderline, setTabUnderline] = useState({ left: 0, width: 0 });
+  useEffect(() => {
+    const el = tabBtnRefs.current[tab];
+    if (el) {
+      setTabUnderline({ left: el.offsetLeft, width: el.offsetWidth });
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [tab, isMobile]);
 
   async function submitPassword(e) {
     e.preventDefault();
@@ -2654,12 +2703,12 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               tab bar now uses, so the two places in the app with real
               client-side tabs read as one deliberate system rather than
               each having invented its own. */}
-          <div style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}`, marginBottom: 18 }}>
+          <div className="cb-scroll-x" style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}`, marginBottom: 18, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             {TABS.map(([id, label]) => (
-              <button key={id} onClick={() => { sfx(); setTab(id); }}
-                style={{ flex: 1, padding: isMobile ? "8px 2px 10px" : "9px 4px 11px", fontSize: isMobile ? 10.5 : 12.5, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
+              <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
+                style={{ flexShrink: 0, padding: isMobile ? "8px 10px 10px" : "9px 4px 11px", fontSize: isMobile ? 10.5 : 12.5, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
             ))}
-            <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: `${(TABS.findIndex(([id]) => id === tab) / TABS.length) * 100}%`, width: `${100 / TABS.length}%`, height: 2, background: accent, borderRadius: 2, transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
+            <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: tabUnderline.left, width: tabUnderline.width, height: 2, background: accent, borderRadius: 2, transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1), width 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
           </div>
         </div>
 
@@ -2896,12 +2945,19 @@ function makeStyles(P, accent, at, isMobile = false) {
        colors already in memory (no network, no script tag, can't fail),
        that IS the baseline "next gen" atmosphere. Vanta layers on top of
        it when it loads; this is what's there when it doesn't. */
+    // v6.8: light theme's wash used to sit at roughly half the alpha of
+    // dark's (0.12/0.09/0.08 vs 0.24/0.20/0.18) on the reasoning that a
+    // light surface needs a lighter touch — but against an already
+    // near-white body, that read as "no background at all" rather than "a
+    // subtle one." Brought closer to parity with dark so the wash is
+    // something a visitor actually notices as a deliberate background,
+    // not something only visible on close inspection.
     ambient: {
       position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
       background: [
-        `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.24 : 0.12)}, transparent 60%)`,
-        `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(ACCENTS.Violet, P.dark ? 0.20 : 0.09)}, transparent 55%)`,
-        `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(ACCENTS.Teal, P.dark ? 0.18 : 0.08)}, transparent 60%)`,
+        `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.24 : 0.20)}, transparent 60%)`,
+        `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(ACCENTS.Violet, P.dark ? 0.20 : 0.16)}, transparent 55%)`,
+        `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(ACCENTS.Teal, P.dark ? 0.18 : 0.14)}, transparent 60%)`,
       ].join(", "),
     },
 
@@ -3523,12 +3579,11 @@ function App() {
   const cmdRef = useRef(null);
   // A quiet tribute, not a feature: the version badge used to read "DP" —
   // a private nod to Dolly Parton, kept as an initialism nobody would think
-  // twice about. Now that it's spelled out as a real version number, five
-  // quick clicks on the badge still surfaces the tribute directly, for
-  // anyone curious enough to mash a version badge. Doesn't touch any other
-  // state, doesn't persist anything, resets itself if the clicks aren't
-  // rapid — genuinely just for whoever finds it.
-  const dpEggRef = useRef({ count: 0, last: 0 });
+  // twice about. Now that it's spelled out as a real version number,
+  // pressing and holding the badge surfaces the tribute directly, for
+  // anyone curious enough to try. Doesn't touch any other state, doesn't
+  // persist anything — genuinely just for whoever finds it.
+  const dpEggRef = useRef({ longPressed: false, timer: null });
   const threadRef = useRef(null);
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
@@ -3946,7 +4001,15 @@ function App() {
   );
 
   const a11yClasses = [
+    // v6.7: "High contrast" used to force every text element to pure white
+    // unconditionally, in one CSS rule with no idea which theme was
+    // active. In dark mode that's genuinely high contrast; in light mode
+    // it's white text on a light background — the opposite of the feature's
+    // entire purpose, and exactly the "everything is unreadable" report.
+    // Two theme-specific classes let the CSS actually flip direction
+    // instead of only ever forcing white.
     highContrast && "cb-high-contrast",
+    highContrast && (P.dark ? "cb-hc-dark" : "cb-hc-light"),
     fontSize === "large" && "cb-text-lg",
     fontSize === "xlarge" && "cb-text-xl",
     fontSize === "small" && "cb-text-sm",
@@ -3982,21 +4045,30 @@ function App() {
                   one-time popup nobody could get back to once dismissed. */}
               <button
                 onClick={(e) => {
-                  e.stopPropagation(); sfx(); setV5Open(true);
-                  // Five clicks within 600ms of each other reveals the
-                  // tribute; anything slower just resets the count, so
-                  // ordinary single clicks (which still open the modal
-                  // above, unchanged) never trip it by accident.
-                  const now = Date.now();
-                  const eg = dpEggRef.current;
-                  eg.count = (now - eg.last < 600) ? eg.count + 1 : 1;
-                  eg.last = now;
-                  if (eg.count >= 5) {
-                    eg.count = 0;
-                    toast("Science loved Dolly 🦋", { tone: "success" });
-                  }
+                  e.stopPropagation();
+                  // A "5 rapid clicks" version of this used to live here —
+                  // real bug: the very first click opens a full-viewport
+                  // modal on top of this exact button, so clicks 2-5 never
+                  // actually land on the badge again, they land on the
+                  // modal's backdrop instead (closing it). Nearly
+                  // impossible to trigger for real, which is exactly what
+                  // happened. A press-and-hold doesn't have that problem —
+                  // it's one continuous pointer interaction, nothing else
+                  // can steal it mid-way through.
+                  if (dpEggRef.current.longPressed) { dpEggRef.current.longPressed = false; return; }
+                  sfx(); setV5Open(true);
                 }}
-                title="What's new in V5"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  dpEggRef.current.longPressed = false;
+                  dpEggRef.current.timer = setTimeout(() => {
+                    dpEggRef.current.longPressed = true;
+                    toast("Science loved Dolly 🦋", { tone: "success" });
+                  }, 850);
+                }}
+                onPointerUp={() => clearTimeout(dpEggRef.current.timer)}
+                onPointerLeave={() => clearTimeout(dpEggRef.current.timer)}
+                title="What's new in V5 (press and hold for a surprise)"
                 aria-label="What's new in Cerebrum V5"
                 style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}
               >V5</button>
@@ -4280,6 +4352,12 @@ summary::-webkit-details-marker { display: none; }
    meant to be consciously noticed anyway. Depth without the tax. */
 .cb-ambient { /* intentionally static — see comment above */ }
 
+/* Horizontally-scrollable strips (the Settings tab bar on narrow viewports)
+   still need to scroll with a finger or a wheel, just not show a visible
+   scrollbar riding along under the tab labels. */
+.cb-scroll-x { scrollbar-width: none; -ms-overflow-style: none; }
+.cb-scroll-x::-webkit-scrollbar { display: none; height: 0; }
+
 @keyframes cbEnter {
   from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
   to   { opacity: 1; transform: none; filter: blur(0); }
@@ -4542,21 +4620,42 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
    ACCESSIBILITY CSS — all features controlled by classes on root
    ════════════════════════════════════════════════════════════════ */
 
-/* ── High contrast ── */
-.cb-high-contrast,
-.cb-high-contrast p,
-.cb-high-contrast span,
-.cb-high-contrast div,
-.cb-high-contrast li,
-.cb-high-contrast td,
-.cb-high-contrast label { color: #ffffff !important; }
-.cb-high-contrast a { color: #5eead4 !important; text-decoration: underline !important; }
-.cb-high-contrast h1, .cb-high-contrast h2, .cb-high-contrast h3,
-.cb-high-contrast strong, .cb-high-contrast b { color: #ffffff !important; font-weight: 800 !important; }
+/* ── High contrast ──
+   Structural changes that apply regardless of theme (thicker borders,
+   underlined links, bolder headings) live on the plain .cb-high-contrast
+   class. Actual COLOR direction is theme-specific — .cb-hc-dark forces
+   white-on-near-black, .cb-hc-light forces near-black-on-white — because a
+   single unconditional "force everything white" rule (the old behavior)
+   is only high-contrast in one of the two themes and is the exact opposite
+   of legible in the other. Both variants also force a real solid
+   background on cards/surfaces, not just text color: several surfaces in
+   this app are semi-transparent "glass" panels by design, and a
+   half-opaque background sitting over the ambient wash/photo-like content
+   behind it can undercut the contrast ratio even when the text color
+   itself is technically correct. */
 .cb-high-contrast button { border-width: 2px !important; }
-.cb-high-contrast input, .cb-high-contrast select, .cb-high-contrast textarea {
-  border: 2px solid rgba(255,255,255,0.4) !important; color: #ffffff !important;
+.cb-high-contrast h1, .cb-high-contrast h2, .cb-high-contrast h3,
+.cb-high-contrast strong, .cb-high-contrast b { font-weight: 800 !important; }
+
+.cb-hc-dark,
+.cb-hc-dark p, .cb-hc-dark span, .cb-hc-dark div, .cb-hc-dark li,
+.cb-hc-dark td, .cb-hc-dark label { color: #ffffff !important; }
+.cb-hc-dark a { color: #5eead4 !important; text-decoration: underline !important; }
+.cb-hc-dark h1, .cb-hc-dark h2, .cb-hc-dark h3 { color: #ffffff !important; }
+.cb-hc-dark input, .cb-hc-dark select, .cb-hc-dark textarea {
+  border: 2px solid rgba(255,255,255,0.4) !important; color: #ffffff !important; background: #050816 !important;
 }
+.cb-hc-dark { background: #050816 !important; }
+
+.cb-hc-light,
+.cb-hc-light p, .cb-hc-light span, .cb-hc-light div, .cb-hc-light li,
+.cb-hc-light td, .cb-hc-light label { color: #0a0a0a !important; }
+.cb-hc-light a { color: #0552b5 !important; text-decoration: underline !important; }
+.cb-hc-light h1, .cb-hc-light h2, .cb-hc-light h3 { color: #000000 !important; }
+.cb-hc-light input, .cb-hc-light select, .cb-hc-light textarea {
+  border: 2px solid rgba(0,0,0,0.5) !important; color: #0a0a0a !important; background: #ffffff !important;
+}
+.cb-hc-light { background: #ffffff !important; }
 
 /* ── Text size ── */
 .cb-text-sm  { font-size: 14px !important; }
