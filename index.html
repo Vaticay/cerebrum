@@ -16,6 +16,31 @@
     <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
     <link rel="canonical" href="https://askcerebrum.org/" />
 
+    <!-- Type system, loaded from the document head rather than injected by JS
+         after mount (see src/main.jsx's now-removed loadFonts() IIFE) — a
+         font stylesheet requested only after React has mounted and painted
+         means the hero headline visibly swaps from its fallback (Georgia)
+         to Cormorant Garamond mid-render, a flash of unstyled text on every
+         single first visit. Requesting it here starts the fetch before the
+         JS bundle has even finished parsing.
+
+         Loaded as a non-render-blocking stylesheet (the standard
+         preload-then-swap trick: media="print" makes the browser fetch it
+         at low priority without waiting on it, then onload flips it to
+         "all" once it's actually ready) rather than a plain blocking
+         <link rel="stylesheet">. A blocking stylesheet link in <head>
+         delays every deferred/module script — including this whole app —
+         until it resolves; on a network or browser extension that blocks
+         Google Fonts, a plain blocking link means the entire app never
+         renders at all, not just an unstyled headline. This way a slow or
+         blocked font fetch costs a few seconds of fallback-font text,
+         never a blank white screen. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" /></noscript>
+
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="alternate icon" type="image/png" href="/favicon-32x32.png" />
@@ -98,8 +123,8 @@
     <noscript>
       <div style="max-width: 720px; margin: 40px auto; padding: 20px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #18181b;">
         <h1 style="font-size: 32px; font-weight: 700; letter-spacing: -0.02em;">Cerebrum</h1>
-        <p><strong>Cerebrum is a free scientific literature search engine.</strong> Ask a research question and receive cited answers assembled from open scholarly databases including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, medRxiv, DOAJ, PLOS, and Zenodo.</p>
-        <p>Every citation links to a real, verifiable paper. Cerebrum does not use ads, does not require an account, and does not track users.</p>
+        <p><strong>Cerebrum is a free, all-in-one research platform — not just a chatbot.</strong> Ask a research question and receive cited answers assembled from 14 open scholarly databases including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, and Zenodo. Save sources into Collections, compare two investigations side by side, visualize how your sources relate to each other, and generate an illustrative figure for what you just learned.</p>
+        <p>Every citation links to a real, verifiable paper. Cerebrum does not use ads and does not track users; an account is optional and only ever used to sync your saved research across devices.</p>
         <p>Cerebrum requires JavaScript to run. Please enable JavaScript in your browser to use the search.</p>
         <p>
           <a href="/about">About Cerebrum</a> &middot;
