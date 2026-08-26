@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { createRoot } from "react-dom/client";
 
 /* ════════════════════════════════════════════════════════════════
-   CEREBRUM v5.0 — "DP"
+   CEREBRUM v4.0 — "DARKNODE"
    
    Design language: Deep space observatory. Not a chatbot — a 
    research instrument that happens to understand language.
@@ -52,8 +52,25 @@ const APP_VERSION = "5.0.0";
 // the raw session token, only the server does.
 async function apiAuth(action, payload) {
   const res = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Something went wrong. Please try again.");
+  // A real backend error still comes back as JSON with an `error` field, so
+  // that's the case a plain "Something went wrong" fallback is for. But if
+  // this route isn't actually deployed as a Cloudflare Pages Function (the
+  // wrong file location, or a missing functions/lib/auth.js import breaking
+  // just this one function's build), Cloudflare's static-asset layer catches
+  // the request instead: POST comes back 405 with an empty body, GET comes
+  // back 200 with the SPA's own index.html. Either way `res.json()` throws
+  // on non-JSON content, which the old `.catch(() => ({}))` silently
+  // swallowed into an empty object — so this exact "the endpoint doesn't
+  // exist" case always surfaced as the same unhelpful "Something went wrong.
+  // Please try again," indistinguishable from a real validation error and
+  // impossible to tell apart from the outside. Checking the content-type
+  // up front separates the two and says which one actually happened.
+  const isJson = (res.headers.get("content-type") || "").includes("json");
+  const data = isJson ? await res.json().catch(() => ({})) : {};
+  if (!res.ok) {
+    if (!isJson) throw new Error("Couldn't reach the account service right now — it may not be deployed yet. Try again shortly, or contact support if this keeps happening.");
+    throw new Error(data.error || "Something went wrong. Please try again.");
+  }
   return data;
 }
 async function apiWhoAmI() {
@@ -1407,51 +1424,37 @@ function looksLikeFollowupText(q) {
   return /^(but|and|also|what about|how about|explain|tell me more|more on|also,|actually|wait|no,)/i.test(s)
       || /\b(you (forgot|missed)|the (paper|study|source|answer)|that (paper|study|source|answer)|this (paper|study))\b/i.test(s);
 }
-// Shared wheel-scroll takeover — used by both InfoPage() and App() so a real
-// scroll bug can't quietly hit one of them and not the other, which is
-// exactly what happened before this was extracted: InfoPage never had this
-// fix at all (only App() did), so its own sticky + backdrop-filter header
-// was still exposed to the native Chromium bug this exists to work around
-// (see the long history in the App()-side comment this used to live next to).
+// REMOVED (this round): a global `useWheelScrollTakeover()` hook used to sit
+// here, hand-rolling site-wide wheel scrolling by intercepting every wheel
+// event on `window`, calling preventDefault() unconditionally, and manually
+// replaying the delta via scrollBy(). It was built to work around a real but
+// narrow old-Chromium compositor bug (position: sticky + backdrop-filter
+// could create a wheel dead zone over the sticky header). Tracing this
+// again after repeated "scroll is still buggy" reports across several
+// rounds turned up the actual problem: this hand-rolled replacement never
+// accounted for `e.deltaMode` — a wheel event's deltaY is only "pixels" when
+// deltaMode is 0 (DOM_DELTA_PIXEL, what trackpads and most modern mice
+// report). A traditional notched mouse wheel commonly reports deltaMode 1
+// (DOM_DELTA_LINE), where deltaY is a small integer like 3 meaning "3 lines"
+// — treating that as 3 pixels makes every scroll notch crawl instead of
+// move a normal amount. That's a real, confirmed bug in the "fix" itself,
+// global and permanent, independent of whatever the original sticky-header
+// issue was — and it explains persistent "buggy everywhere" reports far
+// better than a narrow compositor edge case ever could.
 //
-// isScrollable() checks the element's own inline `style` properties instead
-// of calling getComputedStyle(). Every genuinely scrollable container in
-// this app sets its overflow via inline style (every `overflowY: "auto"` in
-// this file is inline, not a CSS class), so this is an equally-correct,
-// dramatically cheaper check — getComputedStyle forces a synchronous style
-// recalculation, and doing that for every ancestor of e.target on every one
-// of the dozens of wheel events a single trackpad swipe fires was real,
-// measurable jank, and got worse as more nested UI (the sidebar, Collections,
-// Compare, the network graph) deepened the average DOM path this has to walk.
-function useWheelScrollTakeover() {
-  useEffect(() => {
-    const isScrollable = (el) => {
-      const oy = el.style.overflowY, ox = el.style.overflowX;
-      const y = oy === "auto" || oy === "scroll" || oy === "overlay";
-      const x = ox === "auto" || ox === "scroll" || ox === "overlay";
-      return (y && el.scrollHeight > el.clientHeight) || (x && el.scrollWidth > el.clientWidth);
-    };
-    const onWheel = (e) => {
-      // Pinch-zoom on a trackpad arrives as wheel + ctrlKey — that's the
-      // browser's page-zoom gesture, not a scroll, and must reach it untouched.
-      if (e.ctrlKey) return;
-      let node = e.target instanceof Element ? e.target : null;
-      let target = null;
-      while (node && node !== document.body) {
-        if (isScrollable(node)) { target = node; break; }
-        node = node.parentElement;
-      }
-      e.preventDefault();
-      if (target) target.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
-      else (document.scrollingElement || document.documentElement).scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
-    };
-    window.addEventListener("wheel", onWheel, { passive: false });
-    return () => window.removeEventListener("wheel", onWheel);
-  }, []);
-}
+// Rather than patch the replacement further, it's deleted outright: native
+// wheel/touch scrolling already handles deltaMode, momentum, scroll
+// chaining into nested scrollable containers, and rubber-banding correctly
+// by definition, for free. The actual sticky-header compositor issue this
+// was built for is handled the standard way instead — giving the sticky
+// header its own compositor layer via `transform: translateZ(0)` +
+// `willChange: "transform"` (already present on both sticky headers below,
+// see the `header`/`panel` style entries) — without touching scroll
+// behavior at all. If a real dead zone ever reappears, fix the specific
+// element (a compositor hint, or isolating it in its own stacking context),
+// not global scroll again.
 
 function InfoPage({ page }) {
-  useWheelScrollTakeover();
   const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
   const P = PALETTES[paletteName] || PALETTES.Dark;
   const accentName = (() => { try { return getCookie("cb_accent") || "Emerald"; } catch { return "Emerald"; } })();
@@ -1485,8 +1488,10 @@ function InfoPage({ page }) {
         .cb-info-block li { font-size: 15px; line-height: 1.65; color: ${P.ink2}; padding: 10px 0 10px 24px; position: relative; border-bottom: 1px solid ${P.line}; }
         .cb-info-block li:last-child { border-bottom: none; }
         .cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 18px; width: 5px; height: 5px; border-radius: 50%; background: ${accent}; }
-        .cb-info-navlink { transition: color .15s, background .15s; }
-        .cb-info-navlink:hover { color: ${accent} !important; background: ${withAlpha(accent, 0.08)}; }
+        .cb-info-navlink { position: relative; transition: color .15s ease; }
+        .cb-info-navlink::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2px; background: ${accent}; border-radius: 2px; transform: scaleX(0); transform-origin: left; transition: transform .25s cubic-bezier(0.4, 0, 0.2, 1); }
+        .cb-info-navlink:hover { color: ${accent} !important; }
+        .cb-info-navlink:hover::after, .cb-info-navlink[aria-current="page"]::after { transform: scaleX(1); }
         .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16,1,0.3,1) both; }
         @keyframes cbInfoFade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
       `}</style>
@@ -1503,9 +1508,9 @@ function InfoPage({ page }) {
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: 16, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
           </button>
-          <nav style={{ display: "flex", gap: 2 }}>
+          <nav style={{ display: "flex", gap: 6 }}>
             {NAV.map(([slug, label]) => (
-              <a key={slug} href={`/${slug}`} className="cb-info-navlink" style={{ fontSize: 13, color: page === slug ? accent : P.ink2, textDecoration: "none", padding: "6px 10px", borderRadius: 6, fontWeight: page === slug ? 600 : 450 }}>{label}</a>
+              <a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: 14.5, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "6px 10px", fontWeight: page === slug ? 700 : 500, letterSpacing: "-0.01em" }}>{label}</a>
             ))}
           </nav>
         </div>
@@ -1534,7 +1539,7 @@ function InfoPage({ page }) {
         <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600, color: P.ink, fontSize: 14, fontFamily: "var(--cb-display)" }}><Mark size={16} accent={accent} /> Cerebrum</div>
           <nav style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
-            {NAV.map(([slug, label]) => (<a key={slug} href={`/${slug}`} className="cb-info-navlink" style={{ fontSize: 13, color: page === slug ? accent : P.ink2, textDecoration: "none", padding: "5px 10px", borderRadius: 6, fontWeight: page === slug ? 600 : 450 }}>{label}</a>))}
+            {NAV.map(([slug, label]) => (<a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: 13.5, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "5px 10px", fontWeight: page === slug ? 700 : 500 }}>{label}</a>))}
           </nav>
           <div style={{ fontSize: 12, color: P.faint, fontFamily: "var(--cb-mono)" }}>© 2026 Cerebrum</div>
         </div>
@@ -2382,20 +2387,46 @@ function LiteratureTimeline({ P, accent, at, sources, close }) {
 // caller (App) is the one that decides what to do with the account's data
 // (pull it down, offer to import local data, etc.) — this component only
 // handles the credentials exchange itself.
+const AUTH_TAB_IDS = ["login", "signup", "magic"];
+
+// Rough, dependency-free password strength read — not a security control
+// (the server-side PBKDF2 cost is what actually matters), just an honest
+// nudge so "Create account" isn't a black box until the request fails.
+function passwordStrength(pw) {
+  if (!pw) return { label: "", score: 0 };
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw) && /[^a-zA-Z0-9]/.test(pw)) score++;
+  const label = pw.length < 8 ? "Too short" : score <= 1 ? "Weak" : score === 2 ? "Fair" : score === 3 ? "Good" : "Strong";
+  const color = pw.length < 8 || score <= 1 ? STATUS.bad : score === 2 ? STATUS.warn : STATUS.good;
+  return { label, score: Math.min(score, 4), color };
+}
+
 function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
   const [tab, setTab] = useState(initialTab || "login"); // "login" | "signup" | "magic"
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [magicSent, setMagicSent] = useState(false);
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
 
+  const strength = passwordStrength(password);
+  const passwordsMismatch = tab === "signup" && confirmPassword.length > 0 && password !== confirmPassword;
+
   async function submit(e) {
     e.preventDefault();
     if (busy) return;
-    setError(""); setBusy(true);
+    setError("");
+    // Client-side confirm-password check before ever hitting the network —
+    // a mismatch is the single most common signup mistake and shouldn't
+    // need a round trip to catch.
+    if (tab === "signup" && password !== confirmPassword) { setError("Those passwords don't match."); return; }
+    setBusy(true);
     try {
       if (tab === "magic") {
         await apiAuth("magic-request", { email });
@@ -2411,6 +2442,13 @@ function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
     }
   }
 
+  const switchTab = (id) => { setTab(id); setError(""); setMagicSent(false); setConfirmPassword(""); };
+
+  // Underline tab bar — a real font/interaction distinct from the small
+  // filled-pill mono-font segmented control used elsewhere (Settings,
+  // command palette): larger body-font labels, a single indicator that
+  // slides between tabs instead of each tab getting its own background fill.
+  const tabIndex = AUTH_TAB_IDS.indexOf(tab);
   const tabBtn = (id, label) => (
     <button
       type="button"
@@ -2419,8 +2457,8 @@ function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
       aria-selected={tab === id}
       aria-controls="authtab-panel"
       tabIndex={tab === id ? 0 : -1}
-      onClick={() => { setTab(id); setError(""); setMagicSent(false); }}
-      style={{ flex: 1, padding: "9px 0", fontSize: 12.5, fontWeight: 600, borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "var(--cb-mono)", background: tab === id ? withAlpha(accent, 0.14) : "transparent", color: tab === id ? accent : P.faint }}
+      onClick={() => switchTab(id)}
+      style={{ flex: 1, padding: "12px 0 13px", fontSize: 14, fontWeight: tab === id ? 700 : 500, letterSpacing: "-0.01em", border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--cb-body)", color: tab === id ? P.ink : P.faint, transition: "color 0.2s ease" }}
     >{label}</button>
   );
 
@@ -2434,10 +2472,11 @@ function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
         <div style={{ padding: "18px 26px 0" }}>
-          <div role="tablist" aria-label="Account access method" style={{ display: "flex", gap: 4, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderRadius: 10, padding: 4 }}>
+          <div role="tablist" aria-label="Account access method" style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}` }}>
             {tabBtn("login", "Sign in")}
             {tabBtn("signup", "Create account")}
             {tabBtn("magic", "Email link")}
+            <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: `${(tabIndex / AUTH_TAB_IDS.length) * 100}%`, width: `${100 / AUTH_TAB_IDS.length}%`, height: 2, background: accent, borderRadius: 2, transition: "left 0.25s cubic-bezier(0.4, 0, 0.2, 1)" }} />
           </div>
         </div>
         {magicSent ? (
@@ -2455,12 +2494,30 @@ function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
             {tab !== "magic" && (
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: P.ink2, marginTop: 14 }}>
                 Password
-                <input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} placeholder={tab === "signup" ? "At least 8 characters" : "••••••••"} aria-label="Password" />
+                <input type="password" required minLength={8} autoComplete={tab === "signup" ? "new-password" : "current-password"} value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} placeholder={tab === "signup" ? "At least 8 characters" : "••••••••"} aria-label="Password" />
+              </label>
+            )}
+            {tab === "signup" && password.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
+                <div style={{ flex: 1, height: 4, borderRadius: 2, background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(strength.score, 4) / 4 * 100}%`, height: "100%", background: strength.color, borderRadius: 2, transition: "width 0.2s ease, background 0.2s ease" }} />
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: strength.color, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{strength.label}</span>
+              </div>
+            )}
+            {tab === "signup" && (
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: P.ink2, marginTop: 14 }}>
+                Confirm password
+                <input type="password" required minLength={8} autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={{ ...inputStyle, borderColor: passwordsMismatch ? STATUS.bad : P.line }} placeholder="Type it again" aria-label="Confirm password" aria-invalid={passwordsMismatch} />
+                {passwordsMismatch && <span style={{ display: "block", fontSize: 11.5, color: STATUS.bad, marginTop: 5, fontWeight: 500 }}>Doesn't match yet</span>}
+                {tab === "signup" && confirmPassword.length > 0 && !passwordsMismatch && confirmPassword.length >= 8 && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: STATUS.good, marginTop: 5, fontWeight: 500 }}><Icon name="check" size={11} />Passwords match</span>
+                )}
               </label>
             )}
             {tab === "magic" && <div style={{ fontSize: 12.5, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>No password needed — we'll email you a link that signs you in.</div>}
             {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: 12.5, lineHeight: 1.5 }}>{error}</div>}
-            <button type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-body)" }}>
+            <button type="submit" disabled={busy || passwordsMismatch} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: (busy || passwordsMismatch) ? "default" : "pointer", opacity: (busy || passwordsMismatch) ? 0.7 : 1, fontFamily: "var(--cb-body)" }}>
               {busy ? "Please wait…" : tab === "signup" ? "Create account" : tab === "magic" ? "Send sign-in link" : "Sign in"}
             </button>
             <div style={{ fontSize: 11, color: P.faint, marginTop: 14, lineHeight: 1.6 }}>
@@ -2583,14 +2640,18 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
             <button onClick={close} aria-label="Close" style={{ background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", border: "none", width: 30, height: 30, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: P.ink2 }}><Icon name="close" size={14} /></button>
           </div>
 
-          {/* Tab bar — same segmented-pill pattern as the rest of the app's
-              controls (see cmdHint/iconBtn), accent-driven active state
-              instead of a flat iOS system-gray fill. */}
-          <div style={{ display: "flex", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", borderRadius: 10, padding: 3, marginBottom: 18, gap: 2 }}>
+          {/* Tab bar — a sliding underline indicator instead of the filled
+              segmented-pill look this used to share with the command
+              palette/dropdown chrome elsewhere. Same pattern as AuthModal's
+              tab bar now uses, so the two places in the app with real
+              client-side tabs read as one deliberate system rather than
+              each having invented its own. */}
+          <div style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}`, marginBottom: 18 }}>
             {TABS.map(([id, label]) => (
               <button key={id} onClick={() => { sfx(); setTab(id); }}
-                style={{ flex: 1, padding: "7px 4px", fontSize: isMobile ? 10.5 : 11.5, fontWeight: 600, background: tab === id ? accent : "transparent", color: tab === id ? at : P.faint, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", boxShadow: tab === id ? `0 2px 10px ${withAlpha(accent, 0.35)}` : "none", transition: "all 200ms ease" }}>{label}</button>
+                style={{ flex: 1, padding: isMobile ? "8px 2px 10px" : "9px 4px 11px", fontSize: isMobile ? 10.5 : 12.5, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
             ))}
+            <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: `${(TABS.findIndex(([id]) => id === tab) / TABS.length) * 100}%`, width: `${100 / TABS.length}%`, height: 2, background: accent, borderRadius: 2, transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
           </div>
         </div>
 
@@ -3559,11 +3620,9 @@ function App() {
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Wheel scroll takeover — see useWheelScrollTakeover() above InfoPage()
-  // for the full history and why isScrollable() checks inline style instead
-  // of getComputedStyle. Shared with InfoPage() so the fix can't silently
-  // apply to only one of them again.
-  useWheelScrollTakeover();
+  // (No wheel-scroll takeover here — see the comment above InfoPage() for
+  // why it was removed. Native scrolling + the sticky header's own
+  // translateZ(0) compositor layer handle this correctly without it.)
 
   useEffect(() => { try { localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40))); } catch {} }, [history]);
   const historySyncTimer = useRef(null);
