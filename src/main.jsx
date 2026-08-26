@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { createRoot } from "react-dom/client";
 
 /* ════════════════════════════════════════════════════════════════
-   CEREBRUM v4.0 — "DARKNODE"
+   CEREBRUM v5.0 — "DP"
    
    Design language: Deep space observatory. Not a chatbot — a 
    research instrument that happens to understand language.
@@ -393,6 +393,16 @@ const PALETTES = {
 };
 const ACCENTS = { Emerald: "#34d399", Indigo: "#818cf8", Sky: "#38bdf8", Amber: "#fbbf24", Rose: "#fb7185", Violet: "#a78bfa", Teal: "#2dd4bf", Cyan: "#22d3ee" };
 
+// The brand wordmark's animated gradient deliberately cycles through a
+// hand-picked SUBSET of ACCENTS in a hue-ordered sequence (not declaration
+// order, not all 8 — Teal/Cyan were left out as too close to Sky/Emerald
+// for a clean 6-stop wheel) rather than the user's single selected accent —
+// a "living brand" treatment independent of theme choice. Built from named
+// ACCENTS references (not copy-pasted hex) so editing one accent's hex
+// can't silently desync the two CSS rules that used to hardcode this same
+// six-color list separately (`.cb-kinetic > span` and `.cb-gradient-text`).
+const BRAND_GRADIENT_STOPS = [ACCENTS.Emerald, ACCENTS.Sky, ACCENTS.Indigo, ACCENTS.Violet, ACCENTS.Rose, ACCENTS.Amber, ACCENTS.Emerald].join(", ");
+
 // v5: status semantics (fact-check verdicts, retraction flags, relevance
 // tiers, correction markers) had drifted to three different "warning amber"
 // hexes and two different "success green" hexes across the file, hand-typed
@@ -412,6 +422,58 @@ function accentText(hex) {
   return L > 175 ? "#0f172a" : "#fff";
 }
 function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
+
+// Rotates a hex color's hue by `deg` degrees, keeping its own saturation/
+// lightness — used to derive a second, related-but-distinct color from a
+// single accent (e.g. LivingBackground's two-stop fallback gradient) so a
+// two-tone effect doesn't collapse to one flat color for every accent.
+function hueShift(hex, deg) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  let h, s;
+  if (max === min) { h = s = 0; }
+  else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  h = (h + deg / 360) % 1;
+  if (h < 0) h += 1;
+  const hue2rgb = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; };
+  let nr, ng, nb;
+  if (s === 0) { nr = ng = nb = l; }
+  else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    nr = hue2rgb(p, q, h + 1 / 3); ng = hue2rgb(p, q, h); nb = hue2rgb(p, q, h - 1 / 3);
+  }
+  const toHex = (v) => Math.round(v * 255).toString(16).padStart(2, "0");
+  return `#${toHex(nr)}${toHex(ng)}${toHex(nb)}`;
+}
+
+// Shared "de-chromed" <select> treatment — Settings' own Picker already
+// suppressed the native OS dropdown arrow in favor of a custom SVG chevron
+// that matches the rest of the glass/editorial aesthetic, but every OTHER
+// <select> in the app (voice picker, citation style, move-to-collection,
+// Compare's thread pickers) kept the browser's default chrome, which on
+// most platforms renders as a plain gray system-font triangle sitting
+// inside an otherwise fully custom dark-glass control. Spread this into
+// any <select>'s style object (after its own border/background/padding)
+// to give it the same chevron everywhere, themed to the current palette
+// instead of one hardcoded gray.
+function selectChrome(P) {
+  const arrow = P.dark ? "9ca3af" : "6b7280";
+  return {
+    WebkitAppearance: "none",
+    appearance: "none",
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23${arrow}'/%3E%3C/svg%3E")`,
+    backgroundRepeat: "no-repeat",
+    backgroundPosition: "right 10px center",
+    paddingRight: 28,
+  };
+}
 
 /* ════════════════════════════════════════════════════════════════
    ICON SYSTEM — Thinner weight (1.4) for the dark aesthetic
@@ -454,6 +516,9 @@ function Icon({ name, size = 17, className, style }) {
     case "folder": return <svg {...common}><path d="M3 6.5A1.5 1.5 0 014.5 5h4.5l2 2.5H19.5A1.5 1.5 0 0121 9v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18z" /></svg>;
     case "compare": return <svg {...common}><rect x="3" y="4" width="8" height="16" rx="1.5" /><rect x="13" y="4" width="8" height="16" rx="1.5" /></svg>;
     case "network": return <svg {...common}><circle cx="12" cy="4.5" r="2" /><circle cx="5" cy="18" r="2" /><circle cx="19" cy="18" r="2" /><path d="M12 6.5v5M12 11.5L6.3 16.3M12 11.5l5.7 4.8" /></svg>;
+    case "refresh": return <svg {...common}><path d="M21 12a9 9 0 01-15.3 6.4M3 12a9 9 0 0115.3-6.4" /><path d="M21 4v6h-6M3 20v-6h6" /></svg>;
+    case "wand": return <svg {...common}><path d="M4 20L18 6" /><path d="M15 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1z" /><path d="M6 15l.6 1.4L8 17l-1.4.6L6 19l-.6-1.4L4 17l1.4-.6z" /></svg>;
+    case "timeline": return <svg {...common}><path d="M3 12h18" /><circle cx="6" cy="12" r="1.8" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" /><circle cx="18" cy="12" r="1.8" fill="currentColor" stroke="none" /></svg>;
     default: return null;
   }
 }
@@ -516,7 +581,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
       return (
         <ul key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: 16.5, lineHeight: 1.8, color: P.ink, marginBottom: 8, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-body)", fontWeight: 420 }}>
+            <li key={ii} style={{ fontSize: 16.5, lineHeight: 1.8, color: P.ink, marginBottom: 8, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-body)", fontWeight: 400 }}>
               <span style={{ position: "absolute", left: -12, top: "0.55em", width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.7 }} />
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite)}
             </li>
@@ -532,7 +597,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
       return (
         <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: 16.5, lineHeight: 1.8, color: P.ink, marginBottom: 8, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-body)", fontWeight: 420, counterIncrement: "cb-list" }}>
+            <li key={ii} style={{ fontSize: 16.5, lineHeight: 1.8, color: P.ink, marginBottom: 8, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-body)", fontWeight: 400, counterIncrement: "cb-list" }}>
               <span style={{ position: "absolute", left: -8, top: 0, fontSize: 12, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", opacity: 0.8 }}>{ii + 1}.</span>
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite)}
             </li>
@@ -542,7 +607,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     }
 
     return (
-    <p key={pi} style={{ fontSize: 17.5, lineHeight: 1.85, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 420 }}>
+    <p key={pi} style={{ fontSize: 17.5, lineHeight: 1.85, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 400 }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)}
@@ -558,7 +623,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
 function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite) {
   return line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[\d+\])/g).map((seg, si) => {
     const b = seg.match(/^\*\*([^*]+)\*\*$/);
-    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 650 }}>{b[1]}</strong>;
+    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 700 }}>{b[1]}</strong>;
     const it = seg.match(/^\*([^*\n]+)\*$/);
     if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{it[1]}</em>;
     const ul = seg.match(/^_([^_\n]+)_$/);
@@ -741,7 +806,7 @@ function LoadingLine({ P, accent, S }) {
             }} />
           ))}
         </div>
-        <span key={msg} className="cb-fade" style={{ fontSize: 13.5, color: P.ink2, letterSpacing: "-0.01em", fontWeight: 450, fontFamily: "var(--cb-body)", flex: 1 }}>
+        <span key={msg} className="cb-fade" style={{ fontSize: 13.5, color: P.ink2, letterSpacing: "-0.01em", fontWeight: 500, fontFamily: "var(--cb-body)", flex: 1 }}>
           {msg}
         </span>
         <span style={{ fontSize: 10, color: P.faint, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>
@@ -922,7 +987,7 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
         </div>
         <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
           {["About", "Privacy", "Contact"].map((item) => (
-            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: 13, color: "#6b7a90", textDecoration: "none", fontWeight: 450, transition: "color 0.2s" }}
+            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: 13, color: "#6b7a90", textDecoration: "none", fontWeight: 500, transition: "color 0.2s" }}
               onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#6b7a90"}>{item}</a>
           ))}
         </div>
@@ -963,9 +1028,21 @@ function Intro({ accent, P, onEnter, animationMode = "cinematic" }) {
           filter: revealed ? "blur(0)" : "blur(6px)",
           transition: "all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.35s",
         }}>
-          Cerebrum searches 14 scholarly databases in parallel and writes
-          you an answer where every claim traces back to a real, citable source.
+          Cerebrum searches 14 scholarly databases in parallel and writes you
+          an answer where every claim traces back to a real, citable source —
+          then lets you compare investigations, map how sources relate,
+          trace a literature across time, and see a concept illustrated.
+          One research instrument, not just a chatbot.
         </p>
+
+        <div style={{
+          display: "flex", flexWrap: "wrap", gap: "7px 18px", marginBottom: 32,
+          opacity: revealed ? 0.6 : 0, transition: "opacity 1s cubic-bezier(0.16, 1, 0.3, 1) 0.5s",
+        }}>
+          {["Cited answers", "Compare investigations", "Source network", "Literature timeline", "AI illustrations"].map((f) => (
+            <span key={f} style={{ fontSize: 11, fontWeight: 600, color: "#7a8599", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)" }}>{f}</span>
+          ))}
+        </div>
 
         <div style={{
           display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
@@ -1128,9 +1205,15 @@ function LivingBackground({ accent, P, intensity = "cinematic", preset = "partic
       pointerEvents: "none", zIndex: 0,
       opacity: intensity === "subtle" ? 0.08 : 0.15,
       transition: "opacity 0.5s ease",
-      /* CSS fallback gradient — visible while Vanta loads or if it fails */
+      /* CSS fallback gradient — visible while Vanta loads or if it fails.
+         Built from the user's actual selected `accent` (a Rose/Amber/Cyan
+         user used to see a hardcoded green-and-indigo flash here regardless
+         of their choice, since Vanta itself already reads `accent` — see
+         above — but this fallback never did) plus a second stop offset a
+         third of the way around the hue wheel so the two radial pools
+         still read as two distinct colors rather than one flat wash. */
       background: loaded ? "transparent" : (P.dark
-        ? `radial-gradient(ellipse at 30% 20%, rgba(52,211,153,0.07) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(129,140,248,0.05) 0%, transparent 50%), ${P.bg}`
+        ? `radial-gradient(ellipse at 30% 20%, ${withAlpha(accent, 0.07)} 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, ${withAlpha(hueShift(accent, 60), 0.05)} 0%, transparent 50%), ${P.bg}`
         : P.bg),
     }} aria-hidden="true" />
   );
@@ -1268,7 +1351,7 @@ function AnswerPlayer({ text, accent, P }) {
   const label = status === "loading" ? "Loading..." : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-      <button onClick={onClick} style={{ padding: "6px 14px", fontSize: 11.5, fontWeight: 550, background: status === "playing" || status === "paused" ? accent : "transparent", color: status === "playing" || status === "paused" ? accentText(accent) : P.ink2, border: `1px solid ${status === "playing" || status === "paused" ? accent : P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: "0.01em" }}>
+      <button onClick={onClick} style={{ padding: "6px 14px", fontSize: 11.5, fontWeight: 600, background: status === "playing" || status === "paused" ? accent : "transparent", color: status === "playing" || status === "paused" ? accentText(accent) : P.ink2, border: `1px solid ${status === "playing" || status === "paused" ? accent : P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: "0.01em" }}>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">{status === "playing" ? (<><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>) : (<path d="M8 5v14l11-7z" />)}</svg>
         {label}
       </button>
@@ -1290,7 +1373,7 @@ function TtsVoiceSetting({ P, accent, at, S, sfx }) {
   return (
     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
       {[["female", "Female"], ["male", "Male"]].map(([v, label]) => (
-        <button key={v} onClick={() => set(v)} style={{ flex: 1, padding: "9px 6px", fontSize: 12, fontWeight: 550, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
+        <button key={v} onClick={() => set(v)} style={{ flex: 1, padding: "9px 6px", fontSize: 12, fontWeight: 600, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
       ))}
     </div>
   );
@@ -1306,7 +1389,7 @@ function ElevenLabsSetting({ P, accent, at, S, sfx }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <input type="password" aria-label="ElevenLabs API key" placeholder="ElevenLabs API key (optional)" value={key} onChange={(e) => setKey(e.target.value)} style={{ padding: "10px 12px", fontSize: 12.5, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", outline: "none" }} />
-      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{ padding: "10px 12px", fontSize: 12.5, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", cursor: "pointer", outline: "none" }}>
+      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{ padding: "10px 12px", fontSize: 12.5, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", cursor: "pointer", outline: "none", ...selectChrome(P) }}>
         {voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
       </select>
       <div style={{ display: "flex", gap: 6 }}>
@@ -1378,12 +1461,12 @@ function InfoPage({ page }) {
   const isMobile = useIsMobile();
   const goHome = () => { try { setCookie("cb_entered_v5", "1", 365); } catch {} window.location.href = "/"; };
   const PAGES = {
-    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv, medRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
+    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
     privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible — and we can show our work", lede: "No tracking pixels. No third-party analytics. No ads. No selling data — there is nothing to sell. An account is entirely optional, and everything below is a specific, checkable claim, not a marketing line.", updated: "Last updated August 2026", blocks: [
       { h: "Guest mode (the default, no account needed)", list: ["No tracking pixels, third-party analytics, or ad networks, ever, account or not.", "Nothing about you is stored on Cerebrum's servers — not your questions, not an identifier, nothing.", "Saved articles, history, and preferences (theme, motion, voice) live only in your browser's local storage. Clear your browser data and they're gone — we never had a copy."] },
       { h: "What happens when you search (guest or signed in, identical either way)", list: ["Your question is sent to Cerebrum's server to run the search and generate an answer — this one round trip is unavoidable for the product to work at all.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others) to retrieve papers.", "The question and retrieved abstracts are sent to a language-model provider (OpenRouter, Cloudflare Workers AI, or Pollinations) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention — standard for any web request, not something Cerebrum adds on top.", "We do not permanently store your question text on the server unless you're signed in and it becomes part of your own account's history (see below)."] },
       { h: "If you create an account (optional — here's exactly what changes)", p: "Signing in exists for one reason: so your saved articles, collections, and history follow you to another device instead of being trapped in one browser. Creating an account stores your email, and either a password hash or nothing at all if you only ever use an emailed sign-in link — never a recoverable copy of your password. That's it; no name, no phone number, no payment details, nothing else is asked for or collected." },
-      { h: "How the account data is actually protected — not just described", list: ["Passwords are hashed with PBKDF2-SHA256 at 210,000 iterations (the current OWASP-recommended minimum) with a random salt per account, before they ever touch the database. A full copy of the database gives an attacker no usable password — brute-forcing one hash back to a real password at that iteration count isn't practical at any scale worth worrying about.", "The sign-in cookie in your browser and the copy of it kept on the server are never the same value: the server stores only a one-way SHA-256 hash of it. A leaked database is useless for signing in as anyone, and the cookie itself is marked HttpOnly, so no script running on the page — including a successful attack against the page itself — can ever read it.", "A one-time email sign-in link works the same way: only its hash is stored, it expires in 15 minutes, and it stops working the instant it's used once.", "Deleting your account (Settings → Account → Delete account) is immediate and total — your email, password hash, saved articles, collections, and history are deleted from every table that references your account in that same request. Nothing is soft-deleted or kept 'just in case.'"] },
+      { h: "How the account data is actually protected — not just described", list: ["Passwords are hashed with PBKDF2-SHA256 at 100,000 iterations — the maximum a single request is allowed to spend on this before our hosting platform cuts it off — combined with a random salt generated fresh for every account, before either ever touches the database. A full copy of the database gives an attacker no usable password: every account's salt is different, so no precomputed table of hashes helps, and every guess still has to pay the full 100,000-iteration cost per account, per attempt.", "The sign-in cookie in your browser and the copy of it kept on the server are never the same value: the server stores only a one-way SHA-256 hash of it. A leaked database is useless for signing in as anyone, and the cookie itself is marked HttpOnly, so no script running on the page — including a successful attack against the page itself — can ever read it.", "A one-time email sign-in link works the same way: only its hash is stored, it expires in 15 minutes, and it stops working the instant it's used once.", "Deleting your account (Settings → Account → Delete account) is immediate and total — your email, password hash, saved articles, collections, and history are deleted from every table that references your account in that same request. Nothing is soft-deleted or kept 'just in case.'"] },
       { h: "What an account does not change", p: "Guest mode keeps working exactly as it always has, forever — nobody is required to create an account to use Cerebrum, and nothing about the search itself (which databases are queried, how the answer is written, what's sent to the AI provider) is any different signed in versus signed out." },
       { h: "Optional integrations", p: "If you paste a Zotero or ElevenLabs API key in Settings, that key is stored only in your browser's local storage and sent directly to that service when you use the relevant feature — it never passes through, or is stored on, Cerebrum's server." },
       { h: "Children", p: "Cerebrum is not directed at children under 13." },
@@ -1482,7 +1565,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
           <div style={{ fontSize: 11, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", background: withAlpha(P.faint, 0.1), padding: "1px 8px", borderRadius: 20 }}>{sources.length}</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} style={{ padding: "6px 10px", fontSize: 11.5, fontWeight: 500, background: P.bg, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", outline: "none" }}>
+          <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} style={{ padding: "6px 10px", fontSize: 11.5, fontWeight: 500, background: P.bg, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", outline: "none", ...selectChrome(P) }}>
             {styleOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
           </select>
           <button onClick={copyAll} style={bibBtn(P, accent)}>{copied ? "✓ Copied" : "Copy all"}</button>
@@ -1556,7 +1639,7 @@ function BibEntry({ source, index, P, accent, style, className }) {
 }
 function bibBtn(P, accent) { return { padding: "5px 10px", fontSize: 11, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", letterSpacing: "0.01em" }; }
 
-function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {} }) {
+function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   return (
@@ -1618,14 +1701,16 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                 anywhere that surfaced it. A user would've had to already
                 know to hit Ctrl/Cmd+P. */}
             <button onClick={() => window.print()} style={S.answerActionBtn}><Icon name="printer" size={12} /><span>Print / Save PDF</span></button>
-            {t.sources && t.sources.length >= 2 && <button onClick={() => onShowNetwork(t.sources)} style={S.answerActionBtn}><Icon name="network" size={12} /><span>Source network</span></button>}
+            {interactive && t.sources && t.sources.length >= 2 && <button onClick={() => onShowNetwork(t.sources)} style={S.answerActionBtn}><Icon name="network" size={12} /><span>Source network</span></button>}
+            {interactive && t.sources && t.sources.length >= 2 && <button onClick={() => onShowTimeline(t.sources)} style={S.answerActionBtn}><Icon name="timeline" size={12} /><span>Timeline</span></button>}
+            {interactive && done && t.answer && <button onClick={() => onIllustrate(t.q)} style={S.answerActionBtn}><Icon name="wand" size={12} /><span>Illustrate</span></button>}
           </div>
         )}
         {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
       </div>
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
       {/* AI suggestions */}
-      {done && t.suggestions && t.suggestions.length > 0 && (
+      {interactive && done && t.suggestions && t.suggestions.length > 0 && (
         <div style={{ marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
           {t.suggestions.map((s, i) => (
             <button key={i} onClick={() => s.query && onRelated && onRelated(s.query)} disabled={!s.query}
@@ -1660,7 +1745,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         </details>
       )}
       {/* Related questions */}
-      {done && t.related && t.related.length > 0 && (
+      {interactive && done && t.related && t.related.length > 0 && (
         <div style={S.relatedWrap} className="cb-fade">
           <div style={S.relatedLabel}>Continue the investigation</div>
           <div style={S.relatedList}>
@@ -1677,11 +1762,62 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
 }
 
 
+// Shared keyboard-trap for every modal in the app: focuses the first
+// focusable element on mount, keeps Tab/Shift+Tab cycling inside the modal
+// instead of leaking out to whatever's behind the backdrop, and hands focus
+// back to whatever had it before the modal opened once it closes. Every
+// modal below is only ever mounted while it's open, so a plain mount/unmount
+// effect lines up exactly with open/close — same trick as
+// useWheelScrollTakeover just above InfoPage.
+function useFocusTrap() {
+  const ref = useRef(null);
+  // Captured via a lazy ref initializer — evaluated during render, before
+  // this modal's own DOM (and anything like an autoFocus'd input inside it)
+  // has actually been committed — rather than inside the effect below.
+  // Reading document.activeElement from the effect instead is one render
+  // late: by the time a passive effect runs, React has already committed
+  // the modal into the DOM and fired any native autoFocus, so
+  // document.activeElement at that point is something inside the modal
+  // itself (never what was focused before it opened), and "restore focus
+  // on close" silently restores focus to nothing useful.
+  const previouslyFocusedRef = useRef(typeof document !== "undefined" ? document.activeElement : null);
+  useEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => Array.from(container.querySelectorAll(FOCUSABLE));
+    // Only move focus ourselves if nothing inside the modal has it already —
+    // a few modals (AuthModal's email field) use their own autoFocus for a
+    // more useful default landing spot than "whatever's first in DOM order,"
+    // usually the Close button. Respect that instead of stealing it back.
+    if (!container.contains(document.activeElement)) {
+      const first = getFocusable()[0];
+      (first || container).focus?.();
+    }
+    const onKeyDown = (e) => {
+      if (e.key !== "Tab") return;
+      const items = getFocusable();
+      if (!items.length) return;
+      const firstEl = items[0], lastEl = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+    };
+    container.addEventListener("keydown", onKeyDown);
+    return () => {
+      container.removeEventListener("keydown", onKeyDown);
+      const toRestore = previouslyFocusedRef.current;
+      if (toRestore && typeof toRestore.focus === "function" && document.contains(toRestore)) toRestore.focus();
+    };
+  }, []);
+  return ref;
+}
+
 /* ============================================================
    HOW IT WORKS MODAL + SETTINGS — same logic, new visual system
    ============================================================ */
 function HowItWorksModal({ P, accent, close }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
   const Section = ({ title, children }) => (
     <div style={{ marginBottom: 28 }}>
       <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: "0.1em", color: accent, marginBottom: 10, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{title}</div>
@@ -1695,7 +1831,7 @@ function HowItWorksModal({ P, accent, close }) {
   );
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="How Cerebrum works" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 600, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}` }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 600, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ position: "sticky", top: 0, background: P.bg, padding: "20px 24px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>How Cerebrum works</div>
@@ -1725,22 +1861,24 @@ function HowItWorksModal({ P, accent, close }) {
 // time afterward from the small "V5" badge next to the wordmark.
 function V5AnnouncementModal({ P, accent, at, close }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
   const items = [
-    { icon: "brain", title: "A real design pass", body: "Every icon, color, and button across the app now comes from one consistent system instead of a grab-bag of emoji and one-off hex codes." },
-    { icon: "shield", title: "Smarter fact-checking", body: "The verification pass now catches acronyms your sources define in full even when the short form never appears verbatim — and no longer misreads a stray chemical formula as an unverifiable claim." },
-    { icon: "history", title: "Previous conversations", body: "Starting a new investigation no longer throws the old one away. Every thread is one click from the History panel." },
-    { icon: "image", title: "Image understanding", body: "Attach a figure, chart, or photo alongside your question — Cerebrum reads it before it searches." },
-    { icon: "printer", title: "Print & export", body: "A proper Print / Save as PDF button, right where you'd look for it, next to Copy and Share." },
+    { icon: "wand", title: "AI concept illustrations", body: "Any answer can now generate a clean, textbook-style visual sketch of the concept it's explaining — a quick way to see the idea, not just read it." },
+    { icon: "timeline", title: "Literature timeline", body: "See where a topic's sources actually sit in time — an established, decades-deep body of work, or something that only emerged in the last two years." },
+    { icon: "network", title: "Source network", body: "A visual map of how an answer's sources relate to each other, sized by relevance." },
+    { icon: "compare", title: "Compare investigations", body: "Put two past investigations side by side and read their answers and sources in parallel." },
+    { icon: "bookmarkFilled", title: "Collections", body: "Sort saved sources into named collections instead of one flat list — signed-in accounts only." },
+    { icon: "history", title: "Accounts that follow you", body: "An optional account syncs saved sources, collections, and past investigations across every device — guest mode still works exactly as before, with nothing stored on our servers." },
   ];
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="What's new in Cerebrum DP" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 520, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}` }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 520, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ padding: "28px 28px 8px" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", borderRadius: 20, background: withAlpha(accent, 0.12), color: accent, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", marginBottom: 16 }}>
             <Icon name="sparkle" size={12} /> DP · NOW LIVE
           </div>
-          <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", marginBottom: 8 }}>Cerebrum just got a serious upgrade.</div>
-          <div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>The biggest update since launch — cleaner everywhere, and a fact-checker that actually understands the papers it's checking against.</div>
+          <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", marginBottom: 8 }}>Cerebrum is now an all-in-one research instrument.</div>
+          <div style={{ fontSize: 14, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>Not just a question box anymore — compare investigations, map and time-trace your sources, and generate a concept illustration, all without leaving the app.</div>
         </div>
         <div style={{ padding: "0 28px" }}>
           {items.map((it, i) => (
@@ -1767,9 +1905,10 @@ function V5AnnouncementModal({ P, accent, at, close }) {
 // fetch) — it simply gets swept into the account by the normal sync effect
 // that already watches `saved`/`history` for changes once `user` is set.
 function ImportLocalDataPrompt({ P, accent, at, savedCount, historyCount, onImport, onSkip }) {
+  const trapRef = useFocusTrap();
   return (
     <div role="dialog" aria-modal="true" aria-label="Import your existing data" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 216, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div style={{ background: P.bg, borderRadius: 16, maxWidth: 400, width: "100%", padding: 26, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}` }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} style={{ background: P.bg, borderRadius: 16, maxWidth: 400, width: "100%", padding: 26, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ width: 40, height: 40, borderRadius: 11, background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}><Icon name="bookmarkFilled" size={18} /></div>
         <div style={{ fontSize: 16, fontWeight: 700, color: P.ink, marginBottom: 8 }}>Bring your existing data along?</div>
         <div style={{ fontSize: 13.5, color: P.ink2, lineHeight: 1.6, marginBottom: 18 }}>
@@ -1798,27 +1937,36 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const [activeId, setActiveId] = useState("all"); // "all" | "uncategorized" | collection id
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
 
   const countFor = (id) => id === "all" ? saved.length : id === "uncategorized" ? saved.filter((s) => !s.collectionId).length : saved.filter((s) => s.collectionId === id).length;
   const visible = activeId === "all" ? saved : activeId === "uncategorized" ? saved.filter((s) => !s.collectionId) : saved.filter((s) => s.collectionId === activeId);
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Collections" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}`, overflow: "hidden" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }} className="cb-modal">
         <div style={{ width: 210, flexShrink: 0, borderRight: `1px solid ${P.line}`, padding: 16, overflowY: "auto" }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 12 }}>Collections</div>
           {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Uncategorized" }, ...collections].map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
               {renamingId === c.id ? (
-                <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") setRenamingId(null); }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: 12.5, borderRadius: 7, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
+                <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: 12.5, borderRadius: 7, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
               ) : (
                 <button onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ flex: 1, textAlign: "left", padding: "7px 8px", fontSize: 12.5, borderRadius: 7, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accent : P.ink2, fontFamily: "var(--cb-body)" }}>
                   {c.name} <span style={{ opacity: 0.6 }}>({countFor(c.id)})</span>
                 </button>
               )}
               {c.id !== "all" && c.id !== "uncategorized" && renamingId !== c.id && (
-                <button onClick={() => onDeleteCollection(c.id)} aria-label={`Delete ${c.name}`} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={12} /></button>
+                deleteConfirmId === c.id ? (
+                  <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => setDeleteConfirmId(null)} style={{ ...S.chipMini, padding: "3px 7px" }}>Cancel</button>
+                    <button onClick={() => { onDeleteCollection(c.id); setDeleteConfirmId(null); if (activeId === c.id) setActiveId("all"); }} style={{ ...S.chipMini, padding: "3px 7px", background: STATUS.bad, color: "#fff", borderColor: STATUS.bad }}>Confirm</button>
+                  </span>
+                ) : (
+                  <button onClick={() => setDeleteConfirmId(c.id)} aria-label={`Delete ${c.name}`} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={12} /></button>
+                )
               )}
             </div>
           ))}
@@ -1834,14 +1982,16 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
             {visible.length === 0 ? (
-              <div style={{ fontSize: 13, color: P.faint, textAlign: "center", padding: "40px 0" }}>Nothing here yet.</div>
+              <div style={{ fontSize: 13, color: P.faint, textAlign: "center", padding: "40px 0" }}>
+                {activeId === "all" ? "Nothing saved yet." : "Nothing here yet — move a saved source in with the dropdown next to it on “All saved.”"}
+              </div>
             ) : visible.map((s, i) => (
-              <div key={i} style={{ padding: "12px 0", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <div key={sourceKey(s)} style={{ padding: "12px 0", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "flex-start", gap: 10 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, color: P.ink, marginBottom: 4 }}>{s.title}</div>
                   <div style={{ fontSize: 11.5, color: P.faint, fontFamily: "var(--cb-mono)" }}>{s.journal || ""}{s.year ? ` · ${s.year}` : ""}</div>
                 </div>
-                <select value={s.collectionId || ""} onChange={(e) => onMoveSource(s, e.target.value || null)} aria-label={`Move "${s.title}" to a collection`} style={{ fontSize: 11.5, padding: "5px 6px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-mono)" }}>
+                <select value={s.collectionId || ""} onChange={(e) => onMoveSource(s, e.target.value || null)} aria-label={`Move "${s.title}" to a collection`} style={{ fontSize: 11.5, padding: "5px 6px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-mono)", cursor: "pointer", ...selectChrome(P) }}>
                   <option value="">Uncategorized</option>
                   {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -1862,11 +2012,12 @@ function CompareModal({ P, accent, at, S, history, close }) {
   const [leftId, setLeftId] = useState(history[0]?.id || "");
   const [rightId, setRightId] = useState(history[1]?.id || "");
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
   const left = history.find((h) => h.id === leftId);
   const right = history.find((h) => h.id === rightId);
   const noop = () => {};
   const Picker = ({ value, onChange, exclude }) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", padding: "9px 10px", fontSize: 12.5, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-mono)" }}>
+    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", padding: "9px 10px", fontSize: 12.5, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-mono)", cursor: "pointer", ...selectChrome(P) }}>
       <option value="">Choose an investigation…</option>
       {history.filter((h) => h.id !== exclude).map((h) => <option key={h.id} value={h.id}>{h.title}</option>)}
     </select>
@@ -1874,13 +2025,18 @@ function CompareModal({ P, accent, at, S, history, close }) {
   const Column = ({ entry }) => (
     <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18 }}>
       {entry ? entry.turns.map((t, ti) => (
-        <Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={false} last={ti === entry.turns.length - 1} hoverCite={null} setHoverCite={noop} onRelated={noop} citationStyle="apa" setCitationStyle={noop} />
+        // interactive=false — this is a read-only side-by-side replay of a
+        // past investigation, and there's no live `ask` or network-graph
+        // state here to wire "Continue the investigation" / "Source
+        // network" up to, so Turn hides those controls entirely instead of
+        // rendering buttons that quietly do nothing when clicked.
+        <Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={false} last={ti === entry.turns.length - 1} hoverCite={null} setHoverCite={noop} citationStyle="apa" setCitationStyle={noop} interactive={false} />
       )) : <div style={{ fontSize: 13, color: P.faint, textAlign: "center", padding: "60px 0" }}>Pick an investigation to compare.</div>}
     </div>
   );
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Compare investigations" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 1100, width: "100%", height: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}`, overflow: "hidden" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 1100, width: "100%", height: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }} className="cb-modal">
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: P.ink, flexShrink: 0 }}>Compare</div>
           <div style={{ flex: 1 }}><Picker value={leftId} onChange={setLeftId} exclude={rightId} /></div>
@@ -1956,6 +2112,7 @@ function buildNetworkLayout(sources) {
 
 function SourceNetworkGraph({ P, accent, at, sources, close }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
   const [hoverIdx, setHoverIdx] = useState(null);
   // Slicing happens INSIDE the memo callback, keyed on `sources` itself —
   // `sources.slice(...)` returns a new array reference every render, and a
@@ -1968,7 +2125,7 @@ function SourceNetworkGraph({ P, accent, at, sources, close }) {
   const sizeFor = (s) => 8 + Math.min(14, (s.relevance || 40) / 100 * 16);
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Source relevance network" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 16, maxWidth: 680, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: `1px solid ${P.line}` }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 680, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: P.ink }}>Source network</div>
@@ -1980,11 +2137,27 @@ function SourceNetworkGraph({ P, accent, at, sources, close }) {
           {edges.map(([a, b, strength], i) => (
             <line key={i} x1={nodes[a].x} y1={nodes[a].y} x2={nodes[b].x} y2={nodes[b].y} stroke={P.line2 || P.line} strokeWidth={strength >= 1 ? 1.4 : 0.8} opacity={strength >= 1 ? 0.5 : 0.25} />
           ))}
-          {nodes.map((node, i) => (
-            <g key={i} onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)} style={{ cursor: "pointer" }}>
-              <circle cx={node.x} cy={node.y} r={sizeFor(node.s)} fill={hoverIdx === i ? accent : withAlpha(accent, 0.55)} stroke={P.bg} strokeWidth={2} />
-            </g>
-          ))}
+          {nodes.map((node, i) => {
+            const label = `${node.s.title || "Untitled source"}${node.s.journal ? ` — ${node.s.journal}` : ""}${node.s.relevance ? ` · ${node.s.relevance}% relevance` : ""}`;
+            return (
+              <g
+                key={i}
+                tabIndex={0}
+                role="button"
+                aria-label={label}
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(null)}
+                onFocus={() => setHoverIdx(i)}
+                onBlur={() => setHoverIdx(null)}
+                style={{ cursor: "pointer" }}
+              >
+                <circle cx={node.x} cy={node.y} r={sizeFor(node.s)} fill={hoverIdx === i ? accent : withAlpha(accent, 0.55)} stroke={P.bg} strokeWidth={2} style={{ outline: "none" }} />
+                {hoverIdx === i && (
+                  <circle cx={node.x} cy={node.y} r={sizeFor(node.s) + 4} fill="none" stroke={accent} strokeWidth={1.5} opacity={0.6} />
+                )}
+              </g>
+            );
+          })}
         </svg>
         <div style={{ padding: "0 22px 20px", minHeight: 40 }}>
           {hoverIdx !== null && nodes[hoverIdx] && (
@@ -1993,6 +2166,211 @@ function SourceNetworkGraph({ P, accent, at, sources, close }) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   AI-GENERATED CONCEPT ILLUSTRATIONS
+   The literal "illustrations" feature: a quick, free, keyless visual
+   sketch of the concept a question is about. Deliberately NOT presented
+   as a data figure or anything derived from the cited papers — it's an
+   image model's interpretation of the topic, said so plainly in the
+   modal itself, right next to the image. Uses Pollinations' free, keyless
+   image-generation endpoint (image.pollinations.ai) — already the same
+   provider the backend races for text — via a plain <img src>, so this
+   needed zero backend changes and no new API key.
+   ════════════════════════════════════════════════════════════════ */
+
+// Deterministic (per-query) seed — reopening the illustration for the same
+// answer shows the same image instead of a fresh random one every time,
+// while two different questions land on two different images. Tiny,
+// non-cryptographic; only needs to spread inputs across a wide range.
+function hashSeed(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h) % 1000000;
+}
+
+// Turns a research question into an image-generation prompt. Explicitly
+// asks for no text/words/labels/watermark — image models reliably render
+// garbled fake text when asked for a "diagram" or "labeled figure," and
+// that reads as broken rather than illustrative. Better to let Cerebrum's
+// own caption do the labeling than have the model attempt real typography.
+function buildIllustrationPrompt(query) {
+  const cleaned = (query || "").replace(/[?!]+/g, "").trim().slice(0, 220);
+  return `${cleaned}. Scientific concept illustration, clean minimalist vector art, educational textbook diagram style, soft muted color palette, no text, no words, no letters, no labels, no watermark, no signature`;
+}
+
+function IllustrationModal({ P, accent, at, query, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const [seed, setSeed] = useState(() => hashSeed(query || ""));
+  const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
+  const prompt = useMemo(() => buildIllustrationPrompt(query), [query]);
+  const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=576&nologo=true&seed=${seed}`;
+
+  useEffect(() => { setStatus("loading"); }, [imgUrl]);
+
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="Concept illustration" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 640, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none", overflow: "hidden" }} className="cb-modal">
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: P.ink }}>Concept illustration</div>
+            <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>AI-generated visual concept — not a data figure from the cited papers.</div>
+          </div>
+          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+        </div>
+        <div style={{ position: "relative", aspectRatio: "16/9", background: P.surface }}>
+          {status !== "error" && (
+            <img
+              key={imgUrl}
+              src={imgUrl}
+              alt={`AI-generated concept illustration for: ${query || "this question"}`}
+              onLoad={() => setStatus("ready")}
+              onError={() => setStatus("error")}
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: status === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }}
+            />
+          )}
+          {status === "loading" && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: P.faint }}>
+              <div style={{ width: 26, height: 26, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+              <span style={{ fontSize: 12, fontFamily: "var(--cb-mono)" }}>Generating illustration…</span>
+            </div>
+          )}
+          {status === "error" && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: P.faint, padding: 20, textAlign: "center" }}>
+              <Icon name="warning" size={20} />
+              <span style={{ fontSize: 12.5 }}>Couldn't generate an illustration right now — the image service may be busy. Try again in a moment.</span>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: "14px 22px 20px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 11, color: P.faint, lineHeight: 1.5, maxWidth: 320 }}>
+            Generated by an AI image model from your question alone — a conceptual sketch, not a scientific figure. Verify anything visual against the cited sources.
+          </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button onClick={() => setSeed(Math.floor(Math.random() * 1000000))} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}><Icon name="refresh" size={13} />Regenerate</button>
+            <a href={imgUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", textDecoration: "none", fontFamily: "var(--cb-body)" }}><Icon name="link" size={13} />Open full size</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LITERATURE TIMELINE
+   Plots the current answer's sources across publication year — purely
+   client-side, reusing data already fetched for the answer itself, so
+   this needed zero backend work. Answers the question a flat citation
+   list can't: is this an established, decades-deep literature, or is
+   everything from the last two years? Dot color reuses the same
+   relevance tokens as the sources panel (STATUS.good/warn, P.faint) so
+   the two views read as one consistent system rather than introducing
+   a second, unrelated color language.
+   ════════════════════════════════════════════════════════════════ */
+function buildTimelineLayout(sources, width, margin) {
+  const withYear = sources
+    .map((s) => ({ s, year: parseInt(s.year, 10) }))
+    .filter((x) => Number.isFinite(x.year) && x.year > 1500 && x.year <= new Date().getFullYear() + 1);
+  if (!withYear.length) return { points: [], minYear: null, maxYear: null };
+  const minYear = Math.min(...withYear.map((x) => x.year));
+  const maxYear = Math.max(...withYear.map((x) => x.year));
+  const span = Math.max(1, maxYear - minYear);
+  const xFor = (year) => (minYear === maxYear ? width / 2 : margin + ((year - minYear) / span) * (width - margin * 2));
+  // Stack same-year (or near-same-x) sources vertically so they don't
+  // overlap into one indistinguishable blob.
+  const byYear = new Map();
+  for (const x of withYear) {
+    if (!byYear.has(x.year)) byYear.set(x.year, []);
+    byYear.get(x.year).push(x.s);
+  }
+  const points = [];
+  for (const [year, group] of byYear) {
+    group
+      .slice()
+      .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
+      .forEach((s, i) => {
+        points.push({ s, year, x: xFor(year), y: 90 - i * 24 });
+      });
+  }
+  return { points, minYear, maxYear };
+}
+
+function LiteratureTimeline({ P, accent, at, sources, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const WIDTH = 640, MARGIN = 36;
+  const { points, minYear, maxYear } = useMemo(() => buildTimelineLayout(sources, WIDTH, MARGIN), [sources]);
+  const relColor = (r) => (r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint);
+  const sizeFor = (s) => 6 + Math.min(10, (s.relevance || 40) / 100 * 12);
+  const maxStack = points.reduce((m, p) => Math.max(m, 90 - p.y), 0);
+  const height = Math.max(120, maxStack + 70);
+  const ticks = minYear === null ? [] : minYear === maxYear ? [minYear] : Array.from(new Set([minYear, Math.round((minYear + maxYear) / 2), maxYear]));
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="Literature timeline" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 700, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: P.ink }}>Literature timeline</div>
+            <div style={{ fontSize: 11.5, color: P.faint, marginTop: 2 }}>Dot size and color = relevance. Where this literature actually sits in time.</div>
+          </div>
+          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+        </div>
+        {!points.length ? (
+          <div style={{ padding: "40px 22px", textAlign: "center", color: P.faint, fontSize: 13 }}>None of these sources have a usable publication year to plot.</div>
+        ) : (
+          <>
+            <div style={{ overflowX: "auto" }}>
+              <svg viewBox={`0 0 ${WIDTH} ${height}`} style={{ width: "100%", minWidth: 480, height: Math.min(height, 320), display: "block" }}>
+                <line x1={MARGIN} y1={95} x2={WIDTH - MARGIN} y2={95} stroke={P.line2 || P.line} strokeWidth={1.5} />
+                {ticks.map((yr, i) => {
+                  const x = minYear === maxYear ? WIDTH / 2 : MARGIN + ((yr - minYear) / Math.max(1, maxYear - minYear)) * (WIDTH - MARGIN * 2);
+                  return (
+                    <g key={i}>
+                      <line x1={x} y1={91} x2={x} y2={99} stroke={P.faint} strokeWidth={1} />
+                      <text x={x} y={112} textAnchor="middle" fontSize={10.5} fill={P.faint} fontFamily="var(--cb-mono)">{yr}</text>
+                    </g>
+                  );
+                })}
+                {points.map((p, i) => (
+                  <g
+                    key={i}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`${p.s.title || "Untitled source"}${p.s.journal ? ` — ${p.s.journal}` : ""}, ${p.year}${typeof p.s.relevance === "number" ? `, ${p.s.relevance}% relevance` : ""}`}
+                    onMouseEnter={() => setHoverIdx(i)}
+                    onMouseLeave={() => setHoverIdx(null)}
+                    onFocus={() => setHoverIdx(i)}
+                    onBlur={() => setHoverIdx(null)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <line x1={p.x} y1={95} x2={p.x} y2={p.y} stroke={withAlpha(relColor(p.s.relevance || 0), 0.35)} strokeWidth={1} />
+                    <circle cx={p.x} cy={p.y} r={sizeFor(p.s)} fill={hoverIdx === i ? accent : withAlpha(relColor(p.s.relevance || 0), 0.8)} stroke={P.bg} strokeWidth={1.5} style={{ outline: "none" }} />
+                    {hoverIdx === i && <circle cx={p.x} cy={p.y} r={sizeFor(p.s) + 4} fill="none" stroke={accent} strokeWidth={1.5} opacity={0.6} />}
+                  </g>
+                ))}
+              </svg>
+            </div>
+            <div style={{ padding: "0 22px 20px", minHeight: 40 }}>
+              {hoverIdx !== null && points[hoverIdx] ? (
+                <div style={{ fontSize: 12.5, color: P.ink2, lineHeight: 1.5 }}>
+                  <strong style={{ color: P.ink }}>{points[hoverIdx].s.title}</strong>{points[hoverIdx].s.journal ? ` — ${points[hoverIdx].s.journal}` : ""} · {points[hoverIdx].year}{typeof points[hoverIdx].s.relevance === "number" ? ` · ${points[hoverIdx].s.relevance}% relevance` : ""}
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: P.faint, display: "flex", gap: 14, flexWrap: "wrap" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS.good, display: "inline-block" }} />Strong</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS.warn, display: "inline-block" }} />Partial</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: P.faint, display: "inline-block" }} />Weak</span>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -2012,6 +2390,7 @@ function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
   const [error, setError] = useState("");
   const [magicSent, setMagicSent] = useState(false);
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
 
   async function submit(e) {
     e.preventDefault();
@@ -2033,33 +2412,42 @@ function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
   }
 
   const tabBtn = (id, label) => (
-    <button type="button" onClick={() => { setTab(id); setError(""); setMagicSent(false); }} style={{ flex: 1, padding: "9px 0", fontSize: 12.5, fontWeight: 600, borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "var(--cb-mono)", background: tab === id ? withAlpha(accent, 0.14) : "transparent", color: tab === id ? accent : P.faint }}>{label}</button>
+    <button
+      type="button"
+      role="tab"
+      id={`authtab-${id}`}
+      aria-selected={tab === id}
+      aria-controls="authtab-panel"
+      tabIndex={tab === id ? 0 : -1}
+      onClick={() => { setTab(id); setError(""); setMagicSent(false); }}
+      style={{ flex: 1, padding: "9px 0", fontSize: 12.5, fontWeight: 600, borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "var(--cb-mono)", background: tab === id ? withAlpha(accent, 0.14) : "transparent", color: tab === id ? accent : P.faint }}
+    >{label}</button>
   );
 
   const inputStyle = { width: "100%", padding: "11px 13px", fontSize: 14, borderRadius: 9, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", marginTop: 6 };
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Sign in to Cerebrum" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}` }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 18, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ padding: "26px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Your account</div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
         <div style={{ padding: "18px 26px 0" }}>
-          <div style={{ display: "flex", gap: 4, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderRadius: 10, padding: 4 }}>
+          <div role="tablist" aria-label="Account access method" style={{ display: "flex", gap: 4, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderRadius: 10, padding: 4 }}>
             {tabBtn("login", "Sign in")}
             {tabBtn("signup", "Create account")}
             {tabBtn("magic", "Email link")}
           </div>
         </div>
         {magicSent ? (
-          <div style={{ padding: "24px 26px 30px", textAlign: "center" }}>
+          <div id="authtab-panel" role="tabpanel" aria-labelledby={`authtab-${tab}`} style={{ padding: "24px 26px 30px", textAlign: "center" }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}><Icon name="link" size={20} /></div>
             <div style={{ fontSize: 14.5, fontWeight: 600, color: P.ink, marginBottom: 6 }}>Check your inbox</div>
             <div style={{ fontSize: 13, color: P.ink2, lineHeight: 1.6 }}>We sent a one-time sign-in link to <strong>{email}</strong>. It expires in 15 minutes.</div>
           </div>
         ) : (
-          <form onSubmit={submit} style={{ padding: "18px 26px 26px" }}>
+          <form id="authtab-panel" role="tabpanel" aria-labelledby={`authtab-${tab}`} onSubmit={submit} style={{ padding: "18px 26px 26px" }}>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: P.ink2 }}>
               Email
               <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@example.com" aria-label="Email" />
@@ -2148,7 +2536,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
   const bg = P.dark ? withAlpha(P.surface, 0.55) : P.surface;
   const divider = P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
   const sectionBg = "transparent";
-  const glassBorderS = P.dark ? `1px solid ${withAlpha("#8b95a8", 0.1)}` : `1px solid ${P.line2}`;
+  const glassBorderS = P.dark ? `1px solid ${withAlpha(P.ink2, 0.1)}` : `1px solid ${P.line2}`;
 
   const Section = ({ title, footer, children }) => (
     <div style={{ marginBottom: 22 }}>
@@ -2162,7 +2550,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
     <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: onClick ? "pointer" : "default", borderBottom: last ? "none" : `1px solid ${divider}` }}>
       {icon && <span style={{ fontSize: 18, width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14.5, color: destructive ? "#e5484d" : P.ink, fontWeight: 500, fontFamily: "var(--cb-body)", letterSpacing: "-0.01em" }}>{label}</div>
+        <div style={{ fontSize: 14.5, color: destructive ? STATUS.bad : P.ink, fontWeight: 500, fontFamily: "var(--cb-body)", letterSpacing: "-0.01em" }}>{label}</div>
         {desc && <div style={{ fontSize: 12.5, color: P.faint, lineHeight: 1.4, marginTop: 2 }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
@@ -2179,7 +2567,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
 
   const Picker = ({ value, options, onChange }) => (
     <select value={value} onChange={(e) => { sfx(); onChange(e.target.value); }}
-      style={{ padding: "6px 28px 6px 10px", fontSize: 15, color: accent, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", fontWeight: 500, WebkitAppearance: "none", appearance: "none", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239ca3af'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center", outline: "none" }}>
+      style={{ padding: "6px 10px", fontSize: 15, color: accent, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", fontWeight: 500, outline: "none", ...selectChrome(P) }}>
       {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
     </select>
   );
@@ -2238,10 +2626,10 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                   <Row label="Delete account" destructive onClick={() => setConfirmDeleteAccount(true)} last />
                 ) : (
                   <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <span style={{ fontSize: 13, color: "#e5484d" }}>Permanently delete your account and all its data?</span>
+                    <span style={{ fontSize: 13, color: STATUS.bad }}>Permanently delete your account and all its data?</span>
                     <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                       <button onClick={() => setConfirmDeleteAccount(false)} style={{ padding: "6px 12px", fontSize: 12.5, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 7, cursor: "pointer" }}>Cancel</button>
-                      <button onClick={submitDeleteAccount} disabled={delBusy} style={{ padding: "6px 12px", fontSize: 12.5, fontWeight: 600, background: "#e5484d", color: "#fff", border: "none", borderRadius: 7, cursor: delBusy ? "default" : "pointer" }}>{delBusy ? "Deleting…" : "Confirm delete"}</button>
+                      <button onClick={submitDeleteAccount} disabled={delBusy} style={{ padding: "6px 12px", fontSize: 12.5, fontWeight: 600, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 7, cursor: delBusy ? "default" : "pointer" }}>{delBusy ? "Deleting…" : "Confirm delete"}</button>
                     </span>
                   </div>
                 )}
@@ -2345,7 +2733,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               <Row label="Saved conversations" desc={`${(history || []).length} conversation${(history || []).length === 1 ? "" : "s"} kept`} />
               {(history || []).length > 0 && (
                 <Row label="Clear conversation history" destructive control={
-                  <button onClick={() => { setHistory([]); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, color: "#e5484d", background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-body)" }}>Clear</button>
+                  <button onClick={() => { setHistory([]); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, color: STATUS.bad, background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-body)" }}>Clear</button>
                 } last />
               )}
             </Section>
@@ -2355,10 +2743,10 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               <Row label="Clear all data" destructive control={
                 confirmClear
                   ? <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, fontWeight: 600, background: "#e5484d", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Delete</button>
+                      <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: 13, fontWeight: 600, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Delete</button>
                       <button onClick={() => setConfirmClear(false)} style={{ padding: "6px 14px", fontSize: 13, color: P.ink2, background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Cancel</button>
                     </div>
-                  : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", fontSize: 13, color: "#e5484d", background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-body)" }}>Clear…</button>
+                  : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", fontSize: 13, color: STATUS.bad, background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-body)" }}>Clear…</button>
               } last />
             </Section>
 
@@ -2399,8 +2787,8 @@ function makeStyles(P, accent, at, isMobile = false) {
   const glass = P.dark 
     ? `${withAlpha(P.surface, 0.6)}` 
     : P.surface;
-  const glassBorder = P.dark 
-    ? `1px solid ${withAlpha("#8b95a8", 0.08)}`
+  const glassBorder = P.dark
+    ? `1px solid ${withAlpha(P.ink2, 0.08)}`
     : `1px solid ${P.line2}`;
 
   return {
@@ -2607,9 +2995,9 @@ function makeStyles(P, accent, at, isMobile = false) {
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: 14, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     error: {
-      padding: "20px 24px", background: withAlpha("#e5484d", 0.06), color: "#e5484d",
+      padding: "20px 24px", background: withAlpha(STATUS.bad, 0.06), color: STATUS.bad,
       borderRadius: 14, fontSize: 14, lineHeight: 1.6,
-      border: `1px solid ${withAlpha("#e5484d", 0.2)}`,
+      border: `1px solid ${withAlpha(STATUS.bad, 0.2)}`,
       display: "flex", alignItems: "flex-start", gap: 12,
       backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
     },
@@ -2649,10 +3037,10 @@ function makeStyles(P, accent, at, isMobile = false) {
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
     srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: 12, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 10, marginBottom: 14, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "6px", fontSize: 11, background: "transparent", color: P.ink2, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, transition: "all 0.2s ease" },
+    sortTab: { flex: 1, padding: "6px", fontSize: 11, background: "transparent", color: P.ink2, border: "none", borderRadius: 7, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.2s ease" },
     sortTabActive: { background: P.dark ? P.raised : P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
     srcGroupLabel: { fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" },
-    sBtn: { flex: 1, fontSize: 11.5, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550 },
+    sBtn: { flex: 1, fontSize: 11.5, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
     sBtnP: { flex: 1, fontSize: 11.5, padding: "8px", background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-mono)" },
     savedNote: { fontSize: 11, color: accent, marginBottom: 12, fontFamily: "var(--cb-mono)" },
     zBox: { background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, border: glassBorder, borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
@@ -2664,7 +3052,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     srcTitle: { fontSize: 13.5, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
     srcMeta: { fontSize: 11, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-mono)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
-    chipMini: { fontSize: 10.5, padding: "4px 10px", border: "1px solid", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550, background: "transparent", transition: "all 0.2s ease" },
+    chipMini: { fontSize: 10.5, padding: "4px 10px", border: "1px solid", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "all 0.2s ease" },
     // v5: Copy/Share/Print used to be label-only text buttons while the
     // header and every other action row in the app is icon+label — one more
     // spot where the app quietly switched button anatomies mid-screen.
@@ -2699,7 +3087,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     customDot: { width: 26, height: 26, borderRadius: "50%", border: `1px dashed ${P.line2}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" },
     modalClose: { width: "100%", padding: "13px", fontSize: 14, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-display)" },
     soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 },
-    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", fontSize: 12.5, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 550 },
+    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", fontSize: 12.5, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
     soundBtnActive: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
   };
 }
@@ -2807,7 +3195,7 @@ function App() {
   const [v5Open, setV5Open] = useState(false);
   useEffect(() => {
     if (!entered) return;
-    try { if (localStorage.getItem("cb_seen_v5") !== "1") setV5Open(true); } catch {}
+    try { if (localStorage.getItem("cb_seen_v6") !== "1") setV5Open(true); } catch {}
   }, [entered]);
 
   // ── Accounts. `user` stays null for guest mode, which is still the
@@ -2825,6 +3213,8 @@ function App() {
   const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [networkGraphSources, setNetworkGraphSources] = useState(null);
+  const [timelineSources, setTimelineSources] = useState(null);
+  const [illustrateQuery, setIllustrateQuery] = useState(null);
 
   async function handleAuthed(authedUser, { checkImport }) {
     setUser(authedUser);
@@ -3104,7 +3494,7 @@ function App() {
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
     const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel || historyOpen
-      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!importPrompt || v5Open;
+      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -3120,7 +3510,7 @@ function App() {
       body.style.width = prev.width;
       window.scrollTo(0, scrollY);
     };
-  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, importPrompt, v5Open]);
+  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -3253,11 +3643,25 @@ function App() {
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
     { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
     { label: "Open previous conversations", run: () => { setCmdOpen(false); setHistoryOpen(true); } },
+    // Collections' header button is desktop-only (there's no room for it in
+    // the mobile header), but this palette is available on every viewport —
+    // it's a signed-in-only feature, hence gated on `user` here.
+    ...(user ? [{ label: "Open collections", run: () => { setCmdOpen(false); setCollectionsOpen(true); } }] : []),
     { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Toggle light / dark", hint: kbdLabel("D"), run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
     { label: factCheck ? "Turn off fact-check" : "Turn on fact-check", run: () => { setFactCheck(!factCheck); setCmdOpen(false); } },
     { label: "Export saved as BibTeX", run: () => { download("cerebrum.bib", toBibTeX(saved.length ? saved : allSources)); setCmdOpen(false); } },
+    ...(history.length >= 2 ? [{ label: "Compare investigations", run: () => { setCmdOpen(false); setCompareOpen(true); } }] : []),
+    ...(turns.length && turns[turns.length - 1].sources && turns[turns.length - 1].sources.length >= 2
+      ? [{ label: "View source network", run: () => { setCmdOpen(false); setNetworkGraphSources(turns[turns.length - 1].sources); } }]
+      : []),
+    ...(turns.length && turns[turns.length - 1].sources && turns[turns.length - 1].sources.length >= 2
+      ? [{ label: "View literature timeline", run: () => { setCmdOpen(false); setTimelineSources(turns[turns.length - 1].sources); } }]
+      : []),
+    ...(turns.length && turns[turns.length - 1].answer
+      ? [{ label: "Illustrate this answer", run: () => { setCmdOpen(false); setIllustrateQuery(turns[turns.length - 1].q); } }]
+      : []),
   ];
   const filteredCmds = commands.filter((c) => c.label.toLowerCase().includes(cmdQuery.toLowerCase()));
   const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
@@ -3277,24 +3681,43 @@ function App() {
     else if (e.key === "Enter") { runCmdFlat(cmdFlat[cmdActive] || cmdFlat[0]); }
   };
 
+  // These four all used to be recomputed on every single render — including
+  // ones that have nothing to do with the source list, like a keystroke in
+  // an unrelated field, or a hover-state change elsewhere in the app. None
+  // of that recomputation was visible as a bug (the results were always
+  // correct), just wasted work — a full filter+sort+regroup pass over
+  // potentially hundreds of sources on every unrelated re-render. useMemo
+  // with the actual inputs as deps makes each one only redo the work when
+  // something it actually depends on changes.
+  //
+  // These MUST stay above the `if (!entered) return <Intro .../>` early
+  // return directly below — every hook in a component has to run in the
+  // same order on every render, landing page included. Putting them after
+  // that early return (where they used to live, back when they were plain
+  // `const` expressions and not hook calls) meant the very first render
+  // (landing, entered === false) called four fewer hooks than every render
+  // after clicking "Start exploring" — React's "Rendered more hooks than
+  // during the previous render" crash, reliably, on the very first
+  // interaction of a fresh session.
+  const filteredSources = useMemo(() => allSources.filter((s) => { if (!srcFilter.trim()) return true; const f = srcFilter.toLowerCase(); return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f); }), [allSources, srcFilter]);
+  const sortedSources = useMemo(() => [...filteredSources].sort((a, b) => { if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0); if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || ""); return (b.relevance ?? 0) - (a.relevance ?? 0); }), [filteredSources, srcSort]);
+  // Bug: SourceCard's global index used to be looked up via
+  // `allSources.indexOf(s)` inside the render loop — O(n) per source, O(n²)
+  // for the whole list. `sortedSources`/`grouped` reorder the SAME object
+  // references as `allSources` (spread+sort, not a deep clone), so a single
+  // reference-keyed Map built once gives O(1) lookups instead.
+  const sourceIndexMap = useMemo(() => new Map(allSources.map((s, i) => [s, i])), [allSources]);
+  const grouped = useMemo(() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; }, [sortedSources, srcSort]);
+
   if (!entered) {
     return <Intro accent={accent} P={P} onEnter={() => { sfx(); try { setCookie("cb_entered_v5", "1", 365); } catch {} setEntered(true); }} animationMode={animationMode} />;
   }
 
   const started = turns.length > 0 || busy;
   const exportList = saved.length ? saved : allSources;
-  const filteredSources = allSources.filter((s) => { if (!srcFilter.trim()) return true; const f = srcFilter.toLowerCase(); return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f); });
-  const sortedSources = [...filteredSources].sort((a, b) => { if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0); if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || ""); return (b.relevance ?? 0) - (a.relevance ?? 0); });
-  // Bug: SourceCard's global index used to be looked up via
-  // `allSources.indexOf(s)` inside the render loop — O(n) per source, O(n²)
-  // for the whole list. `sortedSources`/`grouped` reorder the SAME object
-  // references as `allSources` (spread+sort, not a deep clone), so a single
-  // reference-keyed Map built once gives O(1) lookups instead.
-  const sourceIndexMap = new Map(allSources.map((s, i) => [s, i]));
-  const grouped = (() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; })();
-  const relColor = (r) => r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : "#9ca3af";
+  const relColor = (r) => r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint;
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
-  const typeColor = (t) => t === "Preprint" ? "#d97706" : t === "Reference" ? "#7c3aed" : t === "Dataset" ? "#0284c7" : accent;
+  const typeColor = (t) => t === "Preprint" ? ACCENTS.Amber : t === "Reference" ? ACCENTS.Violet : t === "Dataset" ? ACCENTS.Sky : accent;
 
   const SourceCard = (s, i) => (
     <div key={i} className="cb-fade" style={{ ...S.srcItem, background: hover === "src" + i ? withAlpha(accent, 0.05) : hoverCite === i + 1 ? withAlpha(accent, 0.06) : "transparent", transform: hover === "src" + i ? "translate3d(0, -1px, 0)" : "translate3d(0, 0, 0)" }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
@@ -3444,7 +3867,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} />))}
+                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase" }}>Searching</span></div><div style={{ fontSize: 11, color: P.faint, fontFamily: "var(--cb-mono)", margin: "8px 0 12px", letterSpacing: "0.03em", opacity: 0.7 }}>Querying PubMed · Europe PMC · OpenAlex · Semantic Scholar · Crossref · arXiv</div><Skeleton P={P} /><LoadingLine P={P} accent={accent} S={S} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: 12, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
@@ -3568,7 +3991,7 @@ function App() {
       )}
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animPreset, setAnimPreset, animDensity, setAnimDensity, animSpeed, setAnimSpeed, animOpacity, setAnimOpacity, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setSettingsOpen(false); setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setSettingsOpen(false) }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
-      {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v5", "1"); } catch {} setV5Open(false); }} />}
+      {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} initialTab={authInitialTab} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
       {importPrompt && (
         <ImportLocalDataPrompt
@@ -3587,6 +4010,8 @@ function App() {
       )}
       {compareOpen && <CompareModal P={P} accent={accent} at={at} S={S} history={history} close={() => setCompareOpen(false)} />}
       {networkGraphSources && <SourceNetworkGraph P={P} accent={accent} at={at} sources={networkGraphSources} close={() => setNetworkGraphSources(null)} />}
+      {timelineSources && <LiteratureTimeline P={P} accent={accent} at={at} sources={timelineSources} close={() => setTimelineSources(null)} />}
+      {illustrateQuery && <IllustrationModal P={P} accent={accent} at={at} query={illustrateQuery} close={() => setIllustrateQuery(null)} />}
       <ToastHost P={P} accent={accent} />
     </div>
   );
@@ -3733,7 +4158,7 @@ summary::-webkit-details-marker { display: none; }
    through, since this exact class of bug looks fine in the DOM inspector
    (correct text, correct opacity) while being invisible on screen. */
 .cb-kinetic > span {
-  background: linear-gradient(270deg, #34d399, #38bdf8, #818cf8, #a78bfa, #fb7185, #fbbf24, #34d399);
+  background: linear-gradient(270deg, ${BRAND_GRADIENT_STOPS});
   background-size: 400% 400%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -3871,7 +4296,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   100% { background-position: 0% 50%; }
 }
 .cb-gradient-text {
-  background: linear-gradient(270deg, #34d399, #38bdf8, #818cf8, #a78bfa, #fb7185, #fbbf24, #34d399);
+  background: linear-gradient(270deg, ${BRAND_GRADIENT_STOPS});
   background-size: 400% 400%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -4067,17 +4492,16 @@ body {
 }
 `;
 
-/* Font + animation library loading */
-(function loadFonts() {
+/* Animation-library loading. The Google Fonts stylesheet used to be
+   injected here, by JS, after mount — which meant the font request never
+   even started until React had already mounted and painted the fallback
+   font (Georgia standing in for Cormorant Garamond on the hero headline),
+   guaranteeing a visible flash-of-unstyled-text on every first visit.
+   It's now a plain <link> in index.html's <head>, requested before the JS
+   bundle even finishes parsing — see index.html for the real tag and the
+   preconnect hints alongside it. */
+(function initClientAssets() {
   if (typeof document === "undefined") return;
-  // Fonts
-  const id = "cb-fonts-v4";
-  if (!document.getElementById(id)) {
-    const link = document.createElement("link");
-    link.id = id; link.rel = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
-    document.head.appendChild(link);
-  }
   // v5: OpenDyslexic used to load unconditionally on every single page view,
   // for every visitor, regardless of whether the dyslexia-friendly-font
   // toggle in Settings had ever been turned on — a wasted request for the
