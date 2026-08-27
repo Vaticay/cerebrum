@@ -23,13 +23,22 @@ database_id = "dde9ab43-bb34-4c27-afc8-b79a53adbaaf"
 # to hand-roll its own in-memory Map for this, which resets independently
 # per isolate/colo — never a real global cap, just a per-edge one. A KV
 # namespace is genuinely shared across the whole edge, closing that gap.
-# Optional but recommended: every endpoint still works without this binding
-# (falls back to the old per-isolate behavior), so it's safe to deploy the
-# code first and add this whenever convenient — from the dashboard: Workers &
-# Pages -> KV -> Create namespace (name it e.g. "cerebrum-ratelimit") -> copy
-# its id below -> in this Pages project's Settings -> Functions -> KV
-# namespace bindings, add RATE_LIMIT_KV pointing at it. Or via CLI:
-#   npx wrangler kv namespace create RATE_LIMIT_KV
-[[kv_namespaces]]
-binding = "RATE_LIMIT_KV"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+# The code itself already tolerates this being absent (falls back to the old
+# per-isolate behavior), but the placeholder ID below is NOT tolerated by a
+# live deploy — Cloudflare validates that a [[kv_namespaces]] entry in this
+# file resolves to a real namespace at publish time, and rejects the whole
+# deploy (not just this binding) if it doesn't. A committed placeholder
+# string here isn't "safe to add later," it's a hard deploy blocker the
+# moment this file reaches Cloudflare, which is exactly what happened.
+#
+# Left commented out so deploys work again immediately with the safe
+# per-isolate fallback. To turn on the real shared limiter:
+#   1. npx wrangler kv namespace create RATE_LIMIT_KV
+#      (run this from your own machine, logged into your own Cloudflare
+#      account — this sandbox has no access to create it for you)
+#   2. That command prints an `id = "...")` line — copy the actual hex id
+#   3. Uncomment the three lines below and paste that id in place of the
+#      placeholder, then commit and deploy again.
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "PASTE_THE_REAL_ID_FROM_STEP_1_HERE"
