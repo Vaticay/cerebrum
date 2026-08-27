@@ -6723,10 +6723,10 @@ Respond naturally to the user's message. Be yourself.`;
     // failure being a mystery ("all N models failed") and being diagnosable
     // in one glance ("23 of 26 said HTTP 429: rate limit exceeded for
     // free-tier requests" — an ACCOUNT-level throttle, not a model problem).
-    const callOR = async (model, msgs, maxTok) => {
+    const callOR = async (model, msgs, maxTok, timeoutMs = 12000) => {
       if (!token) throw new Error(model + ": no OPENROUTER_KEY configured");
       const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 12000);
+      const t = setTimeout(() => c.abort(), timeoutMs);
       try {
         const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
@@ -6752,7 +6752,7 @@ Respond naturally to the user's message. Be yourself.`;
       }
     };
 
-    const callCF = async (model, msgs, maxTok) => {
+    const callCF = async (model, msgs, maxTok, timeoutMs = 12000) => {
       if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding (env.AI missing)");
       try {
         // callOR and pollinationsCall both bound their fetch to a 12s
@@ -6763,10 +6763,12 @@ Respond naturally to the user's message. Be yourself.`;
         // Workers AI call would silently stall the ENTIRE request even if
         // every other provider in the same wave had already failed fast —
         // defeating the whole point of racing bounded-timeout providers
-        // together. A plain timer race gives it the same 12s ceiling.
+        // together. A plain timer race gives it the same ceiling (still
+        // 12s by default; the last-resort bulletproof tier below passes a
+        // longer one since it's the final attempt before giving up).
         const out = await Promise.race([
           env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), 12000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), timeoutMs)),
         ]);
         const cleaned = cleanAIResponse((out && out.response) || "");
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short");
@@ -6961,6 +6963,67 @@ Respond naturally to the user's message. Be yourself.`;
       }
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // v31: WAVE 3 — BULLETPROOF LAST-RESORT TIER
+    // Only fires once waves 1 AND 2 have already failed across every model
+    // on every provider (30+ distinct attempts). At that point the cause is
+    // structural, not one flaky model — most likely the account-level
+    // OpenRouter rate-limit bucket every ":free" model in waves 1-2 shares,
+    // or a simultaneous bad moment for Pollinations. Throwing more
+    // OpenRouter model NAMES at the same throttled key wouldn't help, so
+    // this tier instead:
+    //   1. Prefers Workers AI, which is bound directly to this Cloudflare
+    //      account and draws from neither OpenRouter's key-level bucket nor
+    //      Pollinations' shared pool — the one path structurally immune to
+    //      whatever just took out waves 1 and 2 together.
+    //   2. Trades the full persona/voice/enforcer prompt for a short,
+    //      minimal one (still wrapped in STRUCTURE, so the answer still
+    //      comes out as the same four Markdown sections the frontend
+    //      expects) — less to generate means less that can time out.
+    //   3. Gives it a longer runway (20s vs. the usual 12s) since this is
+    //      the last attempt before the honest structured fallback below,
+    //      and a single sequential OpenRouter call as a last try if Workers
+    //      AI isn't bound or also comes back empty — in case the throttle
+    //      from waves 1-2 has had a few seconds to clear by now.
+    // ════════════════════════════════════════════════════════════════
+    if (!aiOK) {
+      const bulletproofSystem =
+        ID +
+        "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass — be direct and skip elaboration.\n\n" +
+        STRUCTURE +
+        (useEvidence ? "Cite sources inline as [1], [2], etc., matching the numbered list below. Only cite a source if it actually supports the claim." : "");
+      const bulletproofMessages = [
+        { role: "system", content: bulletproofSystem },
+        { role: "user", content: userContent },
+      ];
+      const bulletproofMaxTok = Math.min(maxTokens, 900);
+
+      if (cfBound) {
+        try {
+          const winner = await Promise.any(
+            ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"]
+              .map((m) => callCF(m, bulletproofMessages, bulletproofMaxTok, 20000))
+          );
+          answer = winner.answer; aiOK = true;
+          aiAttempts.push({ wave: 3, model: winner.model, ok: true, bulletproof: true });
+          recordWin(winner.model);
+        } catch (agg) {
+          aiAttempts.push({ wave: 3, ok: false, bulletproof: true, provider: "workers-ai", errors: errMsgs(agg) });
+        }
+      }
+
+      if (!aiOK && token) {
+        try {
+          const r = await callOR("meta-llama/llama-3.2-3b-instruct:free", bulletproofMessages, bulletproofMaxTok, 15000);
+          answer = r.answer; aiOK = true;
+          aiAttempts.push({ wave: 3, model: r.model, ok: true, bulletproof: true });
+          recordWin(r.model);
+        } catch (e) {
+          aiAttempts.push({ wave: 3, ok: false, bulletproof: true, provider: "openrouter", errors: [String((e && e.message) || e)] });
+        }
+      }
+    }
+
     // Log the full attempt trail so a future total-failure is diagnosable
     // from Cloudflare's dashboard logs instead of requiring another live
     // repro from the user. This will show the ACTUAL reason — rate limit,
@@ -7125,44 +7188,60 @@ Respond naturally to the user's message. Be yourself.`;
       }
     }
 
-    // TIER 4: If we STILL have no answer but we have papers, show them with an honest note.
+    // ============ TIER 4: HONEST, STRUCTURED FALLBACK ============
+    // v31 fix: every prior version of this text was one raw, unstructured
+    // paragraph starting with "The AI answer service is momentarily
+    // unavailable" — no "## " for renderAnswer() to promote into a heading,
+    // no "- " for it to build a list from, so even a genuinely useful
+    // abstract summary rendered as one dense wall of text on a total AI
+    // outage. Rebuilt as real Markdown, using the exact same "## " header
+    // and "- " bullet syntax renderAnswer() already turns into headings and
+    // lists for a normal synthesized answer, so this path renders as a
+    // page that looks intentional — not broken — even when every model in
+    // every wave above has failed.
     if (!aiOK) {
       if (useEvidence && papers.length) {
-        answer =
-          "The AI answer service is momentarily unavailable. Here are the most relevant papers found for your query:\n\n" +
-          papers
-            .slice(0, 6)
-            .map(
-              (p, i) =>
-                "[" +
-                (i + 1) +
-                "] **" +
-                p.title +
-                "**\n" +
-                (p.journal || "") +
-                (p.year ? ", " + p.year : "") +
-                "\n" +
-                ((p.abstract || "").slice(0, 300) +
+        const paperBlocks = papers
+          .slice(0, 6)
+          .map(
+            (p, i) =>
+              "### [" + (i + 1) + "] " + p.title + "\n\n" +
+              "- **Journal:** " + (p.journal || "Unknown") + (p.year ? " (" + p.year + ")" : "") + "\n" +
+              "- **Summary:** " +
+                ((p.abstract || "No abstract available.").slice(0, 300) +
                   (p.abstract && p.abstract.length > 300 ? "..." : ""))
-            )
-            .join("\n\n");
-      } else if (useWeb && webRefs.length) {
+          )
+          .join("\n\n");
         answer =
-          "The AI answer service is momentarily unavailable. Here are relevant reference sources:\n\n" +
-          webRefs
-            .map(
-              (r, i) =>
-                "[" +
-                (i + 1) +
-                "] **" +
-                r.title +
-                "**\n" +
-                ((r.abstract || "").slice(0, 300) + "...")
-            )
-            .join("\n\n");
+          "## Unable To Synthesize — Showing Source Papers Directly\n\n" +
+          "Every model Cerebrum tried was rate-limited or unavailable for this one request. Rather than guess, here are the " +
+          Math.min(papers.length, 6) +
+          " most relevant papers found — the same sources a synthesized answer would have cited.\n\n" +
+          paperBlocks +
+          "\n\n## What To Do Next\n\n" +
+          "- Try your question again in a few seconds — free-tier model capacity recovers quickly.\n" +
+          "- The papers above are fully listed in the sources panel and can be opened or exported directly.";
+      } else if (useWeb && webRefs.length) {
+        const refBlocks = webRefs
+          .map(
+            (r, i) =>
+              "### [" + (i + 1) + "] " + r.title + "\n\n" +
+              "- **Summary:** " + ((r.abstract || "No summary available.").slice(0, 300) + "...")
+          )
+          .join("\n\n");
+        answer =
+          "## Unable To Synthesize — Showing Reference Sources Directly\n\n" +
+          "Every model Cerebrum tried was rate-limited or unavailable for this one request. Here are the reference sources found instead.\n\n" +
+          refBlocks +
+          "\n\n## What To Do Next\n\n" +
+          "- Try your question again in a few seconds — free-tier model capacity recovers quickly.";
       } else {
         answer =
-          "The AI answer service is busy right now (free models get rate-limited). Please try again in a few seconds. Your question will be answered.";
+          "## Momentarily At Capacity\n\n" +
+          "Every model Cerebrum tried, across three independent providers, was rate-limited or unavailable for this one request. This isn't an error with your question.\n\n" +
+          "## What To Do Next\n\n" +
+          "- Please try again in a few seconds — free-tier capacity recovers quickly.\n" +
+          "- If this keeps happening, it's almost certainly a shared rate limit rather than anything specific to this query.";
       }
     }
 
