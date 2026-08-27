@@ -10,6 +10,7 @@
 // `user_id = ?` on top of the row id, not just the row id alone.
 
 import { getSessionUser, newId } from "../lib/auth.js";
+import { checkRateLimit } from "../lib/rateLimit.js";
 
 const ALLOWED_ORIGINS = [
   "https://askcerebrum.org",
@@ -23,18 +24,8 @@ function originAllowed(request) {
   return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
 }
 
-const RATE_BUCKET = new Map();
-function rateLimit(ip, limit = 60, windowMs = 60000) {
-  const now = Date.now();
-  const rec = RATE_BUCKET.get(ip) || [];
-  const recent = rec.filter((t) => now - t < windowMs);
-  recent.push(now);
-  RATE_BUCKET.set(ip, recent);
-  if (RATE_BUCKET.size > 8000) {
-    for (const [k, v] of RATE_BUCKET) if (v.every((t) => now - t > windowMs)) RATE_BUCKET.delete(k);
-  }
-  return recent.length <= limit;
-}
+const DATA_RATE_LIMIT = 60;
+const DATA_RATE_WINDOW_MS = 60000;
 
 const MAX_SAVED_PER_USER = 2000;
 const MAX_COLLECTIONS_PER_USER = 200;
@@ -63,7 +54,7 @@ export async function onRequest(context) {
   if (!env.DB) return new Response(JSON.stringify({ error: "Accounts are not configured on this deployment." }), { status: 503, headers: cors });
 
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
-  if (!rateLimit(clientIP)) {
+  if (!(await checkRateLimit(env, `data:${clientIP}`, DATA_RATE_LIMIT, DATA_RATE_WINDOW_MS))) {
     return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment." }), { status: 429, headers: { ...cors, "Retry-After": "20" } });
   }
 
@@ -167,19 +158,27 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ id, name }), { status: 200, headers: cors });
     }
 
-    if (resource === "collections" && action === "rename") {
-      const name = (body.name || "").toString().trim().slice(0, 80);
-      if (!name) return new Response(JSON.stringify({ error: "Name can't be empty." }), { status: 400, headers: cors });
-      await env.DB.prepare("UPDATE user_collections SET name = ? WHERE id = ? AND user_id = ?").bind(name, body.id, user.id).run();
-      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
-    }
+    if (resource === "collections" && (action === "rename" || action === "delete")) {
+      // Both actions bind body.id straight into a D1 query — guard it here
+      // once rather than in each branch. An absent/non-string id used to
+      // reach .bind() as `undefined`, which D1 can reject outright, turning
+      // a simple "no id was sent" mistake into an opaque 500 instead of a
+      // clear 400.
+      const collectionId = (body.id || "").toString();
+      if (!collectionId) return new Response(JSON.stringify({ error: "Missing collection id." }), { status: 400, headers: cors });
 
-    if (resource === "collections" && action === "delete") {
-      // Sources that were in this collection become uncategorized rather
-      // than being deleted along with it.
+      if (action === "rename") {
+        const name = (body.name || "").toString().trim().slice(0, 80);
+        if (!name) return new Response(JSON.stringify({ error: "Name can't be empty." }), { status: 400, headers: cors });
+        await env.DB.prepare("UPDATE user_collections SET name = ? WHERE id = ? AND user_id = ?").bind(name, collectionId, user.id).run();
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
+      }
+
+      // action === "delete" — sources that were in this collection become
+      // uncategorized rather than being deleted along with it.
       await env.DB.batch([
-        env.DB.prepare("UPDATE user_saved_sources SET collection_id = NULL WHERE collection_id = ? AND user_id = ?").bind(body.id, user.id),
-        env.DB.prepare("DELETE FROM user_collections WHERE id = ? AND user_id = ?").bind(body.id, user.id),
+        env.DB.prepare("UPDATE user_saved_sources SET collection_id = NULL WHERE collection_id = ? AND user_id = ?").bind(collectionId, user.id),
+        env.DB.prepare("DELETE FROM user_collections WHERE id = ? AND user_id = ?").bind(collectionId, user.id),
       ]);
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
     }
