@@ -1,3 +1,5 @@
+import { checkRateLimit } from "../lib/rateLimit.js";
+
 // Dedicated videos endpoint. Frontend fires this in parallel with /api/search
 // so the answer isn't delayed by video fetching. Keyless, uses direct YouTube
 // scrape (works from Cloudflare) + community proxy fallback.
@@ -22,23 +24,8 @@ function originAllowed(request) {
   return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
 }
 
-// Same lightweight per-isolate sliding-window limiter used elsewhere in functions/api.
-const RATE_BUCKET = new Map();
 const RATE_LIMIT = 20;         // video-search requests
 const RATE_WINDOW_MS = 60000;  // per minute
-function rateLimit(ip) {
-  const now = Date.now();
-  const rec = RATE_BUCKET.get(ip) || [];
-  const recent = rec.filter((t) => now - t < RATE_WINDOW_MS);
-  recent.push(now);
-  RATE_BUCKET.set(ip, recent);
-  if (RATE_BUCKET.size > 5000) {
-    for (const [k, v] of RATE_BUCKET) {
-      if (v.every((t) => now - t > RATE_WINDOW_MS)) RATE_BUCKET.delete(k);
-    }
-  }
-  return recent.length <= RATE_LIMIT;
-}
 
 function corsFor(request) {
   const reqOrigin = request.headers.get("Origin") || "";
@@ -213,7 +200,7 @@ async function tryProxy(inst, query) {
 }
 
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, env } = context;
   const cors = corsFor(request);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: cors });
@@ -228,7 +215,7 @@ export async function onRequest(context) {
     request.headers.get("CF-Connecting-IP") ||
     request.headers.get("X-Forwarded-For") ||
     "unknown";
-  if (!rateLimit(clientIP)) {
+  if (!(await checkRateLimit(env, `videos:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
     return new Response(
       JSON.stringify({ videos: [], error: "Too many requests. Please wait a moment and try again." }),
       { status: 429, headers: { ...cors, "Retry-After": "30" } }
