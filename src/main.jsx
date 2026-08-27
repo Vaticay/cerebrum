@@ -676,9 +676,13 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   return clean.split(/\n{2,}/).map((para, pi) => {
     // Markdown headers
     const h2 = para.match(/^##\s+(.+)$/);
-    if (h2) return <h3 key={pi} style={{ fontSize: FONT_SIZES.sectionHead, fontWeight: 700, color: accent, margin: "36px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", borderBottom: `1px solid ${P.line}`, paddingBottom: 12, lineHeight: 1.3 }}>{h2[1]}</h3>;
+    // v30: dropped the borderBottom divider — that read as a frame line on
+    // a surface that's now deliberately frameless everywhere else. Bumped
+    // larger and bolder per "large, bold h2/h3 for structural hierarchy";
+    // whitespace above/below now does the separating work a rule used to.
+    if (h2) return <h3 key={pi} style={{ fontSize: 26, fontWeight: 700, color: P.ink, margin: "44px 0 16px", letterSpacing: "-0.02em", fontFamily: "var(--cb-display)", lineHeight: 1.25 }}>{h2[1]}</h3>;
     const h3 = para.match(/^###\s+(.+)$/);
-    if (h3) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, margin: "28px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{h3[1]}</h4>;
+    if (h3) return <h4 key={pi} style={{ fontSize: 19, fontWeight: 700, color: P.ink, margin: "32px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{h3[1]}</h4>;
     // Bold-line headers (e.g., "**Mechanism**")
     const boldHeader = para.match(/^\*\*([^*]+)\*\*\s*$/);
     if (boldHeader) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accent, margin: "30px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{boldHeader[1]}</h4>;
@@ -716,7 +720,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     }
 
     return (
-    <p key={pi} style={{ fontSize: 15, lineHeight: 1.7, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 400 }}>
+    <p key={pi} style={{ fontSize: 16, lineHeight: 1.7, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 400 }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)}
@@ -743,6 +747,12 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)
     const c = seg.match(/^\[(\d+)\]$/);
     if (c) {
       const n = parseInt(c[1], 10); const src = (sources || [])[n - 1];
+      // v30: was a tiny superscript "[1]" badge in mono — raised above the
+      // baseline, breaking the sentence's reading line, and visually part of
+      // the "hacker terminal" look this round explicitly retires. Rewritten
+      // as an inline, baseline-sitting pill — "(1)" in the body sans-serif,
+      // sitting in the text flow like Perplexity's citation chips rather
+      // than interrupting it.
       return <a key={si} href={`#ref-${n}`} title={src?.title || ""} onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)}
         onClick={(e) => {
           e.preventDefault();
@@ -755,11 +765,13 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)
           }
         }}
         style={{
-          fontSize: FONT_SIZES.micro, verticalAlign: "super", color: accent,
-          textDecoration: "none", fontWeight: 700,
-          fontFamily: "var(--cb-mono)",
-          padding: "1px 5px", borderRadius: 4,
-          background: hoverCite === n ? withAlpha(accent, 0.16) : withAlpha(accent, 0.08),
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          fontSize: "0.72em", color: accent, verticalAlign: "baseline",
+          textDecoration: "none", fontWeight: 600,
+          fontFamily: "var(--cb-body)",
+          minWidth: "1.5em", height: "1.5em", padding: "0 6px", margin: "0 1px",
+          borderRadius: 12,
+          background: hoverCite === n ? withAlpha(accent, 0.18) : withAlpha(accent, 0.1),
           transition: "background 0.15s ease", cursor: "pointer",
         }}>{n}</a>;
     }
@@ -1120,13 +1132,13 @@ function Intro({ accent, P, onEnter, animationMode = "off", bgStyle = "neuralGri
         </div>
       )}
 
-      {/* v29: was the same three-color haze as the main app's `.cb-ambient`
-          (see that comment for the full reasoning) — cut to a bare vignette
-          for the same reason: pure black plus sharp WebGL geometry, not a
-          soft colored fog, even for a visitor with animation off. */}
+      {/* v30: retiring the terminal-vignette concept — see the matching
+          `.cb-ambient` comment in makeStyles. Flat, solid black; the WebGL
+          field (or the plain black surface for reduced-motion visitors)
+          carries the visual weight now, not a gradient. */}
       <div aria-hidden="true" className="cb-ambient" style={{
         position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
-        background: "radial-gradient(ellipse 1400px 1000px at 50% 0%, transparent 55%, rgba(0,0,0,0.55) 100%)",
+        background: "transparent",
       }} />
 
       {/* Dark overlay for readability */}
@@ -3474,20 +3486,18 @@ function makeStyles(P, accent, at, isMobile = false) {
     // subtle one." Brought closer to parity with dark so the wash is
     // something a visitor actually notices as a deliberate background,
     // not something only visible on close inspection.
-    // v29: was three overlapping 700-900px soft-color radial gradients at
-    // real opacity (0.14-0.24) — that colored haze, not any WebGL shortfall,
-    // is what reads as "cloudy web-template" instead of "sharp tech
-    // terminal." It rendered UNCONDITIONALLY, underneath and simultaneously
-    // with the WebGL field, fighting sharp geometry for the same pixels.
-    // Cut to a single, near-invisible edge vignette — pure black (P.bg is
-    // literally #000000 in the Dark palette) with just enough falloff at
-    // the corners for depth, no color wash across the middle where the
-    // WebGL field actually lives.
+    // v30: retiring the "Darknode terminal" concept entirely per direction —
+    // this was a vignette left over from that round (already pared down
+    // from three colored blobs to one dark edge fade last round). The new
+    // target is "Next-Gen Editorial Intelligence": a flawless, solid,
+    // premium surface, not a vignette or a haze of any kind. P.bg is
+    // literally #000000 in the Dark palette and the light palette's own
+    // near-white — so a fully transparent ambient layer already gives
+    // exactly the flat premium obsidian/white surface asked for, with zero
+    // gradient math left to fight the page's WebGL layer for the same pixels.
     ambient: {
       position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
-      background: P.dark
-        ? "radial-gradient(ellipse 1400px 1000px at 50% 0%, transparent 55%, rgba(0,0,0,0.55) 100%)"
-        : `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, 0.08)}, transparent 60%)`,
+      background: "transparent",
     },
 
     /* ── Header: dark glass bar, minimal ──
@@ -3582,77 +3592,74 @@ function makeStyles(P, accent, at, isMobile = false) {
     heroSub: {
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, color: P.ink2,
       maxWidth: 560, lineHeight: 1.65, marginBottom: 52,
-      letterSpacing: "0", position: "relative", fontWeight: 400,
-      // v29: injected mono into the subheadline specifically because that
-      // was named directly ("inject var(--cb-mono) ... into the
-      // sub-headline") — the body font elsewhere in the app stays Inter,
-      // this one line is deliberately terminal-flavored.
-      fontFamily: "var(--cb-mono)",
+      letterSpacing: "-0.01em", position: "relative", fontWeight: 400,
+      // v30: "Darknode" round retired — mono in the subheadline was that
+      // round's signature move, and this round's explicit target
+      // (Perplexity-style editorial) wants maximum legibility over
+      // engineered edge. Back to the body sans-serif everywhere text is
+      // meant to just be read.
+      fontFamily: "var(--cb-body)",
     },
 
-    /* ── Search bar: COMMAND-LINE HUD ──
-       v29: was a glassmorphic blurred pill next to a filled cyan "Search"
-       button — replaced per an explicit "annihilate the chunky search
-       button" directive. Solid near-black chassis, a razor-thin glowing
-       accent border instead of a frosted-glass one, a monospace `>` prompt
-       glyph in place of a magnifier icon, and the submit control shrunk to
-       a minimal `[ ↵ ]` glyph tucked at the right edge — Enter still submits
-       via the existing onKeyDown handler either way. */
+    /* ── Search bar: THE CONVERSATIONAL PILL ──
+       v30: the "Darknode" HUD chassis (solid black, glowing 1px border, `>`
+       prompt glyph, `[ ↵ ]` glyph button) is fully retired per direction —
+       "zero retro hacker elements." Back to a wide, fully rounded floating
+       glass pill with a plain conversational placeholder and a circular
+       arrow button at the right edge. Enter still submits via the existing
+       onKeyDown handler; the circular button is the pointer-friendly path. */
     searchShell: {
-      display: "flex", alignItems: "center", gap: 12,
+      display: "flex", alignItems: "center", gap: 10,
       width: "100%", maxWidth: 700,
-      background: P.dark ? "#000000" : P.surface,
-      border: `1px solid ${withAlpha(accent, 0.3)}`,
-      borderRadius: 3,
-      padding: isMobile ? "8px 8px 8px 16px" : "12px 12px 12px 20px",
-      boxShadow: `0 0 0 1px rgba(0,0,0,0.4), 0 0 24px ${withAlpha(accent, 0.08)}`,
+      backdropFilter: "blur(14px) saturate(1.3)",
+      WebkitBackdropFilter: "blur(14px) saturate(1.3)",
+      background: glass,
+      border: glassBorder,
+      borderRadius: 100,
+      padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
+      boxShadow: P.shadow,
       transition: "border-color 0.3s ease, box-shadow 0.3s ease",
       position: "relative"
     },
     searchShellActive: {
-      borderColor: withAlpha(accent, 0.7),
-      boxShadow: `0 0 0 1px ${withAlpha(accent, 0.25)}, 0 0 40px ${withAlpha(accent, 0.18)}`
+      borderColor: withAlpha(accent, 0.4),
+      boxShadow: `${P.shadow}, 0 0 0 1px ${withAlpha(accent, 0.15)}, 0 0 40px ${withAlpha(accent, 0.06)}`
     },
-    searchPrompt: { color: accent, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.heading, fontWeight: 700, flexShrink: 0, textShadow: `0 0 10px ${withAlpha(accent, 0.6)}`, userSelect: "none" },
     searchInput: {
       flex: 1, border: "none", outline: "none", background: "transparent",
-      fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.body, color: P.ink,
-      minWidth: 0, letterSpacing: "0"
+      fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.body, color: P.ink,
+      minWidth: 0, letterSpacing: "-0.01em"
     },
     searchBtn: {
       display: "inline-flex", alignItems: "center", justifyContent: "center",
-      minWidth: 40, height: 36,
-      fontSize: FONT_SIZES.small, fontWeight: 700,
-      background: "transparent", color: accent,
-      border: `1px solid ${withAlpha(accent, 0.45)}`,
-      padding: "0 10px",
-      borderRadius: 2, cursor: "pointer",
-      fontFamily: "var(--cb-mono)", flexShrink: 0,
-      letterSpacing: "0.02em",
-      textShadow: `0 0 8px ${withAlpha(accent, 0.5)}`,
-      transition: "background 0.2s ease, box-shadow 0.2s ease",
+      width: 38, height: 38, flexShrink: 0,
+      background: accent, color: at,
+      border: "none",
+      borderRadius: "50%", cursor: "pointer",
+      transition: "transform 0.15s ease, box-shadow 0.2s ease",
+      boxShadow: `0 2px 12px ${withAlpha(accent, 0.35)}`,
     },
 
-    /* ── Suggestion chips: telemetry / executable scripts ──
-       v29: were pill-shaped frosted-glass chips that faded into the
-       background at rest — redesigned as sharp-cornered `[ EXEC ]` command
-       lines: solid black, thin neon border that brightens on hover, all
-       monospace. */
+    /* ── Suggestion chips: fluid conversational prompts ──
+       v30: were sharp-cornered "[ EXEC ]" command lines in mono — retired
+       along with the rest of the terminal aesthetic. Fully rounded,
+       minimal tags with a subtle border that gently lights up on hover;
+       the label is now just the question, nothing prefixed onto it. */
     chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 700 },
     chip: {
       fontSize: FONT_SIZES.small, color: P.ink2,
-      background: P.dark ? "#000000" : withAlpha(P.surface, 0.7),
-      border: `1px solid ${withAlpha(accent, 0.22)}`,
-      borderRadius: 2, padding: "10px 14px",
-      cursor: "pointer", transition: "all 0.2s ease",
-      fontFamily: "var(--cb-mono)", letterSpacing: "0"
+      background: P.dark ? withAlpha(P.surface, 0.4) : withAlpha(P.surface, 0.7),
+      backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+      border: glassBorder,
+      borderRadius: 100, padding: "10px 18px",
+      cursor: "pointer", transition: "all 0.25s ease",
+      fontFamily: "var(--cb-body)", letterSpacing: "-0.01em"
     },
     chipHover: {
-      borderColor: accent, color: accent,
-      background: withAlpha(accent, 0.07),
-      boxShadow: `0 0 0 1px ${withAlpha(accent, 0.25)}, 0 0 18px ${withAlpha(accent, 0.2)}`
+      borderColor: withAlpha(accent, 0.35), color: accent,
+      background: withAlpha(accent, 0.06),
+      boxShadow: `0 4px 20px ${withAlpha(accent, 0.1)}`
     },
-    chipTag: { color: accent, fontWeight: 700, marginRight: 8, opacity: 0.9 },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
 
@@ -3695,22 +3702,24 @@ function makeStyles(P, accent, at, isMobile = false) {
       fontFamily: "var(--cb-display)",
     },
 
-    /* ── Answer card: GLASSMORPHISM reading surface ── 
-       Semi-transparent dark glass panel that separates 
-       content from the animated background. The single 
-       biggest premium upgrade. ── */
+    /* ── Answer card: SEAMLESS EDITORIAL READING SURFACE ──
+       v30: was a glass panel with a visible border and drop shadow,
+       floating over the animated background. Direction this round is
+       explicit — "remove the heavy dark glass borders... make the reading
+       surface feel seamless with the page, using only massive whitespace."
+       Background is solid and matches the page exactly (no floating-card
+       look) rather than transparent, since the WebGL field still animates
+       behind the thread after a search — an opaque match keeps the answer
+       legible without reintroducing a visible card edge. Hierarchy now
+       comes entirely from whitespace and typography, not a frame. */
     answerCard: {
-      position: "relative", // v28: anchors the docked top-right action toolbar (see `toolbar` below)
-      background: P.dark ? "rgba(5,8,22,0.94)" : "rgba(255,255,255,0.88)",
-      backdropFilter: "blur(16px) saturate(1.2)",
-      WebkitBackdropFilter: "blur(16px) saturate(1.2)",
-      border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`,
-      borderRadius: 3,
-      padding: isMobile ? "34px 24px" : "56px 64px",
-      boxShadow: P.dark
-        ? "0 0 0 0.5px rgba(255,255,255,0.04) inset, 0 12px 48px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3)"
-        : `${P.shadow}, 0 0 0 0.5px rgba(0,0,0,0.03)`,
-      lineHeight: 1.85,
+      position: "relative", // anchors the docked top-right action toolbar (see `toolbar` below)
+      background: P.bg,
+      border: "none",
+      borderRadius: 0,
+      padding: isMobile ? "4px 0 40px" : "4px 0 56px",
+      boxShadow: "none",
+      lineHeight: 1.7,
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
     },
     byline: {
@@ -4718,19 +4727,18 @@ function App() {
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
               )}
-              <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700, borderRadius: 3 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <span aria-hidden="true" style={S.searchPrompt}>{">"}</span>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Awaiting query..." />
+              <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What do you want to know?" />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
-                    style={S.searchBtn} onClick={() => ask()} title="Run query" aria-label="Run query"
-                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.boxShadow = `0 0 16px ${withAlpha(accent, 0.35)}`; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.boxShadow = "none"; }}
-                  >[ ↵ ]</button>
+                    style={S.searchBtn} onClick={() => ask()} title="Ask" aria-label="Ask"
+                    onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.06)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+                  ><Icon name="arrowRight" size={17} /></button>
               </div>
               <div style={S.chips} className="cb-stagger" onMouseEnter={() => chipsPausedRef.current = true} onMouseLeave={() => chipsPausedRef.current = false} onFocus={() => chipsPausedRef.current = true} onBlur={() => chipsPausedRef.current = false}>
-                {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}><span style={S.chipTag}>[ EXEC ]</span>{s}</button>))}
+                {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
               <div style={S.trustRow}>
                 {/* Bug: this said "+ 10 more" after 6 named databases (implying
