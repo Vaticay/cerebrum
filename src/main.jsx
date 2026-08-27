@@ -297,21 +297,32 @@ function formatCitation(source, style, index) {
   const journal = s.journal || "";
   const year = s.year || "n.d.";
   const url = s.url || "";
+  // v28 fix: every style below used to unconditionally append ". " after
+  // `authors` — fine when authors is a plain name list ("Smith J, Doe A"),
+  // but the backend's own authors string sometimes already ends in "et
+  // al." (already period-terminated), so blindly appending another "."
+  // produced "et al.." — a real, visible double-period, not a one-off.
+  // Trim first, then only add a period if one isn't already there.
+  const authorsPart = (() => {
+    const a = authors.trim();
+    if (!a) return "";
+    return (a.endsWith(".") ? a : a + ".") + " ";
+  })();
   switch (style) {
     case "vancouver": {
-      const parts = [`${index}. ${authors ? authors + ". " : ""}${title}.`];
+      const parts = [`${index}. ${authorsPart}${title}.`];
       if (journal) parts.push(` ${journal}.`);
       parts.push(` ${year}.`);
       return parts.join("");
     }
     case "apa": {
-      return `${authors ? authors + ". " : ""}(${year}). ${title}. ${journal ? "*" + journal + "*." : ""}`.trim();
+      return `${authorsPart}(${year}). ${title}. ${journal ? "*" + journal + "*." : ""}`.trim();
     }
     case "mla": {
-      return `${authors ? authors + ". " : ""}"${title}." *${journal || "n.p."}*, ${year}${url ? ", " + url : ""}.`;
+      return `${authorsPart}"${title}." *${journal || "n.p."}*, ${year}${url ? ", " + url : ""}.`;
     }
     case "chicago": {
-      return `${authors ? authors + ". " : ""}${year}. "${title}." *${journal || "n.p."}*.`;
+      return `${authorsPart}${year}. "${title}." *${journal || "n.p."}*.`;
     }
     case "bibtex": {
       // Bug: this built the key from `year`, which defaults to the literal
@@ -564,6 +575,11 @@ function Icon({ name, size = 17, className, style }) {
     case "arrowRight": return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
     case "mic": return <svg {...common}><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" /><path d="M5 12a7 7 0 0014 0M12 19v3" /></svg>;
     case "check": return <svg {...common}><path d="M20 6L9 17l-5-5" /></svg>;
+    // v28: the toolbar's Copy button used to borrow "check" (a checkmark)
+    // because it always had a visible "Copy answer" text label to carry the
+    // actual meaning. Icon-only buttons can't lean on a label like that, so
+    // Copy gets its own real clipboard glyph.
+    case "copy": return <svg {...common}><rect x="8" y="8" width="12" height="12" rx="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0014.5 4h-9A1.5 1.5 0 004 5.5v9A1.5 1.5 0 005.5 16H8" /></svg>;
     case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
     case "chevronDown": return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
     case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
@@ -612,7 +628,16 @@ function useTypewriter(full, on) {
 
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   let clean = (text || "")
-    .replace(/^#{1,6}\s*/gm, "")
+    // v28 fix: this used to strip EVERY leading "#" on EVERY line
+    // unconditionally, before the code a few dozen lines down ever got a
+    // chance to look for "^##\s" / "^###\s" and render them as real
+    // section headers. That made the header-rendering branch below
+    // permanently dead — a synthesized answer with "## Executive Summary"
+    // would have its "## " stripped right here and just print
+    // "Executive Summary" as an ordinary paragraph, no visual distinction
+    // at all. Removed: real "##"/"###" headers are exactly what the H2/H3
+    // branches below are designed to catch, so there's nothing here that
+    // needs stripping in the first place.
     .replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]")
     // Split grouped citations "[1, 2]" or "[1,2]" into individual "[1][2]"
     .replace(/\[([\d,\s]+)\]/g, (m, nums) => {
@@ -625,8 +650,25 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     })
     .replace(/([a-z])\s+(\d(?:\s*,?\s*\d){0,8})\s*([.;,])(?!\d)/gi, (m, b, nums, p) => {
       const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
-      return ds.length >= 1 ? b + " " + ds.map(n => "["+n+"]").join("") + p : m;
+      // v28 fix: this used to glue the repaired citation back on with a
+      // literal " " before the bracket ("word" + " " + "[1]" + "."), which
+      // combined with the citation badge's own visual padding read as a
+      // stray, ungrammatical gap — "word 1 ." instead of "word[1]." No
+      // space belongs here; a citation sits directly against the word it
+      // supports, same as any bracketed citation the model already writes
+      // correctly on its own.
+      return ds.length >= 1 ? b + ds.map(n => "["+n+"]").join("") + p : m;
     })
+    // v28 fix: general safety net for citation spacing, independent of
+    // which path produced the bracket — whether the model wrote "[1]"
+    // correctly on its own, or it came from the bare-number repair just
+    // above. A citation must sit snug against the word before it (no
+    // space before the bracket) and any following punctuation must come
+    // immediately after the badge, not after a gap ("faeces[1]." not
+    // "faeces [1] ." or "faeces[1] ."). Handles runs of multiple adjacent
+    // citations ("[1][2]") as one unit before the punctuation check.
+    .replace(/\s+(\[\d+\])/g, "$1")
+    .replace(/((?:\[\d+\])+)\s+([.,;:!?)\]])/g, "$1$2")
     .replace(/\n[-—]{2,}\s*\n/g, "\n\n")
     .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
     .trim();
@@ -674,7 +716,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     }
 
     return (
-    <p key={pi} style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.85, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 400 }}>
+    <p key={pi} style={{ fontSize: 15, lineHeight: 1.7, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 400 }}>
       {para.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)}
@@ -1241,6 +1283,7 @@ function LivingBackground({ accent, P, intensity = "cinematic", speed = 1, pause
     }} aria-hidden="true">
       {style === "neuralGrid" ? <WebGLNeuralField {...shared} />
         : style === "fluidRipples" ? <WebGLFluidRipples {...shared} />
+        : style === "vantaCells" ? <VantaCellsField {...shared} />
         : <ConstellationField {...shared} />}
     </div>
   );
@@ -1476,11 +1519,16 @@ function WebGLFluidRipples({ accent, secondary, speed = 1, paused = false, dim =
         float d1 = length(p - c1);
         float d2 = length(p - c2);
         float ripple = sin(d1 * 11.0 - t * 1.3) + sin(d2 * 9.0 - t * 0.9);
-        ripple = ripple * 0.25 + 0.5;
-        float vign = smoothstep(1.5, 0.15, length(p));
+        // v27: brightened at the user's direction — wider dynamic range
+        // (0.38/0.62 instead of 0.25/0.5 gives deeper troughs and hotter
+        // peaks instead of hovering in a narrow mid-gray band) and a
+        // farther-reaching vignette so the effect actually covers the
+        // viewport instead of fading out just past center.
+        ripple = ripple * 0.38 + 0.62;
+        float vign = smoothstep(1.85, 0.05, length(p));
         float mixAmt = sin(d1 * 3.0 - t * 0.15) * 0.5 + 0.5;
         vec3 col = mix(uColor1, uColor2, mixAmt);
-        float alpha = clamp(ripple, 0.0, 1.0) * vign * uDim * 0.5;
+        float alpha = clamp(ripple, 0.0, 1.0) * vign * uDim * 0.85;
         gl_FragColor = vec4(col * alpha, alpha);
       }
     `);
@@ -1576,14 +1624,92 @@ function KineticText({ text, style, className }) {
 }
 
 
+/* ════════════════════════════════════════════════════════════════
+   VANTA CELLS — the pre-v5 Intro background, brought back as a
+   first-party bundled dependency instead of a runtime CDN script
+
+   Commit 23 removed Vanta.js/Three.js because they were being fetched
+   from cdnjs.cloudflare.com/cdn.jsdelivr.net at runtime — a genuine
+   supply-chain risk (a compromised or MITM'd CDN can inject arbitrary
+   code into every page load) and a reliability one (nothing here could
+   ever confirm the fetch actually succeeds for a real visitor). Bringing
+   the exact look back doesn't require reopening either problem: `vanta`
+   and `three` are now regular npm dependencies (see package.json),
+   fetched once at build time, version-pinned, and bundled into this
+   app's own JS output — served from the same origin as everything else,
+   zero runtime network request, zero CSP change. `import()` below is a
+   dynamic import purely for code-splitting (so the ~130KB this adds
+   isn't in everyone's bundle, only whoever's viewport actually renders
+   Intro with this style selected), not a network fetch of someone
+   else's hosted copy.
+
+   Vanta's own API expects a global `THREE` (its README shows it reading
+   `window.THREE`, from an era before bundlers made ESM imports easy) —
+   set once here from the bundled module, not from a `<script>` tag.
+   Falls back to WebGLNeuralField if dynamic import or WebGL context
+   creation fails for any reason, same as the other two background
+   components, and is skipped entirely (falls back immediately) for
+   `prefers-reduced-motion`, since Vanta has no built-in pause API to
+   respect it after the fact. */
+function VantaCellsField({ accent, secondary, speed = 1, paused = false, dim = 1 }) {
+  const hostRef = useRef(null);
+  const effectRef = useRef(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) { setFailed(true); return; }
+    let cancelled = false;
+    const toHex = (hex) => parseInt((hex || "#ffffff").replace("#", ""), 16) || 0xffffff;
+    (async () => {
+      try {
+        const THREE = await import("three");
+        if (typeof window !== "undefined") window.THREE = THREE;
+        const mod = await import("vanta/dist/vanta.cells.min.js");
+        const CELLS = mod.default || mod;
+        if (cancelled || !hostRef.current) return;
+        effectRef.current = CELLS({
+          el: hostRef.current,
+          THREE,
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          scaleMobile: 1.0,
+          color1: toHex(accent),
+          color2: toHex(secondary || accent),
+          size: 1.5,
+          speed: Math.max(0.3, speed) * (dim < 1 ? 0.7 : 1),
+          backgroundColor: 0x000000,
+        });
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      try { effectRef.current?.destroy(); } catch {}
+      effectRef.current = null;
+    };
+  }, [accent, secondary, dim]);
+
+  useEffect(() => {
+    if (effectRef.current?.setOptions) { try { effectRef.current.setOptions({ speed: Math.max(0.3, speed) }); } catch {} }
+  }, [speed]);
+
+  if (failed) return <WebGLNeuralField accent={accent} secondary={secondary} speed={speed} paused={paused} dim={dim} />;
+  return <div ref={hostRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />;
+}
+
+
 /* v7.1: this banner used to promise a WebGL particle field with
    mouse-raycasting and multi-pass bloom, sitting directly on top of
    MicButton — a component that has nothing to do with any of that.
    Whatever it was written for never got attached below it. The real
    WebGL backgrounds it was describing now exist for real, under their
    own accurate comment blocks, right above LivingBackground further up
-   this file (WebGLNeuralField, WebGLFluidRipples). Removed rather than
-   left as a description of a feature sitting over the wrong code. */
+   this file (WebGLNeuralField, WebGLFluidRipples, VantaCellsField).
+   Removed rather than left as a description of a feature sitting over
+   the wrong code. */
 function MicButton({ onTranscript, accent, P }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
@@ -1621,7 +1747,7 @@ function MicButton({ onTranscript, accent, P }) {
 /* ============================================================
    ANSWER PLAYER (TTS) — logic preserved
    ============================================================ */
-function AnswerPlayer({ text, accent, P }) {
+function AnswerPlayer({ text, accent, P, compact = false }) {
   const [status, setStatus] = useState("idle");
   const [progress, setProgress] = useState(0);
   const audioRef = useRef(null);
@@ -1669,19 +1795,40 @@ function AnswerPlayer({ text, accent, P }) {
   const playCerebrum = async () => { setStatus("loading"); try { let voicePref = ""; try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {} const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voicePref }) }); if (!res.ok) throw new Error("TTS " + res.status); const ct = res.headers.get("content-type") || ""; if (!ct.startsWith("audio/")) throw new Error("Non-audio response"); const blob = await res.blob(); const url = URL.createObjectURL(blob); const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playBrowser(); } };
   const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch {} return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play(); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch {} return; } if (useElevenLabs) playEleven(); else playCerebrum(); };
   useEffect(() => () => stop(), []);
-  const label = status === "loading" ? "Loading..." : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
+  const label = status === "loading" ? "Loading…" : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
+  const active = status === "playing" || status === "paused";
+  const playIcon = <svg width={compact ? 12 : 11} height={compact ? 12 : 11} viewBox="0 0 24 24" fill="currentColor">{status === "playing" ? (<><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>) : (<path d="M8 5v14l11-7z" />)}</svg>;
+  // v28: docked into the new top-right answer toolbar (see `Turn`) alongside
+  // Copy/Share/PDF/Illustrate, this needs to be the same 28x28 icon-only
+  // shape as its neighbors instead of the wider icon+label pill it used to
+  // render inline below the answer. The full pill (with its progress bar and
+  // separate Stop button) still exists for anywhere else this component gets
+  // used — nothing about that path changed.
+  if (compact) {
+    return (
+      <button
+        type="button" title={active ? `${label} (${Math.round(progress * 100)}%)` : label} aria-label={label}
+        onClick={onClick}
+        style={{ ...S_toolbarBtnBase(P), ...(active ? { background: withAlpha(accent, 0.16), color: accent } : {}) }}
+        onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = withAlpha(accent, 0.08); e.currentTarget.style.color = accent; } }}
+        onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; } }}
+      >
+        {status === "loading" ? <span style={{ width: 10, height: 10, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" }} /> : playIcon}
+      </button>
+    );
+  }
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-      <button onClick={onClick} style={{ padding: "6px 14px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: status === "playing" || status === "paused" ? accent : "transparent", color: status === "playing" || status === "paused" ? accentText(accent) : P.ink2, border: `1px solid ${status === "playing" || status === "paused" ? accent : P.line2}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: "0.01em" }}>
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">{status === "playing" ? (<><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>) : (<path d="M8 5v14l11-7z" />)}</svg>
+      <button onClick={onClick} style={{ padding: "6px 14px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: active ? accent : "transparent", color: active ? accentText(accent) : P.ink2, border: `1px solid ${active ? accent : P.line2}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: "0.01em" }}>
+        {playIcon}
         {label}
       </button>
-      {(status === "playing" || status === "paused") && (
+      {active && (
         <div style={{ width: 80, height: 2, background: P.line, borderRadius: 1, overflow: "hidden" }}>
           <div style={{ width: "100%", height: "100%", background: accent, transformOrigin: "left", transform: `scaleX(${progress})`, transition: "transform 0.15s ease" }} />
         </div>
       )}
-      {(status === "playing" || status === "paused") && (
+      {active && (
         <button onClick={stop} title="Stop" aria-label="Stop" style={{ background: "transparent", border: "none", cursor: "pointer", color: P.faint, padding: 2, display: "inline-flex" }}><Icon name="close" size={13} /></button>
       )}
     </div>
@@ -1773,7 +1920,7 @@ function InfoPage({ page }) {
   // Settings. Reading the same persisted cookie App() writes to keeps the
   // two in sync instead of this page being a silent exception to the fix.
   const animationMode = (() => { try { return getCookie("cb_anim2") || "off"; } catch { return "off"; } })();
-  const bgStyleMain = (() => { try { return getCookie("cb_bgstyle_main") || "constellation"; } catch { return "constellation"; } })();
+  const bgStyleMain = (() => { try { return getCookie("cb_bgstyle_main") || "fluidRipples"; } catch { return "fluidRipples"; } })();
   const goHome = () => { try { setCookie("cb_entered_v5", "1", 365); } catch {} window.location.href = "/"; };
   const PAGES = {
     about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
@@ -1902,66 +2049,65 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
           <button onClick={downloadFile} style={bibBtn(P, accent)}>Download</button>
         </div>
       </div>
-      <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10, paddingBottom: 14 }}>
-        {sources.map((src, i) => <BibEntry key={i} source={src} index={i + 1} P={P} accent={accent} style={citationStyle} className="cb-fade" />)}
+      {/* v28: was a stack of individually bordered, padded "cards" — each
+          one paying for its own box (border + radius + background + 14px
+          gap to the next) even though a bibliography is inherently a dense
+          list, not a set of unrelated tiles. Reworked into slim divider-rows
+          — the same high-density-list language this file already uses for
+          the Sources sidebar (`srcItem`: no per-row box, a hairline
+          `borderBottom`, a flush hover wash) — so ten references read as one
+          continuous, scannable column instead of ten separate panels. */}
+      <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", paddingBottom: 4 }}>
+        {sources.map((src, i) => <BibEntry key={i} source={src} index={i + 1} P={P} accent={accent} style={citationStyle} className="cb-fade" last={i === sources.length - 1} />)}
       </ol>
     </div>
   );
 }
 
-function BibEntry({ source, index, P, accent, style, className }) {
+function BibEntry({ source, index, P, accent, style, className, last }) {
   const [hover, setHover] = useState(false);
   const formatted = formatCitation(source, style, index);
+  const domain = source.url ? source.url.replace(/^https?:\/\//, "").replace(/^www\./, "").slice(0, 42) : "";
   return (
     <li id={`ref-${index}`} className={className}
       style={{
-        padding: "16px 18px", display: "flex", gap: 14, alignItems: "flex-start",
-        background: hover ? withAlpha(accent, 0.05) : (P.dark ? "rgba(255,255,255,0.02)" : withAlpha(P.line, 0.25)),
-        border: `1px solid ${hover ? withAlpha(accent, 0.3) : P.line}`,
-        borderRadius: 3, opacity: 0, transition: "background 0.15s ease, border-color 0.15s ease",
+        padding: "9px 6px", margin: "0 -6px", display: "flex", gap: 10, alignItems: "flex-start",
+        background: hover ? withAlpha(accent, 0.05) : "transparent",
+        borderBottom: last ? "none" : `1px solid ${P.line}`,
+        opacity: 0, transition: "background 0.15s ease",
       }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <div style={{
-        flexShrink: 0, width: 26, height: 26, borderRadius: "50%",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        color: accent, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)",
-        background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`,
-      }}>{index}</div>
+      <span style={{ flexShrink: 0, width: 20, textAlign: "right", paddingTop: 1, color: accent, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)" }}>{index}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", marginBottom: 8, background: withAlpha(source.retracted ? STATUS.bad : STATUS.warn, source.retracted ? 0.12 : 0.14), border: `1px solid ${source.retracted ? STATUS.bad : STATUS.warn}`, borderRadius: 3, fontSize: FONT_SIZES.micro, fontWeight: 700, color: source.retracted ? STATUS.bad : STATUS.warn, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 7px", marginBottom: 5, background: withAlpha(source.retracted ? STATUS.bad : STATUS.warn, source.retracted ? 0.12 : 0.14), border: `1px solid ${source.retracted ? STATUS.bad : STATUS.warn}`, borderRadius: 3, fontSize: FONT_SIZES.micro, fontWeight: 700, color: source.retracted ? STATUS.bad : STATUS.warn, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" }}>
             <span>⚠</span><span>{source.retracted ? "RETRACTED" : "EXPRESSION OF CONCERN"}</span>
           </div>
         )}
         {style === "bibtex" ? (
           <pre style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
         ) : (
-          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.6, color: P.ink, fontWeight: 500 }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted).replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
+          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.5, color: P.ink, fontWeight: 500 }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted).replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
         )}
-        {(source.citations != null || source.type) && (
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--cb-mono)" }}>
+        {/* One dense meta line instead of three stacked blocks: type ·
+            citation count · linked domain all inline, mono, muted. */}
+        {(source.citations != null || source.type || domain) && (
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--cb-mono)", flexWrap: "wrap" }}>
             {source.type && <span style={{ fontWeight: 600, color: P.ink2 }}>{source.type}</span>}
-            {source.type && source.citations != null && <span style={{ opacity: 0.5 }}>·</span>}
+            {source.type && (source.citations != null || domain) && <span style={{ opacity: 0.4 }}>·</span>}
             {source.citations != null && <span>{source.citations.toLocaleString()} citation{source.citations === 1 ? "" : "s"}</span>}
+            {source.citations != null && domain && <span style={{ opacity: 0.4 }}>·</span>}
+            {domain && (
+              <a href={safeHref(source.url)} target="_blank" rel="noreferrer" style={{ color: accent, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{domain}</span><span style={{ flexShrink: 0 }}>↗</span>
+              </a>
+            )}
           </div>
         )}
         {source.tldr && (
-          <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, padding: "10px 14px", background: withAlpha(accent, 0.05), borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, borderRadius: 0, lineHeight: 1.55, fontStyle: "italic" }}>
-            <span style={{ fontWeight: 600, fontStyle: "normal", color: accent, fontSize: FONT_SIZES.micro, letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 6, fontFamily: "var(--cb-mono)" }}>TL;DR</span>{source.tldr}
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic" }}>
+            <span style={{ fontWeight: 600, fontStyle: "normal", color: accent, letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 6, fontFamily: "var(--cb-mono)" }}>TL;DR</span>{source.tldr}
           </div>
-        )}
-        {source.url && (
-          <a href={safeHref(source.url)} target="_blank" rel="noreferrer"
-            style={{
-              fontSize: FONT_SIZES.caption, color: accent, textDecoration: "none", marginTop: 10,
-              display: "inline-flex", alignItems: "center", gap: 5,
-              padding: "4px 10px", borderRadius: 3, background: withAlpha(accent, 0.08),
-              border: `1px solid ${withAlpha(accent, 0.2)}`, fontFamily: "var(--cb-mono)",
-              maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{source.url.replace(/^https?:\/\//, "").slice(0, 50)}{source.url.length > 50 ? "…" : ""}</span>
-            <span style={{ flexShrink: 0 }}>↗</span>
-          </a>
         )}
       </div>
     </li>
@@ -1969,9 +2115,32 @@ function BibEntry({ source, index, P, accent, style, className }) {
 }
 function bibBtn(P, accent) { return { padding: "5px 10px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", letterSpacing: "0.01em" }; }
 
+// v28: one icon-only button shape shared by every item in the docked answer
+// toolbar (Copy/Share/PDF/Illustrate/Source network/Timeline — Listen is the
+// odd one out since AnswerPlayer manages its own play/pause state, but it
+// renders itself at the same 28x28 size so the row stays visually uniform).
+// `active` swaps in the accent wash used everywhere else in this file for a
+// toggled-on state (sortTabActive, sBtnP, etc.) instead of inventing a new one.
+function ToolbarBtn({ title, icon, onClick, accent, P, active = false }) {
+  return (
+    <button
+      type="button" title={title} aria-label={title}
+      onClick={onClick}
+      style={{ ...S_toolbarBtnBase(P), ...(active ? { background: withAlpha(accent, 0.16), color: accent } : {}) }}
+      onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = withAlpha(accent, 0.08); e.currentTarget.style.color = accent; } }}
+      onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; } }}
+    >
+      <Icon name={icon} size={14} />
+    </button>
+  );
+}
+function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 3, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", transition: "background 0.15s ease, color 0.15s ease" }; }
+
 function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
+  const [copiedAnswer, setCopiedAnswer] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   return (
     <div style={S.turn} className="cb-rise">
       {/* Query label — monospaced, quiet */}
@@ -1988,6 +2157,64 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
             {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
           </div>
         )}
+        {/* v28: docked top-right, icon-first, one fixed-size row that never
+            wraps — replaces the old flex-wrap row of icon+label buttons
+            (Copy answer / Share / Print / Source network / Timeline /
+            Illustrate) that reflowed onto two or three ragged lines once all
+            six were present. Every button keeps its meaning via `title` +
+            `aria-label` instead of visible text — that's the actual
+            trade-off of going icon-only, called out here rather than left
+            for someone to discover by accident. Requested set is
+            Copy/Share/PDF/Listen/Illustrate; Source network and Timeline
+            were real existing features (not in the requested bracket) kept
+            appended at the end rather than silently dropped. */}
+        {done && t.answer && (
+          <div style={S.toolbar} onClick={(e) => e.stopPropagation()}>
+            <ToolbarBtn
+              title={copiedAnswer ? "Copied!" : "Copy answer"}
+              icon={copiedAnswer ? "check" : "copy"}
+              active={copiedAnswer}
+              accent={accent} P={P}
+              onClick={() => {
+                copyToClipboard(t.answer, "Answer copied").then((ok) => {
+                  if (ok) { setCopiedAnswer(true); setTimeout(() => setCopiedAnswer(false), 1500); }
+                });
+              }}
+            />
+            <ToolbarBtn
+              title={linkCopied ? "Link copied!" : "Share"}
+              icon={linkCopied ? "check" : "link"}
+              active={linkCopied}
+              accent={accent} P={P}
+              onClick={async () => {
+                const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
+                // Prefer the native share sheet (real "sharing" — Messages,
+                // Mail, social apps — on mobile and supporting desktop
+                // browsers). navigator.share() requires a secure context and
+                // can throw AbortError when the user just dismisses the
+                // sheet, which is not a failure and shouldn't show an error.
+                if (navigator.share && window.isSecureContext) {
+                  try { await navigator.share({ title: "Cerebrum", text: t.q, url }); return; }
+                  catch (err) { if (err && err.name === "AbortError") return; /* fall through to clipboard */ }
+                }
+                copyToClipboard(url, "Link copied").then((ok) => {
+                  if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }
+                });
+              }}
+            />
+            {/* v5: there was already a full @media print stylesheet in this
+                file — quietly supporting the design goal stated in this
+                file's own header comment ("results read like a premium
+                research brief — you'd print this") — with no button
+                anywhere that surfaced it. A user would've had to already
+                know to hit Ctrl/Cmd+P. */}
+            <ToolbarBtn title="Print / Save PDF" icon="printer" accent={accent} P={P} onClick={() => window.print()} />
+            {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact />}
+            {done && <ToolbarBtn title="Illustrate this answer" icon="wand" accent={accent} P={P} onClick={() => onIllustrate(t.q)} />}
+            {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
+            {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
+          </div>
+        )}
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
         {done && (
           <div style={{ ...S.byline, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
@@ -1995,48 +2222,6 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
             <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           </div>
         )}
-        {done && t.answer && (
-          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-            <button onClick={(e) => {
-              const label = e.currentTarget.querySelector("span");
-              copyToClipboard(t.answer, "Answer copied").then((ok) => {
-                if (ok && label) { label.textContent = "Copied!"; setTimeout(() => { label.textContent = "Copy answer"; }, 1500); }
-              });
-            }} style={S.answerActionBtn}><Icon name="check" size={12} /><span>Copy answer</span></button>
-            <button onClick={async (e) => {
-              const label = e.currentTarget.querySelector("span");
-              const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
-              // Prefer the native share sheet (real "sharing" — Messages, Mail,
-              // social apps — on mobile and supporting desktop browsers).
-              // navigator.share() requires a secure context and can throw
-              // AbortError when the user just dismisses the sheet, which is
-              // not a failure and shouldn't show an error toast.
-              if (navigator.share && window.isSecureContext) {
-                try {
-                  await navigator.share({ title: "Cerebrum", text: t.q, url });
-                  return;
-                } catch (err) {
-                  if (err && err.name === "AbortError") return; // user cancelled — not an error
-                  // Fall through to clipboard fallback below.
-                }
-              }
-              copyToClipboard(url, "Link copied").then((ok) => {
-                if (ok && label) { label.textContent = "Link copied!"; setTimeout(() => { label.textContent = "Share"; }, 1500); }
-              });
-            }} style={S.answerActionBtn}><Icon name="link" size={12} /><span>Share</span></button>
-            {/* v5: there was already a full @media print stylesheet in this
-                file — quietly supporting the design goal stated in this
-                file's own header comment ("results read like a premium
-                research brief — you'd print this") — with no button
-                anywhere that surfaced it. A user would've had to already
-                know to hit Ctrl/Cmd+P. */}
-            <button onClick={() => window.print()} style={S.answerActionBtn}><Icon name="printer" size={12} /><span>Print / Save PDF</span></button>
-            {interactive && t.sources && t.sources.length >= 2 && <button onClick={() => onShowNetwork(t.sources)} style={S.answerActionBtn}><Icon name="network" size={12} /><span>Source network</span></button>}
-            {interactive && t.sources && t.sources.length >= 2 && <button onClick={() => onShowTimeline(t.sources)} style={S.answerActionBtn}><Icon name="timeline" size={12} /><span>Timeline</span></button>}
-            {interactive && done && t.answer && <button onClick={() => onIllustrate(t.q)} style={S.answerActionBtn}><Icon name="wand" size={12} /><span>Illustrate</span></button>}
-          </div>
-        )}
-        {done && t.answer && t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} />}
       </div>
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
       {/* AI suggestions */}
@@ -2051,19 +2236,34 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         </div>
       )}
       {done && t.sources && t.sources.length > 0 && <Bibliography sources={t.sources} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle} />}
-      {/* Videos */}
+      {/* v28: was a collapsed <details>/<summary> — closed by default, so a
+          real feature (video results) was invisible unless someone thought
+          to click a plain-text disclosure triangle. Un-collapsed into a
+          persistent section with the same header treatment as Bibliography
+          (accent tick + label + count chip) so it reads as a first-class
+          part of the answer, not a hidden extra. Grid unchanged structurally
+          (16:9 thumbnails, auto-fill 2-3 columns) but given a play-glyph
+          overlay and a real hover glow — no fabricated duration badge, since
+          the backend's video objects genuinely carry no duration data. */}
       {done && t.videos && t.videos.length > 0 && t.sources && t.sources.length > 0 && (
-        <details style={{ marginTop: 20 }} className="cb-fade">
-          <summary style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, cursor: "pointer", padding: "8px 0", listStyle: "none", display: "flex", alignItems: "center", gap: 8, userSelect: "none", fontFamily: "var(--cb-mono)" }}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-            Related videos · {t.videos.length}
-          </summary>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginTop: 10 }} className="cb-stagger">
+        <div style={{ marginTop: 24 }} className="cb-fade">
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <div style={{ width: 3, height: 18, background: accent, borderRadius: 2 }} />
+            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, letterSpacing: "0.04em", color: P.ink, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>Related videos</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", background: withAlpha(P.faint, 0.1), padding: "1px 8px", borderRadius: 3 }}>{t.videos.length}</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }} className="cb-stagger">
             {t.videos.slice(0, 6).map((v, i) => (
-              <a key={v.id || i} href={safeHref(v.url)} target="_blank" rel="noreferrer" className="cb-fade cb-card" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 3, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0 }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; }}>
+              <a key={v.id || i} href={safeHref(v.url)} target="_blank" rel="noreferrer" className="cb-fade cb-card" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 3, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 0 0 1px ${withAlpha(accent, 0.4)}, 0 8px 24px ${withAlpha(accent, 0.12)}`; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
                 <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
                   <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.15)" }}>
+                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(10,14,32,0.65)", border: "1px solid rgba(255,255,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+                    </div>
+                  </div>
                 </div>
                 <div style={{ padding: "10px 12px" }}>
                   <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", marginBottom: 4 }}>{v.title}</div>
@@ -2072,7 +2272,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
               </a>
             ))}
           </div>
-        </details>
+        </div>
       )}
       {/* Related questions */}
       {interactive && done && t.related && t.related.length > 0 && (
@@ -3128,12 +3328,12 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
                 reading) get independent defaults for exactly that reason, and
                 each is changeable here without touching the other. */}
             {animationMode !== "off" && (
-              <Section title="Background style" footer="Constellation is the lightest option (plain 2D canvas). Neural Field and Fluid Ripples render through WebGL for a more dimensional look — both fall back to Constellation automatically on a device that can't create a WebGL context.">
+              <Section title="Background style" footer="Constellation is the lightest option (plain 2D canvas). Neural Field, Fluid Ripples, and Vanta Cells render through WebGL for a more dimensional look — all three fall back to Constellation automatically on a device that can't create a WebGL context (Vanta Cells also needs its own extra ~130KB to load first, split into its own chunk so nothing else pays for it).">
                 <Row label="Intro screen" desc="Shown once, before you start exploring" control={
-                  <Picker value={bgStyleIntro} options={[["constellation", "Constellation"], ["neuralGrid", "Neural Field"], ["fluidRipples", "Fluid Ripples"]]} onChange={(v) => { sfx(); setBgStyleIntro(v); }} />
+                  <Picker value={bgStyleIntro} options={[["constellation", "Constellation"], ["neuralGrid", "Neural Field"], ["fluidRipples", "Fluid Ripples"], ["vantaCells", "Vanta Cells"]]} onChange={(v) => { sfx(); setBgStyleIntro(v); }} />
                 } />
                 <Row label="Main app" desc="Behind the search and answer views" control={
-                  <Picker value={bgStyleMain} options={[["constellation", "Constellation"], ["neuralGrid", "Neural Field"], ["fluidRipples", "Fluid Ripples"]]} onChange={(v) => { sfx(); setBgStyleMain(v); }} />
+                  <Picker value={bgStyleMain} options={[["constellation", "Constellation"], ["neuralGrid", "Neural Field"], ["fluidRipples", "Fluid Ripples"], ["vantaCells", "Vanta Cells"]]} onChange={(v) => { sfx(); setBgStyleMain(v); }} />
                 } last />
               </Section>
             )}
@@ -3471,6 +3671,7 @@ function makeStyles(P, accent, at, isMobile = false) {
        content from the animated background. The single 
        biggest premium upgrade. ── */
     answerCard: {
+      position: "relative", // v28: anchors the docked top-right action toolbar (see `toolbar` below)
       background: P.dark ? "rgba(5,8,22,0.94)" : "rgba(255,255,255,0.88)",
       backdropFilter: "blur(16px) saturate(1.2)",
       WebkitBackdropFilter: "blur(16px) saturate(1.2)",
@@ -3561,10 +3762,18 @@ function makeStyles(P, accent, at, isMobile = false) {
     srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-mono)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
     chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "all 0.2s ease" },
-    // v5: Copy/Share/Print used to be label-only text buttons while the
-    // header and every other action row in the app is icon+label — one more
-    // spot where the app quietly switched button anatomies mid-screen.
-    answerActionBtn: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, padding: "6px 14px", background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 3, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)" },
+    // v28: the old row (icon+text-label buttons, `flexWrap: "wrap"`) read as
+    // a loose pile that reflowed onto 2-3 ragged lines the moment "Source
+    // network"/"Timeline" showed up next to "Print / Save PDF" — six
+    // variable-width labels fighting for one row. Replaced with a single
+    // fixed-size icon-only toolbar (title/aria-label carry the words instead
+    // of visible text) docked to the answer card's top-right corner via
+    // `answerCard`'s new `position: relative` — it never wraps because it
+    // never needs more room than its own icons.
+    toolbar: { position: "absolute", top: 14, right: 14, display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: P.dark ? "rgba(10,14,32,0.75)" : "rgba(255,255,255,0.85)", border: `1px solid ${P.line2}`, borderRadius: 3, backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 2 },
+    // Individual button sizing/hover lives in the shared `S_toolbarBtnBase()`
+    // helper next to `ToolbarBtn` (used by every toolbar item, including
+    // AnswerPlayer's compact mode) rather than duplicated here.
 
     /* ── Footer ── */
     foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
@@ -3914,13 +4123,17 @@ function App() {
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
   // Which rendering engine the animated background uses, chosen
   // independently for the Intro screen and the main app shell (they're
-  // different surfaces with different jobs — Intro is a one-time hero
-  // moment that can afford something showier, the main shell has to sit
-  // quietly behind hours of reading). Off entirely is still governed by
-  // `animationMode` above; this only picks *which* visual renders when
-  // it isn't off. See WebGLNeuralField/WebGLFluidRipples/ConstellationField.
-  const [bgStyleIntro, setBgStyleIntro] = useState(() => getCookie("cb_bgstyle_intro") || "neuralGrid");
-  const [bgStyleMain, setBgStyleMain] = useState(() => getCookie("cb_bgstyle_main") || "constellation");
+  // different surfaces with different jobs). v27, at the user's explicit
+  // direction: Intro defaults to Vanta Cells (the actual pre-v5 Intro
+  // background, restored as a bundled npm dependency rather than the
+  // CDN script it used to be loaded from — see VantaCellsField's own
+  // comment for why that distinction matters), and the main app shell
+  // defaults to Fluid Ripples, brightened this same round. Off entirely
+  // is still governed by `animationMode` above; this only picks *which*
+  // visual renders when it isn't off. See WebGLNeuralField/
+  // WebGLFluidRipples/VantaCellsField/ConstellationField.
+  const [bgStyleIntro, setBgStyleIntro] = useState(() => getCookie("cb_bgstyle_intro") || "vantaCells");
+  const [bgStyleMain, setBgStyleMain] = useState(() => getCookie("cb_bgstyle_main") || "fluidRipples");
   const [highContrast, setHighContrast] = useState(() => getCookie("cb_hc") === "1");
   const [fontSize, setFontSize] = useState(() => getCookie("cb_fs") || "medium");
   const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
