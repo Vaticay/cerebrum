@@ -1120,17 +1120,13 @@ function Intro({ accent, P, onEnter, animationMode = "off", bgStyle = "neuralGri
         </div>
       )}
 
-      {/* Static gradient wash — present regardless of animationMode, so
-          Intro (the very first thing anyone sees) never renders as flat
-          navy even for a visitor who has animation off. Zero-cost,
-          zero-network. */}
+      {/* v29: was the same three-color haze as the main app's `.cb-ambient`
+          (see that comment for the full reasoning) — cut to a bare vignette
+          for the same reason: pure black plus sharp WebGL geometry, not a
+          soft colored fog, even for a visitor with animation off. */}
       <div aria-hidden="true" className="cb-ambient" style={{
         position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
-        background: [
-          `radial-gradient(ellipse 900px 700px at 8% -10%, ${withAlpha(accent, 0.28)}, transparent 60%)`,
-          `radial-gradient(ellipse 820px 820px at 108% 15%, ${withAlpha(ACCENTS.Violet, 0.22)}, transparent 55%)`,
-          `radial-gradient(ellipse 760px 920px at 46% 115%, ${withAlpha(ACCENTS.Teal, 0.2)}, transparent 60%)`,
-        ].join(", "),
+        background: "radial-gradient(ellipse 1400px 1000px at 50% 0%, transparent 55%, rgba(0,0,0,0.55) 100%)",
       }} />
 
       {/* Dark overlay for readability */}
@@ -1919,7 +1915,10 @@ function InfoPage({ page }) {
   // fully ignoring whatever the visitor chose (or didn't choose) in
   // Settings. Reading the same persisted cookie App() writes to keeps the
   // two in sync instead of this page being a silent exception to the fix.
-  const animationMode = (() => { try { return getCookie("cb_anim2") || "off"; } catch { return "off"; } })();
+  // v29: default flipped to "cinematic" alongside App()'s own default — see
+  // the comment on App's animationMode state for why "off" was the actual
+  // reason the WebGL background never appeared for new visitors.
+  const animationMode = (() => { try { return getCookie("cb_anim2") || "cinematic"; } catch { return "cinematic"; } })();
   const bgStyleMain = (() => { try { return getCookie("cb_bgstyle_main") || "fluidRipples"; } catch { return "fluidRipples"; } })();
   const goHome = () => { try { setCookie("cb_entered_v5", "1", 365); } catch {} window.location.href = "/"; };
   const PAGES = {
@@ -3475,13 +3474,20 @@ function makeStyles(P, accent, at, isMobile = false) {
     // subtle one." Brought closer to parity with dark so the wash is
     // something a visitor actually notices as a deliberate background,
     // not something only visible on close inspection.
+    // v29: was three overlapping 700-900px soft-color radial gradients at
+    // real opacity (0.14-0.24) — that colored haze, not any WebGL shortfall,
+    // is what reads as "cloudy web-template" instead of "sharp tech
+    // terminal." It rendered UNCONDITIONALLY, underneath and simultaneously
+    // with the WebGL field, fighting sharp geometry for the same pixels.
+    // Cut to a single, near-invisible edge vignette — pure black (P.bg is
+    // literally #000000 in the Dark palette) with just enough falloff at
+    // the corners for depth, no color wash across the middle where the
+    // WebGL field actually lives.
     ambient: {
       position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
-      background: [
-        `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.24 : 0.20)}, transparent 60%)`,
-        `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(ACCENTS.Violet, P.dark ? 0.20 : 0.16)}, transparent 55%)`,
-        `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(ACCENTS.Teal, P.dark ? 0.18 : 0.14)}, transparent 60%)`,
-      ].join(", "),
+      background: P.dark
+        ? "radial-gradient(ellipse 1400px 1000px at 50% 0%, transparent 55%, rgba(0,0,0,0.55) 100%)"
+        : `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, 0.08)}, transparent 60%)`,
     },
 
     /* ── Header: dark glass bar, minimal ──
@@ -3524,7 +3530,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     },
     headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
     brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
-    brand: { fontWeight: 700, fontSize: FONT_SIZES.heading, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-body)" },
+    brand: { fontWeight: 700, fontSize: FONT_SIZES.heading, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-display)" },
     headActions: { display: "flex", alignItems: "center", gap: isMobile ? 1 : 4 },
     // v6.6: this whole pill — including the plain word "Search" — was set in
     // --cb-mono (a JetBrains-Mono-first stack), which reads as a dev-tool/
@@ -3566,64 +3572,87 @@ function makeStyles(P, accent, at, isMobile = false) {
       fontSize: isMobile ? 52 : 84, fontWeight: 700,
       letterSpacing: "-0.05em", lineHeight: 0.92,
       color: P.ink, marginBottom: 24, position: "relative",
-      fontFamily: "var(--cb-body)",
+      // v29: was `--cb-display` fed through `--cb-body` (Inter) — the round,
+      // friendly grotesque the user called out by name on the wordmark.
+      // `--cb-display` is Space Grotesk, this file's own designated
+      // "engineered" face (see the typography comment at the top of the
+      // file) — that's what a command-center wordmark should be set in.
+      fontFamily: "var(--cb-display)",
     },
     heroSub: {
-      fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.sectionHead, color: P.ink2,
-      maxWidth: 540, lineHeight: 1.65, marginBottom: 52,
-      letterSpacing: "-0.01em", position: "relative", fontWeight: 400
+      fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, color: P.ink2,
+      maxWidth: 560, lineHeight: 1.65, marginBottom: 52,
+      letterSpacing: "0", position: "relative", fontWeight: 400,
+      // v29: injected mono into the subheadline specifically because that
+      // was named directly ("inject var(--cb-mono) ... into the
+      // sub-headline") — the body font elsewhere in the app stays Inter,
+      // this one line is deliberately terminal-flavored.
+      fontFamily: "var(--cb-mono)",
     },
 
-    /* ── Search bar: COMMAND CENTER ── */
-    searchShell: { 
-      display: "flex", alignItems: "center", gap: 12, 
+    /* ── Search bar: COMMAND-LINE HUD ──
+       v29: was a glassmorphic blurred pill next to a filled cyan "Search"
+       button — replaced per an explicit "annihilate the chunky search
+       button" directive. Solid near-black chassis, a razor-thin glowing
+       accent border instead of a frosted-glass one, a monospace `>` prompt
+       glyph in place of a magnifier icon, and the submit control shrunk to
+       a minimal `[ ↵ ]` glyph tucked at the right edge — Enter still submits
+       via the existing onKeyDown handler either way. */
+    searchShell: {
+      display: "flex", alignItems: "center", gap: 12,
       width: "100%", maxWidth: 700,
-      backdropFilter: "blur(14px) saturate(1.3)",
-      WebkitBackdropFilter: "blur(14px) saturate(1.3)",
-      background: glass,
-      border: glassBorder,
+      background: P.dark ? "#000000" : P.surface,
+      border: `1px solid ${withAlpha(accent, 0.3)}`,
       borderRadius: 3,
-      padding: isMobile ? "8px 8px 8px 16px" : "10px 10px 10px 20px", 
-      boxShadow: P.shadow, 
-      transition: "border-color 0.3s ease, box-shadow 0.3s ease", 
-      position: "relative" 
+      padding: isMobile ? "8px 8px 8px 16px" : "12px 12px 12px 20px",
+      boxShadow: `0 0 0 1px rgba(0,0,0,0.4), 0 0 24px ${withAlpha(accent, 0.08)}`,
+      transition: "border-color 0.3s ease, box-shadow 0.3s ease",
+      position: "relative"
     },
-    searchShellActive: { 
-      borderColor: withAlpha(accent, 0.4), 
-      boxShadow: `${P.shadow}, 0 0 0 1px ${withAlpha(accent, 0.15)}, 0 0 40px ${withAlpha(accent, 0.06)}` 
+    searchShellActive: {
+      borderColor: withAlpha(accent, 0.7),
+      boxShadow: `0 0 0 1px ${withAlpha(accent, 0.25)}, 0 0 40px ${withAlpha(accent, 0.18)}`
     },
-    searchInput: { 
-      flex: 1, border: "none", outline: "none", background: "transparent", 
-      fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.body, color: P.ink, 
-      minWidth: 0, letterSpacing: "-0.01em" 
+    searchPrompt: { color: accent, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.heading, fontWeight: 700, flexShrink: 0, textShadow: `0 0 10px ${withAlpha(accent, 0.6)}`, userSelect: "none" },
+    searchInput: {
+      flex: 1, border: "none", outline: "none", background: "transparent",
+      fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.body, color: P.ink,
+      minWidth: 0, letterSpacing: "0"
     },
-    searchBtn: { 
-      fontSize: FONT_SIZES.body, fontWeight: 600, 
-      background: accent, color: at, 
-      border: "none", 
-      padding: isMobile ? "12px 18px" : "12px 24px", 
-      borderRadius: 3, cursor: "pointer", 
-      fontFamily: "var(--cb-display)", flexShrink: 0, 
-      letterSpacing: "0.01em",
-      boxShadow: `0 2px 12px ${withAlpha(accent, 0.3)}` 
+    searchBtn: {
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      minWidth: 40, height: 36,
+      fontSize: FONT_SIZES.small, fontWeight: 700,
+      background: "transparent", color: accent,
+      border: `1px solid ${withAlpha(accent, 0.45)}`,
+      padding: "0 10px",
+      borderRadius: 2, cursor: "pointer",
+      fontFamily: "var(--cb-mono)", flexShrink: 0,
+      letterSpacing: "0.02em",
+      textShadow: `0 0 8px ${withAlpha(accent, 0.5)}`,
+      transition: "background 0.2s ease, box-shadow 0.2s ease",
     },
 
-    /* ── Suggestion chips ── */
+    /* ── Suggestion chips: telemetry / executable scripts ──
+       v29: were pill-shaped frosted-glass chips that faded into the
+       background at rest — redesigned as sharp-cornered `[ EXEC ]` command
+       lines: solid black, thin neon border that brightens on hover, all
+       monospace. */
     chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 700 },
-    chip: { 
-      fontSize: FONT_SIZES.small, color: P.ink2, 
-      background: P.dark ? withAlpha(P.surface, 0.4) : withAlpha(P.surface, 0.7), 
-      backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", 
-      border: glassBorder, 
-      borderRadius: 3, padding: "10px 16px", 
-      cursor: "pointer", transition: "all 0.25s ease", 
-      fontFamily: font, letterSpacing: "-0.01em" 
+    chip: {
+      fontSize: FONT_SIZES.small, color: P.ink2,
+      background: P.dark ? "#000000" : withAlpha(P.surface, 0.7),
+      border: `1px solid ${withAlpha(accent, 0.22)}`,
+      borderRadius: 2, padding: "10px 14px",
+      cursor: "pointer", transition: "all 0.2s ease",
+      fontFamily: "var(--cb-mono)", letterSpacing: "0"
     },
-    chipHover: { 
-      borderColor: withAlpha(accent, 0.3), color: accent, 
-      transform: "translateY(-2px)", 
-      boxShadow: `0 4px 20px ${withAlpha(accent, 0.1)}` 
+    chipHover: {
+      borderColor: accent, color: accent,
+      background: withAlpha(accent, 0.07),
+      boxShadow: `0 0 0 1px ${withAlpha(accent, 0.25)}, 0 0 18px ${withAlpha(accent, 0.2)}`
     },
+    chipTag: { color: accent, fontWeight: 700, marginRight: 8, opacity: 0.9 },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
 
@@ -4073,12 +4102,19 @@ function App() {
   // real sense of depth/atmosphere at effectively zero cost regardless, so
   // there's no reason to default animation on for everyone — it stays one
   // click away in Settings → Appearance for anyone who wants it.
-  // Cookie key bumped cb_anim -> cb_anim2: anyone who already has a stored
-  // preference (including everyone who was silently defaulted into
-  // "cinematic" before today) starts fresh on the new safe default instead
-  // of being stuck on the old one forever. An explicit future choice here
-  // persists normally under the new key from now on.
-  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim2") || "off");
+  // v29: this defaulted to "off", which meant the ENTIRE WebGL background
+  // system built across the last several commits (WebGLFluidRipples,
+  // VantaCellsField, WebGLNeuralField) never actually rendered for a first-
+  // time visitor — the only thing they ever saw was the static `.cb-ambient`
+  // gradient wash underneath it. That's the real root cause behind "the
+  // background looks cloudy, not tech": there was no WebGL on screen to look
+  // sharp OR cloudy, just the blur. Flipped to "cinematic" so the
+  // (now-brightened) WebGL layer is what a new visitor actually sees.
+  // `prefers-reduced-motion` still overrides this per-component (each WebGL
+  // field checks it independently), so this doesn't fight accessibility —
+  // it only changes what people who haven't opted out of motion get by
+  // default. Respects an explicit stored preference either way.
+  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim2") || "cinematic");
   // v5: this used to swap the chip row's content out from under the user
   // every 8s unconditionally — a real interaction hazard, not just a CSS
   // animation, since a keyboard user who tabs to a chip and takes >8s to
@@ -4683,14 +4719,18 @@ function App() {
                 </div>
               )}
               <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700, borderRadius: 3 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 2 }}><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.6" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.6" strokeLinecap="round" /></svg>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What are you curious about?" />
+                  <span aria-hidden="true" style={S.searchPrompt}>{">"}</span>
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Awaiting query..." />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
-                  <button style={S.searchBtn} onClick={() => ask()}>Search</button>
+                  <button
+                    style={S.searchBtn} onClick={() => ask()} title="Run query" aria-label="Run query"
+                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.boxShadow = `0 0 16px ${withAlpha(accent, 0.35)}`; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.boxShadow = "none"; }}
+                  >[ ↵ ]</button>
               </div>
               <div style={S.chips} className="cb-stagger" onMouseEnter={() => chipsPausedRef.current = true} onMouseLeave={() => chipsPausedRef.current = false} onFocus={() => chipsPausedRef.current = true} onBlur={() => chipsPausedRef.current = false}>
-                {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
+                {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}><span style={S.chipTag}>[ EXEC ]</span>{s}</button>))}
               </div>
               <div style={S.trustRow}>
                 {/* Bug: this said "+ 10 more" after 6 named databases (implying
