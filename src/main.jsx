@@ -466,20 +466,10 @@ const FONT_SIZES = {
   hero: 34,         // desktop hero titles, prominent stat numbers
 };
 
-// The brand wordmark's animated gradient cycles through a hand-picked
-// SUBSET of ACCENTS rather than the user's single selected accent — a
-// "living brand" treatment independent of theme choice. Built from named
-// ACCENTS references (not copy-pasted hex) so editing one accent's hex
-// can't silently desync the two CSS rules that share this list
-// (`.cb-kinetic > span` and `.cb-gradient-text`).
-// v7.0 redesign: this used to cycle all 6 hand-picked hues including the
-// warm end of the wheel (Rose, Amber) — at whatever moment the 8s loop
-// landed on those stops, the wordmark read as a full warm-to-cool rainbow
-// shimmer, which is more "kids' app logo" than "precision instrument."
-// Narrowed to three cool, adjacent, harmonious tones so the shimmer stays
-// premium at every phase of the animation instead of clashing at some of
-// them.
-const BRAND_GRADIENT_STOPS = [ACCENTS.Emerald, ACCENTS.Sky, ACCENTS.Indigo, ACCENTS.Emerald].join(", ");
+// v31: the wordmark's animated emerald→sky→indigo gradient (this constant
+// fed both `.cb-gradient-text` and `.cb-kinetic > span`) is retired — the
+// "Next-Gen Editorial Intelligence" direction wants a calm, solid wordmark,
+// not a cycling color shimmer. Both CSS rules now just use `currentColor`.
 
 // v5: status semantics (fact-check verdicts, retraction flags, relevance
 // tiers, correction markers) had drifted to three different "warning amber"
@@ -765,13 +755,14 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)
           }
         }}
         style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          fontSize: "0.72em", color: accent, verticalAlign: "baseline",
+          display: "inline-flex", alignItems: "center",
+          fontSize: 11, color: accent, verticalAlign: "baseline",
           textDecoration: "none", fontWeight: 600,
           fontFamily: "var(--cb-body)",
-          minWidth: "1.5em", height: "1.5em", padding: "0 6px", margin: "0 1px",
+          padding: "2px 8px", marginLeft: 4,
           borderRadius: 12,
-          background: hoverCite === n ? withAlpha(accent, 0.18) : withAlpha(accent, 0.1),
+          background: hoverCite === n ? withAlpha(accent, 0.22) : withAlpha(accent, 0.15),
+          border: `1px solid ${withAlpha(accent, 0.3)}`,
           transition: "background 0.15s ease", cursor: "pointer",
         }}>{n}</a>;
     }
@@ -984,117 +975,132 @@ function LoadingLine({ P, accent, S }) {
    ════════════════════════════════════════════════════════════════ */
 
 /* ════════════════════════════════════════════════════════════════
-   CONSTELLATION FIELD — the app's animated background
+   WEBGL INTELLIGENCE CORE — Intro screen background
 
-   Replaces the old Vanta.js/three.js background. That was ~600KB of
-   Three.js plus a Vanta effect module, both fetched from a CDN at
-   runtime — meaning it could silently never appear at all on a slow
-   connection, a corporate proxy, or an ad/script blocker, and this
-   file's own commit history spent several rounds unable to confirm
-   whether it was actually rendering for real users. This is a plain
-   <canvas>, drawn with the built-in Canvas 2D API: nothing to fetch,
-   nothing that can fail to load. It also fits the product better —
-   a sparse field of points that connect with a thin line whenever
-   two drift close enough echoes the same "how do sources relate"
-   idea the app's own Source Network feature draws as a diagram,
-   here rendered as ambient texture instead. Respects
-   prefers-reduced-motion (freezes drift, keeps a static frame),
-   pauses while the tab is hidden, and is fully theme/accent-aware.
+   v31: replaces the whole prior background lineage (ConstellationField's
+   2D canvas, then WebGLNeuralField/WebGLFluidRipples/VantaCellsField's
+   WebGL variants and the style-picker that chose between them) with one
+   dedicated, purpose-built field per screen — no user-facing style choice
+   left to make, so there's nothing for Settings to expose here anymore.
+   Raw Three.js, dynamically imported (Vite code-splits it into its own
+   lazy chunk — nothing else pays for it, no CDN, same security posture
+   as every WebGL component this file has shipped before). A Fibonacci
+   sphere of points that slowly tumbles and drifts toward the cursor —
+   deliberately quiet and premium rather than busy, matching the
+   "Next-Gen Editorial Intelligence" direction over the retired terminal
+   look. Respects prefers-reduced-motion by simply not mounting: the flat
+   obsidian/white page background (see `S.page`) is a legitimate resting
+   state for this aesthetic, not a fallback bug.
    ════════════════════════════════════════════════════════════════ */
-function ConstellationField({ accent, secondary, density = 1, speed = 1, paused = false, dim = 1 }) {
-  const canvasRef = useRef(null);
-  const pausedRef = useRef(paused);
-  const speedRef = useRef(speed);
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
-  useEffect(() => { speedRef.current = speed; }, [speed]);
-
+function WebGLIntelligenceCore({ accent, P, speed = 1, paused = false }) {
+  const mountRef = useRef(null);
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
     const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) return;
+    let cancelled = false; let renderer, scene, camera, points, raf;
+    (async () => {
+      try {
+        const THREE = await import("three");
+        if (cancelled || !mountRef.current) return;
+        const w = mountRef.current.clientWidth; const h = mountRef.current.clientHeight;
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(45, w / h, 1, 2000);
+        camera.position.z = 800;
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(w, h); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        mountRef.current.appendChild(renderer.domElement);
 
-    const hexToRgb = (hex) => {
-      const h = hex.replace("#", "");
-      return [parseInt(h.slice(0, 2), 16) || 0, parseInt(h.slice(2, 4), 16) || 0, parseInt(h.slice(4, 6), 16) || 0];
-    };
-    const c1 = hexToRgb(accent);
-    const c2 = hexToRgb(secondary || accent);
-
-    const state = { w: 0, h: 0, nodes: [], raf: null };
-    const MAX_DIST = 130;
-
-    function seed() {
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.max(1, Math.round(w * dpr));
-      canvas.height = Math.max(1, Math.round(h * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      state.w = w; state.h = h;
-      const count = Math.max(12, Math.min(64, Math.round((w * h / 22000) * density)));
-      state.nodes = Array.from({ length: count }, () => ({
-        x: Math.random() * w, y: Math.random() * h,
-        vx: (Math.random() - 0.5) * 0.14, vy: (Math.random() - 0.5) * 0.14,
-        r: 1 + Math.random() * 1.3, mix: Math.random(),
-      }));
-    }
-    seed();
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(seed) : null;
-    if (ro) ro.observe(canvas);
-    else window.addEventListener("resize", seed);
-
-    function frame() {
-      state.raf = requestAnimationFrame(frame);
-      const { w, h, nodes } = state;
-      if (!w || !h || document.hidden) return;
-      ctx.clearRect(0, 0, w, h);
-      if (!pausedRef.current && !reduceMotion) {
-        for (const n of nodes) {
-          n.x += n.vx * speedRef.current;
-          n.y += n.vy * speedRef.current;
-          if (n.x < -20) n.x = w + 20; else if (n.x > w + 20) n.x = -20;
-          if (n.y < -20) n.y = h + 20; else if (n.y > h + 20) n.y = -20;
+        const particleCount = 4000;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const radius = 300;
+        for (let i = 0; i < particleCount; i++) {
+          const phi = Math.acos(1 - 2 * (i + 0.5) / particleCount);
+          const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+          positions[i * 3] = radius * Math.cos(theta) * Math.sin(phi);
+          positions[i * 3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
+          positions[i * 3 + 2] = radius * Math.cos(phi);
         }
-      }
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i], b = nodes[j];
-          const dx = a.x - b.x, dy = a.y - b.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < MAX_DIST) {
-            const t = 1 - d / MAX_DIST;
-            const [r, g, bl] = a.mix < 0.5 ? c1 : c2;
-            ctx.strokeStyle = `rgba(${r},${g},${bl},${t * 0.24 * dim})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-          }
-        }
-      }
-      for (const n of nodes) {
-        const [r, g, bl] = n.mix < 0.5 ? c1 : c2;
-        ctx.beginPath();
-        ctx.fillStyle = `rgba(${r},${g},${bl},${0.6 * dim})`;
-        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    frame();
+        geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({ color: new THREE.Color(accent), size: 1.5, transparent: true, opacity: 0.6, sizeAttenuation: true });
+        points = new THREE.Points(geometry, material); scene.add(points);
 
-    return () => {
-      if (state.raf) cancelAnimationFrame(state.raf);
-      if (ro) ro.disconnect(); else window.removeEventListener("resize", seed);
-    };
-  }, [accent, secondary, density, dim]);
+        let mouseX = 0, mouseY = 0;
+        const onMouseMove = (e) => { mouseX = (e.clientX - window.innerWidth / 2) * 0.0004; mouseY = (e.clientY - window.innerHeight / 2) * 0.0004; };
+        window.addEventListener("mousemove", onMouseMove);
 
-  return <canvas ref={canvasRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />;
+        const handleResize = () => { if (!mountRef.current) return; camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight); };
+        window.addEventListener("resize", handleResize);
+
+        let t = 0;
+        const animate = () => { raf = requestAnimationFrame(animate); if (!paused) t += 0.002 * speed; points.rotation.y = t + mouseX; points.rotation.x = t * 0.5 + mouseY; renderer.render(scene, camera); };
+        animate();
+        mountRef.current._cleanup = () => { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("resize", handleResize); cancelAnimationFrame(raf); geometry.dispose(); material.dispose(); renderer.dispose(); if (mountRef.current?.contains(renderer.domElement)) mountRef.current.removeChild(renderer.domElement); };
+      } catch { /* no WebGL context available — flat page background stands in, same as prior fields' fallback behavior */ }
+    })();
+    return () => { cancelled = true; mountRef.current?._cleanup?.(); };
+  }, [accent, speed, paused]);
+  return <div ref={mountRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", zIndex: 0 }} />;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   WEBGL TOPOGRAPHY GRID — main app background
+
+   Quieter than the Intro field on purpose: it sits behind the search
+   thread once a visitor has actually started reading, so it needs to
+   recede rather than draw the eye. A gently undulating point-cloud plane
+   viewed from a low, distant angle, opacity dialed down hard (0.04-0.08)
+   so it reads as texture/depth at the edges of the viewport rather than
+   competing with answer text for attention.
+   ════════════════════════════════════════════════════════════════ */
+function WebGLTopographyGrid({ accent, P, speed = 1, paused = false }) {
+  const mountRef = useRef(null);
+  useEffect(() => {
+    const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) return;
+    let cancelled = false; let renderer, scene, camera, points, raf;
+    (async () => {
+      try {
+        const THREE = await import("three");
+        if (cancelled || !mountRef.current) return;
+        const w = mountRef.current.clientWidth; const h = mountRef.current.clientHeight;
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(60, w / h, 1, 4000);
+        camera.position.set(0, 300, 600); camera.lookAt(0, 0, 0);
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(w, h); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        mountRef.current.appendChild(renderer.domElement);
+
+        const size = 3000, segments = 90;
+        const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
+        geometry.rotateX(-Math.PI / 2);
+        const material = new THREE.PointsMaterial({ color: new THREE.Color(P.dark ? "#ffffff" : "#000000"), size: 1.2, transparent: true, opacity: P.dark ? 0.08 : 0.04, sizeAttenuation: true });
+        points = new THREE.Points(geometry, material); scene.add(points);
+
+        const handleResize = () => { if (!mountRef.current) return; camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight); };
+        window.addEventListener("resize", handleResize);
+
+        let t = 0;
+        const animate = () => {
+          raf = requestAnimationFrame(animate); if (paused) return; t += 0.015 * speed;
+          const pos = geometry.attributes.position.array;
+          for (let i = 0; i < pos.length / 3; i++) { const ix = i * 3, x = pos[ix], z = pos[ix + 2]; pos[ix + 1] = Math.sin((x / 200) + t) * 40 + Math.cos((z / 200) + t) * 40; }
+          geometry.attributes.position.needsUpdate = true; renderer.render(scene, camera);
+        };
+        animate();
+        mountRef.current._cleanup = () => { window.removeEventListener("resize", handleResize); cancelAnimationFrame(raf); geometry.dispose(); material.dispose(); renderer.dispose(); if (mountRef.current?.contains(renderer.domElement)) mountRef.current.removeChild(renderer.domElement); };
+      } catch { /* no WebGL context available — flat page background stands in */ }
+    })();
+    return () => { cancelled = true; mountRef.current?._cleanup?.(); };
+  }, [P.dark, speed, paused]);
+  return <div ref={mountRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", zIndex: 0 }} />;
 }
 
 
 /* ════════════════════════════════════════════════════════════════
    INTRO background
    ════════════════════════════════════════════════════════════════ */
-function Intro({ accent, P, onEnter, animationMode = "off", bgStyle = "neuralGrid" }) {
+function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const [revealed, setRevealed] = useState(false);
   const [ready, setReady] = useState(false);
   const isMobile = useIsMobile();
@@ -1128,7 +1134,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", bgStyle = "neuralGri
           flat, static screen here too. */}
       {animationMode !== "off" && (
         <div style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }}>
-          <LivingBackground accent={accent} P={P} intensity="cinematic" speed={1} paused={false} style={bgStyle} />
+          <LivingBackground accent={accent} P={P} intensity="cinematic" speed={1} paused={false} variant="intro" />
         </div>
       )}
 
@@ -1267,21 +1273,17 @@ function Intro({ accent, P, onEnter, animationMode = "off", bgStyle = "neuralGri
 
 
 /* ════════════════════════════════════════════════════════════════
-   LIVING BACKGROUND — ConstellationField, theme-aware
+   LIVING BACKGROUND — dispatches per screen, not per user choice
 
-   Wraps ConstellationField (see its own comment block above) with
-   the theme/intensity logic that used to pick a Vanta effect: a
-   quieter, dimmer field for light theme (a bright canvas full-bleed
-   behind light-colored surfaces reads muddy fast), a fuller one for
-   dark. Paused automatically while the tab is hidden (handled inside
-   ConstellationField itself) or while Settings is open (the `paused`
-   prop, passed straight through).
+   v31: used to pick between four background styles via a Settings
+   picker (Constellation/Neural Field/Fluid Ripples/Vanta Cells) chosen
+   independently for Intro vs. the main app. That choice is gone — one
+   dedicated field per screen now (see WebGLIntelligenceCore and
+   WebGLTopographyGrid above Intro's own comment block) — so this is
+   just a thin wrapper picking the right one by `variant` and applying
+   the same theme/intensity dimming logic as before.
    ════════════════════════════════════════════════════════════════ */
-function LivingBackground({ accent, P, intensity = "cinematic", speed = 1, paused = false, style = "constellation" }) {
-  const secondary = hueShift(accent, P.dark ? 50 : -40);
-  const density = intensity === "subtle" ? 0.65 : 1;
-  const dim = P.dark ? 1 : 0.55;
-  const shared = { accent, secondary, density, speed, paused, dim };
+function LivingBackground({ accent, P, intensity = "cinematic", speed = 1, paused = false, variant = "main" }) {
   return (
     <div className="cb-constellation-host" style={{
       position: "fixed", inset: 0, width: "100%", height: "100%",
@@ -1289,322 +1291,11 @@ function LivingBackground({ accent, P, intensity = "cinematic", speed = 1, pause
       opacity: intensity === "subtle" ? 0.55 : 1,
       transition: "opacity 0.5s ease",
     }} aria-hidden="true">
-      {style === "neuralGrid" ? <WebGLNeuralField {...shared} />
-        : style === "fluidRipples" ? <WebGLFluidRipples {...shared} />
-        : style === "vantaCells" ? <VantaCellsField {...shared} />
-        : <ConstellationField {...shared} />}
+      {variant === "intro"
+        ? <WebGLIntelligenceCore accent={accent} P={P} speed={speed} paused={paused} />
+        : <WebGLTopographyGrid accent={accent} P={P} speed={speed} paused={paused} />}
     </div>
   );
-}
-
-
-/* ════════════════════════════════════════════════════════════════
-   WEBGL NEURAL FIELD — genuine GPU-rendered node network
-
-   The same drifting-node simulation ConstellationField runs (CPU-side
-   physics — 14-70 points don't need a GPU to move), rasterized through
-   raw WebGL1 instead of the 2d canvas context so nodes come out as soft
-   additive glow sprites and the connecting edges get true additive
-   blending: where the network is dense, light actually stacks instead
-   of just flatly compositing the way a 2d canvas does. Every frame is
-   exactly two draw calls — one gl.LINES batch, one gl.POINTS batch,
-   each a single buffer upload — so it stays cheap even at 70 nodes.
-   No external shader library, no texture asset, no CDN: this is WebGL
-   used purely as a rendering backend, authored entirely in this file,
-   so it can never fail to load and never phones anywhere.
-   Falls back to ConstellationField automatically if WebGL can't be
-   acquired at all (old GPU, disabled in the browser, context lost).
-   ════════════════════════════════════════════════════════════════ */
-function WebGLNeuralField({ accent, secondary, density = 1, speed = 1, paused = false, dim = 1 }) {
-  const canvasRef = useRef(null);
-  const pausedRef = useRef(paused);
-  const speedRef = useRef(speed);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
-  useEffect(() => { speedRef.current = speed; }, [speed]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    let gl;
-    try {
-      gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: false, antialias: true })
-        || canvas.getContext("experimental-webgl", { alpha: true, premultipliedAlpha: false });
-    } catch { gl = null; }
-    if (!gl) { setFailed(true); return; }
-
-    const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    function compile(type, src) {
-      const sh = gl.createShader(type);
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { gl.deleteShader(sh); return null; }
-      return sh;
-    }
-    function link(vsSrc, fsSrc) {
-      const vs = compile(gl.VERTEX_SHADER, vsSrc), fs = compile(gl.FRAGMENT_SHADER, fsSrc);
-      if (!vs || !fs) return null;
-      const prog = gl.createProgram();
-      gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
-      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-      return prog;
-    }
-
-    const lineProg = link(
-      `attribute vec2 aPos; attribute vec4 aColor; varying vec4 vColor;
-       void main() { gl_Position = vec4(aPos, 0.0, 1.0); vColor = aColor; }`,
-      `precision mediump float; varying vec4 vColor;
-       void main() { gl_FragColor = vec4(vColor.rgb * vColor.a, vColor.a); }`
-    );
-    const ptProg = link(
-      `attribute vec2 aPos; attribute vec4 aColor; attribute float aSize; varying vec4 vColor;
-       void main() { gl_Position = vec4(aPos, 0.0, 1.0); gl_PointSize = aSize; vColor = aColor; }`,
-      `precision mediump float; varying vec4 vColor;
-       void main() {
-         vec2 d = gl_PointCoord - vec2(0.5);
-         float r = length(d) * 2.0;
-         float glow = pow(max(0.0, 1.0 - r), 2.2);
-         gl_FragColor = vec4(vColor.rgb * vColor.a * glow, vColor.a * glow);
-       }`
-    );
-    if (!lineProg || !ptProg) { setFailed(true); return; }
-
-    const hexToRgb = (hex) => {
-      const h = hex.replace("#", "");
-      return [parseInt(h.slice(0, 2), 16) / 255 || 0, parseInt(h.slice(2, 4), 16) / 255 || 0, parseInt(h.slice(4, 6), 16) / 255 || 0];
-    };
-    const c1 = hexToRgb(accent);
-    const c2 = hexToRgb(secondary || accent);
-
-    const state = { w: 0, h: 0, dpr: 1, nodes: [], raf: null };
-    const MAX_DIST_FRAC = 0.16;
-
-    function seed() {
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.max(1, Math.round(w * dpr));
-      canvas.height = Math.max(1, Math.round(h * dpr));
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      state.w = w; state.h = h; state.dpr = dpr;
-      const count = Math.max(14, Math.min(70, Math.round((w * h / 20000) * density)));
-      state.nodes = Array.from({ length: count }, () => ({
-        x: Math.random(), y: Math.random(),
-        vx: (Math.random() - 0.5) * 0.00028, vy: (Math.random() - 0.5) * 0.00028,
-        r: 2.2 + Math.random() * 2.4, mix: Math.random(),
-      }));
-    }
-    seed();
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(seed) : null;
-    if (ro) ro.observe(canvas); else window.addEventListener("resize", seed);
-
-    const lineBuf = gl.createBuffer();
-    const ptBuf = gl.createBuffer();
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
-
-    function frame() {
-      state.raf = requestAnimationFrame(frame);
-      const { nodes } = state;
-      if (!state.w || !state.h || document.hidden) return;
-      if (!pausedRef.current && !reduceMotion) {
-        for (const n of nodes) {
-          n.x += n.vx * speedRef.current; n.y += n.vy * speedRef.current;
-          if (n.x < -0.05) n.x = 1.05; else if (n.x > 1.05) n.x = -0.05;
-          if (n.y < -0.05) n.y = 1.05; else if (n.y > 1.05) n.y = -0.05;
-        }
-      }
-      gl.clear(gl.COLOR_BUFFER_BIT);
-
-      const lineVerts = [];
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i], b = nodes[j];
-          const dx = a.x - b.x, dy = a.y - b.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < MAX_DIST_FRAC) {
-            const t = (1 - d / MAX_DIST_FRAC) * 0.5 * dim;
-            const [r, g, bl] = a.mix < 0.5 ? c1 : c2;
-            const ax = a.x * 2 - 1, ay = 1 - a.y * 2, bx = b.x * 2 - 1, by = 1 - b.y * 2;
-            lineVerts.push(ax, ay, r, g, bl, t, bx, by, r, g, bl, t);
-          }
-        }
-      }
-      if (lineVerts.length) {
-        gl.useProgram(lineProg);
-        gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lineVerts), gl.DYNAMIC_DRAW);
-        const stride = 6 * 4;
-        const aPos = gl.getAttribLocation(lineProg, "aPos");
-        const aColor = gl.getAttribLocation(lineProg, "aColor");
-        gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, stride, 0);
-        gl.enableVertexAttribArray(aColor); gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 8);
-        gl.drawArrays(gl.LINES, 0, lineVerts.length / 6);
-      }
-
-      const ptVerts = [];
-      for (const n of nodes) {
-        const [r, g, bl] = n.mix < 0.5 ? c1 : c2;
-        const px = n.x * 2 - 1, py = 1 - n.y * 2;
-        ptVerts.push(px, py, r, g, bl, 0.85 * dim, n.r * state.dpr * 3.2);
-      }
-      gl.useProgram(ptProg);
-      gl.bindBuffer(gl.ARRAY_BUFFER, ptBuf);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ptVerts), gl.DYNAMIC_DRAW);
-      const stride2 = 7 * 4;
-      const aPos2 = gl.getAttribLocation(ptProg, "aPos");
-      const aColor2 = gl.getAttribLocation(ptProg, "aColor");
-      const aSize2 = gl.getAttribLocation(ptProg, "aSize");
-      gl.enableVertexAttribArray(aPos2); gl.vertexAttribPointer(aPos2, 2, gl.FLOAT, false, stride2, 0);
-      gl.enableVertexAttribArray(aColor2); gl.vertexAttribPointer(aColor2, 4, gl.FLOAT, false, stride2, 8);
-      gl.enableVertexAttribArray(aSize2); gl.vertexAttribPointer(aSize2, 1, gl.FLOAT, false, stride2, 24);
-      gl.drawArrays(gl.POINTS, 0, ptVerts.length / 7);
-    }
-    frame();
-
-    return () => {
-      if (state.raf) cancelAnimationFrame(state.raf);
-      if (ro) ro.disconnect(); else window.removeEventListener("resize", seed);
-      try {
-        gl.deleteBuffer(lineBuf); gl.deleteBuffer(ptBuf);
-        gl.deleteProgram(lineProg); gl.deleteProgram(ptProg);
-      } catch {}
-    };
-  }, [accent, secondary, density, dim]);
-
-  if (failed) return <ConstellationField accent={accent} secondary={secondary} density={density} speed={speed} paused={paused} dim={dim} />;
-  return <canvas ref={canvasRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />;
-}
-
-
-/* ════════════════════════════════════════════════════════════════
-   WEBGL FLUID RIPPLES — single-shader full-screen background
-
-   One full-viewport triangle, one fragment shader: two drifting
-   centers each emit a ripple field, the two interfere, and the sum is
-   remapped into a soft additive glow tinted by the active accent and
-   its hue-shifted partner. This is an original implementation written
-   for this file — not a copy of any third-party site's shader — so
-   it never depends on an external host being reachable, licensed, or
-   even still online.
-   ════════════════════════════════════════════════════════════════ */
-function WebGLFluidRipples({ accent, secondary, speed = 1, paused = false, dim = 1 }) {
-  const canvasRef = useRef(null);
-  const pausedRef = useRef(paused);
-  const speedRef = useRef(speed);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
-  useEffect(() => { speedRef.current = speed; }, [speed]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    let gl;
-    try {
-      gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: false })
-        || canvas.getContext("experimental-webgl", { alpha: true, premultipliedAlpha: false });
-    } catch { gl = null; }
-    if (!gl) { setFailed(true); return; }
-
-    const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    function compile(type, src) {
-      const sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { gl.deleteShader(sh); return null; }
-      return sh;
-    }
-    const vs = compile(gl.VERTEX_SHADER, `attribute vec2 aPos; void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`);
-    const fs = compile(gl.FRAGMENT_SHADER, `
-      precision mediump float;
-      uniform vec2 uRes; uniform float uTime; uniform vec3 uColor1; uniform vec3 uColor2; uniform float uDim;
-      void main() {
-        vec2 uv = gl_FragCoord.xy / uRes.xy;
-        vec2 p = uv * 2.0 - 1.0;
-        p.x *= uRes.x / uRes.y;
-        float t = uTime;
-        vec2 c1 = vec2(sin(t * 0.11) * 0.55, cos(t * 0.08) * 0.4);
-        vec2 c2 = vec2(cos(t * 0.07) * 0.6, sin(t * 0.09) * 0.45);
-        float d1 = length(p - c1);
-        float d2 = length(p - c2);
-        float ripple = sin(d1 * 11.0 - t * 1.3) + sin(d2 * 9.0 - t * 0.9);
-        // v27: brightened at the user's direction — wider dynamic range
-        // (0.38/0.62 instead of 0.25/0.5 gives deeper troughs and hotter
-        // peaks instead of hovering in a narrow mid-gray band) and a
-        // farther-reaching vignette so the effect actually covers the
-        // viewport instead of fading out just past center.
-        ripple = ripple * 0.38 + 0.62;
-        float vign = smoothstep(1.85, 0.05, length(p));
-        float mixAmt = sin(d1 * 3.0 - t * 0.15) * 0.5 + 0.5;
-        vec3 col = mix(uColor1, uColor2, mixAmt);
-        float alpha = clamp(ripple, 0.0, 1.0) * vign * uDim * 0.85;
-        gl_FragColor = vec4(col * alpha, alpha);
-      }
-    `);
-    if (!vs || !fs) { setFailed(true); return; }
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { setFailed(true); return; }
-    gl.useProgram(prog);
-
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const aPos = gl.getAttribLocation(prog, "aPos");
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-
-    const uRes = gl.getUniformLocation(prog, "uRes");
-    const uTime = gl.getUniformLocation(prog, "uTime");
-    const uColor1 = gl.getUniformLocation(prog, "uColor1");
-    const uColor2 = gl.getUniformLocation(prog, "uColor2");
-    const uDim = gl.getUniformLocation(prog, "uDim");
-
-    const hexToRgb = (hex) => {
-      const h = hex.replace("#", "");
-      return [parseInt(h.slice(0, 2), 16) / 255 || 0, parseInt(h.slice(2, 4), 16) / 255 || 0, parseInt(h.slice(4, 6), 16) / 255 || 0];
-    };
-    const c1 = hexToRgb(accent), c2 = hexToRgb(secondary || accent);
-
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
-
-    const state = { raf: null, t: 0, last: 0 };
-    function resize() {
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.max(1, Math.round(w * dpr));
-      canvas.height = Math.max(1, Math.round(h * dpr));
-      gl.viewport(0, 0, canvas.width, canvas.height);
-    }
-    resize();
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
-    if (ro) ro.observe(canvas); else window.addEventListener("resize", resize);
-
-    function frame(now) {
-      state.raf = requestAnimationFrame(frame);
-      if (document.hidden) return;
-      const dt = state.last ? Math.min(0.05, (now - state.last) / 1000) : 0;
-      state.last = now;
-      if (!pausedRef.current && !reduceMotion) state.t += dt * speedRef.current;
-      gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform1f(uTime, state.t);
-      gl.uniform3f(uColor1, c1[0], c1[1], c1[2]);
-      gl.uniform3f(uColor2, c2[0], c2[1], c2[2]);
-      gl.uniform1f(uDim, dim);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-    }
-    state.raf = requestAnimationFrame(frame);
-
-    return () => {
-      if (state.raf) cancelAnimationFrame(state.raf);
-      if (ro) ro.disconnect(); else window.removeEventListener("resize", resize);
-      try { gl.deleteBuffer(buf); gl.deleteProgram(prog); gl.deleteShader(vs); gl.deleteShader(fs); } catch {}
-    };
-  }, [accent, secondary, dim]);
-
-  if (failed) return <ConstellationField accent={accent} secondary={secondary} speed={speed} paused={paused} dim={dim} />;
-  return <canvas ref={canvasRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />;
 }
 
 
@@ -1632,92 +1323,15 @@ function KineticText({ text, style, className }) {
 }
 
 
-/* ════════════════════════════════════════════════════════════════
-   VANTA CELLS — the pre-v5 Intro background, brought back as a
-   first-party bundled dependency instead of a runtime CDN script
-
-   Commit 23 removed Vanta.js/Three.js because they were being fetched
-   from cdnjs.cloudflare.com/cdn.jsdelivr.net at runtime — a genuine
-   supply-chain risk (a compromised or MITM'd CDN can inject arbitrary
-   code into every page load) and a reliability one (nothing here could
-   ever confirm the fetch actually succeeds for a real visitor). Bringing
-   the exact look back doesn't require reopening either problem: `vanta`
-   and `three` are now regular npm dependencies (see package.json),
-   fetched once at build time, version-pinned, and bundled into this
-   app's own JS output — served from the same origin as everything else,
-   zero runtime network request, zero CSP change. `import()` below is a
-   dynamic import purely for code-splitting (so the ~130KB this adds
-   isn't in everyone's bundle, only whoever's viewport actually renders
-   Intro with this style selected), not a network fetch of someone
-   else's hosted copy.
-
-   Vanta's own API expects a global `THREE` (its README shows it reading
-   `window.THREE`, from an era before bundlers made ESM imports easy) —
-   set once here from the bundled module, not from a `<script>` tag.
-   Falls back to WebGLNeuralField if dynamic import or WebGL context
-   creation fails for any reason, same as the other two background
-   components, and is skipped entirely (falls back immediately) for
-   `prefers-reduced-motion`, since Vanta has no built-in pause API to
-   respect it after the fact. */
-function VantaCellsField({ accent, secondary, speed = 1, paused = false, dim = 1 }) {
-  const hostRef = useRef(null);
-  const effectRef = useRef(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) { setFailed(true); return; }
-    let cancelled = false;
-    const toHex = (hex) => parseInt((hex || "#ffffff").replace("#", ""), 16) || 0xffffff;
-    (async () => {
-      try {
-        const THREE = await import("three");
-        if (typeof window !== "undefined") window.THREE = THREE;
-        const mod = await import("vanta/dist/vanta.cells.min.js");
-        const CELLS = mod.default || mod;
-        if (cancelled || !hostRef.current) return;
-        effectRef.current = CELLS({
-          el: hostRef.current,
-          THREE,
-          mouseControls: true,
-          touchControls: true,
-          gyroControls: false,
-          scaleMobile: 1.0,
-          color1: toHex(accent),
-          color2: toHex(secondary || accent),
-          size: 1.5,
-          speed: Math.max(0.3, speed) * (dim < 1 ? 0.7 : 1),
-          backgroundColor: 0x000000,
-        });
-      } catch {
-        if (!cancelled) setFailed(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      try { effectRef.current?.destroy(); } catch {}
-      effectRef.current = null;
-    };
-  }, [accent, secondary, dim]);
-
-  useEffect(() => {
-    if (effectRef.current?.setOptions) { try { effectRef.current.setOptions({ speed: Math.max(0.3, speed) }); } catch {} }
-  }, [speed]);
-
-  if (failed) return <WebGLNeuralField accent={accent} secondary={secondary} speed={speed} paused={paused} dim={dim} />;
-  return <div ref={hostRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />;
-}
-
-
-/* v7.1: this banner used to promise a WebGL particle field with
-   mouse-raycasting and multi-pass bloom, sitting directly on top of
-   MicButton — a component that has nothing to do with any of that.
-   Whatever it was written for never got attached below it. The real
-   WebGL backgrounds it was describing now exist for real, under their
-   own accurate comment blocks, right above LivingBackground further up
-   this file (WebGLNeuralField, WebGLFluidRipples, VantaCellsField).
-   Removed rather than left as a description of a feature sitting over
-   the wrong code. */
+/* v31: this used to be VantaCellsField — the pre-v5 Intro background
+   brought back as a bundled npm dependency (`vanta`+`three`) rather than a
+   runtime CDN script, with WebGLNeuralField as its fallback. Both are gone
+   now: the "Next-Gen Editorial Intelligence" rewrite retired the whole
+   style-picker lineage (Constellation/Neural Field/Fluid Ripples/Vanta
+   Cells) in favor of one dedicated field per screen — WebGLIntelligenceCore
+   for Intro, WebGLTopographyGrid for the main app, both defined up near
+   Intro's own comment block. `vanta` stays out of package.json going
+   forward; `three` remains, since the new fields use it directly. */
 function MicButton({ onTranscript, accent, P }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
@@ -1931,7 +1545,6 @@ function InfoPage({ page }) {
   // the comment on App's animationMode state for why "off" was the actual
   // reason the WebGL background never appeared for new visitors.
   const animationMode = (() => { try { return getCookie("cb_anim2") || "cinematic"; } catch { return "cinematic"; } })();
-  const bgStyleMain = (() => { try { return getCookie("cb_bgstyle_main") || "fluidRipples"; } catch { return "fluidRipples"; } })();
   const goHome = () => { try { setCookie("cb_entered_v5", "1", 365); } catch {} window.location.href = "/"; };
   const PAGES = {
     about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
@@ -1975,7 +1588,7 @@ function InfoPage({ page }) {
       }} />
       {animationMode !== "off" && (
         <div style={{ position: "fixed", inset: 0, opacity: 0.4, pointerEvents: "none", zIndex: 0 }}>
-          <LivingBackground accent={accent} P={P} intensity="subtle" speed={0.6} paused={false} style={bgStyleMain} />
+          <LivingBackground accent={accent} P={P} intensity="subtle" speed={0.6} paused={false} variant="main" />
         </div>
       )}
       <header style={{ position: "sticky", top: 0, zIndex: 10 }}>
@@ -3087,7 +2700,7 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
    Proper alignment, accessibility, real settings (no orphaned
    controls — every piece of state below is reachable from here).
    ════════════════════════════════════════════════════════════════ */
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, bgStyleIntro, setBgStyleIntro, bgStyleMain, setBgStyleMain, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "general");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -3333,21 +2946,12 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               )}
             </Section>
 
-            {/* Which engine renders the background is a separate choice from
-                whether it's on at all (that's the toggle above) — Intro (a
-                one-time hero screen) and the main app shell (behind hours of
-                reading) get independent defaults for exactly that reason, and
-                each is changeable here without touching the other. */}
-            {animationMode !== "off" && (
-              <Section title="Background style" footer="Constellation is the lightest option (plain 2D canvas). Neural Field, Fluid Ripples, and Vanta Cells render through WebGL for a more dimensional look — all three fall back to Constellation automatically on a device that can't create a WebGL context (Vanta Cells also needs its own extra ~130KB to load first, split into its own chunk so nothing else pays for it).">
-                <Row label="Intro screen" desc="Shown once, before you start exploring" control={
-                  <Picker value={bgStyleIntro} options={[["constellation", "Constellation"], ["neuralGrid", "Neural Field"], ["fluidRipples", "Fluid Ripples"], ["vantaCells", "Vanta Cells"]]} onChange={(v) => { sfx(); setBgStyleIntro(v); }} />
-                } />
-                <Row label="Main app" desc="Behind the search and answer views" control={
-                  <Picker value={bgStyleMain} options={[["constellation", "Constellation"], ["neuralGrid", "Neural Field"], ["fluidRipples", "Fluid Ripples"], ["vantaCells", "Vanta Cells"]]} onChange={(v) => { sfx(); setBgStyleMain(v); }} />
-                } last />
-              </Section>
-            )}
+            {/* v31: the "Background style" picker (Constellation/Neural
+                Field/Fluid Ripples/Vanta Cells, independently for Intro vs.
+                main app) is gone along with the components it chose between
+                — one dedicated field per screen now, not a user choice. The
+                on/off toggle above this still governs prefers-reduced-motion-
+                style opt-out; there's just nothing left to pick a style of. */}
           </>)}
 
           {tab === "accessibility" && (<>
@@ -3469,7 +3073,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     // overflowX: "clip" lives here now instead of on html/body — see the
     // matching comment on the `html, body` CSS rule near the bottom of this
     // file for why (v25 wheel-scroll hotfix).
-    page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
+    // v31: flat, literal obsidian/white per the "Next-Gen Editorial
+    // Intelligence" spec — not P.bg (a themed near-black/near-white that could
+    // drift with palette changes), a fixed hex so the page reads as pure
+    // premium black or pure white no matter what accent is active.
+    page: { minHeight: "100dvh", background: P.dark ? "#040508" : "#ffffff", color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
     /* ── Ambient wash: the always-on depth layer ──
@@ -3648,9 +3256,8 @@ function makeStyles(P, accent, at, isMobile = false) {
     chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 700 },
     chip: {
       fontSize: FONT_SIZES.small, color: P.ink2,
-      background: P.dark ? withAlpha(P.surface, 0.4) : withAlpha(P.surface, 0.7),
-      backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
-      border: glassBorder,
+      background: "transparent",
+      border: `1px solid ${withAlpha(P.ink, 0.1)}`,
       borderRadius: 100, padding: "10px 18px",
       cursor: "pointer", transition: "all 0.25s ease",
       fontFamily: "var(--cb-body)", letterSpacing: "-0.01em"
@@ -3796,8 +3403,13 @@ function makeStyles(P, accent, at, isMobile = false) {
     srcList: { display: "flex", flexDirection: "column", gap: 2 },
     empty: { fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
     srcItem: { padding: "16px 14px", margin: "0 -14px", borderRadius: 3, transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}` },
+    // v31: srcTitle was already inheriting the page's body font (`font`,
+    // set on `page:` at the root) — never mono to begin with, so nothing to
+    // change there. srcMeta was the one actually set to mono; switched to
+    // body, since long author lists/journal names in a monospace face read
+    // cramped and harder to scan than the same text in the body sans-serif.
     srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
-    srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-mono)" },
+    srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-body)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
     chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "all 0.2s ease" },
     // v28: the old row (icon+text-label buttons, `flexWrap: "wrap"`) read as
@@ -3808,10 +3420,13 @@ function makeStyles(P, accent, at, isMobile = false) {
     // of visible text) docked to the answer card's top-right corner via
     // `answerCard`'s new `position: relative` — it never wraps because it
     // never needs more room than its own icons.
-    toolbar: { position: "absolute", top: 14, right: 14, display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: P.dark ? "rgba(10,14,32,0.75)" : "rgba(255,255,255,0.85)", border: `1px solid ${P.line2}`, borderRadius: 3, backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 2 },
-    // Individual button sizing/hover lives in the shared `S_toolbarBtnBase()`
-    // helper next to `ToolbarBtn` (used by every toolbar item, including
-    // AnswerPlayer's compact mode) rather than duplicated here.
+    // v31: was its own chip — a bordered, blurred, tinted pill sitting on
+    // the answer card. Direction this round is explicit: "remove the heavy
+    // background color, border, and blur... let the icons sit invisibly
+    // against the main answer card until hovered." Now the row is pure
+    // layout, no chrome of its own — each icon's own hover wash (in
+    // `ToolbarBtn`/`S_toolbarBtnBase`) is the only thing that ever renders.
+    toolbar: { position: "absolute", top: 14, right: 14, display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
 
     /* ── Footer ── */
     foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
@@ -4166,19 +3781,11 @@ function App() {
   // now has a real control below instead of being permanently stuck at its
   // default.
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
-  // Which rendering engine the animated background uses, chosen
-  // independently for the Intro screen and the main app shell (they're
-  // different surfaces with different jobs). v27, at the user's explicit
-  // direction: Intro defaults to Vanta Cells (the actual pre-v5 Intro
-  // background, restored as a bundled npm dependency rather than the
-  // CDN script it used to be loaded from — see VantaCellsField's own
-  // comment for why that distinction matters), and the main app shell
-  // defaults to Fluid Ripples, brightened this same round. Off entirely
-  // is still governed by `animationMode` above; this only picks *which*
-  // visual renders when it isn't off. See WebGLNeuralField/
-  // WebGLFluidRipples/VantaCellsField/ConstellationField.
-  const [bgStyleIntro, setBgStyleIntro] = useState(() => getCookie("cb_bgstyle_intro") || "vantaCells");
-  const [bgStyleMain, setBgStyleMain] = useState(() => getCookie("cb_bgstyle_main") || "fluidRipples");
+  // v31: the per-screen background STYLE choice (bgStyleIntro/bgStyleMain,
+  // and the four components it picked between) is retired — Intro and the
+  // main app shell each get one fixed, dedicated field now
+  // (WebGLIntelligenceCore / WebGLTopographyGrid). `animationMode` above
+  // still governs whether it's on at all.
   const [highContrast, setHighContrast] = useState(() => getCookie("cb_hc") === "1");
   const [fontSize, setFontSize] = useState(() => getCookie("cb_fs") || "medium");
   const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
@@ -4356,8 +3963,6 @@ function App() {
   useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
   useEffect(() => { setCookie("cb_anim2", animationMode); }, [animationMode]);
   useEffect(() => { const t = setTimeout(() => setCookie("cb_animS", String(animSpeed)), 500); return () => clearTimeout(t); }, [animSpeed]);
-  useEffect(() => { setCookie("cb_bgstyle_intro", bgStyleIntro); }, [bgStyleIntro]);
-  useEffect(() => { setCookie("cb_bgstyle_main", bgStyleMain); }, [bgStyleMain]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
@@ -4544,7 +4149,7 @@ function App() {
   const grouped = useMemo(() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; }, [sortedSources, srcSort]);
 
   if (!entered) {
-    return <Intro accent={accent} P={P} onEnter={() => { sfx(); try { setCookie("cb_entered_v5", "1", 365); } catch {} setEntered(true); }} animationMode={animationMode} bgStyle={bgStyleIntro} />;
+    return <Intro accent={accent} P={P} onEnter={() => { sfx(); try { setCookie("cb_entered_v5", "1", 365); } catch {} setEntered(true); }} animationMode={animationMode} />;
   }
 
   const started = turns.length > 0 || busy;
@@ -4638,7 +4243,7 @@ function App() {
   return (
     <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
-      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} speed={animSpeed} paused={settingsOpen} style={bgStyleMain} />}
+      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} speed={animSpeed} paused={settingsOpen} variant="main" />}
       <div style={S.grain} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: FONT_SIZES.subhead }}>↑</button>}
@@ -4728,7 +4333,7 @@ function App() {
                 </div>
               )}
               <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="What do you want to know?" />
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask anything..." />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
@@ -4876,7 +4481,7 @@ function App() {
           </div>
         </div>
       )}
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, bgStyleIntro, setBgStyleIntro, bgStyleMain, setBgStyleMain, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setSettingsOpen(false); setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setSettingsOpen(false); setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setSettingsOpen(false) }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} initialTab={authInitialTab} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
@@ -5074,13 +4679,14 @@ summary::-webkit-details-marker { display: none; }
    parent's — verified after the fact with a screenshot, not just reasoned
    through, since this exact class of bug looks fine in the DOM inspector
    (correct text, correct opacity) while being invisible on screen. */
+/* v31: dropped the same animated neon gradient .cb-gradient-text used to
+   carry (see that class's comment) — this is the more visible instance of
+   it, since it's the large per-letter hero wordmark on the home screen.
+   Solid currentColor (P.ink from the parent's inline style), letter-in
+   fade kept since that's staggering, not color. */
 .cb-kinetic > span {
-  background: linear-gradient(270deg, ${BRAND_GRADIENT_STOPS});
-  background-size: 400% 400%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: cbGradientShift 8s ease infinite, cbLetterIn 500ms ease both;
+  color: currentColor;
+  animation: cbLetterIn 500ms ease both;
   opacity: 0;
 }
 @keyframes cbLetterIn { from { opacity: 0; } to { opacity: 1; } }
@@ -5206,20 +4812,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 6px; }
 
-/* ── Animated gradient text — cycles through accent colors ── */
-@keyframes cbGradientShift {
-  0%   { background-position: 0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-.cb-gradient-text {
-  background: linear-gradient(270deg, ${BRAND_GRADIENT_STOPS});
-  background-size: 400% 400%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: cbGradientShift 8s ease infinite;
-}
+/* v31: was an animated emerald→sky→indigo gradient cycling every 8s behind
+   the wordmark — exactly the "heavy 80s neon" look this round retires.
+   Left as a plain class (no gradient, no clip, no animation) rather than
+   deleted outright so the two call sites (header brand mark, home-screen
+   hero title) don't need touching — solid color: currentColor from the
+   element's own inline style (P.ink, already theme-correct) is what
+   actually renders now. */
+.cb-gradient-text { color: currentColor; }
 
 /* Toast notifications */
 @keyframes cbToastPop {
