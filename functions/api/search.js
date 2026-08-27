@@ -4489,6 +4489,41 @@ async function gatherPapers(rawQuery, opts) {
     );
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // RELAXED BOOLEAN FALLBACK: every tier above loosens by dropping terms
+  // or trying alternate phrasings, but none of them tries genuine boolean
+  // OR across the organism's own names and near-synonym topic words in a
+  // single query — e.g. ("Hermetia illucens" OR "black soldier fly") AND
+  // (pathogen OR manure OR "faecal reduction"). EPMC and PubMed both parse
+  // real OR/AND boolean syntax (the rest of this file already relies on
+  // that — see fanout() above), so this fires ONE such query at just those
+  // two when we're still thin after every earlier tier.
+  // ═══════════════════════════════════════════════════════════════
+  const totalAfterNL = results.reduce(
+    (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+  );
+  if (totalAfterNL < 5) {
+    const orgNames = [...new Set([
+      organismTerm ? organismTerm.replace(/"/g, "") : null,
+      ...(orgInfo.orgPhrases || []),
+    ].filter(Boolean).map((n) => n.trim()))];
+    const orgOr = orgNames.length > 1
+      ? "(" + orgNames.map((n) => '"' + n + '"').join(" OR ") + ")"
+      : orgNames.length === 1 ? '"' + orgNames[0] + '"' : "";
+    const topicOr = ranked.slice(0, 5).filter(Boolean);
+    const topicGroup = topicOr.length ? "(" + topicOr.join(" OR ") + ")" : "";
+    const relaxedBoolQ = orgOr && topicGroup ? orgOr + " AND " + topicGroup : (orgOr || topicGroup || query);
+    if (relaxedBoolQ) {
+      const relaxedResults = await Promise.allSettled([
+        europePMC(relaxedBoolQ, 12),
+        pubmed(relaxedBoolQ, 12, ncbiKey),
+      ]);
+      results = results.concat(relaxedResults);
+      diag.relaxedBoolean = { query: relaxedBoolQ, count: relaxedResults.reduce(
+        (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0) };
+    }
+  }
+
   // Add results for each sub-question of a compound query
   if (subQueries.length > 1) {
     for (const sub of subQueries) {
@@ -6288,10 +6323,32 @@ Respond naturally to the user's message. Be yourself.`;
       "- Place citations INLINE at the end of the specific sentence they support.\n" +
       "- Do NOT cluster citations at paragraph end. Each citation attaches to one specific claim.\n" +
       "- Only cite source N if it genuinely supports that sentence. [WEAK MATCH] sources: ignore or note as tangential. [RETRACTED]: flag prominently.\n" +
+      "- STRICT CITATION HONESTY: a citation may ONLY attach to a sentence making an explicit, empirical claim drawn from that specific paper — a measured result, a reported finding, a stated statistic, a named method or organism it actually studied. NEVER attach a citation to a general statement, a transition sentence, a definitional aside, or your own inference, even when a cited paper is topically related. If a sentence isn't a specific claim FROM that paper, it gets no citation at all.\n" +
       "- NEVER fabricate DOIs, authors, journal names, or statistics not in the abstracts.\n" +
       "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' — but NEVER invent specific paper titles or authors.\n" +
       "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
       "- No <think> tags, no code fences, no meta-commentary about your process.\n";
+
+    // v28: this was previously a loose suggestion buried in CONTEXT
+    // ("use bold section headers to organize") — real Markdown structure a
+    // browser can render distinctly (and the new frontend layout keys off
+    // of) is different from a stylistic nudge the model was free to ignore
+    // on any given answer, which is exactly why answers were landing as one
+    // undifferentiated block of prose. Applied to every branch that produces
+    // a real synthesis (not the curated "additional papers" digest, which
+    // already has its own required shape).
+    const STRUCTURE =
+      "═══ REQUIRED OUTPUT STRUCTURE (HARD-ENFORCED) ═══\n" +
+      "Format the ENTIRE answer as exactly these four Markdown H2 sections, in this exact order, with these exact headers " +
+      "verbatim (no extra sections, no renaming, no merging, nothing before the first header):\n\n" +
+      "## Executive Summary\n" +
+      "2-4 sentences. The direct answer to the question, stated plainly, with its strongest supporting citation(s).\n\n" +
+      "## Current Evidence & Mechanisms\n" +
+      "The synthesis itself. RULE 1 (zero prefacing) and RULE 2 (synthesize, never list) apply in full force here. This is normally the longest section.\n\n" +
+      "## Research Gaps & Future Trajectories\n" +
+      "What the retrieved literature doesn't settle yet and where the field is visibly heading. If the evidence is genuinely airtight with no real open question, say that in one sentence rather than inventing a gap.\n\n" +
+      "## Confidence & Methodological Limitations\n" +
+      "Your actual confidence in the answer above and why — sample sizes, study designs (in vitro vs in vivo vs clinical), replication status, conflicting results, or papers too tangential to use. Be concrete, not a generic disclaimer.\n\n";
 
     const ID = "You are Cerebrum, a scientific research engine. You search 14 open scholarly databases simultaneously and write cited, synthesis-grade answers. " +
       "You were built by Vaticay. You are not a general assistant — you are a precision instrument for scientific literature. " +
@@ -6332,9 +6389,9 @@ Respond naturally to the user's message. Be yourself.`;
         "Group related papers together thematically. Bold the paper topics. " +
         "End with a one-sentence synthesis of what these additional sources add to the picture.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence && speciesSearch) {
-      systemPrompt = ID + PERSONALITY + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+      systemPrompt = ID + PERSONALITY + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
     } else if (useEvidence && isNameSearch) {
-      systemPrompt = ID + PERSONALITY + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+      systemPrompt = ID + PERSONALITY + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
     } else if (useEvidence) {
       systemPrompt = ID + PERSONALITY + "You have " + evidencePapers.length + " papers below. READ EACH ABSTRACT before answering.\n\n" +
         "═══ PAPER USAGE PROTOCOL (HARD-ENFORCED) ═══\n\n" +
@@ -6355,13 +6412,13 @@ Respond naturally to the user's message. Be yourself.`;
         "  You are an expert. Give a COMPLETE answer using your scientific knowledge.\n" +
         "  Papers ANCHOR your answer but are NOT the ceiling.\n" +
         "  If all papers are weak/tangential, say so in ONE sentence, then answer from knowledge.\n" +
-        "  0 citations + correct science > 5 citations + wrong organisms.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+        "  0 citations + correct science > 5 citations + wrong organisms.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
     } else if (useWeb) {
       systemPrompt = ID + PERSONALITY + "No peer-reviewed papers matched this specific query, but reference sources were found. " +
         "IMPORTANT: Do NOT start with an apology or 'no papers found' disclaimer. Start with a direct, substantive answer. " +
         "Draw on both the reference sources below AND your scientific knowledge. " +
         "If you know relevant papers exist on this topic (from your training), mention the general findings and suggest " +
-        "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
+        "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
     } else {
       systemPrompt = ID + PERSONALITY + "The literature search didn't surface papers for this specific phrasing, but you absolutely know this topic. " +
         "IMPORTANT: Do NOT start with 'no papers retrieved' or any disclaimer. Start with a direct, authoritative scientific answer. " +
@@ -6369,7 +6426,7 @@ Respond naturally to the user's message. Be yourself.`;
         "quantify where possible, and cite the key researchers and landmark studies you know about in plain text (e.g., 'Work by [name] demonstrated...'). " +
         "At the END (not the beginning), add one line: 'For the primary literature, try searching: [2-3 specific search terms]' — " +
         "suggest the exact PubMed/Google Scholar search terms that would find the relevant papers.\n" +
-        "ZERO fabricated citations — no [1], no (Author, Year), no DOIs. You may name findings and researchers in plain prose.\n\n" + VOICE + CONTEXT + lengthHint;
+        "ZERO fabricated citations — no [1], no (Author, Year), no DOIs. You may name findings and researchers in plain prose.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE;
     }
 
     const messages = [{ role: "system", content: systemPrompt }];
