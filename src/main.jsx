@@ -616,8 +616,40 @@ function useTypewriter(full, on) {
   return out;
 }
 
+// v32 fix: some free-tier models (WAVE 2/3 in the backend race) comply with
+// the "## Executive Summary" etc. header text itself but skip the blank
+// line that's supposed to come before it — the header lands mid-sentence,
+// glued to the end of the previous section ("...brainstem volume[7]. ##
+// Current Evidence & Mechanisms\nChronic stress has been shown..."). The
+// paragraph-splitter a few dozen lines down only recognizes a header when
+// it's the ENTIRE contents of its own \n{2,}-delimited paragraph, so a
+// glued-on header never matches — it just prints as literal "##" text in
+// the middle of a paragraph, which is exactly the garbled output this
+// patches. Since STRUCTURE (functions/api/search.js) hard-enforces these
+// four section titles verbatim, we can look for the titles themselves —
+// with or without a "##" prefix, with or without correct spacing — and
+// force each one onto its own blank-line-delimited paragraph before the
+// splitter ever runs. This is strictly additive: an answer that already
+// has correct spacing round-trips through unchanged.
+const SECTION_HEADER_TITLES = [
+  "Executive Summary",
+  "Current Evidence & Mechanisms",
+  "Research Gaps & Future Trajectories",
+  "Confidence & Methodological Limitations",
+];
+function normalizeSectionHeaders(text) {
+  let out = text;
+  for (const title of SECTION_HEADER_TITLES) {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/&/g, "(?:&|and)");
+    // optional leading "#"/"##"/"###", optional surrounding whitespace —
+    // whatever the model actually emitted, normalize it to the same thing.
+    out = out.replace(new RegExp("[ \\t]*#{0,3}[ \\t]*" + escaped + "[ \\t]*", "g"), "\n\n## " + title + "\n\n");
+  }
+  return out.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
-  let clean = (text || "")
+  let clean = normalizeSectionHeaders(text || "")
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
     // unconditionally, before the code a few dozen lines down ever got a
     // chance to look for "^##\s" / "^###\s" and render them as real
@@ -975,124 +1007,432 @@ function LoadingLine({ P, accent, S }) {
    ════════════════════════════════════════════════════════════════ */
 
 /* ════════════════════════════════════════════════════════════════
-   WEBGL INTELLIGENCE CORE — Intro screen background
+   ORB — Intro screen background
 
-   v31: replaces the whole prior background lineage (ConstellationField's
-   2D canvas, then WebGLNeuralField/WebGLFluidRipples/VantaCellsField's
-   WebGL variants and the style-picker that chose between them) with one
-   dedicated, purpose-built field per screen — no user-facing style choice
-   left to make, so there's nothing for Settings to expose here anymore.
-   Raw Three.js, dynamically imported (Vite code-splits it into its own
-   lazy chunk — nothing else pays for it, no CDN, same security posture
-   as every WebGL component this file has shipped before). A Fibonacci
-   sphere of points that slowly tumbles and drifts toward the cursor —
-   deliberately quiet and premium rather than busy, matching the
-   "Next-Gen Editorial Intelligence" direction over the retired terminal
-   look. Respects prefers-reduced-motion by simply not mounting: the flat
-   obsidian/white page background (see `S.page`) is a legitimate resting
-   state for this aesthetic, not a fallback bug.
+   v32: replaces WebGLIntelligenceCore's Fibonacci particle sphere. A
+   single glowing procedural orb, rendered with `ogl` (a ~15kb WebGL
+   micro-library — not Three.js; Three stays reserved for the main app's
+   SoftAurora chunk below, so the two fields never share a runtime and
+   each is code-split into its own lazy bundle nobody else pays for).
+   The shader itself — hash/simplex noise, the two-ring "light1/light2"
+   falloff, the hover-driven ripple — is reproduced faithfully rather
+   than approximated, since a hand-rough copy of a shader this specific
+   reads as visibly wrong the moment it moves. Same prefers-reduced-
+   motion contract as every WebGL field in this file: on a reduce-motion
+   system it simply never mounts, and the flat black Intro surface is
+   the legitimate resting state, not a fallback bug.
    ════════════════════════════════════════════════════════════════ */
-function WebGLIntelligenceCore({ accent, P, speed = 1, paused = false }) {
+function Orb({ hue = 0, hoverIntensity = 0.2, rotateOnHover = true, forceHoverState = false, backgroundColor = "#000000" }) {
   const mountRef = useRef(null);
   useEffect(() => {
     const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduceMotion) return;
-    let cancelled = false; let renderer, scene, camera, points, raf;
+    const container = mountRef.current;
+    if (!container) return;
+    let cancelled = false; let renderer, gl, rafId;
+    const handlers = {};
+
     (async () => {
       try {
-        const THREE = await import("three");
-        if (cancelled || !mountRef.current) return;
-        const w = mountRef.current.clientWidth; const h = mountRef.current.clientHeight;
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(45, w / h, 1, 2000);
-        camera.position.z = 800;
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setSize(w, h); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        mountRef.current.appendChild(renderer.domElement);
+        const { Renderer, Program, Mesh, Triangle, Vec3 } = await import("ogl");
+        if (cancelled || !container) return;
 
-        const particleCount = 4000;
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(particleCount * 3);
-        const radius = 300;
-        for (let i = 0; i < particleCount; i++) {
-          const phi = Math.acos(1 - 2 * (i + 0.5) / particleCount);
-          const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
-          positions[i * 3] = radius * Math.cos(theta) * Math.sin(phi);
-          positions[i * 3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
-          positions[i * 3 + 2] = radius * Math.cos(phi);
-        }
-        geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-        const material = new THREE.PointsMaterial({ color: new THREE.Color(accent), size: 1.5, transparent: true, opacity: 0.6, sizeAttenuation: true });
-        points = new THREE.Points(geometry, material); scene.add(points);
+        const hexToVec3 = (hex) => {
+          const h = hex.replace("#", "");
+          return new Vec3(parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255);
+        };
 
-        let mouseX = 0, mouseY = 0;
-        const onMouseMove = (e) => { mouseX = (e.clientX - window.innerWidth / 2) * 0.0004; mouseY = (e.clientY - window.innerHeight / 2) * 0.0004; };
-        window.addEventListener("mousemove", onMouseMove);
+        const vert = `
+          precision highp float;
+          attribute vec2 position;
+          attribute vec2 uv;
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = vec4(position, 0.0, 1.0);
+          }
+        `;
+        const frag = `
+          precision highp float;
+          uniform float iTime;
+          uniform vec3 iResolution;
+          uniform float hue;
+          uniform float hover;
+          uniform float rot;
+          uniform float hoverIntensity;
+          uniform vec3 backgroundColor;
+          varying vec2 vUv;
 
-        const handleResize = () => { if (!mountRef.current) return; camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight); };
-        window.addEventListener("resize", handleResize);
+          vec3 rgb2yiq(vec3 c) { float y = dot(c, vec3(0.299, 0.587, 0.114)); float i = dot(c, vec3(0.596, -0.274, -0.322)); float q = dot(c, vec3(0.211, -0.523, 0.312)); return vec3(y, i, q); }
+          vec3 yiq2rgb(vec3 c) { float r = c.x + 0.956 * c.y + 0.621 * c.z; float g = c.x - 0.272 * c.y - 0.647 * c.z; float b = c.x - 1.106 * c.y + 1.703 * c.z; return vec3(r, g, b); }
+          vec3 adjustHue(vec3 color, float hueDeg) {
+            float hueRad = hueDeg * 3.14159265 / 180.0;
+            vec3 yiq = rgb2yiq(color);
+            float cosA = cos(hueRad); float sinA = sin(hueRad);
+            float i = yiq.y * cosA - yiq.z * sinA; float q = yiq.y * sinA + yiq.z * cosA;
+            yiq.y = i; yiq.z = q;
+            return yiq2rgb(yiq);
+          }
+          vec3 hash33(vec3 p3) {
+            p3 = fract(p3 * vec3(0.1031, 0.11369, 0.13787));
+            p3 += dot(p3, p3.yxz + 19.19);
+            return -1.0 + 2.0 * fract(vec3(p3.x + p3.y, p3.x + p3.z, p3.y + p3.z) * p3.zyx);
+          }
+          float snoise3(vec3 p) {
+            const float K1 = 0.333333333; const float K2 = 0.166666667;
+            vec3 i = floor(p + (p.x + p.y + p.z) * K1);
+            vec3 d0 = p - (i - (i.x + i.y + i.z) * K2);
+            vec3 e = step(vec3(0.0), d0 - d0.yzx);
+            vec3 i1 = e * (1.0 - e.zxy);
+            vec3 i2 = 1.0 - e.zxy * (1.0 - e);
+            vec3 d1 = d0 - (i1 - K2);
+            vec3 d2 = d0 - (i2 - K1);
+            vec3 d3 = d0 - 0.5;
+            vec4 h = max(0.6 - vec4(dot(d0, d0), dot(d1, d1), dot(d2, d2), dot(d3, d3)), 0.0);
+            vec4 n = h * h * h * h * vec4(dot(d0, hash33(i)), dot(d1, hash33(i + i1)), dot(d2, hash33(i + i2)), dot(d3, hash33(i + 1.0)));
+            return dot(vec4(31.316), n);
+          }
+          vec4 extractAlpha(vec3 colorIn) { float a = max(max(colorIn.r, colorIn.g), colorIn.b); return vec4(colorIn.rgb / (a + 1e-5), a); }
 
-        let t = 0;
-        const animate = () => { raf = requestAnimationFrame(animate); if (!paused) t += 0.002 * speed; points.rotation.y = t + mouseX; points.rotation.x = t * 0.5 + mouseY; renderer.render(scene, camera); };
-        animate();
-        mountRef.current._cleanup = () => { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("resize", handleResize); cancelAnimationFrame(raf); geometry.dispose(); material.dispose(); renderer.dispose(); if (mountRef.current?.contains(renderer.domElement)) mountRef.current.removeChild(renderer.domElement); };
-      } catch { /* no WebGL context available — flat page background stands in, same as prior fields' fallback behavior */ }
+          const vec3 baseColor1 = vec3(0.611765, 0.262745, 0.996078);
+          const vec3 baseColor2 = vec3(0.298039, 0.760784, 0.913725);
+          const vec3 baseColor3 = vec3(0.062745, 0.078431, 0.600000);
+          const float innerRadius = 0.6;
+          const float noiseScale = 0.65;
+
+          float light1(float intensity, float attenuation, float dist) { return intensity / (1.0 + dist * attenuation); }
+          float light2(float intensity, float attenuation, float dist) { return intensity / (1.0 + dist * dist * attenuation); }
+
+          vec4 draw(vec2 uv) {
+            vec3 color1 = adjustHue(baseColor1, hue);
+            vec3 color2 = adjustHue(baseColor2, hue);
+            vec3 color3 = adjustHue(baseColor3, hue);
+            float ang = atan(uv.y, uv.x);
+            float len = length(uv);
+            float invLen = len > 0.0 ? 1.0 / len : 0.0;
+            float bgLuminance = dot(backgroundColor, vec3(0.299, 0.587, 0.114));
+            float n0 = snoise3(vec3(uv * noiseScale, iTime * 0.5)) * 0.5 + 0.5;
+            float r0 = mix(mix(innerRadius, 1.0, 0.4), mix(innerRadius, 1.0, 0.6), n0);
+            float d0 = distance(uv, (r0 * invLen) * uv);
+            float v0 = light1(1.0, 10.0, d0);
+            v0 *= smoothstep(r0 * 1.05, r0, len);
+            float innerFade = smoothstep(r0 * 0.8, r0 * 0.95, len);
+            v0 *= mix(innerFade, 1.0, bgLuminance * 0.7);
+            float cl = cos(ang + iTime * 2.0) * 0.5 + 0.5;
+            float a = iTime * -1.0;
+            vec2 pos = vec2(cos(a), sin(a)) * r0;
+            float d = distance(uv, pos);
+            float v1 = light2(1.5, 5.0, d);
+            v1 *= light1(1.0, 50.0, d0);
+            float v2 = smoothstep(1.0, mix(innerRadius, 1.0, n0 * 0.5), len);
+            float v3 = smoothstep(innerRadius, mix(innerRadius, 1.0, 0.5), len);
+            vec3 colBase = mix(color1, color2, cl);
+            float fadeAmount = mix(1.0, 0.1, bgLuminance);
+            vec3 darkCol = mix(color3, colBase, v0);
+            darkCol = (darkCol + v1) * v2 * v3;
+            darkCol = clamp(darkCol, 0.0, 1.0);
+            vec3 lightCol = (colBase + v1) * mix(1.0, v2 * v3, fadeAmount);
+            lightCol = mix(backgroundColor, lightCol, v0);
+            lightCol = clamp(lightCol, 0.0, 1.0);
+            vec3 finalCol = mix(darkCol, lightCol, bgLuminance);
+            return extractAlpha(finalCol);
+          }
+          vec4 mainImage(vec2 fragCoord) {
+            vec2 center = iResolution.xy * 0.5;
+            float size = min(iResolution.x, iResolution.y);
+            vec2 uv = (fragCoord - center) / size * 2.0;
+            float angle = rot;
+            float s = sin(angle); float c = cos(angle);
+            uv = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
+            uv.x += hover * hoverIntensity * 0.1 * sin(uv.y * 10.0 + iTime);
+            uv.y += hover * hoverIntensity * 0.1 * sin(uv.x * 10.0 + iTime);
+            return draw(uv);
+          }
+          void main() {
+            vec2 fragCoord = vUv * iResolution.xy;
+            vec4 col = mainImage(fragCoord);
+            gl_FragColor = vec4(col.rgb * col.a, col.a);
+          }
+        `;
+
+        renderer = new Renderer({ alpha: true, premultipliedAlpha: false });
+        gl = renderer.gl;
+        gl.clearColor(0, 0, 0, 0);
+        container.appendChild(gl.canvas);
+
+        const geometry = new Triangle(gl);
+        const program = new Program(gl, {
+          vertex: vert, fragment: frag,
+          uniforms: {
+            iTime: { value: 0 },
+            iResolution: { value: new Vec3(gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height) },
+            hue: { value: hue },
+            hover: { value: 0 },
+            rot: { value: 0 },
+            hoverIntensity: { value: hoverIntensity },
+            backgroundColor: { value: hexToVec3(backgroundColor) },
+          },
+        });
+        const mesh = new Mesh(gl, { geometry, program });
+
+        const resize = () => {
+          if (!container) return;
+          const dpr = window.devicePixelRatio || 1;
+          const width = container.clientWidth; const height = container.clientHeight;
+          renderer.setSize(width * dpr, height * dpr);
+          gl.canvas.style.width = width + "px"; gl.canvas.style.height = height + "px";
+          program.uniforms.iResolution.value.set(gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height);
+        };
+        handlers.resize = resize;
+        window.addEventListener("resize", resize);
+        resize();
+
+        let targetHover = 0; let currentRot = 0; let lastTime = 0;
+        const rotationSpeed = 0.3;
+
+        handlers.mousemove = (e) => {
+          const rect = container.getBoundingClientRect();
+          const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+          const size = Math.min(rect.width, rect.height);
+          const uvX = ((x - rect.width / 2) / size) * 2.0;
+          const uvY = ((y - rect.height / 2) / size) * 2.0;
+          targetHover = Math.sqrt(uvX * uvX + uvY * uvY) < 0.8 ? 1 : 0;
+        };
+        handlers.mouseleave = () => { targetHover = 0; };
+        container.addEventListener("mousemove", handlers.mousemove);
+        container.addEventListener("mouseleave", handlers.mouseleave);
+
+        const update = (t) => {
+          rafId = requestAnimationFrame(update);
+          const dt = (t - lastTime) * 0.001; lastTime = t;
+          program.uniforms.iTime.value = t * 0.001;
+          program.uniforms.hue.value = hue;
+          program.uniforms.hoverIntensity.value = hoverIntensity;
+          program.uniforms.backgroundColor.value = hexToVec3(backgroundColor);
+          const effectiveHover = forceHoverState ? 1 : targetHover;
+          program.uniforms.hover.value += (effectiveHover - program.uniforms.hover.value) * 0.1;
+          if (rotateOnHover && effectiveHover > 0.5) currentRot += dt * rotationSpeed;
+          program.uniforms.rot.value = currentRot;
+          renderer.render({ scene: mesh });
+        };
+        rafId = requestAnimationFrame(update);
+      } catch { /* no WebGL context available — flat black Intro surface stands in */ }
     })();
-    return () => { cancelled = true; mountRef.current?._cleanup?.(); };
-  }, [accent, speed, paused]);
+
+    return () => {
+      cancelled = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (handlers.resize) window.removeEventListener("resize", handlers.resize);
+      if (handlers.mousemove) container.removeEventListener("mousemove", handlers.mousemove);
+      if (handlers.mouseleave) container.removeEventListener("mouseleave", handlers.mouseleave);
+      if (gl?.canvas && container.contains(gl.canvas)) container.removeChild(gl.canvas);
+      gl?.getExtension?.("WEBGL_lose_context")?.loseContext();
+    };
+  }, [hue, hoverIntensity, rotateOnHover, forceHoverState, backgroundColor]);
   return <div ref={mountRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", zIndex: 0 }} />;
 }
 
 /* ════════════════════════════════════════════════════════════════
-   WEBGL TOPOGRAPHY GRID — main app background
+   SOFT AURORA — main app background
 
-   Quieter than the Intro field on purpose: it sits behind the search
-   thread once a visitor has actually started reading, so it needs to
-   recede rather than draw the eye. A gently undulating point-cloud plane
-   viewed from a low, distant angle, opacity dialed down hard (0.04-0.08)
-   so it reads as texture/depth at the edges of the viewport rather than
-   competing with answer text for attention.
+   v32: replaces WebGLTopographyGrid's faint point-cloud plane with a
+   flowing, noise-driven aurora field — also `ogl`-rendered, same
+   reasoning as Orb above. This one is visibly louder than the dot-grid
+   it replaces (it's meant to be — that was the whole ask), which is
+   exactly why the main app shell now layers a dedicated readability
+   scrim between this canvas and the reading column (see `S.auroraScrim`
+   and its render site) rather than leaning on this component's own
+   opacity to stay legible. Ships with prefers-reduced-motion parity:
+   simply doesn't mount, same as every other field in this file.
    ════════════════════════════════════════════════════════════════ */
-function WebGLTopographyGrid({ accent, P, speed = 1, paused = false }) {
+function SoftAurora({
+  speed = 0.6, scale = 1.5, brightness = 1, color1 = "#f7f7f7", color2 = "#e100ff",
+  noiseFrequency = 2.5, noiseAmplitude = 1, bandHeight = 0.5, bandSpread = 1,
+  octaveDecay = 0.1, layerOffset = 0, colorSpeed = 1, enableMouseInteraction = true, mouseInfluence = 0.25,
+}) {
   const mountRef = useRef(null);
   useEffect(() => {
     const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduceMotion) return;
-    let cancelled = false; let renderer, scene, camera, points, raf;
+    const container = mountRef.current;
+    if (!container) return;
+    let cancelled = false; let renderer, gl, rafId;
+    const handlers = {};
+
     (async () => {
       try {
-        const THREE = await import("three");
-        if (cancelled || !mountRef.current) return;
-        const w = mountRef.current.clientWidth; const h = mountRef.current.clientHeight;
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(60, w / h, 1, 4000);
-        camera.position.set(0, 300, 600); camera.lookAt(0, 0, 0);
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setSize(w, h); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        mountRef.current.appendChild(renderer.domElement);
+        const { Renderer, Program, Mesh, Triangle } = await import("ogl");
+        if (cancelled || !container) return;
 
-        const size = 3000, segments = 90;
-        const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
-        geometry.rotateX(-Math.PI / 2);
-        const material = new THREE.PointsMaterial({ color: new THREE.Color(P.dark ? "#ffffff" : "#000000"), size: 1.2, transparent: true, opacity: P.dark ? 0.08 : 0.04, sizeAttenuation: true });
-        points = new THREE.Points(geometry, material); scene.add(points);
-
-        const handleResize = () => { if (!mountRef.current) return; camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight); };
-        window.addEventListener("resize", handleResize);
-
-        let t = 0;
-        const animate = () => {
-          raf = requestAnimationFrame(animate); if (paused) return; t += 0.015 * speed;
-          const pos = geometry.attributes.position.array;
-          for (let i = 0; i < pos.length / 3; i++) { const ix = i * 3, x = pos[ix], z = pos[ix + 2]; pos[ix + 1] = Math.sin((x / 200) + t) * 40 + Math.cos((z / 200) + t) * 40; }
-          geometry.attributes.position.needsUpdate = true; renderer.render(scene, camera);
+        const hexToVec3 = (hex) => {
+          const h = hex.replace("#", "");
+          return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
         };
-        animate();
-        mountRef.current._cleanup = () => { window.removeEventListener("resize", handleResize); cancelAnimationFrame(raf); geometry.dispose(); material.dispose(); renderer.dispose(); if (mountRef.current?.contains(renderer.domElement)) mountRef.current.removeChild(renderer.domElement); };
+
+        const vertexShader = `
+          attribute vec2 uv;
+          attribute vec2 position;
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = vec4(position, 0, 1);
+          }
+        `;
+        const fragmentShader = `
+          precision highp float;
+          uniform float uTime;
+          uniform vec3 uResolution;
+          uniform float uSpeed;
+          uniform float uScale;
+          uniform float uBrightness;
+          uniform vec3 uColor1;
+          uniform vec3 uColor2;
+          uniform float uNoiseFreq;
+          uniform float uNoiseAmp;
+          uniform float uBandHeight;
+          uniform float uBandSpread;
+          uniform float uOctaveDecay;
+          uniform float uLayerOffset;
+          uniform float uColorSpeed;
+          uniform vec2 uMouse;
+          uniform float uMouseInfluence;
+          uniform bool uEnableMouse;
+          #define TAU 6.28318
+          vec3 gradientHash(vec3 p) {
+            p = vec3(dot(p, vec3(127.1, 311.7, 234.6)), dot(p, vec3(269.5, 183.3, 198.3)), dot(p, vec3(169.5, 283.3, 156.9)));
+            vec3 h = fract(sin(p) * 43758.5453123);
+            float phi = acos(2.0 * h.x - 1.0);
+            float theta = TAU * h.y;
+            return vec3(cos(theta) * sin(phi), sin(theta) * cos(phi), cos(phi));
+          }
+          float quinticSmooth(float t) { float t2 = t * t; float t3 = t * t2; return 6.0 * t3 * t2 - 15.0 * t2 * t2 + 10.0 * t3; }
+          vec3 cosineGradient(float t, vec3 a, vec3 b, vec3 c, vec3 d) { return a + b * cos(TAU * (c * t + d)); }
+          float perlin3D(float amplitude, float frequency, float px, float py, float pz) {
+            float x = px * frequency; float y = py * frequency;
+            float fx = floor(x); float fy = floor(y); float fz = floor(pz);
+            float cx = ceil(x); float cy = ceil(y); float cz = ceil(pz);
+            vec3 g000 = gradientHash(vec3(fx, fy, fz)); vec3 g100 = gradientHash(vec3(cx, fy, fz));
+            vec3 g010 = gradientHash(vec3(fx, cy, fz)); vec3 g110 = gradientHash(vec3(cx, cy, fz));
+            vec3 g001 = gradientHash(vec3(fx, fy, cz)); vec3 g101 = gradientHash(vec3(cx, fy, cz));
+            vec3 g011 = gradientHash(vec3(fx, cy, cz)); vec3 g111 = gradientHash(vec3(cx, cy, cz));
+            float d000 = dot(g000, vec3(x - fx, y - fy, pz - fz)); float d100 = dot(g100, vec3(x - cx, y - fy, pz - fz));
+            float d010 = dot(g010, vec3(x - fx, y - cy, pz - fz)); float d110 = dot(g110, vec3(x - cx, y - cy, pz - fz));
+            float d001 = dot(g001, vec3(x - fx, y - fy, pz - cz)); float d101 = dot(g101, vec3(x - cx, y - fy, pz - cz));
+            float d011 = dot(g011, vec3(x - fx, y - cy, pz - cz)); float d111 = dot(g111, vec3(x - cx, y - cy, pz - cz));
+            float sx = quinticSmooth(x - fx); float sy = quinticSmooth(y - fy); float sz = quinticSmooth(pz - fz);
+            float lx00 = mix(d000, d100, sx); float lx10 = mix(d010, d110, sx);
+            float lx01 = mix(d001, d101, sx); float lx11 = mix(d011, d111, sx);
+            float ly0 = mix(lx00, lx10, sy); float ly1 = mix(lx01, lx11, sy);
+            return amplitude * mix(ly0, ly1, sz);
+          }
+          float auroraGlow(float t, vec2 shift) {
+            vec2 uv = gl_FragCoord.xy / uResolution.y;
+            uv += shift;
+            float noiseVal = 0.0; float freq = uNoiseFreq; float amp = uNoiseAmp;
+            vec2 samplePos = uv * uScale;
+            for (float i = 0.0; i < 3.0; i += 1.0) {
+              noiseVal += perlin3D(amp, freq, samplePos.x, samplePos.y, t);
+              amp *= uOctaveDecay; freq *= 2.0;
+            }
+            float yBand = uv.y * 10.0 - uBandHeight * 10.0;
+            return 0.3 * max(exp(uBandSpread * (1.0 - 1.1 * abs(noiseVal + yBand))), 0.0);
+          }
+          void main() {
+            vec2 uv = gl_FragCoord.xy / uResolution.xy;
+            float t = uSpeed * 0.4 * uTime;
+            vec2 shift = vec2(0.0);
+            if (uEnableMouse) shift = (uMouse - 0.5) * uMouseInfluence;
+            vec3 col = vec3(0.0);
+            col += 0.99 * auroraGlow(t, shift) * cosineGradient(uv.x + uTime * uSpeed * 0.2 * uColorSpeed, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.3, 0.20, 0.20)) * uColor1;
+            col += 0.99 * auroraGlow(t + uLayerOffset, shift) * cosineGradient(uv.x + uTime * uSpeed * 0.1 * uColorSpeed, vec3(0.5), vec3(0.5), vec3(2.0, 1.0, 0.0), vec3(0.5, 0.20, 0.25)) * uColor2;
+            col *= uBrightness;
+            float alpha = clamp(length(col), 0.0, 1.0);
+            gl_FragColor = vec4(col, alpha);
+          }
+        `;
+
+        renderer = new Renderer({ alpha: true, premultipliedAlpha: false });
+        gl = renderer.gl;
+        gl.clearColor(0, 0, 0, 0);
+
+        let currentMouse = [0.5, 0.5]; let targetMouse = [0.5, 0.5];
+
+        handlers.mousemove = (e) => {
+          const rect = gl.canvas.getBoundingClientRect();
+          targetMouse = [(e.clientX - rect.left) / rect.width, 1.0 - (e.clientY - rect.top) / rect.height];
+        };
+        handlers.mouseleave = () => { targetMouse = [0.5, 0.5]; };
+
+        let program;
+        const resize = () => {
+          renderer.setSize(container.clientWidth, container.clientHeight);
+          if (program) program.uniforms.uResolution.value = [gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height];
+        };
+        handlers.resize = resize;
+        window.addEventListener("resize", resize);
+        resize();
+
+        const geometry = new Triangle(gl);
+        program = new Program(gl, {
+          vertex: vertexShader, fragment: fragmentShader,
+          uniforms: {
+            uTime: { value: 0 },
+            uResolution: { value: [gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height] },
+            uSpeed: { value: speed },
+            uScale: { value: scale },
+            uBrightness: { value: brightness },
+            uColor1: { value: hexToVec3(color1) },
+            uColor2: { value: hexToVec3(color2) },
+            uNoiseFreq: { value: noiseFrequency },
+            uNoiseAmp: { value: noiseAmplitude },
+            uBandHeight: { value: bandHeight },
+            uBandSpread: { value: bandSpread },
+            uOctaveDecay: { value: octaveDecay },
+            uLayerOffset: { value: layerOffset },
+            uColorSpeed: { value: colorSpeed },
+            uMouse: { value: new Float32Array([0.5, 0.5]) },
+            uMouseInfluence: { value: mouseInfluence },
+            uEnableMouse: { value: enableMouseInteraction },
+          },
+        });
+        const mesh = new Mesh(gl, { geometry, program });
+        container.appendChild(gl.canvas);
+
+        if (enableMouseInteraction) {
+          gl.canvas.addEventListener("mousemove", handlers.mousemove);
+          gl.canvas.addEventListener("mouseleave", handlers.mouseleave);
+        }
+
+        const update = (t) => {
+          rafId = requestAnimationFrame(update);
+          program.uniforms.uTime.value = t * 0.001;
+          if (enableMouseInteraction) {
+            currentMouse[0] += 0.05 * (targetMouse[0] - currentMouse[0]);
+            currentMouse[1] += 0.05 * (targetMouse[1] - currentMouse[1]);
+            program.uniforms.uMouse.value[0] = currentMouse[0];
+            program.uniforms.uMouse.value[1] = currentMouse[1];
+          } else {
+            program.uniforms.uMouse.value[0] = 0.5;
+            program.uniforms.uMouse.value[1] = 0.5;
+          }
+          renderer.render({ scene: mesh });
+        };
+        rafId = requestAnimationFrame(update);
       } catch { /* no WebGL context available — flat page background stands in */ }
     })();
-    return () => { cancelled = true; mountRef.current?._cleanup?.(); };
-  }, [P.dark, speed, paused]);
+
+    return () => {
+      cancelled = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (handlers.resize) window.removeEventListener("resize", handlers.resize);
+      if (enableMouseInteraction && gl?.canvas) {
+        if (handlers.mousemove) gl.canvas.removeEventListener("mousemove", handlers.mousemove);
+        if (handlers.mouseleave) gl.canvas.removeEventListener("mouseleave", handlers.mouseleave);
+      }
+      if (gl?.canvas && container.contains(gl.canvas)) container.removeChild(gl.canvas);
+      gl?.getExtension?.("WEBGL_lose_context")?.loseContext();
+    };
+  }, [speed, scale, brightness, color1, color2, noiseFrequency, noiseAmplitude, bandHeight, bandSpread, octaveDecay, layerOffset, colorSpeed, enableMouseInteraction, mouseInfluence]);
   return <div ref={mountRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", zIndex: 0 }} />;
 }
 
@@ -1147,10 +1487,14 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         background: "transparent",
       }} />
 
-      {/* Dark overlay for readability */}
+      {/* Dark overlay for readability — v32: bumped up from the prior
+          0.7/0.3/0.5 stops. Orb (see LivingBackground) is a bright,
+          hover-reactive glow centered in the viewport, considerably louder
+          than the dim particle sphere it replaced; the hero copy sitting
+          top-left needed more separation from it to stay legible. */}
       <div style={{
         position: "absolute", inset: 0, zIndex: 1,
-        background: "linear-gradient(135deg, rgba(5,9,16,0.7) 0%, rgba(5,9,16,0.3) 50%, rgba(5,9,16,0.5) 100%)",
+        background: "linear-gradient(135deg, rgba(5,9,16,0.8) 0%, rgba(5,9,16,0.45) 50%, rgba(5,9,16,0.6) 100%)",
         pointerEvents: "none",
       }} />
 
@@ -1275,13 +1619,16 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
 /* ════════════════════════════════════════════════════════════════
    LIVING BACKGROUND — dispatches per screen, not per user choice
 
-   v31: used to pick between four background styles via a Settings
-   picker (Constellation/Neural Field/Fluid Ripples/Vanta Cells) chosen
-   independently for Intro vs. the main app. That choice is gone — one
-   dedicated field per screen now (see WebGLIntelligenceCore and
-   WebGLTopographyGrid above Intro's own comment block) — so this is
-   just a thin wrapper picking the right one by `variant` and applying
-   the same theme/intensity dimming logic as before.
+   v32: one dedicated field per screen, same as before, now pointing at
+   Orb (Intro) and SoftAurora (main app) instead of the retired Three.js
+   particle fields — see those two components' own comment blocks above
+   for why. `speed` still matters: Settings' "Animation speed" slider
+   (0.25-2x) feeds this prop and used to scale the retired field's drift —
+   it's kept alive here as a multiplier on SoftAurora's own base speed so
+   that control doesn't go silently dead. `paused` has no equivalent on
+   either reactbits component (neither exposes a freeze switch) so it's
+   accepted but unused, same as it would be for any prop a call site still
+   passes that the current field genuinely has no use for.
    ════════════════════════════════════════════════════════════════ */
 function LivingBackground({ accent, P, intensity = "cinematic", speed = 1, paused = false, variant = "main" }) {
   return (
@@ -1292,8 +1639,8 @@ function LivingBackground({ accent, P, intensity = "cinematic", speed = 1, pause
       transition: "opacity 0.5s ease",
     }} aria-hidden="true">
       {variant === "intro"
-        ? <WebGLIntelligenceCore accent={accent} P={P} speed={speed} paused={paused} />
-        : <WebGLTopographyGrid accent={accent} P={P} speed={speed} paused={paused} />}
+        ? <Orb hoverIntensity={2.58} rotateOnHover hue={117} forceHoverState={false} backgroundColor="#000000" />
+        : <SoftAurora speed={0.6 * speed} scale={1.5} brightness={1} color1="#3B82F6" color2="#1dae7c" noiseFrequency={1.5} noiseAmplitude={1} bandHeight={0.5} bandSpread={1} octaveDecay={0.1} layerOffset={0} colorSpeed={1.1} enableMouseInteraction mouseInfluence={0.25} />}
     </div>
   );
 }
@@ -1328,10 +1675,12 @@ function KineticText({ text, style, className }) {
    runtime CDN script, with WebGLNeuralField as its fallback. Both are gone
    now: the "Next-Gen Editorial Intelligence" rewrite retired the whole
    style-picker lineage (Constellation/Neural Field/Fluid Ripples/Vanta
-   Cells) in favor of one dedicated field per screen — WebGLIntelligenceCore
-   for Intro, WebGLTopographyGrid for the main app, both defined up near
-   Intro's own comment block. `vanta` stays out of package.json going
-   forward; `three` remains, since the new fields use it directly. */
+   Cells) in favor of one dedicated field per screen — Orb for Intro,
+   SoftAurora for the main app (v32; originally Three.js-based
+   WebGLIntelligenceCore/WebGLTopographyGrid, both defined up near Intro's
+   own comment block), rendered via the lightweight `ogl` WebGL library
+   instead. `vanta` and `three` both stay out of package.json going
+   forward. */
 function MicButton({ onTranscript, accent, P }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
@@ -3078,6 +3427,23 @@ function makeStyles(P, accent, at, isMobile = false) {
     // drift with palette changes), a fixed hex so the page reads as pure
     // premium black or pure white no matter what accent is active.
     page: { minHeight: "100dvh", background: P.dark ? "#040508" : "#ffffff", color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
+    // v32: SoftAurora (see its own comment block) is a deliberately loud,
+    // saturated, constantly-moving field — nothing like the 0.04-opacity
+    // dot-grid it replaced. Sitting reading text directly on top of it would
+    // fail contrast the moment a bright band of the aurora drifts under a
+    // sentence. This layer is the fix: a wide, soft, horizontal "reading
+    // well" of the page's own background color, near-opaque under the
+    // content column (which tops out at 1160px with the sources sidebar
+    // open) and fading to fully transparent past it — so the aurora still
+    // glows, visibly, in the margins on a wide desktop viewport, while every
+    // pixel of actual text sits on a stable, high-contrast surface. Fixed
+    // (not absolute) so it holds its position through scroll instead of
+    // scrolling away with the content it's protecting. Sits above
+    // LivingBackground and below everything else in the render below.
+    auroraScrim: {
+      position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+      background: `linear-gradient(90deg, transparent 0%, ${withAlpha(P.bg, P.dark ? 0.78 : 0.85)} 16%, ${withAlpha(P.bg, P.dark ? 0.92 : 0.95)} 50%, ${withAlpha(P.bg, P.dark ? 0.78 : 0.85)} 84%, transparent 100%)`,
+    },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
     /* ── Ambient wash: the always-on depth layer ──
@@ -3783,9 +4149,9 @@ function App() {
   const [animSpeed, setAnimSpeed] = useState(() => parseFloat(getCookie("cb_animS") || "1"));
   // v31: the per-screen background STYLE choice (bgStyleIntro/bgStyleMain,
   // and the four components it picked between) is retired — Intro and the
-  // main app shell each get one fixed, dedicated field now
-  // (WebGLIntelligenceCore / WebGLTopographyGrid). `animationMode` above
-  // still governs whether it's on at all.
+  // main app shell each get one fixed, dedicated field now (Orb / SoftAurora,
+  // v32). `animationMode` above still governs whether it's on at all, and
+  // `animSpeed` below still scales it (see LivingBackground's own comment).
   const [highContrast, setHighContrast] = useState(() => getCookie("cb_hc") === "1");
   const [fontSize, setFontSize] = useState(() => getCookie("cb_fs") || "medium");
   const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
@@ -4244,6 +4610,7 @@ function App() {
     <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} speed={animSpeed} paused={settingsOpen} variant="main" />}
+      {animationMode !== "off" && <div style={S.auroraScrim} aria-hidden="true" />}
       <div style={S.grain} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: FONT_SIZES.subhead }}>↑</button>}
