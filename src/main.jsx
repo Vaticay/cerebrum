@@ -1820,11 +1820,14 @@ function InfoPage({ page }) {
           <LivingBackground accent={accent} P={P} intensity="subtle" speed={0.6} paused={false} style={bgStyleMain} />
         </div>
       )}
-      <header style={{ position: "sticky", top: 0, zIndex: 10, transform: "translateZ(0)", willChange: "transform" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 10 }}>
         {/* Blur lives on its own layer behind the content instead of on the
             sticky element itself — see the `headerGlass` comment in the main
-            app styles for why that split, not just translateZ(0), is what
-            actually keeps mouse-wheel scrolling alive over this bar. */}
+            app styles for why that split is what actually keeps mouse-wheel
+            scrolling alive over this bar. The `translateZ(0)` +
+            `willChange: "transform"` compositor hint this used to also carry
+            was removed (v25) to match the same edit in makeStyles' `header`
+            — see that comment for the full reasoning. */}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}` }} />
         <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", padding: 0 }}>
@@ -3252,7 +3255,10 @@ function makeStyles(P, accent, at, isMobile = false) {
        desktop and mobile. See the matching `scroll` key below, and the
        window-based scroll listeners in App() that replaced threadRef's div
        scrollTop/scrollHeight reads. */
-    page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column" },
+    // overflowX: "clip" lives here now instead of on html/body — see the
+    // matching comment on the `html, body` CSS rule near the bottom of this
+    // file for why (v25 wheel-scroll hotfix).
+    page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
     grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
     /* ── Ambient wash: the always-on depth layer ──
@@ -3286,17 +3292,28 @@ function makeStyles(P, accent, at, isMobile = false) {
        scroll handling and then never promptly re-check that determination as
        the page grows — mouse-wheel scroll goes dead over that region while a
        manual scrollbar drag (a different, compositor-level code path) keeps
-       working fine. `translateZ(0)` + `will-change: transform` alone weren't
-       enough to keep it off the main thread in practice, so the sticky
-       element itself no longer carries the filter at all: it's just a plain
-       positioned box now, and the blur lives on a separate `headerGlass`
-       layer stacked behind the content with `pointer-events: none`. Splitting
-       them means the thing that's actually `position: sticky` never triggers
-       Chrome's filter-plus-stickiness repaint path in the first place. */
+       working fine. The sticky element itself doesn't carry the filter at
+       all: it's just a plain positioned box, and the blur lives on a separate
+       `headerGlass` layer stacked behind the content with `pointer-events:
+       none`. Splitting them means the thing that's actually `position:
+       sticky` never triggers Chrome's filter-plus-stickiness repaint path in
+       the first place.
+       `transform: translateZ(0)` + `will-change: transform` used to also sit
+       here, forcing this element onto its own GPU compositor layer. Per this
+       comment's own prior note they were already "not enough on their own"
+       to prevent the dead zone above — the filter/content split is what
+       actually does that — so they were live only as an unproven, unrequested
+       hint. Removed at the user's explicit direction after a live report of
+       wheel scroll going dead specifically after landing on the answer view;
+       a forced compositor layer on a sticky, frequently-repositioned element
+       is a real, documented way for some Chrome/GPU-driver combinations to
+       mis-track which region owns wheel input, so dropping it is a reasonable
+       thing to try even though it wasn't this file's previously-identified
+       cause. See the matching note on `panel` below — same change, same
+       reasoning. */
     header: {
       flexShrink: 0,
       position: "sticky", top: 0, zIndex: 20,
-      transform: "translateZ(0)", willChange: "transform",
     },
     headerGlass: {
       position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none",
@@ -3503,14 +3520,24 @@ function makeStyles(P, accent, at, isMobile = false) {
        headerGlass because the panel's own height is content-driven (it's not
        a fixed-height bar), so a solid painted background on the box itself —
        just without `backdrop-filter` — sidesteps the bug without needing a
-       separate layer. */
+       separate layer.
+       `transform: translateZ(0)` + `will-change: transform` removed for the
+       same reason as `header` above — see that comment. This element is
+       worth flagging as its own, more likely wheel-dead-zone suspect
+       regardless of the compositor-hint question: it's the one sticky region
+       that also scrolls internally (`overflowY: "auto"` right below), and it
+       only exists in the DOM once a question's been asked — which matches a
+       live report of the wheel "going dead after asking a question" more
+       specifically than the header does (the header is present before asking
+       too). If wheel-over-the-sidebar is still dead after this round, that
+       nested-scroll-region angle — not the header — is the next thing to
+       chase, not another compositor-hint removal. */
     panel: {
       position: "sticky", top: 24,
       background: P.dark ? withAlpha(P.bg, 0.92) : withAlpha(P.bg, 0.97),
       border: glassBorder, borderRadius: 3,
       padding: "20px", boxShadow: P.shadow,
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
-      transform: "translateZ(0)", willChange: "transform",
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
@@ -4638,7 +4665,23 @@ const CSS = `
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-html, body { margin: 0; overflow-x: hidden; overscroll-behavior-y: contain; }
+/* v25 hotfix: this line used to also carry \`overflow-x: hidden\` and
+   \`overscroll-behavior-y: contain\` directly on html/body. Per a live report
+   of dead mouse-wheel scroll after asking a question, both were removed at
+   the user's explicit direction — overflow-x hidden on the root html/body
+   element, stacked with the sticky flex containers elsewhere on this page,
+   is a real way for some Chrome/Windows builds to kill wheel scroll capture
+   even though it isn't the cause this file had previously traced the bug to
+   (see the \`header\`/\`panel\` style comments in makeStyles for that one).
+   The horizontal-overflow containment this was doing still matters — this
+   page has full-bleed decorative elements (the ambient wash, the WebGL
+   backgrounds) that must never introduce a horizontal scrollbar — so it
+   moved down to \`overflowX: "clip"\` on \`S.page\`, the actual app-shell
+   wrapper, instead of the document root. \`overflow-x: clip\` (not
+   \`hidden\`) on purpose: \`hidden\` creates a new scroll container of its
+   own, which is exactly the kind of nested scrolling context this fix is
+   trying to get rid of; \`clip\` suppresses the paint without doing that. */
+html, body { margin: 0; }
 
 /* Belt-and-suspenders guarantee that the decorative ConstellationField
    canvas (see LivingBackground) can never sit in the hit-test path for
