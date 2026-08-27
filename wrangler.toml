@@ -1,5 +1,11 @@
+# compatibility_date pins which workerd runtime behavior this project builds
+# against — Cloudflare only ever changes defaults for workers that opt in by
+# bumping this, so an old date isn't a security problem, just a missed-out-on
+# problem. Bumped from 2025-07-18 (over a year stale) to a more current date;
+# picked one comfortably in the past rather than "today" so it's a version of
+# workerd that's actually had time to prove itself in production.
 name = "cerebrum"
-compatibility_date = "2025-07-18"
+compatibility_date = "2025-10-01"
 pages_build_output_dir = "dist"
 
 [ai]
@@ -12,3 +18,18 @@ binding = "AI"
 binding = "DB"
 database_name = "cerebrum-cache"
 database_id = "dde9ab43-bb34-4c27-afc8-b79a53adbaaf"
+
+# Shared rate-limit counter (functions/lib/rateLimit.js). Every endpoint used
+# to hand-roll its own in-memory Map for this, which resets independently
+# per isolate/colo — never a real global cap, just a per-edge one. A KV
+# namespace is genuinely shared across the whole edge, closing that gap.
+# Optional but recommended: every endpoint still works without this binding
+# (falls back to the old per-isolate behavior), so it's safe to deploy the
+# code first and add this whenever convenient — from the dashboard: Workers &
+# Pages -> KV -> Create namespace (name it e.g. "cerebrum-ratelimit") -> copy
+# its id below -> in this Pages project's Settings -> Functions -> KV
+# namespace bindings, add RATE_LIMIT_KV pointing at it. Or via CLI:
+#   npx wrangler kv namespace create RATE_LIMIT_KV
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
