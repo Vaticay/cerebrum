@@ -6340,7 +6340,11 @@ Respond naturally to the user's message. Be yourself.`;
     const STRUCTURE =
       "═══ REQUIRED OUTPUT STRUCTURE (HARD-ENFORCED) ═══\n" +
       "Format the ENTIRE answer as exactly these four Markdown H2 sections, in this exact order, with these exact headers " +
-      "verbatim (no extra sections, no renaming, no merging, nothing before the first header):\n\n" +
+      "verbatim (no extra sections, no renaming, no merging, nothing before the first header). " +
+      "Every header MUST sit on its own line with a completely blank line before it and a completely blank line after it — " +
+      "NEVER end a sentence and then continue straight into '## Next Header' on the same line or the same paragraph. " +
+      "WRONG: '...reduced brainstem volume [7]. ## Current Evidence & Mechanisms\\nChronic stress...' " +
+      "RIGHT: '...reduced brainstem volume [7].\\n\\n## Current Evidence & Mechanisms\\n\\nChronic stress...'\n\n" +
       "## Executive Summary\n" +
       "2-4 sentences. The direct answer to the question, stated plainly, with its strongest supporting citation(s).\n\n" +
       "## Current Evidence & Mechanisms\n" +
