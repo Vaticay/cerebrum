@@ -1,7 +1,13 @@
 {
   "name": "cerebrum",
   "version": "5.0.0",
+  "description": "A free scientific literature search engine — ask a research question, get a cited answer synthesized from open scholarly databases.",
   "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vaticay/cerebrum"
+  },
   "type": "module",
   "scripts": {
     "dev": "wrangler pages dev --proxy 5173 -- vite",
