@@ -1,3 +1,5 @@
+import { checkRateLimit } from "../lib/rateLimit.js";
+
 // TTS endpoint with tiered voice engines. Tries progressively:
 //   1. Cloudflare Aura (Deepgram) — most natural free voice, if available
 //   2. Cloudflare MeloTTS — solid fallback, always available on Workers AI
@@ -29,23 +31,8 @@ function originAllowed(request) {
   return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
 }
 
-// Same lightweight per-isolate sliding-window limiter used in search.js/vote.js.
-const RATE_BUCKET = new Map();
 const RATE_LIMIT = 20;         // TTS requests
 const RATE_WINDOW_MS = 60000;  // per minute
-function rateLimit(ip) {
-  const now = Date.now();
-  const rec = RATE_BUCKET.get(ip) || [];
-  const recent = rec.filter((t) => now - t < RATE_WINDOW_MS);
-  recent.push(now);
-  RATE_BUCKET.set(ip, recent);
-  if (RATE_BUCKET.size > 5000) {
-    for (const [k, v] of RATE_BUCKET) {
-      if (v.every((t) => now - t > RATE_WINDOW_MS)) RATE_BUCKET.delete(k);
-    }
-  }
-  return recent.length <= RATE_LIMIT;
-}
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -83,7 +70,7 @@ export async function onRequest(context) {
     request.headers.get("CF-Connecting-IP") ||
     request.headers.get("X-Forwarded-For") ||
     "unknown";
-  if (!rateLimit(clientIP)) {
+  if (!(await checkRateLimit(env, `tts:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
     return new Response(
       JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }),
       { status: 429, headers: { ...cors, "Content-Type": "application/json", "Retry-After": "30" } }
