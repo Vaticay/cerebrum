@@ -19,6 +19,7 @@ import {
   detectStatisticalRigor,
   verifyAnswerAgainstSources,
 } from "../lib/knowledge.js";
+import { checkRateLimit } from "../lib/rateLimit.js";
 
 // ============ CORE UTILITIES ============
 
@@ -242,21 +243,22 @@ function stripFabricatedCitations(text, sourceCount) {
   //    logic sees `[1]` not `[1](#ref-1)`.
   t = t.replace(/\[(\d+)\]\((?:https?:\/\/|#)[^\s)]+\)/g, "[$1]");
 
-  // 0a. Bare-digit citation markers. Model sometimes writes "networks 12"
-  //     instead of "networks [1][2]" — two adjacent superscripts run together
-  //     as plain digits. Convert clumped digits (2-3 in a row after a word)
-  //     into bracketed markers so the downstream stripper can handle them,
-  //     OR delete them if they exceed source count.
-  t = t.replace(/([a-z\)\]])\s+(\d{1,3})(?=[\s.,;:!?)])/gi, (m, before, digits) => {
-    // Split "12" into [1][2], "123" into [1][2][3]
-    const nums = digits.split("").map((d) => parseInt(d, 10));
-    if (nums.some((n) => n < 1)) return m;
-    if (sourceCount === 0) return before;
-    if (nums.every((n) => n <= sourceCount)) {
-      return before + nums.map((n) => "[" + n + "]").join("");
-    }
-    return before;
-  });
+  // 0a. REMOVED — this used to try to catch a model writing "networks 12"
+  //     instead of "networks [1][2]" (adjacent citation numbers merged into
+  //     plain digits with no brackets). It never actually caught that: the
+  //     real failure mode has NO space between the word and the digits
+  //     ("networks12"), but this regex required `\s+` (at least one space)
+  //     to match at all — so in practice it only ever fired on ordinary
+  //     numbers in ordinary prose, silently mangling real data in every
+  //     answer that stated a temperature, dose, sample size, or duration:
+  //     "reared at 27 degrees Celsius for 14 days" became
+  //     "reared at[2][7] degrees Celsius for[1][4] days" whenever both
+  //     numbers happened to be ≤ the source count. Pure harm, zero benefit,
+  //     confirmed by direct testing — removed rather than "fixed" because
+  //     there's no way to distinguish a genuinely merged citation-digit
+  //     artifact from an ordinary number without far more context than a
+  //     regex has here, and the failure mode it targeted has never actually
+  //     been observed doing what the comment describes.
 
   // 0b. Strip any "References:" / "Sources:" / "Bibliography:" section the
   //     model appended, regardless of sourceCount. We render the real
@@ -3245,12 +3247,16 @@ function deduplicateContent(text) {
   for (let i = 0; i < deduped.length; i++) {
     const current = deduped[i].trim().toLowerCase().replace(/\s+/g, " ");
     if (current.length < 30) { final.push(deduped[i]); continue; }
+    // Depends only on `i`, not `j` — hoisted out of the inner loop below.
+    // It was being rebuilt (re-splitting and re-hashing every word in the
+    // paragraph) on every single `j` iteration, an easy O(n) waste that
+    // becomes O(n^2) total work across the whole pass for no reason.
+    const currentWords = new Set(current.split(/\s+/));
     let isDupe = false;
     for (let j = 0; j < i; j++) {
       const prev = deduped[j].trim().toLowerCase().replace(/\s+/g, " ");
       if (prev.length < 30) continue;
       // Check if >80% of current paragraph's words appear in a previous one
-      const currentWords = new Set(current.split(/\s+/));
       const prevWords = new Set(prev.split(/\s+/));
       let overlap = 0;
       for (const w of currentWords) { if (prevWords.has(w)) overlap++; }
@@ -4987,17 +4993,19 @@ async function gatherPapers(rawQuery, opts) {
 
   return { papers: scoredFinal, _diag: diag };
   } catch (e) {
-    // Any throw in gatherPapers: return an empty result WITH the error surfaced
-    // so the response body shows exactly where retrieval died instead of
-    // silently defaulting to "General knowledge (AI)".
+    // Any throw in gatherPapers: log the full detail server-side (Cloudflare
+    // Function real-time logs) and return an empty result with a SAFE,
+    // stack-trace-free summary in _diag — this response body is public (any
+    // caller of /api/search sees it, not just the developer), so the full
+    // stack trace, which used to be included here, is logged instead of
+    // shipped to the client.
+    console.error("Cerebrum gatherPapers threw:", _outerDiag.phase, e && e.stack ? e.stack : e);
     return {
       papers: [],
       _diag: {
         ..._outerDiag,
         threwAt: _outerDiag.phase,
-        errorMessage: String((e && e.message) || e).slice(0, 500),
         errorName: (e && e.name) || "Unknown",
-        errorStack: String((e && e.stack) || "").slice(0, 1000),
       },
     };
   }
@@ -5051,27 +5059,14 @@ function originAllowed(request) {
   return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
 }
 
-// In-memory sliding-window rate limiter, keyed by client IP. Cloudflare gives
-// each colo its own isolate, so this is per-edge rather than global, but it's
-// enough to stop a single IP from hammering one datacenter. For hard global
-// limits you'd add a Durable Object or KV; this is the free-tier version.
-const RATE_BUCKET = new Map();
+// Rate limiter now lives in functions/lib/rateLimit.js, shared across every
+// endpoint. It prefers a KV namespace (env.RATE_LIMIT_KV) so the limit is a
+// real cross-colo count instead of the old per-isolate Map (which reset
+// independently at every edge location Cloudflare happened to route a
+// request through) — falls back to the same in-memory behavior as before if
+// that KV binding isn't configured yet, so this isn't a breaking change.
 const RATE_LIMIT = 20;         // requests
 const RATE_WINDOW_MS = 60000;  // per minute
-function rateLimit(ip) {
-  const now = Date.now();
-  const rec = RATE_BUCKET.get(ip) || [];
-  const recent = rec.filter((t) => now - t < RATE_WINDOW_MS);
-  recent.push(now);
-  RATE_BUCKET.set(ip, recent);
-  // Opportunistic cleanup so the map doesn't grow unbounded.
-  if (RATE_BUCKET.size > 5000) {
-    for (const [k, v] of RATE_BUCKET) {
-      if (v.every((t) => now - t > RATE_WINDOW_MS)) RATE_BUCKET.delete(k);
-    }
-  }
-  return recent.length <= RATE_LIMIT;
-}
 
 const MAX_QUERY_LEN = 2000;      // reject absurdly long queries (abuse / cost)
 const MAX_HISTORY_TURNS = 20;    // cap conversation history size
@@ -5117,7 +5112,7 @@ export async function onRequest(context) {
     request.headers.get("CF-Connecting-IP") ||
     request.headers.get("X-Forwarded-For") ||
     "unknown";
-  if (!rateLimit(clientIP)) {
+  if (!(await checkRateLimit(env, `search:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
     return new Response(
       JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }),
       { status: 429, headers: { ...secureCors, "Retry-After": "30" } }
@@ -5832,15 +5827,19 @@ Respond naturally to the user's message. Be yourself.`;
         limit: wantsMorePapers ? 40 : 25,
         resolvedPersonName,
         db: env.DB,
-      }).catch((e) => ({
-        papers: [],
-        _diag: {
-          fatalError: String((e && e.message) || e).slice(0, 500),
-          errorType: (e && e.name) || "Unknown",
-          stack: String((e && e.stack) || "").slice(0, 800),
-          calledWith: searchQuery,
-        },
-      }));
+      }).catch((e) => {
+        // Same rule as gatherPapers' own internal catch: full detail to the
+        // server log, nothing stack-trace-shaped to the client — this
+        // object flows straight into the public /api/search response body.
+        console.error("Cerebrum gatherPapers call rejected:", searchQuery, e && e.stack ? e.stack : e);
+        return {
+          papers: [],
+          _diag: {
+            fatalError: String((e && e.message) || e).slice(0, 200),
+            errorType: (e && e.name) || "Unknown",
+          },
+        };
+      });
 
       // ═══════════════════════════════════════════════════════════════
       // LLM RESCUE: if mechanical search found too few papers, use the
@@ -6681,7 +6680,7 @@ Respond naturally to the user's message. Be yourself.`;
         clearTimeout(t);
         if (!r.ok) {
           let bodyText = "";
-          try { bodyText = (await r.text()).slice(0, 180); } catch {}
+          try { bodyText = (await r.text()).slice(0, 100); } catch {}
           throw new Error(model + ": HTTP " + r.status + (bodyText ? " — " + bodyText : ""));
         }
         const j = await r.json();
@@ -6699,7 +6698,19 @@ Respond naturally to the user's message. Be yourself.`;
     const callCF = async (model, msgs, maxTok) => {
       if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding (env.AI missing)");
       try {
-        const out = await env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) });
+        // callOR and pollinationsCall both bound their fetch to a 12s
+        // AbortController; env.AI.run() has no signal/timeout option to hang
+        // one off, so a raw stalled call here could hang forever. Since
+        // every provider is raced together via Promise.any (a single
+        // settle-first race across the whole wave), one never-settling
+        // Workers AI call would silently stall the ENTIRE request even if
+        // every other provider in the same wave had already failed fast —
+        // defeating the whole point of racing bounded-timeout providers
+        // together. A plain timer race gives it the same 12s ceiling.
+        const out = await Promise.race([
+          env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), 12000)),
+        ]);
         const cleaned = cleanAIResponse((out && out.response) || "");
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short");
         return { answer: cleaned, model };
@@ -6737,7 +6748,7 @@ Respond naturally to the user's message. Be yourself.`;
         clearTimeout(t);
         if (!pRes.ok) {
           let bodyText = "";
-          try { bodyText = (await pRes.text()).slice(0, 180); } catch {}
+          try { bodyText = (await pRes.text()).slice(0, 100); } catch {}
           throw new Error(tag + ": HTTP " + pRes.status + (bodyText ? " — " + bodyText : ""));
         }
         const cleaned = cleanAIResponse(await pRes.text());
@@ -7016,13 +7027,20 @@ Respond naturally to the user's message. Be yourself.`;
             .map((n) => evidencePapers[n - 1])
             .filter(Boolean)
             .slice(0, 8);
-          for (const p of citedPapers) {
-            await env.DB.prepare(
+          // Fired together rather than awaited one at a time in series — this
+          // write happens after the answer is already computed but is still
+          // awaited before the response returns, so up to 8 sequential D1
+          // round-trips were pure added latency on the response tail for no
+          // reason (each row is independent; nothing here depends on another
+          // row's write completing first). Each gets its own catch so one
+          // failing insert can't take the others down with it.
+          await Promise.all(citedPapers.map((p) =>
+            env.DB.prepare(
               "INSERT INTO paper_cache (query_key, title, url, journal, year, authors, abstract, times_confirmed, created_at) " +
               "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) " +
               "ON CONFLICT(query_key, title) DO UPDATE SET times_confirmed = times_confirmed + 1"
-            ).bind(learnKey, p.title || "", p.url || "", p.journal || "", p.year || "", p.authors || "", (p.abstract || "").slice(0, 500), Date.now()).run();
-          }
+            ).bind(learnKey, p.title || "", p.url || "", p.journal || "", p.year || "", p.authors || "", (p.abstract || "").slice(0, 500), Date.now()).run().catch(() => {})
+          ));
         } catch {}
       }
     }
@@ -7209,6 +7227,12 @@ Respond naturally to the user's message. Be yourself.`;
       { status: 200, headers: cors }
     );
   } catch (e) {
+    // Full detail server-side only — this response is public, and used to
+    // include the raw exception message/stack in `_debug` on every 500/502/
+    // 503/504, which is an information-disclosure risk (internals, file
+    // paths, whatever the exception happened to say) for zero benefit to a
+    // legitimate caller who just needs a clear, generic explanation.
+    console.error("Cerebrum /api/search top-level error:", e && e.stack ? e.stack : e);
     // Classify the error for a more helpful user-facing message
     const msg = (e.message || String(e)).toLowerCase();
     let userMessage = "Something went wrong on our end. Please try again in a moment.";
@@ -7226,7 +7250,6 @@ Respond naturally to the user's message. Be yourself.`;
     return new Response(
       JSON.stringify({
         error: userMessage,
-        _debug: e.message || String(e),
       }),
       { status, headers: secureCors }
     );
