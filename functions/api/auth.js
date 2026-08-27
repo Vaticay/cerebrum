@@ -37,6 +37,7 @@ import {
   newId,
   MAGIC_LINK_TTL,
 } from "../lib/auth.js";
+import { checkRateLimit } from "../lib/rateLimit.js";
 
 const ALLOWED_ORIGINS = [
   "https://askcerebrum.org",
@@ -50,23 +51,16 @@ function originAllowed(request) {
   return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
 }
 
-// Two independent limiters: one per-IP (blunt abuse throttle across every
-// action), one per-email specifically for login/magic-request (so credential
-// stuffing against one account can't just be spread across many IPs to
-// dodge the IP-level limit).
-const IP_BUCKET = new Map();
-const EMAIL_BUCKET = new Map();
-function checkBucket(map, key, limit, windowMs) {
-  const now = Date.now();
-  const rec = map.get(key) || [];
-  const recent = rec.filter((t) => now - t < windowMs);
-  recent.push(now);
-  map.set(key, recent);
-  if (map.size > 8000) {
-    for (const [k, v] of map) if (v.every((t) => now - t > windowMs)) map.delete(k);
-  }
-  return recent.length <= limit;
-}
+// Two independent limiters, both now backed by the shared KV-aware
+// checkRateLimit (see functions/lib/rateLimit.js) instead of a per-isolate
+// Map: one per-IP (blunt abuse throttle across every action), one per-email
+// specifically for login/magic-request (so credential stuffing against one
+// account can't just be spread across many IPs to dodge the IP-level limit).
+// The per-email limiter in particular is exactly the kind of check that
+// NEEDS to be real across the whole edge, not per-isolate — a distributed
+// credential-stuffing attempt against one email address is the textbook case
+// for spreading requests across regions specifically to dodge a limiter that
+// only counts within one isolate's memory.
 
 async function sendMagicLinkEmail(env, email, link) {
   if (!env.RESEND_API_KEY) {
@@ -114,7 +108,7 @@ export async function onRequest(context) {
   if (!env.DB) return new Response(JSON.stringify({ error: "Accounts are not configured on this deployment." }), { status: 503, headers: cors });
 
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
-  if (!checkBucket(IP_BUCKET, clientIP, 40, 60000)) {
+  if (!(await checkRateLimit(env, `authip:${clientIP}`, 40, 60000))) {
     return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment." }), { status: 429, headers: { ...cors, "Retry-After": "30" } });
   }
 
@@ -166,7 +160,7 @@ export async function onRequest(context) {
       const email = (body.email || "").trim();
       const password = body.password || "";
       const emailLower = email.toLowerCase();
-      if (!checkBucket(EMAIL_BUCKET, `login:${emailLower}`, 10, 15 * 60000)) {
+      if (!(await checkRateLimit(env, `login:${emailLower}`, 10, 15 * 60000))) {
         return new Response(JSON.stringify({ error: "Too many attempts for this account. Try again later." }), { status: 429, headers: cors });
       }
       const row = await env.DB.prepare("SELECT id, email, password_hash, password_salt FROM users WHERE email_lower = ?").bind(emailLower).first();
@@ -196,7 +190,7 @@ export async function onRequest(context) {
       const email = (body.email || "").trim();
       if (!isValidEmail(email)) return new Response(JSON.stringify({ error: "Enter a valid email address." }), { status: 400, headers: cors });
       const emailLower = email.toLowerCase();
-      if (!checkBucket(EMAIL_BUCKET, `magic:${emailLower}`, 5, 15 * 60000)) {
+      if (!(await checkRateLimit(env, `magic:${emailLower}`, 5, 15 * 60000))) {
         return new Response(JSON.stringify({ error: "Too many link requests for this email. Try again later." }), { status: 429, headers: cors });
       }
       const token = randomToken(32);
