@@ -77,6 +77,45 @@ function paperDedupeKey(p) {
   return title ? "title:" + title : "";
 }
 
+// v34: a raw wwPDB structure deposit got synthesized into an answer and cited
+// with the same weight as a peer-reviewed paper — a real, reported failure,
+// not a hypothetical one. Every per-source fetcher above now asks its own API
+// to exclude datasets up front (OpenAlex's `filter`, Crossref's `filter`,
+// Semantic Scholar's `publicationTypes`), but an upstream filter silently
+// failing, changing shape, or simply not existing for a given source (DOAJ,
+// PLOS, CORE, BASE, openAIRE, PMC full text, Zenodo, the raw PubMed path...)
+// must never be the ONLY thing standing between a dataset record and the
+// sidebar. This is the single choke point every paper from every source
+// passes through, right after dedup, regardless of which fetcher produced it
+// or whether that fetcher's own filter worked. Two independent signals are
+// checked because either one alone can be wrong: a source's own `_rawType`
+// can be missing/blank for a real paper (checking type alone would produce
+// false negatives that let junk through), while a URL substring alone could
+// theoretically collide with an unrelated domain (checking URL alone risks a
+// false positive) — requiring neither be BOTH present keeps this a pure
+// reject list, never a stricter allowlist that could accidentally exclude a
+// legitimate paper this file doesn't know how to positively recognize.
+const NON_LITERATURE_URL_MARKERS = ["wwpdb.org", "zenodo", "dryad", "figshare"];
+const NON_LITERATURE_TYPE_MARKERS = ["dataset", "component"];
+function isNonLiterature(p) {
+  const url = ((p && p.url) || "").toLowerCase();
+  if (NON_LITERATURE_URL_MARKERS.some((m) => url.includes(m))) return true;
+  // `_rawType` is the machine-readable type a fetcher captured straight off
+  // its API (e.g. OpenAlex's "dataset", Crossref's "component", Semantic
+  // Scholar's "Dataset" inside its publicationTypes array) — check it as a
+  // whole-word match so "dataset" doesn't also swallow an unrelated type
+  // string that merely contains those letters as a substring.
+  const rawType = ((p && p._rawType) || "").toLowerCase();
+  if (rawType && NON_LITERATURE_TYPE_MARKERS.some((m) => new RegExp("\\b" + m + "\\b").test(rawType))) return true;
+  // Some code paths (see the two display-only classifiers elsewhere in this
+  // file) already compute a human-facing `p.type` of "Dataset" from journal
+  // name patterns before this filter ever runs on them again later (e.g. a
+  // cached/re-scored record). Honor that too rather than only trusting the
+  // freshly-fetched `_rawType`.
+  if ((p && p.type || "").toLowerCase() === "dataset") return true;
+  return false;
+}
+
 // v6.4: D1's answer_cache and paper_cache tables key rows off the literal
 // normalized query text, with NO awareness that the retrieval/filtering
 // pipeline itself changes over time. That made the caches "immune" to
@@ -1553,6 +1592,12 @@ async function europePMC(query, limit = 8) {
         journal: r.journalTitle || "Europe PMC",
         abstract: stripTags(r.abstractText),
         pmcid: r.pmcid || (r.source === "PMC" ? r.id : "") || "",
+        // Europe PMC is not a major dataset-leak vector — it indexes literature,
+        // not deposits — but `pubType`/`pubTypeList.pubType` are on the record
+        // when present, so carry them through for the universal reject filter
+        // (isNonLiterature, below) to inspect defense-in-depth rather than
+        // trusting this source blindly just because it's usually clean.
+        _rawType: (r.pubTypeList && Array.isArray(r.pubTypeList.pubType) ? r.pubTypeList.pubType.join(",") : "") || r.pubType || "",
       }));
   } catch {
     return [];
@@ -2019,10 +2064,19 @@ async function openAlex(query, limit = 10, key = "") {
 
     const params = new URLSearchParams({
       search: query,
+      // Ask OpenAlex to only hand back actual literature in the first place —
+      // don't rely on the post-fetch reject filter alone to do this work. The
+      // pipe is OpenAlex's own OR syntax for multiple values on one filter
+      // field (the exact mechanism `biorxiv()` above already trusts for
+      // `type:preprint`); "article" is OpenAlex's label for a journal article.
+      // A dataset deposit, a component record, a book chapter etc. never
+      // matches either arm and is dropped server-side before it costs us a
+      // slot in `limit`.
+      filter: "type:article|preprint",
       sort: "relevance_score:desc",
       per_page: String(limit),
       select:
-        "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids",
+        "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids,type",
       mailto: "contact@askcerebrum.org",
     });
     if (key) params.set("api_key", key);
@@ -2057,6 +2111,12 @@ async function openAlex(query, limit = 10, key = "") {
             "OpenAlex",
           abstract: decodeInverted(w.abstract_inverted_index),
           pmcid: pmcid || "",
+          // Belt-and-suspenders: the `filter` above should mean this is
+          // always "article" or "preprint" already, but the universal
+          // post-fetch reject filter (isNonLiterature) re-checks it anyway —
+          // an upstream filter param silently failing should never be the
+          // only thing standing between a dataset record and the sidebar.
+          _rawType: w.type || "",
         };
       })
       .filter((p) => p.title);
@@ -2072,8 +2132,16 @@ async function crossref(query, limit = 8) {
       new URLSearchParams({
         query,
         rows: String(limit),
+        // Crossref's `type` vocabulary doesn't have a literal "preprint"
+        // value — preprints deposited there are typed "posted-content", which
+        // also covers things like conference abstracts, so filtering it in
+        // here would let non-literature back in through the side door.
+        // Preprints are already covered by the dedicated `biorxiv()`/
+        // `medrxiv()` fetchers elsewhere in the ladder, so this fetcher is
+        // scoped to its strongest, unambiguous signal: real journal articles.
+        filter: "type:journal-article",
         select:
-          "title,author,container-title,published,DOI,abstract,is-referenced-by-count",
+          "title,author,container-title,published,DOI,abstract,is-referenced-by-count,type",
       }) +
       "&mailto=contact@askcerebrum.org";
     const data = await getJSON(url);
@@ -2105,6 +2173,7 @@ async function crossref(query, limit = 8) {
           ? it["container-title"][0]
           : it["container-title"] || "Crossref",
         abstract: stripTags(it.abstract || ""),
+        _rawType: it.type || "",
       }))
       .filter((p) => p.title);
   } catch {
@@ -2156,6 +2225,23 @@ async function arxiv(query, limit = 6) {
   }
 }
 
+// Semantic Scholar's own `publicationTypes` enum includes a literal
+// "Dataset" value alongside real literature types — asking for everything
+// EXCEPT Dataset (rather than an allowlist of just "JournalArticle") keeps
+// reviews, meta-analyses, conference papers, and case reports in the mix
+// instead of silently narrowing the source the way a tight allowlist would.
+const S2_LITERATURE_TYPES = [
+  "JournalArticle",
+  "Review",
+  "MetaAnalysis",
+  "CaseReport",
+  "ClinicalTrial",
+  "Conference",
+  "Study",
+  "Book",
+  "BookSection",
+].join(",");
+
 async function semanticScholar(query, limit = 8) {
   try {
     const url =
@@ -2163,8 +2249,9 @@ async function semanticScholar(query, limit = 8) {
       new URLSearchParams({
         query,
         limit: String(limit),
+        publicationTypes: S2_LITERATURE_TYPES,
         fields:
-          "title,abstract,tldr,year,citationCount,authors,venue,externalIds,openAccessPdf,url",
+          "title,abstract,tldr,year,citationCount,authors,venue,externalIds,openAccessPdf,url,publicationTypes",
       });
     const data = await getJSON(url);
     return ((data && data.data) || [])
@@ -2185,6 +2272,11 @@ async function semanticScholar(query, limit = 8) {
           journal: r.venue || "Semantic Scholar",
           abstract: r.abstract || "",
           tldr: (r.tldr && r.tldr.text) || "",
+          // `publicationTypes` comes back as an array (can be null/empty for
+          // sparsely-catalogued records) — flatten to a comma string so the
+          // universal reject filter can pattern-match it the same way it
+          // matches every other source's `_rawType`.
+          _rawType: Array.isArray(r.publicationTypes) ? r.publicationTypes.join(",") : "",
         };
       });
   } catch {
@@ -2264,6 +2356,18 @@ async function biorxiv(query, limit = 6) {
   }
 }
 
+// v34: Zenodo hosts a mix of genuine papers, posters, presentations, and raw
+// data/software deposits, with no clean way to tell them apart from this
+// endpoint's response alone — which is exactly the ambiguity that let a raw
+// dataset get cited as if it were literature. The new hard-reject filter
+// (isNonLiterature, in paperDedupeKey's neighborhood above) treats any
+// zenodo.org URL as non-literature across the board, per explicit direction,
+// so every result this function returns is now discarded downstream before
+// it can reach an answer. Left in place rather than removed — deleting it
+// (and its entry in `sourceNames`/the "14 databases" this app advertises)
+// is a bigger, riskier change than the data-quality bug actually required,
+// and this comment is here so the next person who notices "zenodo never
+// shows results" understands why without re-deriving it.
 async function zenodo(query, limit = 4) {
   try {
     const url =
@@ -3149,6 +3253,152 @@ async function llmValidatePapers(rawQuery, papers, token) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// DEEP FACT-CHECK (LLM claim-by-claim verification)
+//
+// verifyAnswerAgainstSources() in knowledge.js is deterministic and free —
+// it stays as the always-on baseline and the fallback here — but it can only
+// check whether a NAMED ENTITY (a drug, gene, pathway) shows up somewhere in
+// the source text. It can't tell you whether a specific CLAIM the answer
+// makes is actually what a specific source says, which is what a fact-check
+// panel implies it's doing. This is the real version of that: an LLM call
+// that reads the drafted answer, pulls out several of its concrete claims,
+// and checks each one against a quote from the specific source it's
+// supposedly grounded in.
+//
+// Two tiers, tried in order, because this runs on every answer with fact-
+// check enabled and can't be allowed to make the response noticeably slower
+// or to ever hard-fail the request:
+//   1. Workers AI (env.AI, same binding/models the answer-generation
+//      fallback ladder already trusts) — no per-request network egress cost,
+//      usually fast, tried first with a short timeout.
+//   2. OpenRouter (deepseek/deepseek-chat-v3-0324:free) — tried only if tier
+//      1 didn't produce usable JSON, with a slightly longer timeout since
+//      it's now the only remaining shot before giving up.
+// If both fail (missing binding/key, timeout, or a response that doesn't
+// parse into at least a couple of usable claims), this returns null and the
+// caller falls back to verifyAnswerAgainstSources — fact-check degrades to
+// the simpler heuristic instead of the panel disappearing or the request
+// failing.
+//
+// NOT reusing callOR/callCF from the answer-generation stage on purpose:
+// both run their output through cleanAIResponse() (strips code fences and
+// markdown formatting meant for PROSE, not JSON) and reject anything under
+// minAnswerLen (150+ chars) — a short, valid JSON object like
+// {"claims":[...]} can be well under that floor and would be thrown away as
+// "too short" before this function ever saw it.
+const DEEP_FACT_CHECK_SYSTEM_PROMPT =
+  "You are a rigorous scientific fact-checker. You will be given an AI-generated answer and the numbered " +
+  "sources it was supposed to be grounded in. Your job: extract 3 to 5 of the answer's most specific, checkable " +
+  "claims and verify each one directly against the source text.\n\n" +
+  "For EACH claim:\n" +
+  "1. Quote the claim (or paraphrase tightly) as the answer states it.\n" +
+  "2. Identify which numbered source it's supposed to come from (use the [N] markers in the answer if present, " +
+  "otherwise the source whose content is the closest match).\n" +
+  "3. Quote the exact sentence or phrase from that source's abstract that supports (or fails to support) the claim. " +
+  "If nothing in the source supports it, say so explicitly instead of inventing a quote.\n" +
+  '4. Assign a status: "supported" (the source quote directly backs the claim), "thin" (the source is related/adjacent ' +
+  "but doesn't directly state this specific claim — a reasonable inference, not a stated finding), or " +
+  '"unsupported" (the source doesn\'t contain anything resembling this claim).\n' +
+  "5. Write a 2-3 sentence methodological justification: WHY that status — what the quote does or doesn't establish, " +
+  "and what precisely is missing if it's thin or unsupported. Do not just restate the status word.\n\n" +
+  "Be genuinely critical. A claim that overgeneralizes a single small study, cites a mechanism the abstract only " +
+  "speculates about, or states a number the source doesn't contain should be marked thin or unsupported, not waved " +
+  "through as supported.\n\n" +
+  "Output ONLY this JSON shape — no markdown fences, no commentary before or after:\n" +
+  '{"claims": [{"claim": "...", "source_index": 1, "quote": "...", "status": "supported", "justification": "..."}]}';
+
+function buildFactCheckSourceBlock(papers) {
+  return papers
+    .slice(0, 20)
+    .map((p, i) => `[${i + 1}] ${p.title || "Untitled"}\nAbstract: ${(p.abstract || "(no abstract available)").slice(0, 600)}`)
+    .join("\n\n");
+}
+
+function parseDeepFactCheckJSON(raw) {
+  const txt = (raw || "").replace(/```json|```/g, "").trim();
+  // Models occasionally wrap the object in a sentence or two despite the
+  // instruction not to — grab the outermost {...} span rather than requiring
+  // the whole string to be pure JSON.
+  const start = txt.indexOf("{");
+  const end = txt.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(txt.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (!parsed || !Array.isArray(parsed.claims)) return null;
+  const VALID_STATUS = new Set(["supported", "thin", "unsupported"]);
+  const claims = parsed.claims
+    .map((c) => {
+      const claim = String((c && c.claim) || "").trim().slice(0, 400);
+      const status = VALID_STATUS.has((c && c.status || "").toLowerCase()) ? c.status.toLowerCase() : null;
+      const justification = String((c && c.justification) || "").trim().slice(0, 600);
+      const quote = String((c && c.quote) || "").trim().slice(0, 400);
+      const sourceIndex = Number.isFinite(c && c.source_index) ? c.source_index : null;
+      if (!claim || !status || !justification) return null;
+      return { claim, status, justification, quote, sourceIndex };
+    })
+    .filter(Boolean);
+  // Fewer than 2 usable claims isn't the "3-5 rigorous claims" this is meant
+  // to produce — treat it as a failed attempt so the caller falls back to
+  // the deterministic heuristic instead of showing a near-empty panel.
+  if (claims.length < 2) return null;
+  return claims;
+}
+
+async function deepFactCheck(answer, papers, env) {
+  if (!answer || !papers || papers.length === 0) return null;
+  const sourceBlock = buildFactCheckSourceBlock(papers);
+  const userContent =
+    "ANSWER TO FACT-CHECK:\n" + answer.slice(0, 4000) +
+    "\n\nSOURCES (numbered to match any [N] citation markers in the answer above):\n" + sourceBlock;
+  const messages = [
+    { role: "system", content: DEEP_FACT_CHECK_SYSTEM_PROMPT },
+    { role: "user", content: userContent },
+  ];
+
+  // Tier 1: Workers AI — no external network egress, tried first.
+  if (env.AI && typeof env.AI.run === "function") {
+    try {
+      const out = await Promise.race([
+        env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", { messages, max_tokens: 1400 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 9000)),
+      ]);
+      const claims = parseDeepFactCheckJSON((out && out.response) || "");
+      if (claims) return claims;
+    } catch {
+      // Fall through to tier 2.
+    }
+  }
+
+  // Tier 2: OpenRouter — only reached if Workers AI is unavailable, timed
+  // out, or returned something that didn't parse into usable claims.
+  if (env.OPENROUTER_KEY) {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 12000);
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.OPENROUTER_KEY, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
+        body: JSON.stringify({ model: "deepseek/deepseek-chat-v3-0324:free", temperature: 0, max_tokens: 1400, messages }),
+        signal: c.signal,
+      });
+      clearTimeout(t);
+      if (r.ok) {
+        const j = await r.json();
+        const claims = parseDeepFactCheckJSON(j?.choices?.[0]?.message?.content || "");
+        if (claims) return claims;
+      }
+    } catch {
+      // Both tiers failed — caller falls back to verifyAnswerAgainstSources.
+    }
+  }
+  return null;
+}
+
 
 // ============ ANSWER QUALITY ENGINE (v6.0) ============
 // Post-generation processing that catches and fixes the most common
@@ -3522,7 +3772,22 @@ const QUERY_RESOLVER_PROMPT =
   "resolved_query should include that topic's key terms.\n" +
   "7. For followup_deeper and followup_related, ALWAYS include the main topic in resolved_query " +
   "even if the user didn't repeat it.\n" +
-  '8. A message that ONLY asks about papers/sources/citations without specifying "more" or "new" = meta_question, NOT source_request.';
+  '8. A message that ONLY asks about papers/sources/citations without specifying "more" or "new" = meta_question, NOT source_request.\n\n' +
+  "SCIENTIFIC VOCABULARY — how to build resolved_query:\n" +
+  "You have the working vocabulary of MeSH (Medical Subject Headings), SNOMED CT, and OpenAlex Concepts behind you. " +
+  "Before writing resolved_query, mentally map the user's plain-language question onto that controlled vocabulary:\n" +
+  '9. Expand every acronym and abbreviation to its full term the FIRST time it would matter for retrieval ' +
+  '("MI" -> "myocardial infarction", "CRISPR" -> "CRISPR gene editing", "GWAS" -> "genome-wide association study"). ' +
+  "If you are not confident what an acronym expands to, leave it as-is rather than guessing.\n" +
+  "10. Prefer the precise controlled-vocabulary term over a vague everyday phrase when they clearly mean the same thing " +
+  '("heart attack" -> "myocardial infarction", "high blood pressure" -> "hypertension"), but do not invent jargon for a ' +
+  "concept that has no standard synonym — an ordinary plain-English query is often already correct.\n" +
+  '11. resolved_query MUST stay a plain, natural phrase — a string of terms, not a search expression. ' +
+  "Do NOT include boolean operators (AND/OR/NOT), parentheses, quotation marks, wildcards, or field-syntax of any kind. " +
+  "The terms in resolved_query are fanned out afterward to a dozen different literature databases that each parse " +
+  "boolean/field syntax differently (some support it, most treat it as literal text and return nothing) — that fan-out " +
+  "layer is responsible for building each database's own correctly-formed query FROM your plain terms, so anything " +
+  "resembling a search expression here breaks retrieval instead of improving it.";
 
 
 async function llmResolveQuery(query, history, prevSources, token) {
@@ -4054,6 +4319,11 @@ async function gatherPapers(rawQuery, opts) {
         if (!hit) continue;
         const titleKey = (p.title || "").toLowerCase().trim();
         if (!titleKey || seenTitles.has(titleKey)) continue;
+        // Hard reject: a PDB deposit or Zenodo/Dryad/Figshare record isn't a
+        // publication just because it happens to list the searched author —
+        // see isNonLiterature() for why this can't be left to the per-source
+        // fetchers' own upstream filters alone.
+        if (isNonLiterature(p)) continue;
         seenTitles.add(titleKey);
         merged.push({ ...p, authorMatch: effectiveName });
       }
@@ -4580,6 +4850,13 @@ async function gatherPapers(rawQuery, opts) {
   for (const res of results) {
     if (res.status === "fulfilled" && Array.isArray(res.value)) {
       for (const p of res.value) {
+        // Hard reject before this record ever gets a dedupe key, a relevance
+        // score, or a shot at being cited — a dataset deposit that slips past
+        // this line is a dataset deposit the model will happily write into
+        // the answer as if it read it. See isNonLiterature() above for why
+        // this single choke point exists independent of each fetcher's own
+        // upstream type filter.
+        if (isNonLiterature(p)) continue;
         const key = paperDedupeKey(p);
         if (key && !seen.has(key)) {
           seen.add(key);
@@ -7304,30 +7581,68 @@ Respond naturally to the user's message. Be yourself.`;
     // toggle promises.
     let factCheckResult = null;
     if (settings.factCheck && useEvidence && evidencePapers.length > 0) {
-      const fc = verifyAnswerAgainstSources(answer, evidencePapers);
-      // Only surface the panel when there was actually something to check —
-      // a purely mechanistic answer that never names a specific drug/gene/
-      // pathway isn't a failure to verify, it's just nothing to verify, and
-      // showing an empty fact-check box for that case would be misleading.
-      if (fc.checked) {
-        // A "thin" term (the acronym's own written-out definition shows up
-        // in a source even though the bare acronym never does — see
-        // findAcronymExpansions in knowledge.js) is real, if indirect,
-        // support: it should pull the overall verdict away from
-        // "unsupported", same as a solid match would, just rendered with its
-        // own lighter-weight status in the UI rather than collapsed into
-        // "supported" and losing that nuance.
-        const overall = fc.unsupported.length === 0
+      // v34: the deep, claim-by-claim pass is tried first — see deepFactCheck()
+      // above for the two-tier LLM strategy and why it can't reuse callOR/
+      // callCF. It replaces the old one-line-per-entity output ("References
+      // 'LLPS'") with several actual claims, each checked against a quote
+      // from the specific source it's supposed to come from and a real
+      // methodological justification, which is what the FactCheck panel's
+      // copy ("relevance/fact-check") always implied it was doing.
+      const deepClaims = await deepFactCheck(answer, evidencePapers, env).catch(() => null);
+      if (deepClaims) {
+        const unsupportedCount = deepClaims.filter((c) => c.status === "unsupported").length;
+        const supportedCount = deepClaims.filter((c) => c.status === "supported").length;
+        const thinCount = deepClaims.filter((c) => c.status === "thin").length;
+        const overall = unsupportedCount === 0
           ? "supported"
-          : (fc.supported.length > 0 || fc.thin.length > 0)
+          : (supportedCount > 0 || thinCount > 0)
           ? "partly"
           : "unsupported";
-        const claims = [
-          ...fc.supported.map((term) => ({ claim: `References "${term}"`, status: "supported", note: "Appears in at least one cited source." })),
-          ...fc.thin.map((term) => ({ claim: `References "${term}"`, status: "thin", note: "The acronym itself isn't in a cited source's title or abstract, but the phrase the answer used to define it is." })),
-          ...fc.unsupported.map((term) => ({ claim: `References "${term}"`, status: "unsupported", note: "Doesn't appear in any cited source's title or abstract — may be from general knowledge, or worth double-checking." })),
-        ];
-        factCheckResult = { overall, summary: fc.note, claims };
+        const claims = deepClaims.map((c) => ({
+          claim: c.claim,
+          status: c.status,
+          // Same shape the frontend has always rendered — {claim, status,
+          // note} — so this richer backend needed zero FactCheck component
+          // changes. The quote-plus-reasoning combination is what makes each
+          // line a real methodological account instead of a canned phrase.
+          note: c.quote
+            ? `"${c.quote}"${c.sourceIndex ? ` [${c.sourceIndex}]` : ""} — ${c.justification}`
+            : c.justification,
+        }));
+        const summary = `Checked ${claims.length} claim${claims.length === 1 ? "" : "s"} against the cited sources: ` +
+          `${supportedCount} supported, ${thinCount} thin, ${unsupportedCount} unsupported.`;
+        factCheckResult = { overall, summary, claims };
+      } else {
+        // Both LLM tiers failed (no key/binding configured, timeout, or an
+        // unparseable response) — fall back to the deterministic, zero-
+        // network heuristic rather than showing nothing. Same behavior as
+        // before this round's change, just now the fallback path instead of
+        // the only path.
+        const fc = verifyAnswerAgainstSources(answer, evidencePapers);
+        // Only surface the panel when there was actually something to check —
+        // a purely mechanistic answer that never names a specific drug/gene/
+        // pathway isn't a failure to verify, it's just nothing to verify, and
+        // showing an empty fact-check box for that case would be misleading.
+        if (fc.checked) {
+          // A "thin" term (the acronym's own written-out definition shows up
+          // in a source even though the bare acronym never does — see
+          // findAcronymExpansions in knowledge.js) is real, if indirect,
+          // support: it should pull the overall verdict away from
+          // "unsupported", same as a solid match would, just rendered with its
+          // own lighter-weight status in the UI rather than collapsed into
+          // "supported" and losing that nuance.
+          const overall = fc.unsupported.length === 0
+            ? "supported"
+            : (fc.supported.length > 0 || fc.thin.length > 0)
+            ? "partly"
+            : "unsupported";
+          const claims = [
+            ...fc.supported.map((term) => ({ claim: `References "${term}"`, status: "supported", note: "Appears in at least one cited source." })),
+            ...fc.thin.map((term) => ({ claim: `References "${term}"`, status: "thin", note: "The acronym itself isn't in a cited source's title or abstract, but the phrase the answer used to define it is." })),
+            ...fc.unsupported.map((term) => ({ claim: `References "${term}"`, status: "unsupported", note: "Doesn't appear in any cited source's title or abstract — may be from general knowledge, or worth double-checking." })),
+          ];
+          factCheckResult = { overall, summary: fc.note, claims };
+        }
       }
     }
 
