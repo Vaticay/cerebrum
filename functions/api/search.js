@@ -95,18 +95,32 @@ function paperDedupeKey(p) {
 // false positive) — requiring neither be BOTH present keeps this a pure
 // reject list, never a stricter allowlist that could accidentally exclude a
 // legitimate paper this file doesn't know how to positively recognize.
-const NON_LITERATURE_URL_MARKERS = ["wwpdb.org", "zenodo", "dryad", "figshare"];
-const NON_LITERATURE_TYPE_MARKERS = ["dataset", "component"];
+// Exported so the blocklist itself is inspectable/testable from outside this
+// module, not just the filter function it feeds. osf.io hosts both genuine
+// preprints and non-paper project artifacts (data, code, protocols) under the
+// same domain, so it's blocked wholesale; clinicaltrials.gov is a trial
+// *registry* entry, not a published result; data.mendeley.com is Mendeley's
+// dataset repository, a distinct product from the Mendeley reference manager
+// and not covered by the plain "mendeley" substring on purpose (that would
+// over-block). "posted-content" is Crossref's own type label for preprints/
+// conference content — already covered by this project's dedicated
+// biorxiv/medrxiv fetchers, so excluding the Crossref-typed duplicates here
+// costs nothing real. "peer-review" is Crossref's type for a standalone
+// review report (e.g. an F1000-style open review), not the paper it reviews.
+// "grant" is funding-record metadata that sometimes rides along in these
+// APIs — never an actual publication.
+export const BLOCKED_DOMAINS = ["wwpdb.org", "zenodo", "dryad", "figshare", "osf.io", "clinicaltrials.gov", "data.mendeley.com"];
+export const BLOCKED_TYPES = ["dataset", "component", "posted-content", "peer-review", "grant"];
 function isNonLiterature(p) {
   const url = ((p && p.url) || "").toLowerCase();
-  if (NON_LITERATURE_URL_MARKERS.some((m) => url.includes(m))) return true;
+  if (BLOCKED_DOMAINS.some((m) => url.includes(m))) return true;
   // `_rawType` is the machine-readable type a fetcher captured straight off
   // its API (e.g. OpenAlex's "dataset", Crossref's "component", Semantic
   // Scholar's "Dataset" inside its publicationTypes array) — check it as a
   // whole-word match so "dataset" doesn't also swallow an unrelated type
   // string that merely contains those letters as a substring.
   const rawType = ((p && p._rawType) || "").toLowerCase();
-  if (rawType && NON_LITERATURE_TYPE_MARKERS.some((m) => new RegExp("\\b" + m + "\\b").test(rawType))) return true;
+  if (rawType && BLOCKED_TYPES.some((m) => new RegExp("\\b" + m + "\\b").test(rawType))) return true;
   // Some code paths (see the two display-only classifiers elsewhere in this
   // file) already compute a human-facing `p.type` of "Dataset" from journal
   // name patterns before this filter ever runs on them again later (e.g. a
@@ -3300,8 +3314,11 @@ const DEEP_FACT_CHECK_SYSTEM_PROMPT =
   '4. Assign a status: "supported" (the source quote directly backs the claim), "thin" (the source is related/adjacent ' +
   "but doesn't directly state this specific claim — a reasonable inference, not a stated finding), or " +
   '"unsupported" (the source doesn\'t contain anything resembling this claim).\n' +
-  "5. Write a 2-3 sentence methodological justification: WHY that status — what the quote does or doesn't establish, " +
-  "and what precisely is missing if it's thin or unsupported. Do not just restate the status word.\n\n" +
+  "5. Write a DEEP, multi-sentence (3-4 full sentences minimum) methodological justification: WHY that status — " +
+  "what exactly the quote does or doesn't establish, what specific gap exists between the claim's wording and the " +
+  "source's actual finding if it's thin, or precisely what would need to be true in the source for this to count " +
+  "as supported if it's unsupported. A one-line restatement of the status word is not acceptable — write like a " +
+  "peer reviewer explaining their verdict to another scientist, not like a label.\n\n" +
   "Be genuinely critical. A claim that overgeneralizes a single small study, cites a mechanism the abstract only " +
   "speculates about, or states a number the source doesn't contain should be marked thin or unsupported, not waved " +
   "through as supported.\n\n" +
@@ -3335,7 +3352,7 @@ function parseDeepFactCheckJSON(raw) {
     .map((c) => {
       const claim = String((c && c.claim) || "").trim().slice(0, 400);
       const status = VALID_STATUS.has((c && c.status || "").toLowerCase()) ? c.status.toLowerCase() : null;
-      const justification = String((c && c.justification) || "").trim().slice(0, 600);
+      const justification = String((c && c.justification) || "").trim().slice(0, 900);
       const quote = String((c && c.quote) || "").trim().slice(0, 400);
       const sourceIndex = Number.isFinite(c && c.source_index) ? c.source_index : null;
       if (!claim || !status || !justification) return null;
@@ -3364,7 +3381,7 @@ async function deepFactCheck(answer, papers, env) {
   if (env.AI && typeof env.AI.run === "function") {
     try {
       const out = await Promise.race([
-        env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", { messages, max_tokens: 1400 }),
+        env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", { messages, max_tokens: 1900 }),
         new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 9000)),
       ]);
       const claims = parseDeepFactCheckJSON((out && out.response) || "");
@@ -3383,7 +3400,7 @@ async function deepFactCheck(answer, papers, env) {
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.OPENROUTER_KEY, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
-        body: JSON.stringify({ model: "deepseek/deepseek-chat-v3-0324:free", temperature: 0, max_tokens: 1400, messages }),
+        body: JSON.stringify({ model: "deepseek/deepseek-chat-v3-0324:free", temperature: 0, max_tokens: 1900, messages }),
         signal: c.signal,
       });
       clearTimeout(t);
