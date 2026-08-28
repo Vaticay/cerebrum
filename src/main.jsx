@@ -2167,68 +2167,90 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
       <h2 style={S.headline}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
       {/* Answer card */}
       <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
-        {t.sources && t.sources.length > 0 && (
-          <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, marginBottom: 16 }}>
-            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "3px 10px", borderRadius: 3, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
-            {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
-          </div>
-        )}
-        {/* v28: docked top-right, icon-first, one fixed-size row that never
-            wraps — replaces the old flex-wrap row of icon+label buttons
-            (Copy answer / Share / Print / Source network / Timeline /
-            Illustrate) that reflowed onto two or three ragged lines once all
-            six were present. Every button keeps its meaning via `title` +
-            `aria-label` instead of visible text — that's the actual
-            trade-off of going icon-only, called out here rather than left
-            for someone to discover by accident. Requested set is
-            Copy/Share/PDF/Listen/Illustrate; Source network and Timeline
-            were real existing features (not in the requested bracket) kept
-            appended at the end rather than silently dropped. */}
-        {done && t.answer && (
-          <div style={S.toolbar} onClick={(e) => e.stopPropagation()}>
-            <ToolbarBtn
-              title={copiedAnswer ? "Copied!" : "Copy answer"}
-              icon={copiedAnswer ? "check" : "copy"}
-              active={copiedAnswer}
-              accent={accent} P={P}
-              onClick={() => {
-                copyToClipboard(t.answer, "Answer copied").then((ok) => {
-                  if (ok) { setCopiedAnswer(true); setTimeout(() => setCopiedAnswer(false), 1500); }
-                });
-              }}
-            />
-            <ToolbarBtn
-              title={linkCopied ? "Link copied!" : "Share"}
-              icon={linkCopied ? "check" : "link"}
-              active={linkCopied}
-              accent={accent} P={P}
-              onClick={async () => {
-                const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
-                // Prefer the native share sheet (real "sharing" — Messages,
-                // Mail, social apps — on mobile and supporting desktop
-                // browsers). navigator.share() requires a secure context and
-                // can throw AbortError when the user just dismisses the
-                // sheet, which is not a failure and shouldn't show an error.
-                if (navigator.share && window.isSecureContext) {
-                  try { await navigator.share({ title: "Cerebrum", text: t.q, url }); return; }
-                  catch (err) { if (err && err.name === "AbortError") return; /* fall through to clipboard */ }
-                }
-                copyToClipboard(url, "Link copied").then((ok) => {
-                  if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }
-                });
-              }}
-            />
-            {/* v5: there was already a full @media print stylesheet in this
-                file — quietly supporting the design goal stated in this
-                file's own header comment ("results read like a premium
-                research brief — you'd print this") — with no button
-                anywhere that surfaced it. A user would've had to already
-                know to hit Ctrl/Cmd+P. */}
-            <ToolbarBtn title="Print / Save PDF" icon="printer" accent={accent} P={P} onClick={() => window.print()} />
-            {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact />}
-            {done && <ToolbarBtn title="Illustrate this answer" icon="wand" accent={accent} P={P} onClick={() => onIllustrate(t.q)} />}
-            {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
-            {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
+        {/* v34: the metadata badge and the action toolbar used to be two
+            independent siblings — the badge in normal flow, the toolbar
+            docked via `position: absolute; top; right`. On a narrow mobile
+            width the badge's text ("11 sources · 2 min read") runs long
+            enough to reach under the absolutely-positioned toolbar, which
+            has no awareness of the badge's width and just sits on top of
+            it — a real, reported overlap, not a spacing tweak. Fixed by
+            making them two children of ONE flex row instead: `justifyContent:
+            space-between` keeps them pinned to opposite ends on a wide
+            screen exactly like before, and `flexWrap: wrap` means that when
+            they don't both fit on one line, the toolbar wraps to its own
+            line below the badge — pushed down, never overlapping. `S.toolbar`
+            itself dropped `position: absolute` (see its own comment) to
+            become a normal flow item this row can actually wrap. */}
+        {((t.sources && t.sources.length > 0) || (done && t.answer)) && (
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 8, marginBottom: 16 }}>
+            {t.sources && t.sources.length > 0 ? (
+              <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "3px 10px", borderRadius: 3, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
+                {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
+              </div>
+            ) : <span />}
+            {/* v28: icon-first, one row that never wraps internally —
+                replaces the old flex-wrap row of icon+label buttons
+                (Copy answer / Share / Print / Source network / Timeline /
+                Illustrate) that reflowed onto two or three ragged lines once
+                all six were present. Every button keeps its meaning via
+                `title` + `aria-label` instead of visible text — that's the
+                actual trade-off of going icon-only, called out here rather
+                than left for someone to discover by accident. Requested set
+                is Copy/Share/PDF/Listen/Illustrate; Source network and
+                Timeline were real existing features (not in the requested
+                bracket) kept appended at the end rather than silently
+                dropped. v34: no longer docked via `position: absolute` — see
+                the wrapping row's own comment just above — so it now sits as
+                a normal flex item that wraps below the badge instead of
+                sitting on top of it. */}
+            {done && t.answer && (
+              <div style={S.toolbar} onClick={(e) => e.stopPropagation()}>
+                <ToolbarBtn
+                  title={copiedAnswer ? "Copied!" : "Copy answer"}
+                  icon={copiedAnswer ? "check" : "copy"}
+                  active={copiedAnswer}
+                  accent={accent} P={P}
+                  onClick={() => {
+                    copyToClipboard(t.answer, "Answer copied").then((ok) => {
+                      if (ok) { setCopiedAnswer(true); setTimeout(() => setCopiedAnswer(false), 1500); }
+                    });
+                  }}
+                />
+                <ToolbarBtn
+                  title={linkCopied ? "Link copied!" : "Share"}
+                  icon={linkCopied ? "check" : "link"}
+                  active={linkCopied}
+                  accent={accent} P={P}
+                  onClick={async () => {
+                    const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
+                    // Prefer the native share sheet (real "sharing" — Messages,
+                    // Mail, social apps — on mobile and supporting desktop
+                    // browsers). navigator.share() requires a secure context and
+                    // can throw AbortError when the user just dismisses the
+                    // sheet, which is not a failure and shouldn't show an error.
+                    if (navigator.share && window.isSecureContext) {
+                      try { await navigator.share({ title: "Cerebrum", text: t.q, url }); return; }
+                      catch (err) { if (err && err.name === "AbortError") return; /* fall through to clipboard */ }
+                    }
+                    copyToClipboard(url, "Link copied").then((ok) => {
+                      if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }
+                    });
+                  }}
+                />
+                {/* v5: there was already a full @media print stylesheet in this
+                    file — quietly supporting the design goal stated in this
+                    file's own header comment ("results read like a premium
+                    research brief — you'd print this") — with no button
+                    anywhere that surfaced it. A user would've had to already
+                    know to hit Ctrl/Cmd+P. */}
+                <ToolbarBtn title="Print / Save PDF" icon="printer" accent={accent} P={P} onClick={() => window.print()} />
+                {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact />}
+                {done && <ToolbarBtn title="Illustrate this answer" icon="wand" accent={accent} P={P} onClick={() => onIllustrate(t.q)} />}
+                {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
+                {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
+              </div>
+            )}
           </div>
         )}
         {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
@@ -3690,7 +3712,16 @@ function makeStyles(P, accent, at, isMobile = false) {
     // anything else starts, plus a matching bump below (see `headline` and
     // `qLabel` next to this) so the eyebrow → headline → answer-card rhythm
     // opens up gradually instead of everything landing within a few px.
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
+    // v34: mobile has no separate scroll pane — the document itself scrolls —
+    // so the bottom of the LAST answer is the bottom of this container. On a
+    // phone that bottom edge sits directly under `mobSrcBtn`, the fixed
+    // purple FAB pinned near the viewport's own bottom edge; without extra
+    // room down here the FAB just sits on top of the final lines of text for
+    // as long as the user is scrolled near the end. Padding the container
+    // itself (rather than the FAB or some wrapper) guarantees real content
+    // never lands in that reserved strip regardless of how long the answer
+    // runs. Desktop keeps the old, smaller value — there's no floating FAB there.
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? 120 : 48, flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -3731,7 +3762,13 @@ function makeStyles(P, accent, at, isMobile = false) {
        enough to define the edge without reading as a heavy frame, and
        generous padding so text stops riding the container's edges. */
     answerCard: {
-      position: "relative", // anchors the docked top-right action toolbar (see `toolbar` below)
+      // v34: `toolbar` used to dock to this card's corner via `position:
+      // absolute`, which is why this stayed `position: relative` — the
+      // toolbar is a normal flow child now (see `toolbar`'s own comment),
+      // so nothing inside this card is actually positioned against it
+      // anymore. Left as `relative` anyway: harmless, and it's the
+      // established containing block for anything added here later.
+      position: "relative",
       background: P.dark ? "rgba(8, 10, 16, 0.65)" : "#ffffff",
       border: P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid " + P.line,
       borderRadius: 3,
@@ -3842,7 +3879,16 @@ function makeStyles(P, accent, at, isMobile = false) {
     // (see that comment) the toolbar sat close enough to the card's own top
     // edge to crowd the header above it; pushed down/in a touch so it has
     // clear air on both sides.
-    toolbar: { position: "absolute", top: 20, right: 24, display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
+    // v34: dropped `position: absolute` (and the top/right that went with it).
+    // Docking it to the card's corner meant it had zero awareness of the
+    // metadata badge sharing that header — on a narrow screen the badge's
+    // text ran long enough to run straight under it, a real overlap, not
+    // just tight spacing. It's now a normal-flow child of the flex row built
+    // in `Turn` (`justifyContent: space-between`, `flexWrap: wrap`), so on a
+    // wide screen it still lands at the opposite end of the row from the
+    // badge, and on a narrow one it simply wraps to its own line instead of
+    // stacking on top of anything.
+    toolbar: { display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
 
     /* ── Footer ── */
     foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
@@ -4598,7 +4644,16 @@ function App() {
         {typeof s.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.relevance}% · {relLabel(s.relevance)}</span>}
         {s.year && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{s.year}</span>}
       </div>
-      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title ? renderCleanTitle(s.title) : s.url}</a>
+      {/* v34: this card renders straight from `s.title` — raw metadata off
+          the wire, not something `escapeHtml` ever touches — so a chemistry
+          or genetics title carrying literal "<sub>2</sub>"/"<i>E. coli</i>"
+          markup was hitting the page as visible angle-bracket text instead
+          of the formatting it was meant to convey. `renderCleanTitle` used
+          to turn those into real rendered sub/sup/i/b elements; simplified
+          here per explicit direction to just strip the tags outright so a
+          formula like "CO2" reads clean either way without needing a parser
+          in the hot render path for every card in the list. */}
+      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? s.title.replace(/<\/?(sub|sup|i|b)>/gi, "") : s.url)}</a>
       <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
       <div style={S.srcRow}>
         <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
