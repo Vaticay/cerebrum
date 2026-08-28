@@ -462,7 +462,7 @@ const PALETTES = {
   // plus a short, tight drop, no diffuse halo. Neon glow is reserved for
   // active/selected states via accent-colored box-shadow, applied inline
   // where those states render, not baked into the base elevation token.
-  Dark:  { dark: true,  bg: "#000000", surface: "#0a0a0a", raised: "#141414", ink: "#f5f5f6", ink2: "#a3a3a3", faint: "#8a8a8a", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "0 0 0 1px rgba(255,255,255,0.05), 0 4px 16px rgba(0,0,0,0.7)", shadowSm: "0 1px 2px rgba(0,0,0,0.7)", grain: 0.012, skel: "linear-gradient(90deg, #0a0a0a 25%, #141414 50%, #0a0a0a 75%)" },
+  Dark:  { dark: true,  bg: "#040508", surface: "#0f1117", raised: "#161a22", ink: "#f8fafc", ink2: "#cbd5e1", faint: "#94a3b8", line: "rgba(255,255,255,0.12)", line2: "rgba(255,255,255,0.18)", shadow: "0 4px 24px rgba(0,0,0,0.5)", shadowSm: "0 1px 4px rgba(0,0,0,0.5)", grain: 0.012, skel: "linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%)" },
   Mid:   { dark: true,  bg: "#050505", surface: "#111111", raised: "#1c1c1c", ink: "#f5f5f6", ink2: "#a8a8a8", faint: "#8f8f8f", line: "rgba(255,255,255,0.09)", line2: "rgba(255,255,255,0.15)", shadow: "0 0 0 1px rgba(255,255,255,0.05), 0 4px 16px rgba(0,0,0,0.65)", shadowSm: "0 1px 2px rgba(0,0,0,0.6)", grain: 0.014, skel: "linear-gradient(90deg, #111111 25%, #1c1c1c 50%, #111111 75%)" },
   Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#5c6b80", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.06)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
 };
@@ -889,16 +889,16 @@ function Skeleton({ P, accent }) {
   const bar = (w, h = 12, delay = 0) => (
     <div style={{
       height: h, width: w, borderRadius: 3,
-      background: `linear-gradient(90deg, ${P.skel} 25%, ${P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"} 50%, ${P.skel} 75%)`,
+      background: P.skel,
       backgroundSize: "200% 100%",
       animation: `cbShimmer 1.8s ease-in-out ${delay}ms infinite`,
     }} />
   );
   return (
     <div style={{
-      background: P.dark ? "rgba(5,8,22,0.7)" : "rgba(255,255,255,0.7)",
+      background: P.dark ? withAlpha(P.surface, 0.85) : "rgba(255,255,255,0.7)",
       backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-      border: P.dark ? "1px solid rgba(255,255,255,0.06)" : `1px solid ${P.line}`,
+      border: `1px solid ${P.line}`,
       borderRadius: 3, padding: "32px 34px",
       display: "flex", flexDirection: "column", gap: 14,
     }}>
@@ -3769,8 +3769,8 @@ function makeStyles(P, accent, at, isMobile = false) {
       // anymore. Left as `relative` anyway: harmless, and it's the
       // established containing block for anything added here later.
       position: "relative",
-      background: P.dark ? "rgba(8, 10, 16, 0.65)" : "#ffffff",
-      border: P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid " + P.line,
+      background: P.dark ? "#0d1117" : "#ffffff",
+      border: "1px solid " + P.line,
       borderRadius: 3,
       padding: isMobile ? "28px 20px" : "48px 52px",
       boxShadow: "none",
@@ -3829,8 +3829,8 @@ function makeStyles(P, accent, at, isMobile = false) {
        chase, not another compositor-hint removal. */
     panel: {
       position: "sticky", top: 24,
-      background: P.dark ? withAlpha(P.bg, 0.92) : withAlpha(P.bg, 0.97),
-      border: glassBorder, borderRadius: 3,
+      background: P.dark ? "#0d1117" : withAlpha(P.bg, 0.97),
+      border: "1px solid " + P.line, borderRadius: 3,
       padding: "20px", boxShadow: P.shadow,
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
     },
@@ -3888,7 +3888,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     // wide screen it still lands at the opposite end of the row from the
     // badge, and on a narrow one it simply wraps to its own line instead of
     // stacking on top of anything.
-    toolbar: { display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
+    toolbar: { display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
 
     /* ── Footer ── */
     foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
