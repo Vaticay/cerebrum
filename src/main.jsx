@@ -267,6 +267,36 @@ function escapeHtml(str) {
   }[c]));
 }
 
+// v33: some upstream scholarly metadata (Crossref/PubMed/OpenAlex title
+// fields, in particular) carries basic HTML formatting for chemical
+// formulas and species/genus names — "CO<sub>2</sub> capture", "<i>E.
+// coli</i> biofilms". Every title in this app rendered as a plain React
+// text child, which is safe (React auto-escapes string children) but shows
+// the literal tag characters to the reader instead of the subscript/italic
+// they're meant to convey — the "<sub>0.5</sub>" bug this fixes. The fix is
+// deliberately NOT dangerouslySetInnerHTML on raw title text — that would
+// hand an upstream API this app doesn't control a way to run arbitrary
+// HTML/script in every visitor's browser. Instead this parses ONLY four
+// whitelisted, well-known-safe formatting tags into real React elements;
+// everything else in the string — including any other tag-like substring —
+// is emitted as a plain string segment, which React renders as an inert
+// text node exactly like before, never as markup.
+const TITLE_SAFE_TAG_RE = /<(sub|sup|i|b)>([^<]*)<\/\1>/gi;
+function renderCleanTitle(raw) {
+  const title = raw || "";
+  if (!/<(sub|sup|i|b)>/i.test(title)) return title;
+  const parts = [];
+  let last = 0, m, key = 0;
+  TITLE_SAFE_TAG_RE.lastIndex = 0;
+  while ((m = TITLE_SAFE_TAG_RE.exec(title))) {
+    if (m.index > last) parts.push(title.slice(last, m.index));
+    parts.push(React.createElement(m[1].toLowerCase(), { key: key++ }, m[2]));
+    last = TITLE_SAFE_TAG_RE.lastIndex;
+  }
+  if (last < title.length) parts.push(title.slice(last));
+  return parts;
+}
+
 // Identity key for a source used across dedup / save / pin state. Was
 // `(s.title || "").toLowerCase()` in half a dozen places — when two distinct
 // sources both lack a title (not uncommon: some Zenodo/CORE/BASE records
@@ -2060,7 +2090,20 @@ function BibEntry({ source, index, P, accent, style, className, last }) {
         {style === "bibtex" ? (
           <pre style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
         ) : (
-          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.5, color: P.ink, fontWeight: 500 }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted).replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
+          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.5, color: P.ink, fontWeight: 500 }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
+            // v33: escapeHtml above turns a title's real "<sub>2</sub>" into
+            // literal, visible "&lt;sub&gt;2&lt;/sub&gt;" text — the same
+            // bug renderCleanTitle fixes elsewhere, showing up here too
+            // since this path builds a full formatted-citation string
+            // through dangerouslySetInnerHTML instead of React children.
+            // Same fix, same safety property: only these four whitelisted
+            // tags are restored to real markup, matched against the
+            // ALREADY-ESCAPED string, so anything else in the title
+            // (including a real "<script>") stays inert "&lt;script&gt;"
+            // text — this can only ever re-enable four known-safe tags,
+            // never un-escape arbitrary HTML.
+            .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
+            .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
         )}
         {/* One dense meta line instead of three stacked blocks: type ·
             citation count · linked domain all inline, mono, muted. */}
@@ -2125,7 +2168,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
       {/* Answer card */}
       <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
         {t.sources && t.sources.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+          <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, marginBottom: 16 }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "3px 10px", borderRadius: 3, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
             {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
           </div>
@@ -3655,7 +3698,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     // one drawer pattern doing double duty. Widening the row and giving the
     // sidebar its own fixed column turns "tap to see your sources" into
     // "they're just there," which is the whole point of a research tool.
-    workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 28, maxWidth: 1160 },
+    workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 40, maxWidth: 1160 },
     thread: { minWidth: 0, flex: 1 },
     sidebarCol: { width: 340, flexShrink: 0 },
 
@@ -3675,23 +3718,26 @@ function makeStyles(P, accent, at, isMobile = false) {
       fontFamily: "var(--cb-display)",
     },
 
-    /* ── Answer card: SEAMLESS EDITORIAL READING SURFACE ──
-       v30: was a glass panel with a visible border and drop shadow,
-       floating over the animated background. Direction this round is
-       explicit — "remove the heavy dark glass borders... make the reading
-       surface feel seamless with the page, using only massive whitespace."
-       Background is solid and matches the page exactly (no floating-card
-       look) rather than transparent, since the WebGL field still animates
-       behind the thread after a search — an opaque match keeps the answer
-       legible without reintroducing a visible card edge. Hierarchy now
-       comes entirely from whitespace and typography, not a frame. */
+    /* ── Answer card: DEFINED GLASS SURFACE ──
+       v33: v30 flattened this into a borderless, edge-to-edge panel that
+       matched the page background exactly — reasonable when the page
+       behind it was flat obsidian/white, but against SoftAurora's moving
+       field (see LivingBackground/SoftAurora, v32) the text needs its own
+       clearly bounded surface, not just whitespace, to read as "the
+       reading area" versus "the background." Restored a real card: a
+       translucent glass fill (not fully opaque — SoftAurora should still
+       be faintly visible through it, consistent with `auroraScrim`'s own
+       reasoning) with backdrop blur for legibility, a hairline border thin
+       enough to define the edge without reading as a heavy frame, and
+       generous padding so text stops riding the container's edges. */
     answerCard: {
       position: "relative", // anchors the docked top-right action toolbar (see `toolbar` below)
-      background: P.bg,
-      border: "none",
-      borderRadius: 0,
-      padding: isMobile ? "4px 0 40px" : "4px 0 56px",
+      background: P.dark ? "rgba(8, 10, 16, 0.65)" : "#ffffff",
+      border: P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid " + P.line,
+      borderRadius: 3,
+      padding: isMobile ? "28px 20px" : "48px 52px",
       boxShadow: "none",
+      backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
       lineHeight: 1.7,
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
     },
@@ -3792,7 +3838,11 @@ function makeStyles(P, accent, at, isMobile = false) {
     // against the main answer card until hovered." Now the row is pure
     // layout, no chrome of its own — each icon's own hover wash (in
     // `ToolbarBtn`/`S_toolbarBtnBase`) is the only thing that ever renders.
-    toolbar: { position: "absolute", top: 14, right: 14, display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
+    // v33: was top:14/right:14 — with answerCard's padding widened back out
+    // (see that comment) the toolbar sat close enough to the card's own top
+    // edge to crowd the header above it; pushed down/in a touch so it has
+    // clear air on both sides.
+    toolbar: { position: "absolute", top: 20, right: 24, display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
 
     /* ── Footer ── */
     foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
@@ -4548,7 +4598,7 @@ function App() {
         {typeof s.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.relevance}% · {relLabel(s.relevance)}</span>}
         {s.year && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{s.year}</span>}
       </div>
-      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title || s.url}</a>
+      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{s.title ? renderCleanTitle(s.title) : s.url}</a>
       <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
       <div style={S.srcRow}>
         <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
@@ -4797,7 +4847,7 @@ function App() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>
                   {saved.map((s, i) => (
                     <div key={sourceKey(s) || i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}>
-                      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: FONT_SIZES.body }}>{s.title || s.url}</a>
+                      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: FONT_SIZES.body }}>{s.title ? renderCleanTitle(s.title) : s.url}</a>
                       <div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
                       <div style={S.srcRow}>
                         <button style={{ ...S.chipMini, color: STATUS.bad, borderColor: withAlpha(STATUS.bad, 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(s)))}>Remove</button>
