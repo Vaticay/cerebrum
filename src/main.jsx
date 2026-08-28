@@ -462,7 +462,7 @@ const PALETTES = {
   // plus a short, tight drop, no diffuse halo. Neon glow is reserved for
   // active/selected states via accent-colored box-shadow, applied inline
   // where those states render, not baked into the base elevation token.
-  Dark:  { dark: true,  bg: "#040508", surface: "#0f1117", raised: "#161a22", ink: "#f8fafc", ink2: "#cbd5e1", faint: "#94a3b8", line: "rgba(255,255,255,0.12)", line2: "rgba(255,255,255,0.18)", shadow: "0 4px 24px rgba(0,0,0,0.5)", shadowSm: "0 1px 4px rgba(0,0,0,0.5)", grain: 0.012, skel: "linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%)" },
+  Dark:  { dark: true,  bg: "#040508", surface: "#11141d", raised: "#1a1e2b", ink: "#f8fafc", ink2: "#cbd5e1", faint: "#94a3b8", line: "rgba(255,255,255,0.12)", line2: "rgba(255,255,255,0.18)", shadow: "0 8px 32px rgba(0,0,0,0.6)", shadowSm: "0 2px 8px rgba(0,0,0,0.5)", grain: 0.012, skel: "linear-gradient(90deg, #11141d 25%, #1f2536 50%, #11141d 75%)" },
   Mid:   { dark: true,  bg: "#050505", surface: "#111111", raised: "#1c1c1c", ink: "#f5f5f6", ink2: "#a8a8a8", faint: "#8f8f8f", line: "rgba(255,255,255,0.09)", line2: "rgba(255,255,255,0.15)", shadow: "0 0 0 1px rgba(255,255,255,0.05), 0 4px 16px rgba(0,0,0,0.65)", shadowSm: "0 1px 2px rgba(0,0,0,0.6)", grain: 0.014, skel: "linear-gradient(90deg, #111111 25%, #1c1c1c 50%, #111111 75%)" },
   Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#5c6b80", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.06)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
 };
@@ -3631,7 +3631,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     heroSub: {
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, color: P.ink2,
       maxWidth: 560, lineHeight: 1.65, marginBottom: 52,
-      letterSpacing: "-0.01em", position: "relative", fontWeight: 400,
+      letterSpacing: "-0.01em", position: "relative", fontWeight: 300,
       // v30: "Darknode" round retired — mono in the subheadline was that
       // round's signature move, and this round's explicit target
       // (Perplexity-style editorial) wants maximum legibility over
@@ -3769,7 +3769,7 @@ function makeStyles(P, accent, at, isMobile = false) {
       // anymore. Left as `relative` anyway: harmless, and it's the
       // established containing block for anything added here later.
       position: "relative",
-      background: P.dark ? "#0d1117" : "#ffffff",
+      background: P.dark ? P.surface : "#ffffff",
       border: "1px solid " + P.line,
       borderRadius: 3,
       padding: isMobile ? "28px 20px" : "48px 52px",
@@ -3829,7 +3829,7 @@ function makeStyles(P, accent, at, isMobile = false) {
        chase, not another compositor-hint removal. */
     panel: {
       position: "sticky", top: 24,
-      background: P.dark ? "#0d1117" : withAlpha(P.bg, 0.97),
+      background: P.dark ? P.surface : withAlpha(P.bg, 0.97),
       border: "1px solid " + P.line, borderRadius: 3,
       padding: "20px", boxShadow: P.shadow,
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
@@ -5038,12 +5038,10 @@ a { color: inherit; text-decoration: none; }
 input::placeholder, textarea::placeholder { color: inherit; opacity: 0.35; }
 summary::-webkit-details-marker { display: none; }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(138,155,186,0.15); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(138,155,186,0.25); }
-* { scrollbar-width: thin; scrollbar-color: rgba(138,155,186,0.15) transparent; }
+/* Scrollbar — hidden everywhere for a native-app feel; scroll still works
+   via wheel/touch/keyboard, only the visible track+thumb chrome is gone. */
+::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
 
 /* ── Keyframes: all blur-to-focus, slow, intentional ── */
 @keyframes cbspin { to { transform: rotate(360deg); } }
@@ -5130,12 +5128,12 @@ summary::-webkit-details-marker { display: none; }
 }
 @keyframes cbBtnShimmer { 0% { background-position: 200% center; } 100% { background-position: -200% center; } }
 
-/* ── Entrance classes: all SLOW (500-800ms) ── */
-.cb-fade    { animation: cbFade  500ms var(--cb-ease) both; }
-.cb-rise    { animation: cbRise  600ms var(--cb-ease) both; }
-.cb-pop     { animation: cbPop   400ms var(--cb-ease) both; }
-.cb-gate    { animation: cbGate  800ms var(--cb-ease) both; }
-.cb-hero    { animation: cbHero  900ms var(--cb-ease) both; }
+/* ── Entrance classes: SNAPPY (200-250ms) — instant-feeling, not sluggish ── */
+.cb-fade    { animation: cbFade  200ms var(--cb-ease) both; }
+.cb-rise    { animation: cbRise  250ms var(--cb-ease) both; }
+.cb-pop     { animation: cbPop   200ms var(--cb-ease) both; }
+.cb-gate    { animation: cbGate  250ms var(--cb-ease) both; }
+.cb-hero    { animation: cbHero  250ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 400ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
 .cb-answer-enter.cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
@@ -5178,7 +5176,7 @@ summary::-webkit-details-marker { display: none; }
 }
 
 /* ── Stagger cascade: slower delays ── */
-.cb-stagger > * { opacity: 0; animation: cbFade 500ms var(--cb-ease) both; }
+.cb-stagger > * { opacity: 0; animation: cbFade 200ms var(--cb-ease) both; }
 .cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
 .cb-stagger > *:nth-child(2) { animation-delay: 60ms; }
 .cb-stagger > *:nth-child(3) { animation-delay: 120ms; }
@@ -5201,10 +5199,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .cb-search-glow { position: relative; }
 .cb-search-glow:focus-within {
   border-color: var(--cb-accent, #34d399) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #34d399) 15%, transparent), 0 4px 20px rgba(0,0,0,0.1) !important;
-}
-@supports not (background: color-mix(in srgb, red 50%, blue)) {
-  .cb-search-glow:focus-within { box-shadow: 0 0 0 3px rgba(52,211,153,0.15), 0 4px 20px rgba(0,0,0,0.1) !important; }
+  box-shadow: 0 0 0 2px var(--cb-accent, #34d399) !important;
 }
 
 /* ── Header buttons ── */
