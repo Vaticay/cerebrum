@@ -821,7 +821,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)
           fontSize: 11, color: accent, verticalAlign: "baseline",
           textDecoration: "none", fontWeight: 600,
           fontFamily: "var(--cb-body)",
-          padding: "2px 8px", marginLeft: 4,
+          margin: "0 2px", padding: "2px 8px",
           borderRadius: 12,
           background: hoverCite === n ? withAlpha(accent, 0.22) : withAlpha(accent, 0.15),
           border: `1px solid ${withAlpha(accent, 0.3)}`,
@@ -1065,7 +1065,7 @@ function WebGLIntelligenceCore({ accent, P, speed = 1, paused = false }) {
         points = new THREE.Points(geometry, material); scene.add(points);
 
         let targetX = 0, targetY = 0;
-        const onMouseMove = (e) => { targetX = (e.clientX - window.innerWidth / 2) * 0.002; targetY = (e.clientY - window.innerHeight / 2) * 0.002; };
+        const onMouseMove = (e) => { targetX = (e.clientX - window.innerWidth / 2) * 0.006; targetY = (e.clientY - window.innerHeight / 2) * 0.006; };
         window.addEventListener('mousemove', onMouseMove);
         const handleResize = () => { if (!mountRef.current) return; camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight); };
         window.addEventListener('resize', handleResize);
@@ -1096,11 +1096,11 @@ function WebGLTopographyGrid({ accent, P, speed = 1, paused = false }) {
         mountRef.current.appendChild(renderer.domElement);
         const size = 3500, segments = 100; const geometry = new THREE.PlaneGeometry(size, size, segments, segments); geometry.rotateX(-Math.PI / 2);
 
-        const material = new THREE.PointsMaterial({ color: new THREE.Color(accent), size: 2.8, transparent: true, opacity: 0.65, sizeAttenuation: true });
+        const material = new THREE.PointsMaterial({ color: new THREE.Color(accent), size: 2.8, transparent: true, opacity: 0.85, sizeAttenuation: true });
         points = new THREE.Points(geometry, material); scene.add(points);
 
         let mouseX = 0, mouseY = 0;
-        const onMouseMove = (e) => { mouseX = (e.clientX - window.innerWidth / 2) * 0.8; mouseY = (e.clientY - window.innerHeight / 2) * 0.8; };
+        const onMouseMove = (e) => { mouseX = (e.clientX - window.innerWidth / 2) * 2.0; mouseY = (e.clientY - window.innerHeight / 2) * 2.0; };
         window.addEventListener('mousemove', onMouseMove);
         const handleResize = () => { if (!mountRef.current) return; camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight); };
         window.addEventListener('resize', handleResize);
@@ -1171,17 +1171,6 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       <div aria-hidden="true" className="cb-ambient" style={{
         position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
         background: "transparent",
-      }} />
-
-      {/* Dark overlay for readability — v32: bumped up from the prior
-          0.7/0.3/0.5 stops. Orb (see LivingBackground) is a bright,
-          hover-reactive glow centered in the viewport, considerably louder
-          than the dim particle sphere it replaced; the hero copy sitting
-          top-left needed more separation from it to stay legible. */}
-      <div style={{
-        position: "absolute", inset: 0, zIndex: 1,
-        background: "linear-gradient(135deg, rgba(5,9,16,0.8) 0%, rgba(5,9,16,0.45) 50%, rgba(5,9,16,0.6) 100%)",
-        pointerEvents: "none",
       }} />
 
       {/* Nav */}
@@ -3409,7 +3398,7 @@ function makeStyles(P, accent, at, isMobile = false) {
       background: P.dark ? P.surface : "#ffffff",
       border: "1px solid " + P.line,
       borderRadius: 3,
-      padding: isMobile ? "28px 20px" : "48px 52px",
+      padding: isMobile ? "32px 24px" : "56px 64px",
       boxShadow: "none",
       backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
       lineHeight: 1.7,
