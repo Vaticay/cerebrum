@@ -95,6 +95,14 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
+// Exported for callers outside this module that need the same constant-time
+// comparison against a pair of hex digests — e.g. auth.js's OTP verification,
+// which compares a freshly-computed SHA-256 hex digest against the one
+// stored for a pending sign-in code.
+export function timingSafeEqualHex(a, b) {
+  return timingSafeEqual(a, b);
+}
+
 export function isValidEmail(email) {
   return typeof email === "string" && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
