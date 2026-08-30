@@ -9,8 +9,31 @@
 // guessing an id" path here, because every query is also scoped to
 // `user_id = ?` on top of the row id, not just the row id alone.
 
-import { getSessionUser, newId } from "../lib/authHelpers.js";
+import { getSessionUser, newId, ensureUserProfileColumns, ensureSocialTables } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+
+const MAX_MESSAGE_LEN = 4000;
+const MAX_NAME_LEN = 120;
+const MAX_USERNAME_LEN = 40;
+const MAX_AFFILIATION_LEN = 200;
+
+// The live social tables declare their timestamp columns DATETIME DEFAULT
+// CURRENT_TIMESTAMP (a SQLite string default), but every write this file
+// makes supplies an explicit epoch-ms integer instead, matching the epoch
+// convention every other table in this codebase already uses (otp_codes,
+// sessions, user_history, …). That keeps rows THIS code writes consistent,
+// but can't guarantee some row wasn't inserted a different way before this
+// code ever ran (e.g. a manually seeded test row that fell through to the
+// column's own string default). This normalizes either shape to a number
+// so a stray ISO-string timestamp can't silently break a numeric sort.
+function toEpochMs(v) {
+  if (typeof v === "number") return v;
+  if (v == null) return 0;
+  const n = Number(v);
+  if (!Number.isNaN(n)) return n;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? 0 : t;
+}
 
 const ALLOWED_ORIGINS = [
   "https://askcerebrum.org",
@@ -62,6 +85,13 @@ export async function onRequest(context) {
   if (!user) return new Response(JSON.stringify({ error: "Sign in first." }), { status: 401, headers: cors });
 
   try {
+    // Self-healing, memoized per isolate after the first real call — see
+    // the comment above these two in functions/lib/authHelpers.js. Cheap
+    // to call unconditionally rather than threading it into only the
+    // branches that need it, since every call after the first is a no-op.
+    await ensureUserProfileColumns(env);
+    await ensureSocialTables(env);
+
     if (request.method === "GET") {
       const resource = url.searchParams.get("resource");
       if (resource === "saved") {
@@ -80,6 +110,75 @@ export async function onRequest(context) {
           "SELECT id, name, created_at FROM user_collections WHERE user_id = ? ORDER BY created_at ASC"
         ).bind(user.id).all();
         return new Response(JSON.stringify({ items: rows.results || [] }), { status: 200, headers: cors });
+      }
+      // Your own profile: base row from `users` plus a computed follower
+      // count and whatever accolades actually exist for you in the DB.
+      // Deliberately "your own" only — a version of this that takes a
+      // target user id would need its own thinking about which columns
+      // are safe to expose about someone ELSE (email stays private to its
+      // owner; username/name/affiliation are the public-profile fields),
+      // which is a real design question the spec for this round didn't
+      // raise, so it's not being guessed at here.
+      if (resource === "profile") {
+        const row = await env.DB.prepare(
+          "SELECT id, email, username, name, affiliation FROM users WHERE id = ?"
+        ).bind(user.id).first();
+        if (!row) return new Response(JSON.stringify({ error: "Account not found." }), { status: 404, headers: cors });
+        const followerCount = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
+        ).bind(user.id).first();
+        const badgeRows = await env.DB.prepare(
+          "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
+        ).bind(user.id).all();
+        return new Response(JSON.stringify({
+          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation },
+          followers: followerCount?.n || 0,
+          badges: (badgeRows.results || []).map((b) => b.badge_type),
+        }), { status: 200, headers: cors });
+      }
+
+      // Inbox: every thread you're a participant in, with its most recent
+      // message. N+1 queries (one per thread for the last message, plus
+      // one more for a DM's display name) — genuinely worse than a single
+      // join, but this stage of the Multiplayer Network has a handful of
+      // threads per person at most, and clarity here beats a cleverer
+      // query that's harder to verify against the actual schema. Worth
+      // revisiting with a real join if thread counts ever grow.
+      if (resource === "inbox") {
+        const threadRows = await env.DB.prepare(
+          `SELECT t.id, t.kind, t.name FROM threads t
+           JOIN thread_participants tp ON tp.thread_id = t.id
+           WHERE tp.user_id = ?`
+        ).bind(user.id).all();
+        const items = [];
+        for (const t of threadRows.results || []) {
+          const last = await env.DB.prepare(
+            "SELECT sender_id, text, attachment_title, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
+          ).bind(t.id).first();
+          let displayName = t.name;
+          if (!displayName && t.kind === "dm") {
+            const other = await env.DB.prepare(
+              `SELECT u.name, u.username, u.email FROM thread_participants tp
+               JOIN users u ON u.id = tp.user_id
+               WHERE tp.thread_id = ? AND tp.user_id != ?`
+            ).bind(t.id, user.id).first();
+            displayName = other ? (other.name || other.username || other.email) : "Conversation";
+          }
+          items.push({
+            id: t.id,
+            kind: t.kind,
+            name: displayName || "Conversation",
+            lastMessage: last ? {
+              text: last.text,
+              attachmentTitle: last.attachment_title || null,
+              senderId: last.sender_id,
+              createdAt: toEpochMs(last.created_at),
+              mine: last.sender_id === user.id,
+            } : null,
+          });
+        }
+        items.sort((a, b) => (b.lastMessage?.createdAt || 0) - (a.lastMessage?.createdAt || 0));
+        return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
       }
       if (resource === "history") {
         const rows = await env.DB.prepare(
@@ -181,6 +280,101 @@ export async function onRequest(context) {
         env.DB.prepare("DELETE FROM user_collections WHERE id = ? AND user_id = ?").bind(collectionId, user.id),
       ]);
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Multiplayer Academic Network — these three use a bare `action` field
+    // (no `resource`), matching functions/api/auth.js's own dispatch shape
+    // rather than the resource+action pairs above, since they're the same
+    // single-verb actions a future frontend would call the same way it
+    // already calls apiAuth("send-code", …).
+    // ═══════════════════════════════════════════════════════════════════
+
+    if (action === "update-profile") {
+      const name = typeof body.name === "string" ? body.name.trim().slice(0, MAX_NAME_LEN) : undefined;
+      // An empty string after trimming means "clear it" — stored as NULL,
+      // never as "", since `username` is UNIQUE and SQLite only treats NULL
+      // (not "") as exempt from that constraint. Two people both clearing
+      // their username to "" would otherwise collide with each other.
+      let username = typeof body.username === "string" ? body.username.trim().replace(/^@+/, "").slice(0, MAX_USERNAME_LEN) : undefined;
+      if (username === "") username = null;
+      const affiliation = typeof body.affiliation === "string" ? body.affiliation.trim().slice(0, MAX_AFFILIATION_LEN) : undefined;
+      const sets = [];
+      const binds = [];
+      if (name !== undefined) { sets.push("name = ?"); binds.push(name); }
+      if (username !== undefined) { sets.push("username = ?"); binds.push(username); }
+      if (affiliation !== undefined) { sets.push("affiliation = ?"); binds.push(affiliation); }
+      if (!sets.length) return new Response(JSON.stringify({ error: "Nothing to update." }), { status: 400, headers: cors });
+      binds.push(user.id);
+      try {
+        await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).bind(...binds).run();
+      } catch (e) {
+        if (username !== undefined && username !== null && /UNIQUE constraint failed:\s*users\.username/i.test(String(e && e.message))) {
+          return new Response(JSON.stringify({ error: "That username is already taken." }), { status: 409, headers: cors });
+        }
+        throw e;
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
+    }
+
+    if (action === "toggle-follow") {
+      // Wire format keeps `target_id` (matching the original spec) even
+      // though the live column is `following_id` — that's a DB-shape
+      // detail, not something the frontend needs to know about.
+      const targetId = (body.target_id || "").toString();
+      if (!targetId) return new Response(JSON.stringify({ error: "Missing target_id." }), { status: 400, headers: cors });
+      // Not in the literal spec, but following yourself isn't a real
+      // action — worth rejecting outright rather than letting it silently
+      // inflate your own follower count.
+      if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't follow yourself." }), { status: 400, headers: cors });
+      const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(targetId).first();
+      if (!target) return new Response(JSON.stringify({ error: "That account doesn't exist." }), { status: 404, headers: cors });
+      const existing = await env.DB.prepare(
+        "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
+      ).bind(user.id, targetId).first();
+      if (existing) {
+        await env.DB.prepare("DELETE FROM follows WHERE follower_id = ? AND following_id = ?").bind(user.id, targetId).run();
+      } else {
+        await env.DB.prepare("INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)").bind(user.id, targetId, Date.now()).run();
+      }
+      const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM follows WHERE following_id = ?").bind(targetId).first();
+      return new Response(JSON.stringify({ following: !existing, followers: count?.n || 0 }), { status: 200, headers: cors });
+    }
+
+    if (action === "send-message") {
+      const threadId = (body.thread_id || "").toString();
+      const text = typeof body.text === "string" ? body.text.trim().slice(0, MAX_MESSAGE_LEN) : "";
+      // attachment_title wasn't in the original spec — it's a real column
+      // on the live `messages` table this code wasn't using at all, and it
+      // maps directly onto the paper-attachment card the Inbox preview in
+      // main.jsx already renders (INITIAL_INBOX_THREADS' Dr. Chen message).
+      // Optional: a message can carry text, an attachment, or both, but
+      // not neither.
+      const attachmentTitle = typeof body.attachment_title === "string" ? body.attachment_title.trim().slice(0, 300) : "";
+      if (!threadId || (!text && !attachmentTitle)) {
+        return new Response(JSON.stringify({ error: "Missing thread_id, or a message needs text or an attachment." }), { status: 400, headers: cors });
+      }
+      // Not in the literal spec, but load-bearing: without this, any
+      // signed-in user who knew or guessed a thread_id could post into a
+      // conversation they were never part of. Every other endpoint in this
+      // file scopes its query to `user_id = ?` for the same reason — this
+      // is that same rule applied to a table shaped differently (membership
+      // via a join table instead of a user_id column on the row itself).
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return new Response(JSON.stringify({ error: "You're not part of that conversation." }), { status: 403, headers: cors });
+      const now = Date.now();
+      // messages.id is a plain TEXT primary key on the live table (no
+      // autoincrement) — has to be generated here, same as accolades.id in
+      // auth.js's verify-code.
+      await env.DB.prepare(
+        "INSERT INTO messages (id, thread_id, sender_id, text, attachment_title, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(newId("msg"), threadId, user.id, text || null, attachmentTitle || null, now).run();
+      return new Response(JSON.stringify({
+        ok: true,
+        message: { text, attachmentTitle: attachmentTitle || null, senderId: user.id, createdAt: now, mine: true },
+      }), { status: 200, headers: cors });
     }
 
     return new Response(JSON.stringify({ error: "Unknown resource/action." }), { status: 400, headers: cors });
