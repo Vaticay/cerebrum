@@ -609,6 +609,7 @@ function Icon({ name, size = 17, className, style }) {
     case "award": return <svg {...common}><circle cx="12" cy="8" r="6" /><path d="M15.5 12.9L17 22l-5-3-5 3 1.5-9.1" /></svg>;
     case "bookOpen": return <svg {...common}><path d="M12 7v14" /><path d="M3 18a1 1 0 01-1-1V4a1 1 0 011-1h5a4 4 0 014 4 4 4 0 014-4h5a1 1 0 011 1v13a1 1 0 01-1 1h-6a3 3 0 00-3 3 3 3 0 00-3-3z" /></svg>;
     case "zap": return <svg {...common}><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" /></svg>;
+    case "camera": return <svg {...common}><path d="M4 8.5A1.5 1.5 0 015.5 7h2.2l1-1.6A1.5 1.5 0 0110 4.7h4a1.5 1.5 0 011.3.7l1 1.6h2.2A1.5 1.5 0 0120 8.5v10A1.5 1.5 0 0118.5 20h-13A1.5 1.5 0 014 18.5z" /><circle cx="12" cy="13" r="3.6" /></svg>;
     default: return null;
   }
 }
@@ -648,21 +649,22 @@ function useTypewriter(full, on) {
 // force each one onto its own blank-line-delimited paragraph before the
 // splitter ever runs. This is strictly additive: an answer that already
 // has correct spacing round-trips through unchanged.
-const SECTION_HEADER_TITLES = [
-  "Core Synthesis",
-  "Evidence & Mechanisms",
-  "Divergent Findings & Gaps",
-  "Methodological Confidence",
-];
 function normalizeSectionHeaders(text) {
-  let out = text;
-  for (const title of SECTION_HEADER_TITLES) {
-    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/&/g, "(?:&|and)");
-    // optional leading "#"/"##"/"###", optional surrounding whitespace —
-    // whatever the model actually emitted, normalize it to the same thing.
-    out = out.replace(new RegExp("[ \\t]*#{0,3}[ \\t]*" + escaped + "[ \\t]*", "g"), "\n\n## " + title + "\n\n");
-  }
-  return out.replace(/\n{3,}/g, "\n\n").trim();
+  // Universally catch any ## or ### header that lacks a preceding blank
+  // line and force \n\n before it, regardless of what title text follows —
+  // an exact-title allowlist can't keep up with the model occasionally
+  // drifting to a legacy/hallucinated title (e.g. "Executive Summary")
+  // that was never in the list, which is what let literal "##" leak into
+  // the UI in the first place.
+  // No "i" flag: [A-Z] is deliberately case-sensitive here. A real header
+  // always starts with a capital letter, and without that constraint this
+  // also matches a stray "##" glued mid-sentence into ordinary lowercase
+  // prose (e.g. "the drug ## interacts with...", "p ## 0.05 was..."),
+  // turning an unrelated run-on sentence into a giant fake heading.
+  return (text || "")
+    .replace(/([^\n])\s*(#{2,3}\s+[A-Z])/g, "$1\n\n$2")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
@@ -2097,7 +2099,7 @@ function bibBtn(P, accent) { return { padding: "5px 10px", fontSize: FONT_SIZES.
 // renders itself at the same 28x28 size so the row stays visually uniform).
 // `active` swaps in the accent wash used everywhere else in this file for a
 // toggled-on state (sortTabActive, sBtnP, etc.) instead of inventing a new one.
-function ToolbarBtn({ title, icon, onClick, accent, P, active = false }) {
+function ToolbarBtn({ title, icon, onClick, accent, P, active = false, spin = false }) {
   return (
     <button
       type="button" title={title} aria-label={title}
@@ -2106,7 +2108,7 @@ function ToolbarBtn({ title, icon, onClick, accent, P, active = false }) {
       onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = withAlpha(accent, 0.08); e.currentTarget.style.color = accent; } }}
       onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; } }}
     >
-      <Icon name={icon} size={14} />
+      <Icon name={icon} size={14} className={spin ? "cb-spin" : undefined} />
     </button>
   );
 }
@@ -2411,12 +2413,65 @@ function GuidedTour({ P, accent }) {
   );
 }
 
+// Reshapes an already-synthesized answer into Abstract / body / Conclusion
+// blocks for the print-only academic layout below. This is a reformat, not
+// a new generation pass — every word here already exists in `answer`; the
+// "##"/"###" section headers the model wrote are kept as body headings, the
+// first real paragraph becomes the Abstract, and the last becomes the
+// Conclusion, the same way a person skimming their own answer for a quick
+// paper would carve it up by hand.
+function buildAcademicPaperBlocks(answer) {
+  const clean = normalizeSectionHeaders(answer || "").trim();
+  const chunks = clean.split(/\n{2,}/).map((c) => c.trim()).filter(Boolean);
+  const blocks = chunks.map((c) => {
+    const h = c.match(/^#{2,3}\s+(.+)$/);
+    if (h) return { type: "heading", text: h[1] };
+    return { type: "para", text: c.replace(/^[•\-]\s+/gm, "").replace(/^\d+\.\s+/gm, "") };
+  });
+  let firstParaIdx = blocks.findIndex((b) => b.type === "para");
+  let lastParaIdx = -1;
+  for (let i = blocks.length - 1; i >= 0; i--) { if (blocks[i].type === "para") { lastParaIdx = i; break; } }
+  const abstract = firstParaIdx >= 0 ? blocks[firstParaIdx].text : "";
+  const conclusion = lastParaIdx >= 0 && lastParaIdx !== firstParaIdx ? blocks[lastParaIdx].text : "";
+  const bodyBlocks = blocks.filter((_, i) => i !== firstParaIdx && i !== lastParaIdx);
+  return { abstract, bodyBlocks, conclusion };
+}
+
 function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   const [copiedAnswer, setCopiedAnswer] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [generatingPaper, setGeneratingPaper] = useState(false);
+  const [paperReady, setPaperReady] = useState(false);
+  const paper = useMemo(() => buildAcademicPaperBlocks(t.answer), [t.answer]);
+
+  // A running conversation mounts one <Turn> per exchange (see turns.map in
+  // App), so "only one printed paper on the page" can't be enforced with a
+  // single top-level flag — it falls out of each Turn owning its own
+  // paperReady instead: only the turn that was actually printed ever
+  // renders a .cb-print-paper-doc node at all, so the print stylesheet's
+  // "unhide the one that exists" rule (see the @media print CSS) never has
+  // more than one candidate to find. The body class is what hides
+  // everything else (header, other turns, buttons) for the duration of the
+  // print; afterprint (or a fallback timeout for browsers that don't fire
+  // it from window.print()) removes it and clears this turn's own node.
+  useEffect(() => {
+    if (!paperReady) return;
+    document.body.classList.add("cb-printing-paper");
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      document.body.classList.remove("cb-printing-paper");
+      setPaperReady(false);
+    };
+    window.addEventListener("afterprint", cleanup, { once: true });
+    const fallback = setTimeout(cleanup, 15000);
+    window.print();
+    return () => { clearTimeout(fallback); window.removeEventListener("afterprint", cleanup); };
+  }, [paperReady]);
   return (
     <div style={S.turn} className="cb-rise">
       {/* Query label — monospaced, quiet */}
@@ -2503,8 +2558,23 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                     file's own header comment ("results read like a premium
                     research brief — you'd print this") — with no button
                     anywhere that surfaced it. A user would've had to already
-                    know to hit Ctrl/Cmd+P. */}
-                <ToolbarBtn title="Print / Save PDF" icon="printer" accent={accent} P={P} onClick={() => window.print()} />
+                    know to hit Ctrl/Cmd+P.
+                    v36: rather than print the live app chrome as-is, this now
+                    reflows the same answer into a formal paper layout first
+                    (see buildAcademicPaperBlocks) — a real reformat of what's
+                    already on screen, not a second AI call. */}
+                <ToolbarBtn
+                  title={generatingPaper ? "Generating paper…" : "Generate paper / Print"}
+                  icon={generatingPaper ? "refresh" : "printer"}
+                  active={generatingPaper}
+                  spin={generatingPaper}
+                  accent={accent} P={P}
+                  onClick={() => {
+                    if (generatingPaper || paperReady) return;
+                    setGeneratingPaper(true);
+                    setTimeout(() => { setGeneratingPaper(false); setPaperReady(true); }, 650);
+                  }}
+                />
                 {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact />}
                 {done && <ToolbarBtn title="Illustrate this answer" icon="wand" accent={accent} P={P} onClick={() => onIllustrate(t.q)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
@@ -2611,6 +2681,50 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                 <span>{r}</span><span style={{ color: accent, fontFamily: "var(--cb-mono)" }}>→</span>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+      {/* Print-only academic layout — invisible in the normal UI (see the
+          base ".cb-print-paper-doc { display: none }" rule) and only ever
+          mounted once this specific Turn's "Generate paper" button has
+          fired (see paperReady above), so it's never the wrong turn's
+          content that a multi-turn conversation's print stylesheet finds. */}
+      {paperReady && (
+        <div className="cb-print-paper-doc" aria-hidden="true">
+          <div className="cb-paper-watermark">Cerebrum™</div>
+          <div className="cb-paper-page">
+            <div className="cb-paper-title">{t.q}</div>
+            <div className="cb-paper-byline">Synthesized by Cerebrum · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+
+            <div className="cb-paper-section-label">Abstract</div>
+            <p className="cb-paper-para">{paper.abstract || "No summary available for this answer."}</p>
+
+            <div className="cb-paper-section-label">Introduction</div>
+            <p className="cb-paper-para">This paper synthesizes current research addressing the question: "{t.q}." The findings below are drawn from {t.sources && t.sources.length > 0 ? `the ${t.sources.length} source${t.sources.length === 1 ? "" : "s"} cited in the references` : "the cited literature"}.</p>
+
+            {paper.bodyBlocks.map((b, i) => (
+              b.type === "heading"
+                ? <div key={i} className="cb-paper-heading">{b.text}</div>
+                : <p key={i} className="cb-paper-para">{b.text}</p>
+            ))}
+
+            {paper.conclusion && (
+              <>
+                <div className="cb-paper-section-label">Conclusion</div>
+                <p className="cb-paper-para">{paper.conclusion}</p>
+              </>
+            )}
+
+            {t.sources && t.sources.length > 0 && (
+              <>
+                <div className="cb-paper-section-label">References</div>
+                <div className="cb-paper-references">
+                  {t.sources.map((s, i) => (
+                    <p key={i} className="cb-paper-ref">{formatCitation(s, citationStyle || "vancouver", i + 1)}</p>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -3891,6 +4005,64 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
   const displayInitial = (displayName || "?")[0]?.toUpperCase() || "?";
   const avatarSeed = encodeURIComponent((profile.username || emailLocal || "cerebrum"));
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const fileInputRef = useRef(null);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarError, setAvatarError] = useState("");
+
+  // Center-crops whatever aspect ratio was uploaded to a square, then
+  // downsamples it onto a fixed 256x256 canvas and re-encodes as JPEG —
+  // a phone photo comes in at several MB; this keeps what actually gets
+  // stored and sent over the wire down to tens of KB. Defined inside the
+  // component (rather than at module scope, where a stateless helper like
+  // this would normally live) since it's only ever used here and closes
+  // over nothing — kept local on purpose so this modal's avatar pipeline
+  // reads top to bottom in one place.
+  async function compressAvatarFile(file) {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Couldn't read that file."));
+      reader.readAsDataURL(file);
+    });
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("That doesn't look like a valid image."));
+      el.src = dataUrl;
+    });
+    const side = Math.min(img.width, img.height);
+    const sx = (img.width - side) / 2;
+    const sy = (img.height - side) / 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  async function handleAvatarFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // lets the same file be re-picked later
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setAvatarError("Please choose an image file."); return; }
+    if (file.size > 8 * 1024 * 1024) { setAvatarError("That photo is too large — try one under 8MB."); return; }
+    setAvatarError("");
+    setAvatarSaving(true);
+    try {
+      const base64 = await compressAvatarFile(file);
+      setAvatarFailed(false);
+      setProfile((p) => ({ ...p, avatar_base64: base64 }));
+      // Saved immediately rather than folded into the 900ms-debounced
+      // name/username/affiliation sync further down in App — a photo you
+      // just picked shouldn't be one closed tab away from being lost.
+      await apiDataAction("update-profile", { avatar_base64: base64 });
+    } catch (err) {
+      setAvatarError(err.message || "Couldn't update your photo.");
+    } finally {
+      setAvatarSaving(false);
+    }
+  }
   const followers = profileMeta?.followers || 0;
   const badges = [
     { label: "Verified sign-in", icon: "check", real: true },
@@ -3910,29 +4082,55 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Your profile" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 216, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
-        background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
-        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
-        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 16, maxWidth: 420, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", outline: "none",
+        background: P.dark ? "rgba(15, 17, 26, 0.82)" : "rgba(255, 255, 255, 0.9)",
+        backdropFilter: "blur(40px) saturate(180%)", WebkitBackdropFilter: "blur(40px) saturate(180%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 20, maxWidth: 420, width: "100%",
+        boxShadow: `0 24px 80px rgba(0,0,0,0.5), inset 0 1px 0 ${P.dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.6)"}`,
+        outline: "none", overflow: "hidden", position: "relative",
       }} className="cb-modal">
-        <div style={{ padding: "28px 28px 0", display: "flex", justifyContent: "flex-end" }}>
+        {/* The ID-card's top "stripe" — a thin accent-colored band behind
+            everything else, purely decorative, echoing a physical badge. */}
+        <div aria-hidden="true" style={{ position: "absolute", top: 0, left: 0, right: 0, height: 88, background: `linear-gradient(180deg, ${withAlpha(accent, 0.22)}, transparent)`, pointerEvents: "none" }} />
+        <div style={{ padding: "28px 28px 0", display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative" }}>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: withAlpha(accent, 0.85), fontFamily: "var(--cb-mono)" }}>Cerebrum ID</span>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
-        <div style={{ padding: "0 28px 28px", textAlign: "center" }}>
-          {avatarFailed ? (
-            <div style={{
-              width: 84, height: 84, borderRadius: "50%", margin: "0 auto 16px",
-              background: withAlpha(accent, 0.15), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 30, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `1px solid ${P.line}`,
-            }}>{displayInitial}</div>
-          ) : (
-            <img
-              src={`https://api.dicebear.com/7.x/shapes/svg?seed=${avatarSeed}&backgroundColor=0a0a0a`}
-              alt={`${displayName}'s avatar`}
-              onError={() => setAvatarFailed(true)}
-              style={{ width: 84, height: 84, borderRadius: "50%", margin: "0 auto 16px", display: "block", border: `1px solid ${P.line}`, objectFit: "cover" }}
-            />
-          )}
+        <div style={{ padding: "8px 28px 28px", textAlign: "center", position: "relative" }}>
+          <div style={{ position: "relative", width: 84, height: 84, margin: "0 auto 4px" }}>
+            {avatarFailed && !profile.avatar_base64 ? (
+              <div style={{
+                width: 84, height: 84, borderRadius: "50%",
+                background: withAlpha(accent, 0.15), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 30, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `1px solid ${withAlpha(accent, 0.4)}`,
+                boxShadow: `0 0 0 4px ${withAlpha(accent, 0.08)}`,
+              }}>{displayInitial}</div>
+            ) : (
+              <img
+                src={profile.avatar_base64 || `https://api.dicebear.com/7.x/shapes/svg?seed=${avatarSeed}&backgroundColor=0a0a0a`}
+                alt={`${displayName}'s avatar`}
+                onError={() => setAvatarFailed(true)}
+                style={{ width: 84, height: 84, borderRadius: "50%", display: "block", border: `1px solid ${withAlpha(accent, 0.4)}`, boxShadow: `0 0 0 4px ${withAlpha(accent, 0.08)}`, objectFit: "cover" }}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={avatarSaving}
+              aria-label="Change photo"
+              title="Change photo"
+              style={{
+                position: "absolute", bottom: -2, right: -2, width: 30, height: 30, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center", cursor: avatarSaving ? "default" : "pointer",
+                background: accent, color: "#0a0a0a", border: `2px solid ${P.dark ? "#0f111a" : "#fff"}`,
+                opacity: avatarSaving ? 0.6 : 1,
+              }}
+            >
+              {avatarSaving ? <Icon name="refresh" size={14} className="cb-spin" /> : <Icon name="camera" size={14} />}
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
+          </div>
+          {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 8 }}>{avatarError}</div>}
 
           <input
             value={profile.name || ""}
@@ -4011,6 +4209,113 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
           </div>
 
           <button onClick={onManageAccount} style={{ width: "100%", marginTop: 24, padding: "10px", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Manage account &amp; security</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// A directory of other Cerebrum users to find and message doesn't exist yet
+// — there's no server endpoint backing a real cross-account people search,
+// just the mock roster below. Rather than wire "Follow"/"Message" up to
+// calls that would either 500 against a fake id or silently do nothing,
+// this stays explicitly labeled as a preview: Follow toggles local-only
+// state that resets next time the modal opens, and Message is honest about
+// not being a real conversation before it hands off to the (real) Inbox.
+const MOCK_RESEARCHERS = [
+  { id: "r1", name: "Dr. Amara Osei", affiliation: "Stanford University", field: "Computational Neuroscience", seed: "amara-osei" },
+  { id: "r2", name: "Dr. Wei Lin", affiliation: "MIT", field: "Genomic Medicine", seed: "wei-lin" },
+  { id: "r3", name: "Dr. Fatima Al-Sayed", affiliation: "Imperial College London", field: "Climate Systems Modeling", seed: "fatima-alsayed" },
+  { id: "r4", name: "Dr. Marcus Reyes", affiliation: "University of Toronto", field: "Immunotherapy", seed: "marcus-reyes" },
+];
+
+function NetworkSearchModal({ P, accent, at, close, onMessage }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const [query, setQuery] = useState("");
+  const [following, setFollowing] = useState(() => new Set());
+
+  const results = MOCK_RESEARCHERS.filter((r) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return r.name.toLowerCase().includes(q) || r.affiliation.toLowerCase().includes(q) || r.field.toLowerCase().includes(q);
+  });
+
+  const toggleFollow = (id) => {
+    setFollowing((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="Find researchers" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 214, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 14, maxWidth: 480, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
+      }} className="cb-modal">
+        <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)" }}>
+          <div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Find people</div>
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-mono)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Preview — sample results</div>
+          </div>
+          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+        </div>
+
+        <div style={{ padding: "14px 20px 0" }}>
+          <div style={{ position: "relative" }}>
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: P.faint, display: "inline-flex" }}><Icon name="search" size={15} /></span>
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name, institution, or field"
+              aria-label="Search researchers"
+              style={{ width: "100%", padding: "10px 13px 10px 34px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)" }}
+            />
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+          {results.length === 0 && (
+            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>No one matches that search.</div>
+          )}
+          {results.map((r) => {
+            const isFollowing = following.has(r.id);
+            return (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 10 }}>
+                <img
+                  src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.seed)}&backgroundColor=0a0a0a`}
+                  alt=""
+                  aria-hidden="true"
+                  style={{ width: 40, height: 40, borderRadius: "50%", flexShrink: 0, border: `1px solid ${P.line}`, objectFit: "cover" }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.field} · {r.affiliation}</div>
+                </div>
+                <button
+                  onClick={() => toggleFollow(r.id)}
+                  style={{
+                    fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "6px 12px", borderRadius: 100, cursor: "pointer", flexShrink: 0,
+                    color: isFollowing ? P.ink2 : accent,
+                    background: isFollowing ? (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)") : withAlpha(accent, 0.1),
+                    border: isFollowing ? `1px solid ${P.line}` : `1px solid ${withAlpha(accent, 0.3)}`,
+                  }}
+                >{isFollowing ? "Following" : "Follow"}</button>
+                <button
+                  onClick={() => onMessage(r)}
+                  aria-label={`Message ${r.name}`}
+                  title={`Message ${r.name}`}
+                  style={{ width: 32, height: 32, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer" }}
+                ><Icon name="mail" size={14} /></button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -4993,6 +5298,7 @@ function App() {
   const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [networkSearchOpen, setNetworkSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   // Profile — name/username/affiliation live in the `users` table now (see
   // functions/api/data.js's get-profile/update-profile), pulled down on
@@ -5039,6 +5345,7 @@ function App() {
         name: profileRes.user.name || "",
         username: profileRes.user.username || "",
         affiliation: profileRes.user.affiliation || "",
+        avatar_base64: profileRes.user.avatar_base64 || "",
       }));
       setProfileMeta({ followers: profileRes.followers || 0, badges: profileRes.badges || [] });
     }
@@ -5870,6 +6177,7 @@ function App() {
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setHistoryOpen(true); }} title="Previous conversations" aria-label={`Previous conversations${history.length ? `, ${history.length}` : ""}`}><Icon name="history" size={16} />{!isMobile && <span style={S.iconBtnLabel}>History</span>}</button>
             <button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button>
             {user && !isMobile && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setCollectionsOpen(true); }} title="Collections" aria-label="Collections"><Icon name="folder" size={16} /><span style={S.iconBtnLabel}>Collections</span></button>)}
+            {user && !isMobile && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setNetworkSearchOpen(true); }} title="Find people" aria-label="Find researchers"><Icon name="network" size={16} /><span style={S.iconBtnLabel}>Find People</span></button>)}
             {user && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setInboxOpen(true); }} title="Inbox" aria-label="Inbox"><Icon name="mail" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Inbox</span>}</button>)}
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}><Icon name={muted ? "volumeOff" : "volumeOn"} size={16} /></button>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsInitialTab("general"); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button>
@@ -6086,6 +6394,17 @@ function App() {
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
       {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} threads={threads} setThreads={setThreads} />}
+      {networkSearchOpen && (
+        <NetworkSearchModal
+          P={P} accent={accent} at={at}
+          close={() => setNetworkSearchOpen(false)}
+          onMessage={(researcher) => {
+            setNetworkSearchOpen(false);
+            toast(`${researcher.name} isn't a real Cerebrum account yet — this is a preview. Opening your Inbox.`);
+            setInboxOpen(true);
+          }}
+        />
+      )}
       {profileOpen && <UserProfileModal P={P} accent={accent} at={at} user={user} profile={profile} setProfile={setProfile} profileMeta={profileMeta} close={() => setProfileOpen(false)} onManageAccount={() => { setProfileOpen(false); setSettingsInitialTab("account"); setSettingsOpen(true); }} />}
       {importPrompt && (
         <ImportLocalDataPrompt
@@ -6176,6 +6495,7 @@ summary::-webkit-details-marker { display: none; }
 
 /* ── Keyframes: all blur-to-focus, slow, intentional ── */
 @keyframes cbspin { to { transform: rotate(360deg); } }
+.cb-spin { animation: cbspin 0.9s linear infinite; display: inline-flex; }
 @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes cbpulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(255,255,255,0.1); } 50% { box-shadow: 0 0 0 8px rgba(255,255,255,0.2); } }
 
@@ -6575,6 +6895,36 @@ html { scroll-behavior: smooth; }
   * { backdrop-filter: none !important; box-shadow: none !important; }
   .cb-answer-enter { font-size: 12pt !important; line-height: 1.6 !important; }
   .cb-answer-enter strong { font-weight: bold !important; }
+}
+
+/* AI Paper Generator's print-only layout. Hidden in the live app always
+   (this rule applies outside @media print too, so the node sitting in the
+   DOM never affects normal layout); the @media print block below overrides
+   it back to visible ONLY while body carries .cb-printing-paper, which
+   Turn's paperReady effect adds for exactly the duration of window.print(). */
+.cb-print-paper-doc { display: none; }
+@media print {
+  body.cb-printing-paper * { visibility: hidden !important; }
+  body.cb-printing-paper .cb-print-paper-doc,
+  body.cb-printing-paper .cb-print-paper-doc * { visibility: visible !important; }
+  body.cb-printing-paper .cb-print-paper-doc {
+    display: block !important; position: absolute; left: 0; top: 0; width: 100%; background: #fff !important; z-index: 999999;
+  }
+  .cb-paper-page {
+    position: relative; z-index: 1; max-width: 7in; margin: 0 auto; padding: 0.6in 0 1in;
+    font-family: "Times New Roman", Times, serif; color: #000 !important;
+  }
+  .cb-paper-title { font-size: 18pt; font-weight: 700; text-align: center; margin: 0 0 6pt; line-height: 1.3; }
+  .cb-paper-byline { font-size: 10pt; text-align: center; color: #444 !important; margin: 0 0 28pt; font-style: italic; }
+  .cb-paper-section-label { font-size: 12pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 22pt 0 8pt; border-bottom: 1pt solid #000; padding-bottom: 2pt; }
+  .cb-paper-heading { font-size: 12pt; font-weight: 700; margin: 16pt 0 6pt; }
+  .cb-paper-para { font-size: 11pt; line-height: 1.7; text-align: justify; text-indent: 0.3in; margin: 0 0 10pt; }
+  .cb-paper-ref { font-size: 9.5pt; line-height: 1.5; text-indent: -0.25in; padding-left: 0.25in; margin: 0 0 6pt; text-align: left; }
+  .cb-paper-watermark {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
+    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.06) !important; z-index: 0;
+    white-space: nowrap; font-family: "Helvetica Neue", Arial, sans-serif; pointer-events: none;
+  }
 }
 
 /* ── Text selection accent ──
