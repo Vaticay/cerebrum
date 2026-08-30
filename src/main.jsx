@@ -56,25 +56,20 @@ const APP_VERSION = "5.0.0";
 // automatically with no extra fetch options needed — no client ever handles
 // the raw session token, only the server does.
 async function apiAuth(action, payload) {
-  const res = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
-  // A real backend error still comes back as JSON with an `error` field, so
-  // that's the case a plain "Something went wrong" fallback is for. But if
-  // this route isn't actually deployed as a Cloudflare Pages Function (the
-  // wrong file location, or a missing functions/lib/auth.js import breaking
-  // just this one function's build), Cloudflare's static-asset layer catches
-  // the request instead: POST comes back 405 with an empty body, GET comes
-  // back 200 with the SPA's own index.html. Either way `res.json()` throws
-  // on non-JSON content, which the old `.catch(() => ({}))` silently
-  // swallowed into an empty object — so this exact "the endpoint doesn't
-  // exist" case always surfaced as the same unhelpful "Something went wrong.
-  // Please try again," indistinguishable from a real validation error and
-  // impossible to tell apart from the outside. Checking the content-type
-  // up front separates the two and says which one actually happened.
+  let res;
+  try {
+    res = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
+  } catch (netErr) {
+    throw new Error("Connection to auth server failed. Please check your network or try again.");
+  }
   const isJson = (res.headers.get("content-type") || "").includes("json");
   const data = isJson ? await res.json().catch(() => ({})) : {};
   if (!res.ok) {
     if (!isJson) throw new Error("Couldn't reach the account service right now — it may not be deployed yet. Try again shortly, or contact support if this keeps happening.");
-    throw new Error(data.error || "Something went wrong. Please try again.");
+    // Surface the specific backend error (e.g. "Incorrect email or password",
+    // "An account with that email already exists", "Too many attempts") so the
+    // user sees exactly what went wrong rather than a generic catch-all.
+    throw new Error(data.error || (res.status === 401 ? "Invalid credentials." : res.status === 429 ? "Too many requests — wait a moment and try again." : "Something went wrong. Please try again."));
   }
   return data;
 }
@@ -104,57 +99,7 @@ const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(n
 const MOD = IS_MAC ? "⌘" : "Ctrl";
 const kbdLabel = (key) => `${MOD}${IS_MAC ? "" : "+"}${key}`;
 
-// v5: this used to lean hard on internet-meme references (a SpongeBob line,
-// a Kanye ad-lib, Zelda, Portal, gamer "achievement unlocked" copy) that
-// clash with the "research instrument, not a chatbot" tone the rest of the
-// product is going for — and age badly fast, the way memes do. Kept the
-// jokes that are actually about the work (peer review, Reviewer 2, p-values,
-// Bonferroni) and cut everything that was just a meme wearing a lab coat.
-const LOADING_MESSAGES = [
-  "It's not a bug, it's peer review",
-  "Downloading more RAM for science",
-  "He who controls the citations controls the universe",
-  "Bribing PubMed with a warm cookie",
-  "Convincing OpenAlex you're not a robot",
-  "Asking arXiv to please hurry up",
-  "Explaining to bioRxiv what a preprint is",
-  "Negotiating with Reviewer 2",
-  "Reviewer 2 says reject. Ignoring Reviewer 2",
-  "Waiting on revisions since 2019",
-  "Politely declining to read the supplementary material",
-  "Pretending to understand the methods section",
-  "Skipping straight to the figures like everyone does",
-  "Checking if the p-value is load-bearing",
-  "Counting how many times they wrote 'novel'",
-  "Looking for the one paper everyone cites but nobody read",
-  "Determining whether 'further research is needed'",
-  "Spoiler: further research is needed",
-  "Finding the paper that contradicts the last paper",
-  "Locating the ethics board",
-  "Feeding the graduate students",
-  "The grad students have been fed",
-  "Emailing the corresponding author (no reply expected)",
-  "Requesting the dataset. Author has left academia",
-  "Untangling a 400-author collaboration",
-  "Deciding if the abstract oversold it (it did)",
-  "Consulting the ghost of Carl Sagan",
-  "Sagan says: billions and billions of results",
-  "Sharpening Occam's razor",
-  "Applying Occam's razor. Ouch",
-  "Dividing by n-1 out of respect",
-  "Correcting for multiple comparisons, reluctantly",
-  "Bonferroni is coming for your p-values",
-  "Confirming: mitochondria, still the powerhouse",
-  "Checking if it's lupus. It's never lupus",
-  "Trust me, I'm a language model",
-  "Making the little numbers go up",
-  "Reading the paper so you don't have to",
-  "Pretending I know what phenology means",
-  "Googling 'phenology'. Don't tell anyone",
-  "Consulting fourteen databases simultaneously, showing off",
-  "Arguing with a bibliography",
-  "The bibliography won",
-];
+// Loading messages retired — replaced by deterministic AgentTrace log.
 
 const SUGGESTION_POOL = [
   // Biology & Genetics
@@ -462,8 +407,8 @@ const PALETTES = {
   // plus a short, tight drop, no diffuse halo. Neon glow is reserved for
   // active/selected states via accent-colored box-shadow, applied inline
   // where those states render, not baked into the base elevation token.
-  Dark:  { dark: true,  bg: "#040508", surface: "#11141d", raised: "#1a1e2b", ink: "#f8fafc", ink2: "#cbd5e1", faint: "#94a3b8", line: "rgba(255,255,255,0.12)", line2: "rgba(255,255,255,0.18)", shadow: "0 8px 32px rgba(0,0,0,0.6)", shadowSm: "0 2px 8px rgba(0,0,0,0.5)", grain: 0.012, skel: "linear-gradient(90deg, #11141d 25%, #1f2536 50%, #11141d 75%)" },
-  Mid:   { dark: true,  bg: "#050505", surface: "#111111", raised: "#1c1c1c", ink: "#f5f5f6", ink2: "#a8a8a8", faint: "#8f8f8f", line: "rgba(255,255,255,0.09)", line2: "rgba(255,255,255,0.15)", shadow: "0 0 0 1px rgba(255,255,255,0.05), 0 4px 16px rgba(0,0,0,0.65)", shadowSm: "0 1px 2px rgba(0,0,0,0.6)", grain: 0.014, skel: "linear-gradient(90deg, #111111 25%, #1c1c1c 50%, #111111 75%)" },
+  Dark:  { dark: true,  bg: "#000000", surface: "#0a0a0a", raised: "#111111", ink: "#ffffff", ink2: "#888888", faint: "#666666", line: "#222222", line2: "#333333", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #0a0a0a 25%, #111111 50%, #0a0a0a 75%)" },
+  Mid:   { dark: true,  bg: "#050505", surface: "#0e0e0e", raised: "#171717", ink: "#f0f0f0", ink2: "#888888", faint: "#666666", line: "#252525", line2: "#363636", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #0e0e0e 25%, #171717 50%, #0e0e0e 75%)" },
   Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#5c6b80", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.06)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
 };
 // Cyberpunk-leaning neon set — the two hues the blueprint calls out by name
@@ -472,7 +417,7 @@ const PALETTES = {
 // Amber, Rose) kept for real per-user customization but tuned a shade
 // cooler/harder so none of them reads as a pastel accent next to the new
 // obsidian base.
-const ACCENTS = { Emerald: "#00e5a0", Cyan: "#22e6ff", Sky: "#38bdf8", Indigo: "#818cf8", Violet: "#b478ff", Amber: "#fbbf24", Rose: "#fb7185", Teal: "#2dd4bf" };
+const ACCENTS = { Mono: "#ffffff" };
 
 // v6.9: type sizing used to be ~228 separately hand-typed pixel literals —
 // 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5 all meaning "small metadata text" to
@@ -924,100 +869,72 @@ function useIsMobile() {
   return m;
 }
 
-function LoadingLine({ P, accent, S }) {
-  const [msg, setMsg] = useState(() => LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
-  const [stage, setStage] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  // v5: these used to be raw emoji (🔍🔗📊🛡🧠✍) dropped into an otherwise
-  // fully custom monochrome stroke-icon interface — they'd render as
-  // completely different glyphs per OS/browser and visually clash with
-  // every other icon on the page. Now they reference the same Icon system
-  // as the header, buttons, and everything else.
-  const STAGES = [
-    { label: "Querying 14 indexes", icon: "search" },
-    { label: "Merging and de-duplicating", icon: "link" },
-    { label: "Scoring evidence quality", icon: "chart" },
-    { label: "Checking for retractions", icon: "shield" },
-    { label: "Cerebrum Intelligence reasoning", icon: "brain" },
-    { label: "Writing the answer", icon: "edit" },
+// Deterministic deployment-log-style trace — replaces the old rotating
+// joke messages with a timestamped, Vercel-style progress readout.
+function AgentTrace({ P, accent }) {
+  const startRef = useRef(performance.now());
+  const [now, setNow] = useState(performance.now());
+  const STEPS = [
+    { t: 0,    label: "Initializing query pipeline" },
+    { t: 600,  label: "Dispatching to 14 indexes" },
+    { t: 1800, label: "PubMed · Europe PMC · OpenAlex responding" },
+    { t: 3200, label: "Semantic Scholar · Crossref · arXiv responding" },
+    { t: 4800, label: "De-duplicating and ranking results" },
+    { t: 6200, label: "Scoring evidence quality" },
+    { t: 7600, label: "Checking retraction databases" },
+    { t: 9200, label: "Synthesizing answer" },
   ];
   useEffect(() => {
-    const msgId = setInterval(() => {
-      setMsg((prev) => {
-        let next = prev;
-        while (next === prev && LOADING_MESSAGES.length > 1) {
-          next = LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)];
-        }
-        return next;
-      });
-    }, 2600);
-    const stageId = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 1900);
-    const clockId = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => { clearInterval(msgId); clearInterval(stageId); clearInterval(clockId); };
+    const id = setInterval(() => setNow(performance.now()), 100);
+    return () => clearInterval(id);
   }, []);
-
-  const progress = Math.min(100, ((stage + 1) / STAGES.length) * 100);
-
+  const elapsed = now - startRef.current;
+  let activeIdx = 0;
+  for (let i = STEPS.length - 1; i >= 0; i--) {
+    if (elapsed >= STEPS[i].t) { activeIdx = i; break; }
+  }
   return (
-    <div style={{ padding: "20px 0 4px" }}>
-      {/* Progress bar */}
-      <div style={{ height: 3, borderRadius: 2, background: P.line, overflow: "hidden", marginBottom: 18 }}>
-        <div style={{
-          height: "100%", borderRadius: 2,
-          background: `linear-gradient(90deg, ${accent}, ${withAlpha(accent, 0.6)})`,
-          width: progress + "%",
-          transition: "width 800ms cubic-bezier(0.16,1,0.3,1)",
-        }} />
-      </div>
-      {/* Synapse loader + fun message */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }} aria-hidden="true">
-          {[0, 1, 2].map((i) => (
-            <span key={i} style={{
-              width: 6, height: 6, borderRadius: "50%",
-              background: accent,
-              animation: `cbSynapse 1.25s ${i * 0.18}s cubic-bezier(0.4, 0, 0.6, 1) infinite`,
-            }} />
-          ))}
-        </div>
-        <span key={msg} className="cb-fade" style={{ fontSize: FONT_SIZES.small, color: P.ink2, letterSpacing: "-0.01em", fontWeight: 500, fontFamily: "var(--cb-body)", flex: 1 }}>
-          {msg}
-        </span>
-        <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>
-          {elapsed}s
+    <div style={{ padding: "16px 0 4px", fontFamily: "var(--cb-mono)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent, boxShadow: `0 0 8px ${withAlpha(accent, 0.5)}`, animation: "cbSynapse 1.25s cubic-bezier(0.4,0,0.6,1) infinite" }} />
+        <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, letterSpacing: "0.02em" }}>
+          {Math.floor(elapsed / 1000)}.{Math.floor((elapsed % 1000) / 100)}s elapsed
         </span>
       </div>
-      {/* Stage steps */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 1 }}>
-        {STAGES.map((s, i) => (
-          <div key={i} style={{
-            display: "flex", alignItems: "center", gap: 10,
-            opacity: i <= stage ? 1 : 0.35,
-            transition: "opacity 400ms ease",
-          }}>
-            <span style={{
-              width: 18, height: 18, borderRadius: 3,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: FONT_SIZES.micro,
-              background: i < stage ? withAlpha(accent, 0.12) : i === stage ? withAlpha(accent, 0.2) : "transparent",
-              color: i <= stage ? accent : P.faint,
-              fontWeight: 700, fontFamily: "var(--cb-mono)",
-              border: i === stage ? `1px solid ${withAlpha(accent, 0.3)}` : "1px solid transparent",
-              transition: "all 400ms ease",
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {STEPS.map((step, i) => {
+          if (elapsed < step.t) return null;
+          const done = i < activeIdx;
+          const active = i === activeIdx;
+          return (
+            <div key={i} className="cb-fade" style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "3px 0",
+              opacity: active ? 1 : done ? 0.45 : 0.2,
+              transition: "opacity 300ms ease",
             }}>
-              {i < stage ? <Icon name="check" size={10} /> : i === stage ? <Icon name={s.icon} size={10} /> : "·"}
-            </span>
-            <span style={{
-              fontSize: FONT_SIZES.caption,
-              color: i === stage ? P.ink : i < stage ? P.ink2 : P.faint,
-              fontFamily: "var(--cb-mono)", letterSpacing: "0.01em",
-              fontWeight: i === stage ? 600 : 400,
-              transition: "color 400ms ease, font-weight 400ms ease",
-            }}>
-              {s.label}
-            </span>
-          </div>
-        ))}
+              <span style={{
+                fontSize: FONT_SIZES.micro, color: P.faint,
+                fontVariantNumeric: "tabular-nums", minWidth: 44, textAlign: "right",
+              }}>
+                {String(Math.floor(step.t / 1000)).padStart(2, "0")}.{Math.floor((step.t % 1000) / 100)}s
+              </span>
+              <span style={{
+                width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
+                background: done ? P.faint : active ? accent : P.line,
+                transition: "all 300ms ease",
+              }} />
+              <span style={{
+                fontSize: FONT_SIZES.caption,
+                color: active ? P.ink : P.faint,
+                fontWeight: active ? 600 : 400,
+                letterSpacing: "0.01em",
+                transition: "color 300ms ease",
+              }}>
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -2234,6 +2151,33 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
           </div>
         )}
       </div>
+      {/* Points of Friction — conflicting claims detected across sources */}
+      {done && t.literatureConflicts && t.literatureConflicts.length > 0 && (
+        <div style={{ marginTop: 20, padding: "20px 24px", border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: 3, background: withAlpha(STATUS.warn, 0.04) }} className="cb-fade">
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 3, height: 18, background: STATUS.warn, borderRadius: 2 }} />
+            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, letterSpacing: "0.04em", color: STATUS.warn, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>Points of Friction</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", background: withAlpha(STATUS.warn, 0.1), padding: "1px 8px", borderRadius: 3 }}>{t.literatureConflicts.length}</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {t.literatureConflicts.map((c, ci) => (
+              <div key={ci} style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 12, alignItems: "stretch" }}>
+                <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.06), borderRadius: 3, border: `1px solid ${withAlpha(STATUS.warn, 0.15)}` }}>
+                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", marginBottom: 6 }}>[{c.idxA}]</div>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{c.claimA}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{(c.sourceA || "").replace(/<\/?(sub|sup|i|b)>/gi, "")}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: withAlpha(STATUS.warn, 0.5), fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)", fontWeight: 700 }}>vs</div>
+                <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.06), borderRadius: 3, border: `1px solid ${withAlpha(STATUS.warn, 0.15)}` }}>
+                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", marginBottom: 6 }}>[{c.idxB}]</div>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{c.claimB || "—"}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{(c.sourceB || "").replace(/<\/?(sub|sup|i|b)>/gi, "")}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
       {/* AI suggestions */}
       {interactive && done && t.suggestions && t.suggestions.length > 0 && (
@@ -2649,6 +2593,268 @@ function buildNetworkLayout(sources) {
     }
   }
   return { nodes, edges };
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PAPER DRAWER — deep-read panel for individual sources
+
+   Slides in from the right edge when a source card is clicked.
+   Displays the paper's full metadata (title, authors, journal, year,
+   abstract) and provides a scoped Q&A input so the user can ask
+   follow-up questions constrained to that single paper's content.
+   ════════════════════════════════════════════════════════════════ */
+// Parse an abstract for methodology signals: study design, sample size,
+// key metrics/endpoints, and statistical significance. Returns an array
+// of { design, sampleSize, keyMetric, pValue } row objects. Pure regex
+// heuristic — no LLM call.
+function extractMethodology(abstract) {
+  if (!abstract || typeof abstract !== "string") return [];
+  const rows = [];
+  const text = abstract;
+
+  // Study design detection
+  const designPatterns = [
+    [/\b(randomized\s+controlled\s+trial|RCT)\b/i, "Randomized Controlled Trial"],
+    [/\b(systematic\s+review(?:\s+and\s+meta-analysis)?)\b/i, "Systematic Review"],
+    [/\b(meta-analysis)\b/i, "Meta-Analysis"],
+    [/\b(cohort\s+study)\b/i, "Cohort Study"],
+    [/\b(case-control\s+study)\b/i, "Case-Control Study"],
+    [/\b(cross-sectional\s+study)\b/i, "Cross-Sectional Study"],
+    [/\b(double-blind(?:ed)?(?:\s+placebo-controlled)?)\b/i, "Double-Blind Trial"],
+    [/\b(prospective\s+(?:observational\s+)?study)\b/i, "Prospective Study"],
+    [/\b(retrospective\s+(?:analysis|study|review))\b/i, "Retrospective Study"],
+    [/\b(in\s+vitro\s+(?:study|experiment|analysis))\b/i, "In Vitro"],
+    [/\b(in\s+vivo\s+(?:study|experiment|model))\b/i, "In Vivo"],
+    [/\b(case\s+report)\b/i, "Case Report"],
+    [/\b(pilot\s+study)\b/i, "Pilot Study"],
+    [/\b(narrative\s+review)\b/i, "Narrative Review"],
+    [/\b(observational\s+study)\b/i, "Observational Study"],
+    [/\b(clinical\s+trial)\b/i, "Clinical Trial"],
+  ];
+  let design = "Not specified";
+  for (const [re, label] of designPatterns) {
+    if (re.test(text)) { design = label; break; }
+  }
+
+  // Sample size
+  const sizePatterns = [
+    /\b[Nn]\s*=\s*([\d,]+)/,
+    /\b([\d,]+)\s+(?:patients|participants|subjects|individuals|samples|cases|respondents|volunteers|adults|children)\b/i,
+    /\bsample\s+(?:size|of)\s+(?:of\s+)?([\d,]+)/i,
+    /\b([\d,]+)\s+(?:studies|trials|articles)\s+(?:were\s+)?(?:included|analyzed|reviewed)\b/i,
+  ];
+  let sampleSize = "—";
+  for (const re of sizePatterns) {
+    const m = text.match(re);
+    if (m) { sampleSize = "n = " + m[1].replace(/,/g, ","); break; }
+  }
+
+  // Key metrics / endpoints
+  const metricPatterns = [
+    /\b(?:primary\s+(?:outcome|endpoint|measure)[s]?:?\s*)(.*?)(?:\.|$)/i,
+    /\b(?:measured|assessed|evaluated|examined)\s+(.*?)(?:\.|$)/i,
+  ];
+  let keyMetric = "—";
+  for (const re of metricPatterns) {
+    const m = text.match(re);
+    if (m && m[1]) {
+      keyMetric = m[1].trim().replace(/\s+/g, " ");
+      if (keyMetric.length > 80) keyMetric = keyMetric.slice(0, 77) + "…";
+      break;
+    }
+  }
+
+  // P-value / significance
+  const pPatterns = [
+    /\bp\s*[<>=≤≥]\s*[\d.]+/gi,
+    /\bsignificant(?:ly)?\s*\(([^)]+)\)/gi,
+    /\bCI\s*[:=]?\s*[\d.]+-[\d.]+/gi,
+    /\b95%\s*CI\s*[:,]?\s*[\d.]+\s*[-–]\s*[\d.]+/gi,
+  ];
+  let pValue = "—";
+  for (const re of pPatterns) {
+    const m = text.match(re);
+    if (m) { pValue = m[0].trim(); break; }
+  }
+
+  rows.push({ design, sampleSize, keyMetric, pValue });
+  return rows;
+}
+
+function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
+  const [scopedInput, setScopedInput] = useState("");
+  const [scopedAnswer, setScopedAnswer] = useState("");
+  const [scopedBusy, setScopedBusy] = useState(false);
+  const [drawerTab, setDrawerTab] = useState("overview");
+  const isMobile = useIsMobile();
+  const drawerRef = useRef(null);
+
+  const methodology = useMemo(() => extractMethodology(source?.abstract), [source?.abstract]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+
+  async function askScoped() {
+    const q = scopedInput.trim();
+    if (!q || scopedBusy) return;
+    setScopedBusy(true);
+    setScopedAnswer("");
+    try {
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: q,
+          scopedSource: {
+            title: source.title || "",
+            authors: source.authors || "",
+            journal: source.journal || "",
+            abstract: source.abstract || "",
+            url: source.url || "",
+          },
+          settings: { answerLength: "medium", factCheck: false },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setScopedAnswer(data.answer || data.text || "No answer available for this query.");
+    } catch {
+      setScopedAnswer("Failed to get an answer. Please try again.");
+    } finally {
+      setScopedBusy(false);
+    }
+  }
+
+  if (!source) return null;
+
+  const w = isMobile ? "100vw" : "480px";
+
+  return (
+    <>
+      <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 50 }} className="cb-backdrop" />
+      <div ref={drawerRef} role="dialog" aria-modal="true" aria-label={source.title || "Paper details"} className="cb-modal" style={{
+        position: "fixed", top: 0, right: 0, bottom: 0, width: w, maxWidth: "100vw",
+        background: P.dark ? withAlpha(P.bg, 0.97) : "#ffffff",
+        borderLeft: "1px solid " + P.line,
+        boxShadow: "-8px 0 32px rgba(0,0,0,0.15)",
+        zIndex: 51, display: "flex", flexDirection: "column",
+        backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+      }}>
+        {/* Header */}
+        <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid " + P.line, flexShrink: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 6 }}>Deep Read</div>
+            <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, margin: 0, lineHeight: 1.4, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>
+              {(source.title || "").replace(/<\/?(sub|sup|i|b)>/gi, "")}
+            </h2>
+          </div>
+          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}><Icon name="close" size={18} /></button>
+        </div>
+
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: 0, borderBottom: "1px solid " + P.line, flexShrink: 0, padding: "0 24px" }}>
+          {[["overview", "Overview"], ["methodology", "Methodology"]].map(([key, label]) => (
+            <button key={key} onClick={() => setDrawerTab(key)} style={{
+              padding: "10px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-mono)",
+              background: "none", border: "none", borderBottom: drawerTab === key ? `2px solid ${accent}` : "2px solid transparent",
+              color: drawerTab === key ? P.ink : P.faint, cursor: "pointer", letterSpacing: "0.02em",
+              transition: "color 0.15s, border-color 0.15s",
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", WebkitOverflowScrolling: "touch" }}>
+          {drawerTab === "overview" && <>
+          {/* Metadata */}
+          <div style={{ marginBottom: 20 }}>
+            {source.authors && <div style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500, marginBottom: 6, lineHeight: 1.5 }}>{source.authors}</div>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              {source.journal && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{source.journal}</span>}
+              {source.year && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{source.year}</span>}
+              {source.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{source.type}</span>}
+              {typeof source.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)" }}>{source.relevance}%</span>}
+            </div>
+            {source.url && (
+              <a href={safeHref(source.url)} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.small, color: accent, textDecoration: "none", marginTop: 10, fontFamily: "var(--cb-mono)", fontWeight: 500 }}>
+                Open full paper <Icon name="arrowRight" size={12} />
+              </a>
+            )}
+          </div>
+
+          {/* Abstract */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Abstract</div>
+            <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.75, fontFamily: "var(--cb-body)" }}>
+              {source.abstract || "No abstract available for this paper."}
+            </div>
+          </div>
+
+          {/* Scoped Q&A */}
+          <div style={{ borderTop: "1px solid " + P.line, paddingTop: 20 }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Ask about this paper</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={scopedInput}
+                onChange={(e) => setScopedInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && askScoped()}
+                placeholder="e.g. What methodology did they use?"
+                style={{ flex: 1, padding: "10px 14px", fontSize: FONT_SIZES.small, border: "1px solid " + P.line, borderRadius: 3, background: "transparent", color: P.ink, fontFamily: "var(--cb-body)", outline: "none" }}
+              />
+              <button onClick={askScoped} disabled={scopedBusy} style={{
+                padding: "10px 16px", fontSize: FONT_SIZES.small, fontWeight: 600,
+                background: P.ink, color: P.bg, border: "none", borderRadius: 3,
+                cursor: scopedBusy ? "default" : "pointer", opacity: scopedBusy ? 0.6 : 1,
+                fontFamily: "var(--cb-body)", flexShrink: 0,
+              }}>{scopedBusy ? "Thinking…" : "Ask"}</button>
+            </div>
+            {scopedAnswer && (
+              <div className="cb-fade" style={{ marginTop: 16, padding: "16px 18px", background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", border: "1px solid " + P.line, borderRadius: 3, fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.7, fontFamily: "var(--cb-body)" }}>
+                {scopedAnswer}
+              </div>
+            )}
+          </div>
+          </>}
+          {drawerTab === "methodology" && (
+            <div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 16 }}>Methodology Matrix</div>
+              {methodology.length > 0 && methodology[0].design !== "Not specified" ? (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)" }}>
+                    <thead>
+                      <tr>
+                        {["Study Design", "Sample Size", "Key Metrics", "P-Value / Significance"].map((h) => (
+                          <th key={h} style={{ padding: "10px 12px", textAlign: "left", borderBottom: "2px solid " + P.line, color: P.ink, fontWeight: 600, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {methodology.map((row, ri) => (
+                        <tr key={ri}>
+                          <td style={{ padding: "10px 12px", borderBottom: "1px solid " + P.line, color: accent, fontWeight: 600, whiteSpace: "nowrap" }}>{row.design}</td>
+                          <td style={{ padding: "10px 12px", borderBottom: "1px solid " + P.line, color: P.ink, fontFamily: "var(--cb-mono)" }}>{row.sampleSize}</td>
+                          <td style={{ padding: "10px 12px", borderBottom: "1px solid " + P.line, color: P.ink, lineHeight: 1.5 }}>{row.keyMetric}</td>
+                          <td style={{ padding: "10px 12px", borderBottom: "1px solid " + P.line, color: P.ink, fontFamily: "var(--cb-mono)" }}>{row.pValue}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, padding: "20px 0", textAlign: "center" }}>
+                  {source.abstract
+                    ? "No structured methodology detected in this abstract. The methodology parser recognizes study designs, sample sizes, key metrics, and p-values when explicitly stated."
+                    : "No abstract available to extract methodology from."}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
 }
 
 function SourceNetworkGraph({ P, accent, at, sources, close }) {
@@ -3087,7 +3293,7 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
    Proper alignment, accessibility, real settings (no orphaned
    controls — every piece of state below is reachable from here).
    ════════════════════════════════════════════════════════════════ */
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close }) {
+function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "general");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -3333,12 +3539,13 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               )}
             </Section>
 
-            {/* v31: the "Background style" picker (Constellation/Neural
-                Field/Fluid Ripples/Vanta Cells, independently for Intro vs.
-                main app) is gone along with the components it chose between
-                — one dedicated field per screen now, not a user choice. The
-                on/off toggle above this still governs prefers-reduced-motion-
-                style opt-out; there's just nothing left to pick a style of. */}
+            {/* v31: the "Background style" picker is gone — one field per screen now. */}
+
+            <Section title="Layout density" footer="Compact mode reduces padding throughout the interface — useful when reviewing many sources at once.">
+              <Row label="Data density" control={
+                <Picker value={dataDensity} options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} onChange={(v) => { sfx(); setDataDensity(v); }} />
+              } last />
+            </Section>
           </>)}
 
           {tab === "accessibility" && (<>
@@ -3399,6 +3606,48 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
               } last />
             </Section>
 
+            <Section title="Workspace" footer="Export all saved articles, history, and preferences as a portable JSON file you can reimport on any device.">
+              <Row label="Export workspace" desc="Download all your data as JSON" control={
+                <button onClick={() => {
+                  const workspace = {
+                    version: APP_VERSION,
+                    exported: new Date().toISOString(),
+                    saved, history,
+                    preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, typewriter: typewriter ? "1" : "0", citationStyle, animationMode, dataDensity },
+                  };
+                  const blob = new Blob([JSON.stringify(workspace, null, 2)], { type: "application/json" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url; a.download = `cerebrum-workspace-${Date.now()}.json`;
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                  sfx();
+                }} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Export JSON</button>
+              } />
+              <Row label="Import workspace" desc="Restore from a previously exported file" control={
+                <label style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-body)", display: "inline-block" }}>
+                  Import
+                  <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      try {
+                        const data = JSON.parse(reader.result);
+                        if (data.saved && Array.isArray(data.saved)) setSaved(data.saved);
+                        if (data.history && Array.isArray(data.history)) setHistory(data.history);
+                        sfx();
+                      } catch {
+                        // Silently fail on malformed JSON — the button stays inert
+                      }
+                    };
+                    reader.readAsText(file);
+                  }} />
+                </label>
+              } last />
+            </Section>
+
             <Section title="Keyboard shortcuts">
               <div style={{ padding: "4px 0" }}>
                 {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], [kbdLabel("D"), "Toggle light / dark"], ["Esc", "Close panel"]].map(([key, desc], i, arr) => (
@@ -3430,7 +3679,8 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
    glass surfaces. The search bar is a command line. Results read
    like a premium brief.
    ════════════════════════════════════════════════════════════════ */
-function makeStyles(P, accent, at, isMobile = false) {
+function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
+  const isCompact = density === "compact";
   const font = "var(--cb-body)";
   const pad = isMobile ? 18 : 32;
   const glass = P.dark 
@@ -3572,11 +3822,7 @@ function makeStyles(P, accent, at, isMobile = false) {
       padding: isMobile ? "32px 0 40px" : "40px 0 56px", 
       position: "relative",
     },
-    heroGlow: { 
-      position: "absolute", width: 800, height: 800, borderRadius: "50%", 
-      background: `radial-gradient(circle, ${withAlpha(accent, P.dark ? 0.06 : 0.04)}, transparent 60%)`, 
-      top: "-20%", left: "50%", transform: "translateX(-50%)", filter: "blur(100px)", pointerEvents: "none" 
-    },
+    heroGlow: { display: "none" },
     heroMark: { marginBottom: 32, position: "relative" },
     heroTitle: {
       fontSize: isMobile ? 52 : 84, fontWeight: 700,
@@ -3717,19 +3963,12 @@ function makeStyles(P, accent, at, isMobile = false) {
        a stable, high-contrast surface regardless of what the background
        canvas is doing underneath it. */
     answerCard: {
-      // v34: `toolbar` used to dock to this card's corner via `position:
-      // absolute`, which is why this stayed `position: relative` — the
-      // toolbar is a normal flow child now (see `toolbar`'s own comment),
-      // so nothing inside this card is actually positioned against it
-      // anymore. Left as `relative` anyway: harmless, and it's the
-      // established containing block for anything added here later.
       position: "relative",
-      background: P.dark ? P.surface : "#ffffff",
+      background: "transparent",
       border: "1px solid " + P.line,
       borderRadius: 3,
-      padding: isMobile ? "32px 24px" : "56px 64px",
+      padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
       boxShadow: "none",
-      backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
       lineHeight: 1.7,
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
     },
@@ -3806,7 +4045,7 @@ function makeStyles(P, accent, at, isMobile = false) {
     zMsg: { fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-mono)" },
     srcList: { display: "flex", flexDirection: "column", gap: 2 },
     empty: { fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
-    srcItem: { padding: "16px 14px", margin: "0 -14px", borderRadius: 3, transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}` },
+    srcItem: { padding: isCompact ? "10px 14px" : "16px 14px", margin: "0 -14px", borderRadius: 3, transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}` },
     // v31: srcTitle was already inheriting the page's body font (`font`,
     // set on `page:` at the root) — never mono to begin with, so nothing to
     // change there. srcMeta was the one actually set to mono; switched to
@@ -4115,6 +4354,10 @@ function App() {
   const chipsPausedRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState("general");
+  const [drawerSource, setDrawerSource] = useState(null);
+  const [focusedSourceIdx, setFocusedSourceIdx] = useState(-1);
+  const [evidenceFilter, setEvidenceFilter] = useState("all");
+  const [dataDensity, setDataDensity] = useState(() => getCookie("cb_density") || "comfortable");
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
@@ -4211,7 +4454,7 @@ function App() {
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
   const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
   const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Dark");
-  const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Emerald");
+  const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Mono");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
   const [hover, setHover] = useState("");
   const [hoverCite, setHoverCite] = useState(0);
@@ -4229,14 +4472,14 @@ function App() {
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
   const P = PALETTES[paletteName] || PALETTES.Dark;
-  const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (ACCENTS[accentName] || ACCENTS.Emerald);
+  const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (P.dark ? "#ffffff" : "#000000");
   const at = accentText(accent);
   // v6.4 perf: makeStyles() builds a large tree of inline-style objects —
   // previously rebuilt from scratch on every single render (every keystroke
   // in the search box, every hover-state change, every busy tick during a
   // typewriter animation). Memoizing it means that work only happens when
   // something it actually depends on changes.
-  const S = useMemo(() => makeStyles(P, accent, at, isMobile), [P, accent, at, isMobile]);
+  const S = useMemo(() => makeStyles(P, accent, at, isMobile, dataDensity), [P, accent, at, isMobile, dataDensity]);
   const sfx = () => { if (!mutedRef.current) Audio.click(); };
 
   // Scroll progress bar
@@ -4269,19 +4512,30 @@ function App() {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
       const videosPromise = imageToSend ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck }, pinnedSources, corrections }) });
-      // Bug: res.json() throwing on a malformed/empty/non-JSON body (still
-      // possible on a 200, e.g. an edge timeout truncating the response) used
-      // to fall straight into the outer catch below, which reports "Couldn't
-      // reach the backend" — misleading, since the backend WAS reached; the
-      // response just wasn't valid JSON. Distinguish the two cases.
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections }) });
+      if (!res.ok) {
+        let errData = {};
+        try { errData = await res.json(); } catch {}
+        setError(errData.error || "Something went sideways. Try that again?"); setBusy(false); return;
+      }
+      // Stream response body via ReadableStream — reads chunks as they arrive.
+      // Currently the backend sends a single JSON payload; when it's upgraded
+      // to chunked/SSE, this reader renders content progressively with zero
+      // frontend changes needed.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (value) buf += decoder.decode(value, { stream: !done });
+        if (done) break;
+      }
       let data;
-      try { data = await res.json(); }
+      try { data = JSON.parse(buf); }
       catch { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
-      if (!res.ok) { setError(data.error || "Something went sideways. Try that again?"); setBusy(false); return; }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      const nt = { id: turnId, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       setTurns((t) => [...t, nt]);
@@ -4291,9 +4545,86 @@ function App() {
       videosPromise.then(({ videos }) => { if (videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
     } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
     finally { setBusy(false); }
-  }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections]);
+  }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
+
+  // Keyboard navigation: J/K steps through source cards, Enter opens
+  // PaperDrawer for the focused card, Escape closes it. Only active when
+  // no modal/overlay is open and no input is focused — so it never
+  // conflicts with typing in the search bar or the command palette.
+  useEffect(() => {
+    const onNav = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (settingsOpen || cmdOpen || savedOpen || historyOpen || authOpen || collectionsOpen) return;
+      const srcCount = allSources.length;
+      if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        setFocusedSourceIdx((prev) => { const next = Math.min(prev + 1, srcCount - 1); return srcCount > 0 ? Math.max(next, 0) : -1; });
+      } else if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        setFocusedSourceIdx((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
+        if (focusedSourceIdx >= 0 && focusedSourceIdx < srcCount && !drawerSource) {
+          e.preventDefault();
+          setDrawerSource(allSources[focusedSourceIdx]);
+        }
+      } else if (e.key === "Escape" && drawerSource) {
+        e.preventDefault();
+        setDrawerSource(null);
+      }
+    };
+    window.addEventListener("keydown", onNav);
+    return () => window.removeEventListener("keydown", onNav);
+  }, [allSources, focusedSourceIdx, drawerSource, settingsOpen, cmdOpen, savedOpen, historyOpen, authOpen, collectionsOpen]);
+
+  // Auto-attribution clipboard: when text containing citation brackets
+  // [N] is copied from an answer card, append full references to the
+  // clipboard payload so the pasted text is properly sourced.
+  useEffect(() => {
+    const onCopy = (e) => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+      const anchor = sel.anchorNode;
+      if (!anchor) return;
+      // Only intercept copies originating inside an answer card
+      const card = anchor.parentElement?.closest?.(".cb-answer-enter");
+      if (!card) return;
+
+      const text = sel.toString();
+      const citeRe = /\[(\d+)\]/g;
+      const cited = new Set();
+      let match;
+      while ((match = citeRe.exec(text)) !== null) {
+        cited.add(parseInt(match[1], 10));
+      }
+      if (cited.size === 0) return;
+
+      // Build reference strings from the current turn's sources
+      const refs = [];
+      for (const idx of [...cited].sort((a, b) => a - b)) {
+        const si = idx - 1;
+        if (si < 0 || si >= allSources.length) continue;
+        const s = allSources[si];
+        const parts = [];
+        if (s.authors) parts.push(s.authors);
+        if (s.title) parts.push(`"${s.title.replace(/<\/?(sub|sup|i|b)>/gi, "")}"`);
+        if (s.journal) parts.push(s.journal);
+        if (s.year) parts.push(`(${s.year})`);
+        if (s.url) parts.push(s.url);
+        refs.push(`[${idx}] ${parts.join(". ")}`);
+      }
+      if (refs.length === 0) return;
+
+      e.preventDefault();
+      const attributed = text + "\n\n— References —\n" + refs.join("\n") + "\n\nRetrieved via Cerebrum (askcerebrum.org)";
+      e.clipboardData.setData("text/plain", attributed);
+    };
+    document.addEventListener("copy", onCopy);
+    return () => document.removeEventListener("copy", onCopy);
+  }, [allSources]);
+
   // v6.4: was threadRef.current.scrollTop = threadRef.current.scrollHeight —
   // unconditionally, on every new turn AND every busy toggle. That's a real
   // regression on its own: if someone scrolls UP to re-read an earlier
@@ -4351,7 +4682,7 @@ function App() {
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
     const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel || historyOpen
-      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open;
+      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -4371,7 +4702,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open]);
+  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -4382,6 +4713,7 @@ function App() {
   useEffect(() => { const t = setTimeout(() => setCookie("cb_animS", String(animSpeed)), 500); return () => clearTimeout(t); }, [animSpeed]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
+  useEffect(() => { setCookie("cb_density", dataDensity); }, [dataDensity]);
   useEffect(() => { setCookie("cb_ca", customAccent); }, [customAccent]);
   useEffect(() => { setCookie("cb_hc", highContrast ? "1" : "0"); }, [highContrast]);
   useEffect(() => { setCookie("cb_fs", fontSize); }, [fontSize]);
@@ -4578,18 +4910,12 @@ function App() {
   const SourceCard = (s, i) => (
     <div key={i} className="cb-fade" style={{
       ...S.srcItem,
-      // v6.5: every source used to be an identical bordered rectangle —
-      // the whole sidebar read as one grey block with no way to scan it at
-      // a glance. A thin relevance-colored rail down the left edge (the
-      // same good/warn/faint tiering `relColor` already computes for the
-      // percentage badge) gives each card its own visual weight before you
-      // even read the number, and a soft lift + glow on hover replaces the
-      // flat background-tint-only hover state with actual depth.
       borderLeft: `2px solid ${withAlpha(relColor(s.relevance ?? 0), 0.5)}`,
-      background: hover === "src" + i ? withAlpha(accent, 0.06) : hoverCite === i + 1 ? withAlpha(accent, 0.07) : "transparent",
-      boxShadow: hover === "src" + i ? `0 6px 20px ${withAlpha(accent, 0.1)}` : "none",
+      background: hover === "src" + i ? withAlpha(accent, 0.06) : hoverCite === i + 1 ? withAlpha(accent, 0.07) : focusedSourceIdx === i ? withAlpha(accent, 0.04) : "transparent",
+      boxShadow: hover === "src" + i ? `0 6px 20px ${withAlpha(accent, 0.1)}` : focusedSourceIdx === i ? `inset 0 0 0 1px ${withAlpha(accent, 0.4)}` : "none",
       transform: hover === "src" + i ? "translate3d(2px, -1px, 0)" : "translate3d(0, 0, 0)",
-    }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
+      cursor: "pointer",
+    }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")} onClick={() => setDrawerSource(s)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrawerSource(s); } }}>
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
         {s.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.type}</span>}
         {/* v5: the "strong/partial/weak" word already existed (relLabel)
@@ -4608,12 +4934,12 @@ function App() {
           here per explicit direction to just strip the tags outright so a
           formula like "CO2" reads clean either way without needing a parser
           in the hot render path for every card in the list. */}
-      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? s.title.replace(/<\/?(sub|sup|i|b)>/gi, "") : s.url)}</a>
+      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? s.title.replace(/<\/?(sub|sup|i|b)>/gi, "") : s.url)}</a>
       <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
       <div style={S.srcRow}>
-        <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={() => toggleSave(s)}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
-        <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isPinned(s) ? at : P.ink2, background: isPinned(s) ? accent : "transparent", borderColor: isPinned(s) ? accent : P.line2 }} onClick={() => togglePin(s)} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow-ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={11} />{isPinned(s) ? "Pinned" : "Pin"}</button>
-        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
+        <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); toggleSave(s); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
+        <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isPinned(s) ? at : P.ink2, background: isPinned(s) ? accent : "transparent", borderColor: isPinned(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow-ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={11} />{isPinned(s) ? "Pinned" : "Pin"}</button>
+        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
       </div>
     </div>
   );
@@ -4759,7 +5085,7 @@ function App() {
                 </div>
               )}
               <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Ask anything..." />
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Ask anything..." />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
@@ -4767,6 +5093,21 @@ function App() {
                     onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.06)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
                   ><Icon name="arrowRight" size={17} /></button>
+              </div>
+              {/* Evidence tier filter — pre-search constraint for study type */}
+              <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 16, flexWrap: "wrap", maxWidth: 700 }}>
+                {[["all", "All Evidence"], ["systematic-review", "Systematic Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo / In Vitro"]].map(([val, label]) => (
+                  <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
+                    style={{
+                      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", fontWeight: 600,
+                      letterSpacing: "0.03em",
+                      padding: "6px 14px", borderRadius: 100, cursor: "pointer",
+                      transition: "all 0.2s ease",
+                      background: evidenceFilter === val ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)") : "transparent",
+                      color: evidenceFilter === val ? P.ink : P.faint,
+                      border: evidenceFilter === val ? "1px solid " + P.line2 : "1px solid " + P.line,
+                    }}>{label}</button>
+                ))}
               </div>
               <div style={S.chips} className="cb-stagger" onMouseEnter={() => chipsPausedRef.current = true} onMouseLeave={() => chipsPausedRef.current = false} onFocus={() => chipsPausedRef.current = true} onBlur={() => chipsPausedRef.current = false}>
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
@@ -4786,7 +5127,7 @@ function App() {
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
-                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.08em", textTransform: "uppercase" }}>Searching</span></div><div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", margin: "8px 0 12px", letterSpacing: "0.03em", opacity: 0.7 }}>Querying PubMed · Europe PMC · OpenAlex · Semantic Scholar · Crossref · arXiv</div><Skeleton P={P} /><LoadingLine P={P} accent={accent} S={S} /></div>)}
+                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.08em", textTransform: "uppercase" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
                   {attachedImage && (
@@ -4796,8 +5137,21 @@ function App() {
                       <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                     </div>
                   )}
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                    {[["all", "All"], ["systematic-review", "Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo/Vitro"]].map(([val, label]) => (
+                      <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
+                        style={{
+                          fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 600,
+                          padding: "4px 10px", borderRadius: 100, cursor: "pointer",
+                          transition: "all 0.2s ease",
+                          background: evidenceFilter === val ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)") : "transparent",
+                          color: evidenceFilter === val ? P.ink : P.faint,
+                          border: evidenceFilter === val ? "1px solid " + P.line2 : "1px solid " + P.line,
+                        }}>{label}</button>
+                    ))}
+                  </div>
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
-                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()} placeholder="Follow up — I remember the whole thread" />
+                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up — I remember the whole thread" />
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
@@ -4907,7 +5261,7 @@ function App() {
           </div>
         </div>
       )}
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setSettingsOpen(false); setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setSettingsOpen(false) }} />}
+      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setSettingsOpen(false); setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setSettingsOpen(false), dataDensity, setDataDensity, collections, turns }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} initialTab={authInitialTab} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
@@ -4930,6 +5284,7 @@ function App() {
       {networkGraphSources && <SourceNetworkGraph P={P} accent={accent} at={at} sources={networkGraphSources} close={() => setNetworkGraphSources(null)} />}
       {timelineSources && <LiteratureTimeline P={P} accent={accent} at={at} sources={timelineSources} close={() => setTimelineSources(null)} />}
       {illustrateQuery && <IllustrationModal P={P} accent={accent} at={at} query={illustrateQuery} close={() => setIllustrateQuery(null)} />}
+      {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />}
       <ToastHost P={P} accent={accent} />
     </div>
   );
