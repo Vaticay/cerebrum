@@ -1,23 +1,45 @@
 // Stateless auth endpoint for Cloudflare Pages Functions.
 //
-// Dual-mode: when env.DB and env.JWT_SECRET are configured, runs real
-// PBKDF2 password hashing + JWT session cookies with full DB-backed user
-// management (signup, login, magic links, account deletion). When those
-// bindings are missing — typical on first deploy before D1 and secrets are
-// wired up — falls back to a functional session-cookie path that lets the
-// frontend auth flow work end-to-end without any external dependencies.
+// Primary sign-in path: a 6-digit one-time code emailed via Resend. Nobody
+// chooses or types a password on this path — proving you can read one email
+// is the entire credential. That closes off the single most common real-world
+// account-takeover vector (a password reused from some other, unrelated
+// breach) by never asking for a long-lived secret in the first place.
 //
-// This means "Sign in" and "Create account" always succeed from the
-// user's perspective, regardless of deployment state. The fallback
-// sessions are ephemeral (browser cookie only, no server-side record),
-// which is the honest tradeoff: it works, it sets a real HttpOnly cookie
-// the GET handler reads back, but there's no persistent user table behind
-// it until D1 is provisioned.
+// Legacy paths (email+password, magic link) are left in place underneath for
+// any account created before this shipped — the frontend no longer renders
+// UI for them, but nothing about an existing password-holding account
+// breaks by leaving the code serving it intact.
 //
-// Security model (full mode): passwords are PBKDF2-hashed (100k
-// iterations, Cloudflare workerd max) with a unique random salt per
-// account. Sessions are HMAC-SHA256-signed JWTs in an HttpOnly cookie.
-// Magic-link tokens stored as SHA-256 hashes only.
+// Dual-mode throughout, same principle as everywhere else in this file: when
+// env.DB is configured, OTP state (a hash of the code, a hash of a paired
+// flow-cookie value, an attempt counter, an expiry) lives in the `otp_codes`
+// D1 table — one row per email, replaced wholesale on every new request so
+// only the most recently issued code is ever valid. Without env.DB, the same
+// state lives in a per-isolate in-memory Map, exactly the same honest
+// tradeoff already documented in lib/rateLimit.js: it works end-to-end with
+// no database provisioned yet, but a pending code isn't guaranteed to survive
+// a request landing on a different edge isolate mid-flow.
+//
+// Security properties of the OTP path specifically:
+//   - The 6-digit code is drawn from crypto.getRandomValues with rejection
+//     sampling per digit (never Math.random, never modulo-biased).
+//   - The raw code is never stored anywhere, in memory or in D1 — only
+//     SHA-256(email + ":" + code) is kept, the same "hash only, ever" rule
+//     applied to session tokens and magic-link tokens elsewhere in this file.
+//   - A `cb_pending_auth` cookie carries a random opaque token that must
+//     ALSO match (as a hash) before a code guess is even considered. An
+//     attacker who never called send-code for a given address — and so never
+//     received that cookie — cannot attempt a single guess against
+//     verify-code for it, regardless of how many requests they send.
+//   - Five wrong guesses burns the pending code outright. A 6-digit space is
+//     only one million possibilities; without a hard per-code ceiling on
+//     attempts, "rate limited" is theater, not an actual bound.
+//
+// Security model (legacy full mode): passwords are PBKDF2-hashed (100k
+// iterations, Cloudflare workerd max) with a unique random salt per account.
+// Sessions are HMAC-SHA256-signed JWTs in an HttpOnly cookie. Magic-link
+// tokens stored as SHA-256 hashes only.
 
 const ALLOWED_ORIGINS = [
   "https://askcerebrum.org",
@@ -31,11 +53,16 @@ function originAllowed(origin) {
   return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
 }
 
+// Accepts either a plain header object (existing call sites) or a Headers
+// instance. The Headers path is what lets verify-code attach TWO Set-Cookie
+// values to one response (the new session cookie plus clearing the spent
+// pending-auth cookie) — a plain object literal can't hold two entries under
+// the same key, but Headers.append() can, and Cloudflare's runtime correctly
+// serializes each as its own Set-Cookie line rather than comma-joining them.
 function json(data, status, headers) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...headers, "Content-Type": "application/json" },
-  });
+  const h = headers instanceof Headers ? headers : new Headers(headers || {});
+  if (!h.has("Content-Type")) h.set("Content-Type", "application/json");
+  return new Response(JSON.stringify(data), { status, headers: h });
 }
 
 function isValidEmail(email) {
@@ -93,22 +120,83 @@ function getSessionCookie(request) {
   return match ? match[1] : null;
 }
 
-// ── Full-mode helpers (only loaded when DB + JWT_SECRET exist) ─────────
+// ── Pending-auth cookie (OTP flow only) ─────────────────────────────────
+// Short-lived, holds a random opaque token — never anything derived from the
+// email or the code, so there is nothing in it for a client to compute or
+// forge. verify-code hashes it and compares against the hash stored
+// alongside the pending code; see the file-level comment for why this
+// matters.
 
-let _fullAuth = null;
-async function fullAuth() {
-  if (!_fullAuth) {
-    _fullAuth = await import("../lib/auth.js");
-  }
-  return _fullAuth;
+const PENDING_COOKIE = "cb_pending_auth";
+const OTP_TTL_MS = 15 * 60 * 1000;
+
+function pendingCookieHeader(token, isSecure) {
+  return `${PENDING_COOKIE}=${token}; Path=/; Max-Age=${Math.floor(OTP_TTL_MS / 1000)}; HttpOnly; SameSite=Lax${isSecure ? "; Secure" : ""}`;
+}
+function clearPendingCookieHeader(isSecure) {
+  return `${PENDING_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${isSecure ? "; Secure" : ""}`;
+}
+function getPendingCookie(request) {
+  const raw = request.headers.get("Cookie") || "";
+  const match = raw.match(new RegExp(`(?:^|;\\s*)${PENDING_COOKIE}=([^;]+)`));
+  return match ? match[1] : null;
 }
 
-let _rateLimit = null;
-async function rateLimit() {
-  if (!_rateLimit) {
-    _rateLimit = await import("../lib/rateLimit.js");
+// Per-isolate fallback store for OTP state when env.DB isn't configured —
+// same tradeoff as memoryBuckets in lib/rateLimit.js, spelled out in the
+// file header above.
+const pendingOtpMemory = new Map();
+
+// Six random digits, rejection-sampled so every digit is uniformly 0-9 (a
+// plain `byte % 10` is very slightly biased toward 0-5 since 256 isn't a
+// multiple of 10 — not a large bias, but there's no reason to accept even a
+// small one for something guarding account access). Never Math.random,
+// which is not a CSPRNG and has no business generating anything
+// security-relevant.
+function randomOtp() {
+  let out = "";
+  for (let i = 0; i < 6; i++) {
+    let byte;
+    do {
+      byte = crypto.getRandomValues(new Uint8Array(1))[0];
+    } while (byte >= 250); // 250 = 25 * 10, the largest multiple of 10 under 256
+    out += String(byte % 10);
   }
-  return _rateLimit;
+  return out;
+}
+
+async function sendOtpEmail(env, email, code) {
+  if (!env.RESEND_API_KEY) {
+    // No email provider configured — an honest fallback for local/dev
+    // deployments, mirroring report.js's own console-log fallback. The code
+    // never appears in an API response, only in the server's own log
+    // stream, which only someone with deploy access can read.
+    console.log("OTP_DEV_NO_RESEND", JSON.stringify({ email, code, ts: Date.now() }));
+    return true;
+  }
+  const from = env.RESEND_FROM || "Cerebrum <no-reply@askcerebrum.org>";
+  const html = `<div style="background:#040508;padding:48px 24px;font-family:'Space Grotesk','Segoe UI',Helvetica,Arial,sans-serif;">
+  <div style="max-width:420px;margin:0 auto;">
+    <div style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;margin-bottom:32px;">Cerebrum&#8482;</div>
+    <div style="background:#0c0e14;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:32px;">
+      <div style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-bottom:18px;">Your secure sign-in code</div>
+      <div style="font-size:38px;font-weight:700;letter-spacing:0.18em;color:#ffffff;font-family:'Space Grotesk',monospace;margin-bottom:18px;">${code}</div>
+      <div style="font-size:14px;line-height:1.6;color:rgba(255,255,255,0.7);">This code expires in 15 minutes and can only be used once. If you didn't request this, you can safely ignore this email — no account changes without it.</div>
+    </div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:24px;line-height:1.6;">Cerebrum is a research instrument that searches real scholarly databases. This is an automated message — replies aren't monitored.</div>
+  </div>
+</div>`;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: email, subject: "Your Cerebrum sign-in code", html }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("OTP email send failed:", e);
+    return false;
+  }
 }
 
 async function sendMagicLinkEmail(env, email, link) {
@@ -138,21 +226,41 @@ async function sendMagicLinkEmail(env, email, link) {
   }
 }
 
-async function issueSession(env, user, isSecure, cors) {
+// ── Full-mode helpers (only loaded when DB + JWT_SECRET exist) ─────────
+
+let _fullAuth = null;
+async function fullAuth() {
+  if (!_fullAuth) {
+    _fullAuth = await import("../lib/auth.js");
+  }
+  return _fullAuth;
+}
+
+let _rateLimit = null;
+async function rateLimit() {
+  if (!_rateLimit) {
+    _rateLimit = await import("../lib/rateLimit.js");
+  }
+  return _rateLimit;
+}
+
+// Builds the final signed-in response: sets the real session cookie (JWT if
+// JWT_SECRET is configured, legacy DB session otherwise) and, when called
+// from verify-code, also clears the now-spent pending-auth cookie in the
+// SAME response rather than needing a second round trip.
+async function issueSession(env, user, isSecure, cors, extraSetCookies = []) {
   const auth = await fullAuth();
   const payload = { id: user.id, email: user.email };
+  const headers = new Headers(cors);
+  for (const c of extraSetCookies) headers.append("Set-Cookie", c);
   if (env.JWT_SECRET) {
     const jwt = await auth.signJWT({ sub: user.id, email: user.email }, env);
-    return json({ success: true, user: payload }, 200, {
-      ...cors,
-      "Set-Cookie": auth.jwtCookieHeader(jwt, isSecure),
-    });
+    headers.append("Set-Cookie", auth.jwtCookieHeader(jwt, isSecure));
+    return json({ success: true, user: payload }, 200, headers);
   }
   const token = await auth.createSession(env, user.id);
-  return json({ success: true, user: payload }, 200, {
-    ...cors,
-    "Set-Cookie": auth.sessionCookieHeader(token, isSecure),
-  });
+  headers.append("Set-Cookie", auth.sessionCookieHeader(token, isSecure));
+  return json({ success: true, user: payload }, 200, headers);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -182,11 +290,17 @@ export async function onRequest(context) {
   if (!originAllowed(reqOrigin)) return json({ error: "Origin not allowed." }, 403, cors);
 
   const hasDB = !!(env && env.DB);
-  const hasJWT = !!(env && env.JWT_SECRET);
   const fullMode = hasDB;
 
-  // ── Rate limiting (full mode only) ──────────────────────────────────
-  if (fullMode) {
+  // ── Rate limiting (both modes) ──────────────────────────────────────
+  // Used to only run in full mode; moved outside that gate because a
+  // deployment can have RESEND_API_KEY configured (and so can actually send
+  // OTP emails) before D1 is provisioned, and an unthrottled send-code in
+  // that state is a free way to spam an arbitrary inbox or burn Resend
+  // sending quota. checkRateLimit() itself is DB-independent — it prefers
+  // env.RATE_LIMIT_KV and falls back to a per-isolate in-memory counter — so
+  // calling it here has no dependency on fullMode either.
+  {
     const { checkRateLimit } = await rateLimit();
     const clientIP =
       request.headers.get("CF-Connecting-IP") ||
@@ -232,12 +346,159 @@ export async function onRequest(context) {
   const action = body && typeof body.action === "string" ? body.action : "";
 
   try {
+    const { checkRateLimit } = await rateLimit();
+
     // ═════════════════════════════════════════════════════════════════
-    // FULL MODE — real DB-backed auth
+    // send-code / verify-code — the OTP flow, both modes share the shape,
+    // only where the pending state lives differs (D1 row vs. in-memory).
+    // ═════════════════════════════════════════════════════════════════
+
+    if (action === "send-code") {
+      const email = (body.email || "").trim();
+      if (!isValidEmail(email))
+        return json({ error: "Enter a valid email address." }, 400, cors);
+      const emailLower = email.toLowerCase();
+      if (!(await checkRateLimit(env, `otp-send:${emailLower}`, 5, 15 * 60000))) {
+        return json(
+          { error: "Too many codes requested for this email. Try again later." },
+          429,
+          cors
+        );
+      }
+
+      const auth = await fullAuth(); // pure crypto helpers — no DB/JWT dependency
+      const code = randomOtp();
+      const flowToken = auth.randomToken(24);
+      const codeHash = await auth.sha256Hex(`${emailLower}:${code}`);
+      const flowHash = await auth.sha256Hex(flowToken);
+      const now = Date.now();
+
+      if (fullMode) {
+        try {
+          await env.DB.prepare(
+            "INSERT OR REPLACE INTO otp_codes (email_lower, code_hash, flow_hash, attempts, created_at, expires_at) VALUES (?, ?, ?, 0, ?, ?)"
+          )
+            .bind(emailLower, codeHash, flowHash, now, now + OTP_TTL_MS)
+            .run();
+        } catch (e) {
+          // otp_codes not migrated in yet — fail closed rather than silently
+          // pretending a code was issued that verify-code could never check.
+          console.error("send-code DB write failed (otp_codes table may not exist yet):", e);
+          return json(
+            { error: "Sign-in is temporarily unavailable. Please try again shortly." },
+            503,
+            cors
+          );
+        }
+      } else {
+        pendingOtpMemory.set(emailLower, { codeHash, flowHash, attempts: 0, expiresAt: now + OTP_TTL_MS });
+      }
+
+      const sent = await sendOtpEmail(env, email, code);
+      if (!sent) {
+        return json(
+          { error: "Couldn't send the sign-in code right now. Please try again shortly." },
+          503,
+          cors
+        );
+      }
+      return json({ ok: true }, 200, { ...cors, "Set-Cookie": pendingCookieHeader(flowToken, isSecure) });
+    }
+
+    if (action === "verify-code") {
+      const email = (body.email || "").trim();
+      const code = (body.code || "").trim();
+      const emailLower = email.toLowerCase();
+      const fail = () => json({ error: "Invalid or expired code." }, 401, cors);
+
+      if (!isValidEmail(email) || !/^\d{6}$/.test(code)) return fail();
+      if (!(await checkRateLimit(env, `otp-verify:${emailLower}`, 8, 15 * 60000))) {
+        return json({ error: "Too many attempts. Please wait a moment." }, 429, cors);
+      }
+
+      const auth = await fullAuth();
+      const flowToken = getPendingCookie(request);
+
+      if (fullMode) {
+        const row = await env.DB.prepare("SELECT * FROM otp_codes WHERE email_lower = ?")
+          .bind(emailLower)
+          .first();
+        if (!row || row.expires_at < Date.now()) return fail();
+        if (row.attempts >= 5) {
+          await env.DB.prepare("DELETE FROM otp_codes WHERE email_lower = ?").bind(emailLower).run();
+          return json({ error: "Too many incorrect attempts. Request a new code." }, 429, cors);
+        }
+        if (!flowToken) return fail();
+        const flowHash = await auth.sha256Hex(flowToken);
+        if (!auth.timingSafeEqualHex(flowHash, row.flow_hash)) return fail();
+
+        const codeHash = await auth.sha256Hex(`${emailLower}:${code}`);
+        if (!auth.timingSafeEqualHex(codeHash, row.code_hash)) {
+          await env.DB.prepare("UPDATE otp_codes SET attempts = attempts + 1 WHERE email_lower = ?")
+            .bind(emailLower)
+            .run();
+          return fail();
+        }
+
+        // Correct — burn it immediately so it can never be replayed.
+        await env.DB.prepare("DELETE FROM otp_codes WHERE email_lower = ?").bind(emailLower).run();
+
+        let user = await env.DB.prepare("SELECT id, email FROM users WHERE email_lower = ?")
+          .bind(emailLower)
+          .first();
+        if (!user) {
+          const id = auth.newId("u");
+          const nowTs = Date.now();
+          await env.DB.prepare(
+            "INSERT INTO users (id, email, email_lower, password_hash, password_salt, created_at, last_login_at) VALUES (?, ?, ?, NULL, NULL, ?, ?)"
+          )
+            .bind(id, email, emailLower, nowTs, nowTs)
+            .run();
+          user = { id, email };
+        } else {
+          await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?")
+            .bind(Date.now(), user.id)
+            .run();
+        }
+
+        return issueSession(env, user, isSecure, cors, [clearPendingCookieHeader(isSecure)]);
+      }
+
+      // ── fallback mode (no DB) ──────────────────────────────────────
+      const entry = pendingOtpMemory.get(emailLower);
+      if (!entry || entry.expiresAt < Date.now()) {
+        pendingOtpMemory.delete(emailLower);
+        return fail();
+      }
+      if (entry.attempts >= 5) {
+        pendingOtpMemory.delete(emailLower);
+        return json({ error: "Too many incorrect attempts. Request a new code." }, 429, cors);
+      }
+      if (!flowToken) return fail();
+      const flowHash = await auth.sha256Hex(flowToken);
+      if (!auth.timingSafeEqualHex(flowHash, entry.flowHash)) return fail();
+
+      const codeHash = await auth.sha256Hex(`${emailLower}:${code}`);
+      if (!auth.timingSafeEqualHex(codeHash, entry.codeHash)) {
+        entry.attempts += 1;
+        return fail();
+      }
+      pendingOtpMemory.delete(emailLower);
+
+      const token = makeFallbackToken(email);
+      const headers = new Headers(cors);
+      headers.append("Set-Cookie", setCookieHeader(token, isSecure));
+      headers.append("Set-Cookie", clearPendingCookieHeader(isSecure));
+      return json({ success: true, user: { email: emailLower } }, 200, headers);
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // FULL MODE — legacy DB-backed password / magic-link auth. Kept for any
+    // account created before the OTP flow shipped; the frontend no longer
+    // has UI for these, but nothing served by them is removed.
     // ═════════════════════════════════════════════════════════════════
     if (fullMode) {
       const auth = await fullAuth();
-      const { checkRateLimit } = await rateLimit();
 
       // ── signup ──────────────────────────────────────────────────────
       if (action === "signup") {
