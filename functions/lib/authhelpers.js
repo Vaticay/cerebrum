@@ -199,6 +199,7 @@ export async function getSessionUser(request, env) {
 
   // Legacy DB session fallback
   if (!env.DB) return null;
+  await ensureSessionTables(env);
   const tokenHash = await sha256Hex(raw);
   const row = await env.DB.prepare(
     `SELECT s.user_id AS id, s.expires_at AS expires_at, u.email AS email
@@ -214,6 +215,7 @@ export async function getSessionUser(request, env) {
 }
 
 export async function createSession(env, userId) {
+  await ensureSessionTables(env);
   const token = randomToken(32);
   const tokenHash = await sha256Hex(token);
   const now = Date.now();
@@ -233,3 +235,125 @@ export function newId(prefix) {
 }
 
 export const MAGIC_LINK_TTL = MAGIC_LINK_TTL_MS;
+
+// ══════════════════════════════════════════════════════════════════════
+// Multiplayer Academic Network — schema self-healing
+// ══════════════════════════════════════════════════════════════════════
+// Rewritten after seeing the actual live schema, which differs from the
+// first guess in real ways: `follows.following_id` not `target_id`,
+// `accolades.badge_type`/`granted_at` not `badge_key`/`awarded_at`,
+// `accolades`/`messages` both use a TEXT PRIMARY KEY id with no
+// autoincrement (every INSERT must supply its own id via newId() below —
+// omitting it inserts NULL into a PRIMARY KEY column and fails), and
+// `messages` has an `attachment_title` column this code wasn't using at
+// all. Every query in functions/api/auth.js and functions/api/data.js that
+// touches these tables now matches these exact names. CREATE TABLE IF NOT
+// EXISTS below is a no-op against the live tables (they already exist) —
+// it only matters for a fresh database that hasn't run schema.sql yet, and
+// is written to produce this exact shape so that path stays consistent
+// with what's actually live.
+//
+// The live `users` table is missing four columns this codebase's OTP and
+// legacy-password logic depend on: `email_lower` (every lookup in this
+// file keys off it for case-insensitive matching), `password_hash` /
+// `password_salt` (legacy password accounts), and `last_login_at`. Adding
+// them is safe — all four are nullable, so it doesn't fight the live
+// table's existing NOT NULL/UNIQUE constraints on `email` and `username` —
+// but `email_lower` then needs a one-time backfill for any row that
+// predates the column, which the UPDATE below does unconditionally (a
+// no-op once every row already has it set).
+//
+// What none of this can self-heal: a column that already exists under an
+// incompatible type or constraint. If something 500s after this deploys
+// with a "no such column" or constraint error this file doesn't already
+// account for, that's the live schema still not matching — the fix is to
+// see the actual `PRAGMA table_info(...)` output and adjust to it, not to
+// guess again.
+
+let _userColumnsEnsured = false;
+export async function ensureUserProfileColumns(env) {
+  if (_userColumnsEnsured) return;
+  // SQLite's ALTER TABLE ADD COLUMN has no "IF NOT EXISTS" — the only way
+  // to make it idempotent is to attempt it and swallow the specific
+  // "column already exists" failure, so this stays a no-op on every call
+  // after the first real one.
+  const alters = [
+    "ALTER TABLE users ADD COLUMN username TEXT",
+    "ALTER TABLE users ADD COLUMN name TEXT",
+    "ALTER TABLE users ADD COLUMN affiliation TEXT",
+    "ALTER TABLE users ADD COLUMN email_lower TEXT",
+    "ALTER TABLE users ADD COLUMN password_hash TEXT",
+    "ALTER TABLE users ADD COLUMN password_salt TEXT",
+    "ALTER TABLE users ADD COLUMN last_login_at INTEGER",
+  ];
+  for (const sql of alters) {
+    try {
+      await env.DB.exec(sql);
+    } catch (e) {
+      if (!/duplicate column name/i.test(String(e && e.message))) throw e;
+    }
+  }
+  // One-time backfill for any row that existed before email_lower did.
+  // Safe to run every time — WHERE email_lower IS NULL makes it a no-op
+  // once every row has it.
+  await env.DB.exec("UPDATE users SET email_lower = LOWER(email) WHERE email_lower IS NULL");
+  // Best-effort uniqueness on the backfilled column — wrapped separately
+  // and non-fatal because retrofitting a unique index onto data that
+  // predates it CAN fail (two existing rows whose emails differ only by
+  // case), and a failed index shouldn't take the whole request down when
+  // the actual account data underneath it is still fine to use.
+  try {
+    await env.DB.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users(email_lower)");
+  } catch (e) {
+    console.error("Could not create unique index on users.email_lower (likely pre-existing case-duplicate rows):", e);
+  }
+  _userColumnsEnsured = true;
+}
+
+let _sessionTablesEnsured = false;
+export async function ensureSessionTables(env) {
+  if (_sessionTablesEnsured) return;
+  // Only reached by the legacy DB-session path (issueSession's non-JWT
+  // branch) and the legacy magic-link actions — but reached unconditionally
+  // by createSession() below whenever JWT_SECRET isn't configured, so a
+  // missing `sessions` table would otherwise take down the very last step
+  // of sign-in after everything else already succeeded.
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT NOT NULL PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)");
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS magic_links (token_hash TEXT NOT NULL PRIMARY KEY, email_lower TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_magic_links_email ON magic_links(email_lower)");
+  _sessionTablesEnsured = true;
+}
+
+let _socialTablesEnsured = false;
+export async function ensureSocialTables(env) {
+  if (_socialTablesEnsured) return;
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS follows (follower_id TEXT NOT NULL, following_id TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (follower_id, following_id))"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id)");
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS accolades (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, badge_type TEXT NOT NULL, granted_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+  );
+  // Not part of the live table's own definition, but additive — CREATE
+  // INDEX doesn't require touching a table's original CREATE statement, so
+  // this still gets us idempotent badge-granting (INSERT OR IGNORE) even
+  // though the live schema didn't define this constraint itself.
+  await env.DB.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_accolades_user_badge ON accolades(user_id, badge_type)");
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+  );
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS thread_participants (thread_id TEXT NOT NULL, user_id TEXT NOT NULL, joined_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (thread_id, user_id))"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_thread_participants_user ON thread_participants(user_id)");
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, sender_id TEXT NOT NULL, text TEXT, attachment_title TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at)");
+  _socialTablesEnsured = true;
+}
