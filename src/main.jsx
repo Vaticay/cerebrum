@@ -583,6 +583,10 @@ function Icon({ name, size = 17, className, style }) {
     case "mail": return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3.5 6.5L12 13l8.5-6.5" /></svg>;
     case "badge": return <svg {...common}><circle cx="12" cy="9" r="5.5" /><path d="M8.5 13.5L7 21l5-2.6L17 21l-1.5-7.5" /></svg>;
     case "send": return <svg {...common}><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>;
+    case "flag": return <svg {...common}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></svg>;
+    case "award": return <svg {...common}><circle cx="12" cy="8" r="6" /><path d="M15.5 12.9L17 22l-5-3-5 3 1.5-9.1" /></svg>;
+    case "bookOpen": return <svg {...common}><path d="M12 7v14" /><path d="M3 18a1 1 0 01-1-1V4a1 1 0 011-1h5a4 4 0 014 4 4 4 0 014-4h5a1 1 0 011 1v13a1 1 0 01-1 1h-6a3 3 0 00-3 3 3 3 0 00-3-3z" /></svg>;
+    case "zap": return <svg {...common}><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" /></svg>;
     default: return null;
   }
 }
@@ -2483,7 +2487,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                 {done && <ToolbarBtn title="Illustrate this answer" icon="wand" accent={accent} P={P} onClick={() => onIllustrate(t.q)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
-                <ToolbarBtn title="Report bad data" icon="shield" accent={accent} P={P} onClick={() => setShowReport(true)} />
+                <ToolbarBtn title="Report bad answer" icon="flag" accent={STATUS.bad} P={P} onClick={() => setShowReport(true)} />
               </div>
             )}
           </div>
@@ -3293,7 +3297,7 @@ function hashSeed(str) {
 // own caption do the labeling than have the model attempt real typography.
 function buildIllustrationPrompt(query) {
   const cleaned = (query || "").replace(/[?!]+/g, "").trim().slice(0, 220);
-  return `${cleaned}. Scientific concept illustration, clean minimalist vector art, educational textbook diagram style, soft muted color palette, no text, no words, no letters, no labels, no watermark, no signature`;
+  return `${cleaned}. Cinematic abstract scientific 3D render, microscopic macro photography, glowing ethereal structures, deep depth of field, high-end octane render. NO TEXT, NO WORDS, NO DIAGRAMS, pure abstract visual art.`;
 }
 
 function IllustrationModal({ P, accent, at, query, close }) {
@@ -3655,32 +3659,61 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
   );
 }
 
-// Mock thread for the Inbox preview — the messaging backend itself (actual
-// delivery between two real accounts) doesn't exist yet; this is the UI
-// shape of it, built ahead of the wiring so the eventual backend has a
-// concrete target to fill in. Labeled "Early preview" in the header rather
-// than presented as live so nobody mistakes the illustrative conversation
+// Seed threads for the Inbox preview — the messaging backend itself (actual
+// delivery between two real accounts) doesn't exist yet; this is the UI and
+// interaction shape of it, built ahead of the wiring so the eventual backend
+// has a concrete target to fill in. Labeled "Preview" in the header rather
+// than presented as live so nobody mistakes the illustrative conversations
 // below for something that actually reached anyone.
-const INBOX_MOCK_THREAD = {
-  id: "t1",
-  sender: { name: "Dr. Chen", email: "dr.chen@mit.edu", affiliation: "MIT" },
-  preview: "Take a look at these water quality metrics for the New Tank Syndrome paper…",
-  time: "2h ago",
-  messages: [
-    {
-      from: "them",
-      text: "Take a look at these water quality metrics for the New Tank Syndrome paper. The ammonia spike data aligns perfectly with what we pulled for the DATA 101 dataset.",
-      attachment: { title: "Nitrogen Cycle Dynamics in Closed Aquatic Ecosystems" },
-    },
-  ],
-};
+const INITIAL_INBOX_THREADS = [
+  {
+    id: "t1",
+    kind: "dm",
+    sender: { name: "Dr. Chen", email: "dr.chen@mit.edu", affiliation: "MIT" },
+    time: "2h ago",
+    messages: [
+      {
+        from: "them",
+        text: "Take a look at these water quality metrics for the New Tank Syndrome paper. The ammonia spike data aligns perfectly with what we pulled for the DATA 101 dataset.",
+        attachment: { title: "Nitrogen Cycle Dynamics in Closed Aquatic Ecosystems" },
+      },
+    ],
+  },
+  {
+    id: "t2",
+    kind: "group",
+    sender: { name: "Data Science 101 Lab", email: null, affiliation: "6 members" },
+    time: "1d ago",
+    messages: [
+      { from: "them", who: "Priya Nair", text: "Anyone have the cleaned version of the nitrogen cycle dataset? Mine has a bunch of null timestamps." },
+      { from: "them", who: "Marcus Webb", text: "Pushed a fix to the shared drive last night — re-pull and it should be clean." },
+    ],
+  },
+];
 
+// Real, live-in-component React state — an array of threads, each holding
+// its own message array. Sending a message is a genuine setState append,
+// not a static prop being re-rendered: type, hit Enter or the send icon,
+// and it lands in `messages` and re-renders immediately. What's still
+// honestly a preview: nothing here is actually delivered anywhere — there's
+// no backend for the Multiplayer Academic Network yet, so a message you
+// send exists only in this browser tab's state. The "Preview" badge in the
+// header and the caption under the composer say exactly that, on purpose —
+// this stays functional without pretending to be a live inbox.
 function InboxModal({ P, accent, at, close }) {
-  const [activeId, setActiveId] = useState(INBOX_MOCK_THREAD.id);
+  const [threads, setThreads] = useState(INITIAL_INBOX_THREADS);
+  const [activeId, setActiveId] = useState(INITIAL_INBOX_THREADS[0].id);
   const [draft, setDraft] = useState("");
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
-  const thread = activeId === INBOX_MOCK_THREAD.id ? INBOX_MOCK_THREAD : null;
+  const thread = threads.find((t) => t.id === activeId) || null;
+
+  const sendMessage = () => {
+    const text = draft.trim();
+    if (!text || !thread) return;
+    setThreads((prev) => prev.map((t) => (t.id === thread.id ? { ...t, messages: [...t.messages, { from: "me", text }] } : t)));
+    setDraft("");
+  };
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Inbox" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
@@ -3698,20 +3731,37 @@ function InboxModal({ P, accent, at, close }) {
             <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 100, padding: "2px 8px", fontFamily: "var(--cb-mono)" }}>Preview</span>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
-            <button onClick={() => setActiveId(INBOX_MOCK_THREAD.id)} style={{
-              width: "100%", textAlign: "left", padding: "10px 10px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: activeId === INBOX_MOCK_THREAD.id ? withAlpha(accent, 0.1) : "transparent",
-              display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-body)",
-            }}>
-              <span style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>DC</span>
-              <span style={{ minWidth: 0, flex: 1 }}>
-                <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-                  <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{INBOX_MOCK_THREAD.sender.name}</span>
-                  <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0 }}>{INBOX_MOCK_THREAD.time}</span>
-                </span>
-                <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{INBOX_MOCK_THREAD.preview}</span>
-              </span>
-            </button>
+            {threads.map((t) => {
+              const initials = t.sender.name.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+              const last = t.messages[t.messages.length - 1];
+              return (
+                <button key={t.id} onClick={() => setActiveId(t.id)} style={{
+                  width: "100%", textAlign: "left", padding: "10px 10px", borderRadius: 8, border: "none", cursor: "pointer",
+                  background: activeId === t.id ? withAlpha(accent, 0.1) : "transparent",
+                  display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-body)",
+                }}>
+                  <span style={{ position: "relative", flexShrink: 0, display: "inline-flex" }}>
+                    <span style={{ width: 30, height: 30, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>{initials}</span>
+                    {/* Live presence — same honesty rule as the rest of this
+                        preview: nobody's online status is actually tracked
+                        yet, this is what the indicator will look like once
+                        it is. */}
+                    <span aria-hidden="true" style={{
+                      position: "absolute", bottom: 0, right: 0, width: 6, height: 6, borderRadius: "50%",
+                      background: STATUS.good, border: `2px solid ${P.dark ? "#0f111a" : "#fff"}`,
+                      boxShadow: `0 0 6px ${withAlpha(STATUS.good, 0.85)}`,
+                    }} />
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.sender.name}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0 }}>{t.time}</span>
+                    </span>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{last ? (last.from === "me" ? "You: " : "") + last.text : ""}</span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -3721,17 +3771,22 @@ function InboxModal({ P, accent, at, close }) {
             <div style={{ padding: "16px 22px", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{thread.sender.name}</div>
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{thread.sender.email} · {thread.sender.affiliation}</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{thread.sender.email ? `${thread.sender.email} · ${thread.sender.affiliation}` : thread.sender.affiliation}</div>
               </div>
               <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
               {thread.messages.map((m, i) => (
-                <div key={i} style={{ maxWidth: 460, alignSelf: "flex-start" }}>
+                <div key={i} style={{ maxWidth: 460, alignSelf: m.from === "me" ? "flex-end" : "flex-start" }}>
+                  {m.from !== "me" && thread.kind === "group" && m.who && (
+                    <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, marginBottom: 3, marginLeft: 4 }}>{m.who}</div>
+                  )}
                   <div style={{
-                    padding: "12px 16px", borderRadius: "4px 14px 14px 14px", fontSize: FONT_SIZES.small, lineHeight: 1.6, color: P.ink,
-                    background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
-                    border: P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)",
+                    padding: "12px 16px", fontSize: FONT_SIZES.small, lineHeight: 1.6,
+                    borderRadius: m.from === "me" ? "14px 4px 14px 14px" : "4px 14px 14px 14px",
+                    color: m.from === "me" ? at : P.ink,
+                    background: m.from === "me" ? accent : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                    border: m.from === "me" ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
                   }}>{m.text}</div>
                   {m.attachment && (
                     <div style={{
@@ -3745,18 +3800,21 @@ function InboxModal({ P, accent, at, close }) {
                 </div>
               ))}
             </div>
-            <div style={{ padding: "14px 22px 20px", borderTop: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", gap: 10 }}>
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Multiplayer messaging is coming soon…"
-                aria-label="Reply"
-                style={{ flex: 1, padding: "10px 14px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); toast("Multiplayer messaging is coming soon.", { tone: "info" }); } }}
-              />
-              <button onClick={() => toast("Multiplayer messaging is coming soon.", { tone: "info" })} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Icon name="send" size={16} />
-              </button>
+            <div style={{ padding: "14px 22px 12px", borderTop: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)" }}>
+              <div style={{ display: "flex", gap: 10 }}>
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={`Message ${thread.sender.name}…`}
+                  aria-label="Reply"
+                  style={{ flex: 1, padding: "10px 14px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } }}
+                />
+                <button onClick={sendMessage} disabled={!draft.trim()} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Icon name="send" size={16} />
+                </button>
+              </div>
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 8, textAlign: "center" }}>Preview — renders here, but multiplayer delivery isn't live yet.</div>
             </div>
           </>) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small }}>Select a conversation</div>
@@ -3767,23 +3825,65 @@ function InboxModal({ P, accent, at, close }) {
   );
 }
 
-// Static, illustrative badges for the profile's Accolades strip — visual
-// design-system chrome (the same category as a UI achievement badge), not a
-// claim of externally-verified credentials. "Verified sign-in" is the one
-// exception: it's genuinely true the instant this modal is reachable at
-// all, since getting here requires a completed OTP verification.
+// Premium-tinted, illustrative badges for the profile's Accolades strip —
+// visual design-system chrome (the same category as a UI achievement
+// badge), not a claim of externally-verified credentials. "Verified
+// sign-in" is the one exception: it's genuinely true the instant this modal
+// is reachable at all, since getting here requires a completed OTP
+// verification, so it keeps the neutral accent treatment instead of a
+// precious-metal tint that would overstate it.
 const PROFILE_BADGES = [
-  { label: "Verified sign-in", real: true },
-  { label: "Early adopter" },
-  { label: "Top 5% peer reviewer" },
-  { label: "Published author" },
+  { label: "Verified sign-in", icon: "check", real: true },
+  { label: "Top 5% peer reviewer", icon: "award", tint: "#fbbf24" },
+  { label: "Published author", icon: "bookOpen", tint: "#cbd5e1" },
+  { label: "Early adopter", icon: "zap", tint: "#b45309" },
 ];
+
+// Mock universities for the affiliation search below — command-palette-style
+// filter-as-you-type, not a real institution directory lookup (there isn't
+// one wired up yet). Selecting one just sets the same `profile.affiliation`
+// field the plain text input always wrote to, so nothing about persistence
+// changes — it's a faster way to fill in the same field.
+const MOCK_AFFILIATIONS = ["University of Tennessee", "MIT", "Stanford", "Harvard"];
 
 function UserProfileModal({ P, accent, at, close, user, profile, setProfile, onManageAccount }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
   const emailLocal = (user?.email || "").split("@")[0] || "";
-  const displayInitial = (profile.name || emailLocal || "?")[0]?.toUpperCase() || "?";
+
+  // Seed defaults shown before the visitor customizes anything — same
+  // pattern the name/affiliation inputs already used (a placeholder-style
+  // fallback, not a value written into `profile`/localStorage). Baking a
+  // specific person's name into every visitor's actually-saved profile the
+  // moment this modal opens would be a real bug the first time someone else
+  // opens it; falling back to it only for display, exactly like the
+  // existing `emailLocal` fallback did, keeps this a demo default rather
+  // than silently overwriting a stranger's saved data.
+  const displayName = profile.name || "Dusty Breen";
+  const displayUsername = profile.username || "@VaticayYT";
+  const displayInitial = (displayName || "?")[0]?.toUpperCase() || "?";
+  const avatarSeed = encodeURIComponent((displayUsername || "VaticayYT").replace(/^@/, ""));
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  // Stateful follow toggle — genuinely local React state, not a static
+  // label. There's no real follower graph behind this yet (same honesty
+  // rule as the Inbox preview), so it's marked "Preview" rather than
+  // presented as a live social count.
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followers, setFollowers] = useState(142);
+  const toggleFollow = () => {
+    setFollowers((n) => n + (isFollowing ? -1 : 1));
+    setIsFollowing((f) => !f);
+  };
+
+  // Affiliation command-palette: filters MOCK_AFFILIATIONS against whatever
+  // is currently typed, live, on every keystroke.
+  const [affiliationOpen, setAffiliationOpen] = useState(false);
+  const affiliationQuery = (profile.affiliation || "").trim().toLowerCase();
+  const affiliationMatches = MOCK_AFFILIATIONS.filter(
+    (u) => u.toLowerCase().includes(affiliationQuery) && u.toLowerCase() !== affiliationQuery
+  );
+
   const inputStyle = { width: "100%", padding: "10px 13px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", marginTop: 6 };
 
   return (
@@ -3798,40 +3898,96 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, onM
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
         <div style={{ padding: "0 28px 28px", textAlign: "center" }}>
-          <div style={{
-            width: 72, height: 72, borderRadius: "50%", margin: "0 auto 16px",
-            background: withAlpha(accent, 0.15), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 28, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `1px solid ${withAlpha(accent, 0.35)}`,
-          }}>{displayInitial}</div>
+          {avatarFailed ? (
+            <div style={{
+              width: 84, height: 84, borderRadius: "50%", margin: "0 auto 16px",
+              background: withAlpha(accent, 0.15), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 30, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `1px solid ${P.line}`,
+            }}>{displayInitial}</div>
+          ) : (
+            <img
+              src={`https://api.dicebear.com/7.x/shapes/svg?seed=${avatarSeed}&backgroundColor=0a0a0a`}
+              alt={`${displayName}'s avatar`}
+              onError={() => setAvatarFailed(true)}
+              style={{ width: 84, height: 84, borderRadius: "50%", margin: "0 auto 16px", display: "block", border: `1px solid ${P.line}`, objectFit: "cover" }}
+            />
+          )}
 
           <input
             value={profile.name || ""}
             onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
-            placeholder={emailLocal ? emailLocal[0].toUpperCase() + emailLocal.slice(1) : "Your name"}
+            placeholder={displayName}
             aria-label="Your name"
             style={{ ...inputStyle, marginTop: 0, textAlign: "center", fontSize: FONT_SIZES.body, fontWeight: 700 }}
           />
+          <input
+            value={profile.username || ""}
+            onChange={(e) => setProfile((p) => ({ ...p, username: e.target.value }))}
+            placeholder={displayUsername}
+            aria-label="Username"
+            style={{ ...inputStyle, textAlign: "center", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, border: "none", background: "transparent", padding: "0 13px" }}
+          />
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, fontFamily: "var(--cb-mono)" }}>{user?.email}</div>
 
-          <input
-            value={profile.affiliation || ""}
-            onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
-            placeholder="Affiliation, e.g. University of Tennessee"
-            aria-label="Affiliation"
-            style={{ ...inputStyle, textAlign: "center" }}
-          />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
+            <button onClick={toggleFollow} style={{
+              padding: "7px 18px", borderRadius: 100, fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer",
+              fontFamily: "var(--cb-body)", transition: "background 0.15s ease, color 0.15s ease, border-color 0.15s ease",
+              background: isFollowing ? "transparent" : accent,
+              color: isFollowing ? P.ink2 : at,
+              border: isFollowing ? `1px solid ${P.line}` : `1px solid ${accent}`,
+            }}>{isFollowing ? "Following" : "Follow"}</button>
+            <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{followers} followers</span>
+            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: P.faint, border: `1px solid ${P.line}`, borderRadius: 100, padding: "1px 7px" }}>Preview</span>
+          </div>
+
+          <div style={{ position: "relative", marginTop: 14 }}>
+            <input
+              value={profile.affiliation || ""}
+              onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
+              onFocus={() => setAffiliationOpen(true)}
+              onBlur={() => setAffiliationOpen(false)}
+              placeholder="Affiliation, e.g. University of Tennessee"
+              aria-label="Affiliation"
+              autoComplete="off"
+              style={{ ...inputStyle, textAlign: "center" }}
+            />
+            {affiliationOpen && affiliationMatches.length > 0 && (
+              <div style={{
+                position: "absolute", left: 0, right: 0, top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
+                background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
+                overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+              }}>
+                {affiliationMatches.map((u) => (
+                  <div
+                    key={u}
+                    // onMouseDown (not onClick) fires before the input's onBlur,
+                    // so the dropdown can still commit the pick even though
+                    // clicking it also blurs the field it's anchored to.
+                    onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, affiliation: u })); setAffiliationOpen(false); }}
+                    style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >{u}</div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div style={{ marginTop: 22, textAlign: "left" }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Accolades</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {PROFILE_BADGES.map((b) => (
                 <span key={b.label} style={{
-                  display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT_SIZES.caption, fontWeight: 600,
+                  display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
                   padding: "6px 12px", borderRadius: 100,
-                  color: b.real ? accent : P.ink2,
+                  color: b.real ? accent : (b.tint || P.ink2),
                   background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
                   border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
-                }}><Icon name="badge" size={12} />{b.label}</span>
+                }}>
+                  <Icon name={b.icon} size={13} style={b.tint ? { filter: `drop-shadow(0 0 3px ${withAlpha(b.tint, 0.7)})` } : undefined} />
+                  {b.label}
+                </span>
               ))}
             </div>
           </div>
