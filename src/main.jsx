@@ -44,6 +44,19 @@ function ensureDyslexicFont() {
 }
 function getCookie(k) { try { const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : null; } catch { return null; } }
 
+// "2h ago"-style relative time for the Inbox's thread list. Falls back to a
+// short absolute date past a week, same threshold the History modal's own
+// (absolute-only) date display effectively uses.
+function relativeTime(ms) {
+  if (!ms) return "";
+  const diff = Date.now() - ms;
+  if (diff < 60000) return "just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 // Single source of truth for the version shown in the footer and Settings.
 // Previously these two spots (plus package.json) had each drifted to a
 // different number independently — a user could see three different
@@ -81,9 +94,10 @@ async function apiWhoAmI() {
     return data.user || null;
   } catch { return null; }
 }
-async function apiDataGet(resource) {
+async function apiDataGet(resource, params) {
   try {
-    const res = await fetch(`/api/data?resource=${resource}`);
+    const qs = new URLSearchParams({ resource, ...(params || {}) });
+    const res = await fetch(`/api/data?${qs.toString()}`);
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
@@ -93,6 +107,14 @@ async function apiDataPost(resource, payload) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Something went wrong. Please try again.");
   return data;
+}
+// The Multiplayer Network actions (update-profile/toggle-follow/send-message)
+// dispatch on a bare `action` field with no `resource` at all — see the
+// comment above them in functions/api/data.js. Reuses apiDataPost's error
+// handling rather than duplicating it; passing `undefined` as the resource
+// just means JSON.stringify drops that key from the request body entirely.
+async function apiDataAction(action, payload) {
+  return apiDataPost(undefined, { action, ...payload });
 }
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
@@ -3659,61 +3681,69 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
   );
 }
 
-// Seed threads for the Inbox preview — the messaging backend itself (actual
-// delivery between two real accounts) doesn't exist yet; this is the UI and
-// interaction shape of it, built ahead of the wiring so the eventual backend
-// has a concrete target to fill in. Labeled "Preview" in the header rather
-// than presented as live so nobody mistakes the illustrative conversations
-// below for something that actually reached anyone.
-const INITIAL_INBOX_THREADS = [
-  {
-    id: "t1",
-    kind: "dm",
-    sender: { name: "Dr. Chen", email: "dr.chen@mit.edu", affiliation: "MIT" },
-    time: "2h ago",
-    messages: [
-      {
-        from: "them",
-        text: "Take a look at these water quality metrics for the New Tank Syndrome paper. The ammonia spike data aligns perfectly with what we pulled for the DATA 101 dataset.",
-        attachment: { title: "Nitrogen Cycle Dynamics in Closed Aquatic Ecosystems" },
-      },
-    ],
-  },
-  {
-    id: "t2",
-    kind: "group",
-    sender: { name: "Data Science 101 Lab", email: null, affiliation: "6 members" },
-    time: "1d ago",
-    messages: [
-      { from: "them", who: "Priya Nair", text: "Anyone have the cleaned version of the nitrogen cycle dataset? Mine has a bunch of null timestamps." },
-      { from: "them", who: "Marcus Webb", text: "Pushed a fix to the shared drive last night — re-pull and it should be clean." },
-    ],
-  },
-];
-
-// Real, live-in-component React state — an array of threads, each holding
-// its own message array. Sending a message is a genuine setState append,
-// not a static prop being re-rendered: type, hit Enter or the send icon,
-// and it lands in `messages` and re-renders immediately. What's still
-// honestly a preview: nothing here is actually delivered anywhere — there's
-// no backend for the Multiplayer Academic Network yet, so a message you
-// send exists only in this browser tab's state. The "Preview" badge in the
-// header and the caption under the composer say exactly that, on purpose —
-// this stays functional without pretending to be a live inbox.
-function InboxModal({ P, accent, at, close }) {
-  const [threads, setThreads] = useState(INITIAL_INBOX_THREADS);
-  const [activeId, setActiveId] = useState(INITIAL_INBOX_THREADS[0].id);
+// Inbox — get-inbox (functions/api/data.js) supplies the thread list with
+// just each thread's most recent message, since that's all a list needs;
+// opening a thread fetches its full history from the separate get-thread
+// endpoint. Genuinely live now: sending a message is a real INSERT into
+// `messages`. What's still honestly missing: there is no "start a new
+// conversation" flow anywhere in the app yet — no directory, no "message
+// this person" button on a profile — so a brand-new account's inbox is
+// correctly empty rather than seeded with anything illustrative, and stays
+// that way until a thread-creation path exists somewhere.
+function InboxModal({ P, accent, at, close, threads, setThreads }) {
+  const [activeId, setActiveId] = useState(null);
+  const [activeThread, setActiveThread] = useState(null);
+  const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
-  const thread = threads.find((t) => t.id === activeId) || null;
 
-  const sendMessage = () => {
-    const text = draft.trim();
-    if (!text || !thread) return;
-    setThreads((prev) => prev.map((t) => (t.id === thread.id ? { ...t, messages: [...t.messages, { from: "me", text }] } : t)));
+  // The sign-in-time snapshot in handleAuthed only ever reflects that one
+  // moment — refresh the list itself on open in case something arrived
+  // since then.
+  useEffect(() => {
+    apiDataGet("inbox").then((data) => { if (data?.items) setThreads(data.items); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => { if (!activeId && threads.length > 0) setActiveId(threads[0].id); }, [threads, activeId]);
+
+  useEffect(() => {
     setDraft("");
+    if (!activeId) { setActiveThread(null); return; }
+    let cancelled = false;
+    setLoadingThread(true);
+    apiDataGet("thread", { thread_id: activeId }).then((data) => {
+      if (cancelled) return;
+      setActiveThread(data && !data.error ? data : null);
+      setLoadingThread(false);
+    });
+    return () => { cancelled = true; };
+  }, [activeId]);
+
+  const sendMessage = async () => {
+    const text = draft.trim();
+    if (!text || !activeId || sending) return;
+    setSending(true);
+    setDraft("");
+    try {
+      const res = await apiDataAction("send-message", { thread_id: activeId, text });
+      setActiveThread((t) => (t ? { ...t, messages: [...t.messages, { ...res.message, who: "You" }] } : t));
+      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, lastMessage: res.message } : t)));
+    } catch (e) {
+      setDraft(text);
+      toast(e.message || "Couldn't send that message.", { tone: "error" });
+    } finally {
+      setSending(false);
+    }
   };
+
+  const subtitle = activeThread
+    ? (activeThread.kind === "group"
+      ? `${activeThread.memberCount} member${activeThread.memberCount === 1 ? "" : "s"}`
+      : [activeThread.otherEmail, activeThread.otherAffiliation].filter(Boolean).join(" · "))
+    : "";
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Inbox" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
@@ -3726,38 +3756,31 @@ function InboxModal({ P, accent, at, close }) {
       }} className="cb-modal">
         {/* Left pane — conversations */}
         <div style={{ width: 240, flexShrink: 0, borderRight: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ padding: "18px 18px 12px" }}>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Inbox</div>
-            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 100, padding: "2px 8px", fontFamily: "var(--cb-mono)" }}>Preview</span>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
+            {threads.length === 0 && (
+              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No conversations yet.</div>
+            )}
             {threads.map((t) => {
-              const initials = t.sender.name.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-              const last = t.messages[t.messages.length - 1];
+              const initials = (t.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+              const preview = t.lastMessage
+                ? (t.lastMessage.mine ? "You: " : "") + (t.lastMessage.text || (t.lastMessage.attachmentTitle ? `Attached: ${t.lastMessage.attachmentTitle}` : ""))
+                : "No messages yet";
               return (
                 <button key={t.id} onClick={() => setActiveId(t.id)} style={{
                   width: "100%", textAlign: "left", padding: "10px 10px", borderRadius: 8, border: "none", cursor: "pointer",
                   background: activeId === t.id ? withAlpha(accent, 0.1) : "transparent",
                   display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-body)",
                 }}>
-                  <span style={{ position: "relative", flexShrink: 0, display: "inline-flex" }}>
-                    <span style={{ width: 30, height: 30, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>{initials}</span>
-                    {/* Live presence — same honesty rule as the rest of this
-                        preview: nobody's online status is actually tracked
-                        yet, this is what the indicator will look like once
-                        it is. */}
-                    <span aria-hidden="true" style={{
-                      position: "absolute", bottom: 0, right: 0, width: 6, height: 6, borderRadius: "50%",
-                      background: STATUS.good, border: `2px solid ${P.dark ? "#0f111a" : "#fff"}`,
-                      boxShadow: `0 0 6px ${withAlpha(STATUS.good, 0.85)}`,
-                    }} />
-                  </span>
+                  <span style={{ width: 30, height: 30, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{initials}</span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.sender.name}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0 }}>{t.time}</span>
+                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0 }}>{relativeTime(t.lastMessage?.createdAt)}</span>
                     </span>
-                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{last ? (last.from === "me" ? "You: " : "") + last.text : ""}</span>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</span>
                   </span>
                 </button>
               );
@@ -3767,34 +3790,39 @@ function InboxModal({ P, accent, at, close }) {
 
         {/* Right pane — active thread */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          {thread ? (<>
+          {activeThread ? (<>
             <div style={{ padding: "16px 22px", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
-                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{thread.sender.name}</div>
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{thread.sender.email ? `${thread.sender.email} · ${thread.sender.affiliation}` : thread.sender.affiliation}</div>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{activeThread.name}</div>
+                {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{subtitle}</div>}
               </div>
               <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
-              {thread.messages.map((m, i) => (
-                <div key={i} style={{ maxWidth: 460, alignSelf: m.from === "me" ? "flex-end" : "flex-start" }}>
-                  {m.from !== "me" && thread.kind === "group" && m.who && (
+              {activeThread.messages.length === 0 && (
+                <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet — say hello.</div>
+              )}
+              {activeThread.messages.map((m, i) => (
+                <div key={m.id || i} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}>
+                  {!m.mine && activeThread.kind === "group" && m.who && (
                     <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, marginBottom: 3, marginLeft: 4 }}>{m.who}</div>
                   )}
-                  <div style={{
-                    padding: "12px 16px", fontSize: FONT_SIZES.small, lineHeight: 1.6,
-                    borderRadius: m.from === "me" ? "14px 4px 14px 14px" : "4px 14px 14px 14px",
-                    color: m.from === "me" ? at : P.ink,
-                    background: m.from === "me" ? accent : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
-                    border: m.from === "me" ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
-                  }}>{m.text}</div>
-                  {m.attachment && (
+                  {m.text && (
+                    <div style={{
+                      padding: "12px 16px", fontSize: FONT_SIZES.small, lineHeight: 1.6,
+                      borderRadius: m.mine ? "14px 4px 14px 14px" : "4px 14px 14px 14px",
+                      color: m.mine ? at : P.ink,
+                      background: m.mine ? accent : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                      border: m.mine ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
+                    }}>{m.text}</div>
+                  )}
+                  {m.attachmentTitle && (
                     <div style={{
                       marginTop: 8, padding: "10px 14px", borderRadius: 8, display: "flex", alignItems: "center", gap: 10,
                       background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.2)}`,
                     }}>
                       <Icon name="external" size={15} style={{ color: accent, flexShrink: 0 }} />
-                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>Attached: {m.attachment.title}</span>
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>Attached: {m.attachmentTitle}</span>
                     </div>
                   )}
                 </div>
@@ -3805,19 +3833,21 @@ function InboxModal({ P, accent, at, close }) {
                 <input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder={`Message ${thread.sender.name}…`}
+                  placeholder={`Message ${activeThread.name}…`}
                   aria-label="Reply"
+                  disabled={sending}
                   style={{ flex: 1, padding: "10px 14px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small }}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } }}
                 />
-                <button onClick={sendMessage} disabled={!draft.trim()} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <button onClick={sendMessage} disabled={!draft.trim() || sending} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() && !sending ? "pointer" : "default", opacity: draft.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <Icon name="send" size={16} />
                 </button>
               </div>
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 8, textAlign: "center" }}>Preview — renders here, but multiplayer delivery isn't live yet.</div>
             </div>
           </>) : (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small }}>Select a conversation</div>
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small, textAlign: "center", padding: 24 }}>
+              {loadingThread ? "Loading…" : threads.length === 0 ? "Nothing here yet." : "Select a conversation"}
+            </div>
           )}
         </div>
       </div>
@@ -3825,19 +3855,17 @@ function InboxModal({ P, accent, at, close }) {
   );
 }
 
-// Premium-tinted, illustrative badges for the profile's Accolades strip —
-// visual design-system chrome (the same category as a UI achievement
-// badge), not a claim of externally-verified credentials. "Verified
-// sign-in" is the one exception: it's genuinely true the instant this modal
-// is reachable at all, since getting here requires a completed OTP
-// verification, so it keeps the neutral accent treatment instead of a
-// precious-metal tint that would overstate it.
-const PROFILE_BADGES = [
-  { label: "Verified sign-in", icon: "check", real: true },
-  { label: "Top 5% peer reviewer", icon: "award", tint: "#fbbf24" },
-  { label: "Published author", icon: "bookOpen", tint: "#cbd5e1" },
-  { label: "Early adopter", icon: "zap", tint: "#b45309" },
-];
+// Maps a real `badge_type` value returned by get-profile (functions/api/
+// data.js) to how it renders. Only badge types this codebase can actually
+// grant belong here — see the badge_type comment in schema.sql for which
+// ones that is today ("top_peer_reviewer" and "published_author" have no
+// granting mechanism yet, so they're deliberately absent rather than
+// showing a badge nobody has actually earned). An unrecognized badge_type
+// is skipped, not guessed at, so a future badge type shows nothing instead
+// of broken chrome until this map is updated to know about it.
+const BADGE_DISPLAY = {
+  early_adopter: { label: "Early adopter", icon: "zap", tint: "#b45309" },
+};
 
 // Mock universities for the affiliation search below — command-palette-style
 // filter-as-you-type, not a real institution directory lookup (there isn't
@@ -3846,35 +3874,28 @@ const PROFILE_BADGES = [
 // changes — it's a faster way to fill in the same field.
 const MOCK_AFFILIATIONS = ["University of Tennessee", "MIT", "Stanford", "Harvard"];
 
-function UserProfileModal({ P, accent, at, close, user, profile, setProfile, onManageAccount }) {
+function UserProfileModal({ P, accent, at, close, user, profile, setProfile, profileMeta, onManageAccount }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
-  // Seed defaults shown before the visitor customizes anything — same
-  // pattern the name/affiliation inputs already used (a placeholder-style
-  // fallback, not a value written into `profile`/localStorage). Baking a
-  // specific person's name into every visitor's actually-saved profile the
-  // moment this modal opens would be a real bug the first time someone else
-  // opens it; falling back to it only for display, exactly like the
-  // existing `emailLocal` fallback did, keeps this a demo default rather
-  // than silently overwriting a stranger's saved data.
-  const displayName = profile.name || "Dusty Breen";
-  const displayUsername = profile.username || "@VaticayYT";
+  // A signed-in account always has a real username by the time this modal
+  // can even open (verify-code defaults it to the email's local part at
+  // signup — see functions/api/auth.js) — so `profile.username` is only
+  // ever empty for the brief window before get-profile's response lands.
+  // Falls back to the email-local-part guess for that window rather than a
+  // hardcoded person's name, so nobody but the actual account owner is ever
+  // shown here even for a flash of a frame.
+  const displayName = profile.name || emailLocal;
+  const displayUsername = profile.username ? `@${profile.username}` : `@${emailLocal}`;
   const displayInitial = (displayName || "?")[0]?.toUpperCase() || "?";
-  const avatarSeed = encodeURIComponent((displayUsername || "VaticayYT").replace(/^@/, ""));
+  const avatarSeed = encodeURIComponent((profile.username || emailLocal || "cerebrum"));
   const [avatarFailed, setAvatarFailed] = useState(false);
-
-  // Stateful follow toggle — genuinely local React state, not a static
-  // label. There's no real follower graph behind this yet (same honesty
-  // rule as the Inbox preview), so it's marked "Preview" rather than
-  // presented as a live social count.
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followers, setFollowers] = useState(142);
-  const toggleFollow = () => {
-    setFollowers((n) => n + (isFollowing ? -1 : 1));
-    setIsFollowing((f) => !f);
-  };
+  const followers = profileMeta?.followers || 0;
+  const badges = [
+    { label: "Verified sign-in", icon: "check", real: true },
+    ...(profileMeta?.badges || []).map((bt) => BADGE_DISPLAY[bt]).filter(Boolean),
+  ];
 
   // Affiliation command-palette: filters MOCK_AFFILIATIONS against whatever
   // is currently typed, live, on every keystroke.
@@ -3929,16 +3950,13 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, onM
           />
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, fontFamily: "var(--cb-mono)" }}>{user?.email}</div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
-            <button onClick={toggleFollow} style={{
-              padding: "7px 18px", borderRadius: 100, fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer",
-              fontFamily: "var(--cb-body)", transition: "background 0.15s ease, color 0.15s ease, border-color 0.15s ease",
-              background: isFollowing ? "transparent" : accent,
-              color: isFollowing ? P.ink2 : at,
-              border: isFollowing ? `1px solid ${P.line}` : `1px solid ${accent}`,
-            }}>{isFollowing ? "Following" : "Follow"}</button>
-            <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{followers} followers</span>
-            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: P.faint, border: `1px solid ${P.line}`, borderRadius: 100, padding: "1px 7px" }}>Preview</span>
+          {/* This is always your own profile — there's no "browse other
+              people's profiles" screen anywhere in the app yet, so a
+              Follow button here would only ever be able to follow
+              yourself (functions/api/data.js's toggle-follow rejects
+              exactly that). Real follower count, no toggle. */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 14 }}>
+            <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{followers} {followers === 1 ? "follower" : "followers"}</span>
           </div>
 
           <div style={{ position: "relative", marginTop: 14 }}>
@@ -3977,7 +3995,7 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, onM
           <div style={{ marginTop: 22, textAlign: "left" }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Accolades</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {PROFILE_BADGES.map((b) => (
+              {badges.map((b) => (
                 <span key={b.label} style={{
                   display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
                   padding: "6px 12px", borderRadius: 100,
@@ -4976,12 +4994,26 @@ function App() {
   const [compareOpen, setCompareOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  // Elite profile — name/affiliation the visitor types in themselves, kept
-  // local to this browser exactly like `saved`/`history` below (no backend
-  // field exists for either, so nothing here is presented as pulled from
-  // anywhere but what was typed into the modal).
+  // Profile — name/username/affiliation live in the `users` table now (see
+  // functions/api/data.js's get-profile/update-profile), pulled down on
+  // sign-in and pushed back up on every edit by the debounced sync effect
+  // further down, same shape as the saved/history sync below. The
+  // localStorage mirror is guest-mode-only scratch space: the profile modal
+  // itself is only ever reachable once signed in (see the header button),
+  // so nothing here is ever presented as real before an account exists to
+  // back it.
   const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_profile") || "{}"); } catch { return {}; } });
   useEffect(() => { try { localStorage.setItem("cb_profile", JSON.stringify(profile)); } catch {} }, [profile]);
+  // followers/badges are read-only server state (nothing edits them from
+  // this modal directly — following happens from someone else's account,
+  // badges are granted server-side), so they live separately from the
+  // editable `profile` fields above instead of being folded into it.
+  const [profileMeta, setProfileMeta] = useState({ followers: 0, badges: [] });
+  // Inbox threads — real rows from get-inbox once signed in; stays empty
+  // for guests and for any signed-in account with no conversations yet
+  // (there's currently no "start a new conversation" flow anywhere in the
+  // app, so a brand-new account's inbox is genuinely, correctly empty).
+  const [threads, setThreads] = useState([]);
   const [networkGraphSources, setNetworkGraphSources] = useState(null);
   const [timelineSources, setTimelineSources] = useState(null);
   const [illustrateQuery, setIllustrateQuery] = useState(null);
@@ -4989,10 +5021,28 @@ function App() {
   async function handleAuthed(authedUser, { checkImport }) {
     setUser(authedUser);
     setAuthOpen(false);
-    const [savedRes, histRes, colRes] = await Promise.all([apiDataGet("saved"), apiDataGet("history"), apiDataGet("collections")]);
+    const [savedRes, histRes, colRes, profileRes, inboxRes] = await Promise.all([
+      apiDataGet("saved"), apiDataGet("history"), apiDataGet("collections"),
+      apiDataGet("profile"), apiDataGet("inbox"),
+    ]);
     const serverSaved = savedRes?.items || [];
     const serverHist = histRes?.items || [];
     setCollections(colRes?.items || []);
+    // The account row always exists by the time a session exists (verify-code
+    // creates it), so profileRes.user should always be present — but the
+    // fetch itself can still fail (network blip, a 500), and silently
+    // keeping whatever was in localStorage beats wiping a signed-in
+    // person's profile fields back to blank over a transient error.
+    if (profileRes?.user) {
+      setProfile((p) => ({
+        ...p,
+        name: profileRes.user.name || "",
+        username: profileRes.user.username || "",
+        affiliation: profileRes.user.affiliation || "",
+      }));
+      setProfileMeta({ followers: profileRes.followers || 0, badges: profileRes.badges || [] });
+    }
+    setThreads(inboxRes?.items || []);
     if (serverSaved.length > 0 || serverHist.length > 0) {
       // This account already has data (a returning session, or a second
       // device) — the server copy wins over whatever's in this browser.
@@ -5037,6 +5087,7 @@ function App() {
   async function signOut() {
     try { await apiAuth("logout", {}); } catch {}
     setUser(null); setSyncReady(false); setCollections([]);
+    setProfile({}); setProfileMeta({ followers: 0, badges: [] }); setThreads([]);
     sfx();
   }
 
@@ -5047,6 +5098,7 @@ function App() {
   // actually mean.
   function onAccountDeleted() {
     setUser(null); setSyncReady(false); setCollections([]); setSaved([]); setHistory([]);
+    setProfile({}); setProfileMeta({ followers: 0, badges: [] }); setThreads([]);
   }
 
   const [input, setInput] = useState("");
@@ -5507,6 +5559,27 @@ function App() {
     return () => clearTimeout(historySyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history, user, syncReady]);
+
+  // Pushes name/username/affiliation edits to the account, debounced exactly
+  // like saved/history above. Unlike those two, a failure here is surfaced
+  // instead of swallowed — "couldn't sync my saved articles" can fail
+  // silently and just retry next edit, but "that username is already taken"
+  // (see update-profile in functions/api/data.js) is something the person
+  // typing needs to actually see, not lose track of.
+  const profileSyncTimer = useRef(null);
+  useEffect(() => {
+    if (!user || !syncReady) return;
+    clearTimeout(profileSyncTimer.current);
+    profileSyncTimer.current = setTimeout(() => {
+      apiDataAction("update-profile", {
+        name: profile.name || "",
+        username: profile.username || "",
+        affiliation: profile.affiliation || "",
+      }).catch((e) => toast(e.message || "Couldn't save your profile changes.", { tone: "error" }));
+    }, 900);
+    return () => clearTimeout(profileSyncTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.name, profile.username, profile.affiliation, user, syncReady]);
 
   // Collections CRUD — thin wrappers around /api/data's "collections"
   // actions, plus the local `saved` array update so the Collections modal
@@ -6012,8 +6085,8 @@ function App() {
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
-      {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} />}
-      {profileOpen && <UserProfileModal P={P} accent={accent} at={at} user={user} profile={profile} setProfile={setProfile} close={() => setProfileOpen(false)} onManageAccount={() => { setProfileOpen(false); setSettingsInitialTab("account"); setSettingsOpen(true); }} />}
+      {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} threads={threads} setThreads={setThreads} />}
+      {profileOpen && <UserProfileModal P={P} accent={accent} at={at} user={user} profile={profile} setProfile={setProfile} profileMeta={profileMeta} close={() => setProfileOpen(false)} onManageAccount={() => { setProfileOpen(false); setSettingsInitialTab("account"); setSettingsOpen(true); }} />}
       {importPrompt && (
         <ImportLocalDataPrompt
           P={P} accent={accent} at={at}
