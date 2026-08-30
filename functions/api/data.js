@@ -9,7 +9,7 @@
 // guessing an id" path here, because every query is also scoped to
 // `user_id = ?` on top of the row id, not just the row id alone.
 
-import { getSessionUser, newId } from "../lib/auth.js";
+import { getSessionUser, newId } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
 const ALLOWED_ORIGINS = [
