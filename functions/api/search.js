@@ -3684,6 +3684,107 @@ function postProcessAnswer(rawAnswer) {
   return answer;
 }
 
+// Extract conflicting claims from the answer text.
+// Scans for hedge phrases, contrastive conjunctions, and citation-backed
+// opposing claims. Returns an array of { claimA, claimB, sourceA, sourceB }
+// objects. Lightweight regex heuristic — not an LLM call — so it runs in
+// under a millisecond and costs nothing.
+function extractLiteratureConflicts(answer, sources) {
+  const conflicts = [];
+  if (!answer || !sources || sources.length < 2) return conflicts;
+
+  // Pattern 1: "however" / "in contrast" / "conversely" / "on the other hand"
+  // bridging two cited claims, e.g. "Smith et al. [1] found X, however Jones
+  // et al. [3] reported Y"
+  const contrastRe = /\[(\d+)\][^.]*?(?:found|showed|reported|demonstrated|observed|suggested|concluded)[^.]*?[.;,]\s*(?:however|in contrast|conversely|on the other hand|yet|but|whereas|while|although|despite this|nonetheless|nevertheless)[,]?\s*(?:[^[]*?)\[(\d+)\][^.]*?(?:found|showed|reported|demonstrated|observed|suggested|concluded|indicated)[^.]*?\./gi;
+  let m;
+  while ((m = contrastRe.exec(answer)) !== null) {
+    const idxA = parseInt(m[1], 10) - 1;
+    const idxB = parseInt(m[2], 10) - 1;
+    if (idxA >= 0 && idxA < sources.length && idxB >= 0 && idxB < sources.length && idxA !== idxB) {
+      // Extract the two halves around the contrastive conjunction
+      const fullMatch = m[0];
+      const splitRe = /(?:however|in contrast|conversely|on the other hand|yet|but|whereas|while|although|despite this|nonetheless|nevertheless)/i;
+      const halves = fullMatch.split(splitRe);
+      if (halves.length >= 2) {
+        conflicts.push({
+          claimA: halves[0].replace(/\[\d+\]/g, "").replace(/[,;]\s*$/, "").trim(),
+          claimB: halves[1].replace(/\[\d+\]/g, "").replace(/^\s*,?\s*/, "").replace(/\.\s*$/, "").trim(),
+          sourceA: sources[idxA].title || `Source ${idxA + 1}`,
+          sourceB: sources[idxB].title || `Source ${idxB + 1}`,
+          idxA: idxA + 1,
+          idxB: idxB + 1,
+        });
+      }
+    }
+  }
+
+  // Pattern 2: explicit "conflicting" / "contradictory" / "inconsistent"
+  // language near citation brackets
+  const conflictTermRe = /(?:conflict(?:ing|s)?|contradict(?:ory|s|ed)?|inconsisten(?:t|cy|cies)|disagree(?:s|ment)?|at odds|opposing|diverge(?:nt|s)?)\s+(?:with\s+)?[^.]*?\[(\d+)\][^.]*?\[(\d+)\][^.]*?\./gi;
+  while ((m = conflictTermRe.exec(answer)) !== null) {
+    const idxA = parseInt(m[1], 10) - 1;
+    const idxB = parseInt(m[2], 10) - 1;
+    if (idxA >= 0 && idxA < sources.length && idxB >= 0 && idxB < sources.length && idxA !== idxB) {
+      const alreadyFound = conflicts.some((c) => (c.idxA === idxA + 1 && c.idxB === idxB + 1) || (c.idxA === idxB + 1 && c.idxB === idxA + 1));
+      if (!alreadyFound) {
+        const sentence = m[0].replace(/\[\d+\]/g, "").trim();
+        conflicts.push({
+          claimA: sentence,
+          claimB: "",
+          sourceA: sources[idxA].title || `Source ${idxA + 1}`,
+          sourceB: sources[idxB].title || `Source ${idxB + 1}`,
+          idxA: idxA + 1,
+          idxB: idxB + 1,
+        });
+      }
+    }
+  }
+
+  // Pattern 3: "X found A [1]... Y found B [2]" without explicit contrast
+  // words but with opposing qualifiers (increase vs decrease, positive vs
+  // negative, effective vs ineffective, etc.)
+  const opposites = [
+    ["increas", "decreas"], ["improv", "worsen"], ["positive", "negative"],
+    ["effective", "ineffective"], ["beneficial", "detrimental"], ["higher", "lower"],
+    ["upregulat", "downregulat"], ["promot", "inhibit"], ["enhanc", "reduc"],
+    ["support", "refut"], ["confirm", "challeng"],
+  ];
+  const citeSentences = answer.split(/(?<=\.)\s+/).filter((s) => /\[\d+\]/.test(s));
+  for (let i = 0; i < citeSentences.length; i++) {
+    for (let j = i + 1; j < Math.min(i + 4, citeSentences.length); j++) {
+      const si = citeSentences[i].toLowerCase();
+      const sj = citeSentences[j].toLowerCase();
+      for (const [a, b] of opposites) {
+        if ((si.includes(a) && sj.includes(b)) || (si.includes(b) && sj.includes(a))) {
+          const refI = citeSentences[i].match(/\[(\d+)\]/);
+          const refJ = citeSentences[j].match(/\[(\d+)\]/);
+          if (refI && refJ) {
+            const idxA = parseInt(refI[1], 10) - 1;
+            const idxB = parseInt(refJ[1], 10) - 1;
+            if (idxA >= 0 && idxA < sources.length && idxB >= 0 && idxB < sources.length && idxA !== idxB) {
+              const alreadyFound = conflicts.some((c) => (c.idxA === idxA + 1 && c.idxB === idxB + 1) || (c.idxA === idxB + 1 && c.idxB === idxA + 1));
+              if (!alreadyFound) {
+                conflicts.push({
+                  claimA: citeSentences[i].replace(/\[\d+\]/g, "").trim(),
+                  claimB: citeSentences[j].replace(/\[\d+\]/g, "").trim(),
+                  sourceA: sources[idxA].title || `Source ${idxA + 1}`,
+                  sourceB: sources[idxB].title || `Source ${idxB + 1}`,
+                  idxA: idxA + 1,
+                  idxB: idxB + 1,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Cap at 5 to keep the response lean
+  return conflicts.slice(0, 5);
+}
+
 // Score the overall quality of an answer (0-100, higher = better)
 function scoreAnswerQuality(answer, query) {
   if (!answer) return 0;
@@ -4265,7 +4366,28 @@ async function recallTopicMemory(topic, db) {
 }
 
 
+// Hard ceiling on gatherPapers' TOTAL wall-clock time, not any single
+// fetch. Every individual upstream call already has its own AbortController
+// timeout (4s-12s, tuned per API — see europePMC/pubmed/openAlex/etc. below)
+// so no single fetch hangs indefinitely; the real source of the reported
+// 60s+ latency is that this function tries up to six fallback stages
+// SEQUENTIALLY when a hard query keeps coming back thin (the rung loop,
+// then rawFallback, concept-expansion, memory fallback, NL fallback, and
+// relaxed fallback — each gated on "did the last stage return enough
+// results yet"), and their individual timeouts stack: several 7-12s stages
+// back to back easily clears 60s for a query that's thin at every stage.
+// Shortening the individual per-API timeouts (as originally proposed)
+// would've fixed nothing about that stacking and would have made every
+// well-behaved slower API — the ones the 7s/9s/12s timeouts were
+// specifically tuned for — drop results it currently retrieves just fine.
+// The actual fix is a shared deadline across the whole ladder: once this
+// much wall-clock time has elapsed, stop trying additional fallback
+// stages and synthesize from whatever's already been gathered, rather
+// than let a thin query march through every remaining stage regardless.
+const GATHER_PAPERS_BUDGET_MS = 20000;
 async function gatherPapers(rawQuery, opts) {
+  const _searchStart = Date.now();
+  const _budgetLeft = () => GATHER_PAPERS_BUDGET_MS - (Date.now() - _searchStart) > 0;
   // Wrap the entire function so ANY thrown error still returns a diagnostic
   // rather than being swallowed by the outer .catch and losing all context.
   const _outerDiag = { entered: true, phase: "start", rawQuery: (rawQuery || "").slice(0, 200) };
@@ -4613,7 +4735,10 @@ async function gatherPapers(rawQuery, opts) {
     const totalAccumulated = accumulated.reduce(
       (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
     );
-    if (totalAccumulated >= 8) break;
+    // Budget check here too, not just at each later fallback stage — a
+    // query with many loosening rungs can burn the whole budget in this
+    // loop alone before ever reaching the stages below.
+    if (totalAccumulated >= 8 || !_budgetLeft()) break;
   }
   results = accumulated;
 
@@ -4624,7 +4749,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalSoFar = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalSoFar < 8) {
+  if (totalSoFar < 8 && _budgetLeft()) {
     // Include organism name in the raw fallback so we find species-specific papers
     const rawQ = organismTerm
       ? organismTerm.replace(/"/g, "") + " " + query
@@ -4658,7 +4783,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterRaw = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterRaw < 8) {
+  if (totalAfterRaw < 8 && _budgetLeft()) {
     // Build synonym-expanded queries from concept groups
     const topicTermsForExpansion = ranked.slice(0, 3);
     const expandedQueries = new Set();
@@ -4733,7 +4858,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterConcept = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterConcept < 5 && opts.db) {
+  if (totalAfterConcept < 5 && opts.db && _budgetLeft()) {
     const topicForRecall = orgInfo.hasOrganism
       ? orgInfo.orgPhrases[0] + " " + ranked.slice(0, 3).join(" ")
       : ranked.slice(0, 4).join(" ");
@@ -4764,7 +4889,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterExpand = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterExpand < 5) {
+  if (totalAfterExpand < 5 && _budgetLeft()) {
     const nlFallback = await Promise.allSettled([
       semanticScholar(rawQuery.slice(0, 200), 15),
       europePMC(rawQuery.slice(0, 200), 12),
@@ -4789,7 +4914,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterNL = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterNL < 5) {
+  if (totalAfterNL < 5 && _budgetLeft()) {
     const orgNames = [...new Set([
       organismTerm ? organismTerm.replace(/"/g, "") : null,
       ...(orgInfo.orgPhrases || []),
@@ -4811,9 +4936,15 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
 
-  // Add results for each sub-question of a compound query
+  // Add results for each sub-question of a compound query. Not gated on
+  // result count like the fallback stages above — a second clause with
+  // zero queries fired for it isn't "thin," it's uncovered — but still
+  // respects the overall budget so a query with many clauses can't alone
+  // blow past it: only the loop itself is capped, not this whole feature,
+  // so at least the first clauses still get their coverage under pressure.
   if (subQueries.length > 1) {
     for (const sub of subQueries) {
+      if (!_budgetLeft()) break;
       try {
         const subRes = await Promise.allSettled(fanout(sub, false));
         results = results.concat(subRes);
@@ -4840,6 +4971,7 @@ async function gatherPapers(rawQuery, opts) {
   if (secondaryOrganisms.length) {
     const topicStr2 = ranked.slice(0, 3).join(" ") || query;
     for (const sciName of secondaryOrganisms) {
+      if (!_budgetLeft()) break;
       const orgQuoted2 = '"' + sciName + '"';
       try {
         const secResults = await Promise.allSettled([
@@ -5665,12 +5797,18 @@ Respond naturally to the user's message. Be yourself.`;
 
     const settings = body.settings || {};
     const answerLength = settings.answerLength || "medium";
+    // Bumped from 800/1500/3000: the four-section STRUCTURE format (Core
+    // Synthesis + Evidence & Mechanisms + Divergent Findings & Gaps +
+    // Methodological Confidence) plus per-claim citations routinely ran past
+    // the old ceilings, cutting sentences off mid-thought before the model
+    // reached its closing section. Every tier now clears the 1500-token
+    // anti-truncation floor.
     const maxTokens =
       answerLength === "short"
-        ? 800
+        ? 1200
         : answerLength === "long"
-        ? 3000
-        : 1500;
+        ? 3200
+        : 1800;
     const lengthHint =
       answerLength === "short"
         ? "Two to three focused paragraphs. Hit the key mechanism and the strongest evidence, then stop."
@@ -6619,6 +6757,7 @@ Respond naturally to the user's message. Be yourself.`;
       "- Only cite source N if it genuinely supports that sentence. [WEAK MATCH] sources: ignore or note as tangential. [RETRACTED]: flag prominently.\n" +
       "- STRICT CITATION HONESTY: a citation may ONLY attach to a sentence making an explicit, empirical claim drawn from that specific paper — a measured result, a reported finding, a stated statistic, a named method or organism it actually studied. NEVER attach a citation to a general statement, a transition sentence, a definitional aside, or your own inference, even when a cited paper is topically related. If a sentence isn't a specific claim FROM that paper, it gets no citation at all.\n" +
       "- NEVER fabricate DOIs, authors, journal names, or statistics not in the abstracts.\n" +
+      "- ZERO-HALLUCINATION GROUNDING: ground every factual assertion strictly in the provided abstracts. Do NOT introduce external acronyms, gene names, brain regions, or pathways (e.g., BDNF, DMN, TPJ) unless that exact term appears verbatim somewhere in the retrieved abstracts above — importing a real-but-unsourced acronym to sound precise is exactly as dishonest as inventing a fake one, and it will fail fact-checking either way. If a concept needs a name the sources don't give you, describe it in plain language instead.\n" +
       "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' — but NEVER invent specific paper titles or authors.\n" +
       "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
       "- No <think> tags, no code fences, no meta-commentary about your process.\n";
@@ -6631,21 +6770,38 @@ Respond naturally to the user's message. Be yourself.`;
     // undifferentiated block of prose. Applied to every branch that produces
     // a real synthesis (not the curated "additional papers" digest, which
     // already has its own required shape).
+    // v35 fix: these four headers used to read "Executive Summary" / "Current
+    // Evidence & Mechanisms" / "Research Gaps & Future Trajectories" /
+    // "Confidence & Methodological Limitations" — leftover names from before
+    // the frontend's own header system (SECTION_HEADER_TITLES /
+    // normalizeSectionHeaders in main.jsx, plus the GuidedTour copy that
+    // promises a "Divergent Findings & Gaps" section) was renamed to the four
+    // titles below. The frontend's normalizer only recognizes its own exact
+    // titles, so every answer was shipping with an old header the frontend
+    // had no matching rule for — "## Executive Summary" printed as a stray
+    // unstyled fragment instead of the intended section title, and "##
+    // Current Evidence & Mechanisms" only partially matched (the frontend's
+    // "Evidence & Mechanisms" title matched mid-string, leaving a dangling
+    // "## Current" as its own broken paragraph). Renamed here so the model
+    // emits exactly what the frontend expects. Section 3 also actually asks
+    // for divergent/contradicting findings now, not just open questions —
+    // its new title promises that in the guided tour, so it has to do that
+    // rather than just having the right name on the same old content.
     const STRUCTURE =
       "═══ REQUIRED OUTPUT STRUCTURE (HARD-ENFORCED) ═══\n" +
       "Format the ENTIRE answer as exactly these four Markdown H2 sections, in this exact order, with these exact headers " +
       "verbatim (no extra sections, no renaming, no merging, nothing before the first header). " +
       "Every header MUST sit on its own line with a completely blank line before it and a completely blank line after it — " +
       "NEVER end a sentence and then continue straight into '## Next Header' on the same line or the same paragraph. " +
-      "WRONG: '...reduced brainstem volume [7]. ## Current Evidence & Mechanisms\\nChronic stress...' " +
-      "RIGHT: '...reduced brainstem volume [7].\\n\\n## Current Evidence & Mechanisms\\n\\nChronic stress...'\n\n" +
-      "## Executive Summary\n" +
+      "WRONG: '...reduced brainstem volume [7]. ## Evidence & Mechanisms\\nChronic stress...' " +
+      "RIGHT: '...reduced brainstem volume [7].\\n\\n## Evidence & Mechanisms\\n\\nChronic stress...'\n\n" +
+      "## Core Synthesis\n" +
       "2-4 sentences. The direct answer to the question, stated plainly, with its strongest supporting citation(s).\n\n" +
-      "## Current Evidence & Mechanisms\n" +
+      "## Evidence & Mechanisms\n" +
       "The synthesis itself. RULE 1 (zero prefacing) and RULE 2 (synthesize, never list) apply in full force here. This is normally the longest section.\n\n" +
-      "## Research Gaps & Future Trajectories\n" +
-      "What the retrieved literature doesn't settle yet and where the field is visibly heading. If the evidence is genuinely airtight with no real open question, say that in one sentence rather than inventing a gap.\n\n" +
-      "## Confidence & Methodological Limitations\n" +
+      "## Divergent Findings & Gaps\n" +
+      "Where the literature actually disagrees first — papers reaching different conclusions, conflicting methodologies, results that sit at odds with the emerging consensus, stated plainly rather than smoothed into false agreement — then what the retrieved literature doesn't settle yet and where the field is visibly heading. If the evidence is genuinely airtight with no real disagreement or open question, say that in one sentence rather than inventing either.\n\n" +
+      "## Methodological Confidence\n" +
       "Your actual confidence in the answer above and why — sample sizes, study designs (in vitro vs in vivo vs clinical), replication status, conflicting results, or papers too tangential to use. Be concrete, not a generic disclaimer.\n\n";
 
     const ID = "You are Cerebrum, a scientific research engine. You search 14 open scholarly databases simultaneously and write cited, synthesis-grade answers. " +
@@ -7663,12 +7819,15 @@ Respond naturally to the user's message. Be yourself.`;
       }
     }
 
+    const literatureConflicts = extractLiteratureConflicts(answer, sourceList);
+
     return new Response(
       JSON.stringify({
         answer,
         sources: sourceList,
         videos,
         factCheck: factCheckResult,
+        literature_conflicts: literatureConflicts.length > 0 ? literatureConflicts : null,
         related: [],
         answerId, // frontend can use this for upvote/downvote
         source:
