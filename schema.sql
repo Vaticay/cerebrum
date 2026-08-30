@@ -99,8 +99,10 @@ CREATE TABLE IF NOT EXISTS topic_memory (
 --
 -- Security posture, spelled out since it's the whole point of this
 -- table: passwords are never stored in any recoverable form — only a
--- PBKDF2-SHA256 hash (210k iterations, a fresh random salt per user)
--- computed in functions/lib/auth.js. A full database export gives an
+-- PBKDF2-SHA256 hash (100k iterations — Cloudflare workerd's hard ceiling
+-- for a single PBKDF2 call, see the comment in functions/lib/authHelpers.js
+-- for why this isn't the 210k it used to say — plus a fresh random salt per
+-- user) computed in functions/lib/authHelpers.js. A full database export gives an
 -- attacker nothing they can log in with; brute-forcing one hash back
 -- to a real password at that iteration count is not practical at any
 -- scale worth worrying about. Session tokens follow the same rule
@@ -174,3 +176,55 @@ CREATE TABLE IF NOT EXISTS user_history (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_history_user ON user_history(user_id);
+
+-- ============================================================
+-- NEW: one-time passcode (OTP) sign-in. This is now the ONLY sign-in
+-- method the frontend exposes — no password is ever collected on this
+-- path. One row per email holds the CURRENT pending code only
+-- (INSERT OR REPLACE on every new request), so requesting a fresh code
+-- immediately invalidates any earlier one for that address.
+--
+-- code_hash is SHA-256(email_lower + ":" + the 6-digit code) — the raw
+-- code exists nowhere at rest, only in the one email it was sent to.
+-- flow_hash is SHA-256 of a random token handed to the browser as an
+-- HttpOnly `cb_pending_auth` cookie when the code is sent; verify-code
+-- requires BOTH the correct code AND that same cookie, so a remote
+-- attacker who never requested a code for this address (and so never
+-- received the cookie) cannot even attempt one guess against it over
+-- the API. attempts counts wrong guesses; five burns the row outright
+-- (functions/api/auth.js enforces this) — a 6-digit space is only
+-- ~1,000,000 possibilities, so this ceiling is load-bearing, not
+-- decorative.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS otp_codes (
+  email_lower  TEXT NOT NULL PRIMARY KEY,
+  code_hash    TEXT NOT NULL,
+  flow_hash    TEXT NOT NULL,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL
+);
+
+-- ============================================================
+-- NEW: bad-data / hallucination reports, filed from the "Report bad data"
+-- button on every answer (see ReportModal in main.jsx, functions/api/
+-- report.js). This table was missing entirely even though report.js has
+-- always attempted to INSERT into it — every report was silently dropped
+-- the moment env.DB was bound, since D1 throws on an INSERT against a table
+-- that was never created and report.js deliberately swallows that error (so
+-- a missing table can never turn "thanks for the report" into a visible
+-- failure for the person filing it). report.js now also creates this table
+-- itself on first use via CREATE TABLE IF NOT EXISTS, so a fresh deploy is
+-- self-healing even before this file is run against the live database —
+-- this definition is kept as the canonical, documented shape.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS reports (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  query       TEXT,
+  description TEXT NOT NULL,
+  category    TEXT NOT NULL DEFAULT 'general',
+  source_url  TEXT,
+  created_at  INTEGER NOT NULL,
+  ip          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at);
