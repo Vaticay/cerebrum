@@ -53,6 +53,17 @@ function originAllowed(origin) {
   return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
 }
 
+// Single shared default "from" address for every Resend send in this file.
+// This used to be two separately-typed literals — sendOtpEmail's fallback
+// had a hyphen ("no-reply@"), sendMagicLinkEmail's didn't ("noreply@") — and
+// Resend rejects a send outright if the "from" address isn't a sender/domain
+// actually verified on the account. Whichever of the two happened to be the
+// real verified one, the OTHER path was silently guaranteed to fail with
+// exactly the "couldn't send" 503 being reported. One constant now; set
+// env.RESEND_FROM in the Pages project to override it for both paths at
+// once instead of two places that can drift apart again.
+const RESEND_FROM_DEFAULT = "Cerebrum <noreply@askcerebrum.org>";
+
 // Accepts either a plain header object (existing call sites) or a Headers
 // instance. The Headers path is what lets verify-code attach TWO Set-Cookie
 // values to one response (the new session cookie plus clearing the spent
@@ -174,7 +185,7 @@ async function sendOtpEmail(env, email, code) {
     console.log("OTP_DEV_NO_RESEND", JSON.stringify({ email, code, ts: Date.now() }));
     return true;
   }
-  const from = env.RESEND_FROM || "Cerebrum <no-reply@askcerebrum.org>";
+  const from = env.RESEND_FROM || RESEND_FROM_DEFAULT;
   const html = `<div style="background:#040508;padding:48px 24px;font-family:'Space Grotesk','Segoe UI',Helvetica,Arial,sans-serif;">
   <div style="max-width:420px;margin:0 auto;">
     <div style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;margin-bottom:32px;">Cerebrum&#8482;</div>
@@ -192,9 +203,21 @@ async function sendOtpEmail(env, email, code) {
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from, to: email, subject: "Your Cerebrum sign-in code", html }),
     });
+    if (!res.ok) {
+      // Read and log Resend's actual rejection reason — "domain not
+      // verified", "invalid from address", "API key revoked", etc. This
+      // never goes in the response to the browser (this endpoint is
+      // unauthenticated; anyone on the internet can call it, so third-party
+      // API internals don't belong in a public response body) but it does
+      // go to Cloudflare's real-time log stream (Pages project → Functions
+      // → Logs, or `wrangler pages deployment tail`), which is exactly
+      // where to look right after reproducing this.
+      const detail = await res.text().catch(() => "<unreadable response body>");
+      console.error("OTP email send rejected by Resend:", res.status, detail);
+    }
     return res.ok;
   } catch (e) {
-    console.error("OTP email send failed:", e);
+    console.error("OTP email send threw:", e);
     return false;
   }
 }
@@ -204,7 +227,7 @@ async function sendMagicLinkEmail(env, email, link) {
     console.error("RESEND_API_KEY not configured, cannot send magic link email");
     return false;
   }
-  const from = env.RESEND_FROM || "Cerebrum <noreply@askcerebrum.org>";
+  const from = env.RESEND_FROM || RESEND_FROM_DEFAULT;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -219,9 +242,13 @@ async function sendMagicLinkEmail(env, email, link) {
         html: `<p>Click below to sign in to Cerebrum. This link expires in 15 minutes and can only be used once.</p><p><a href="${link}">Sign in to Cerebrum</a></p><p>If you didn't request this, you can ignore this email.</p>`,
       }),
     });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "<unreadable response body>");
+      console.error("Magic link send rejected by Resend:", res.status, detail);
+    }
     return res.ok;
   } catch (e) {
-    console.error("Magic link send failed:", e);
+    console.error("Magic link send threw:", e);
     return false;
   }
 }
