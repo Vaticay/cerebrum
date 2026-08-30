@@ -607,10 +607,10 @@ function useTypewriter(full, on) {
 // splitter ever runs. This is strictly additive: an answer that already
 // has correct spacing round-trips through unchanged.
 const SECTION_HEADER_TITLES = [
-  "Executive Summary",
-  "Current Evidence & Mechanisms",
-  "Research Gaps & Future Trajectories",
-  "Confidence & Methodological Limitations",
+  "Core Synthesis",
+  "Evidence & Mechanisms",
+  "Divergent Findings & Gaps",
+  "Methodological Confidence",
 ];
 function normalizeSectionHeaders(text) {
   let out = text;
@@ -2042,11 +2042,212 @@ function ToolbarBtn({ title, icon, onClick, accent, P, active = false }) {
 }
 function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 3, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", transition: "background 0.15s ease, color 0.15s ease" }; }
 
+function ReportModal({ query, P, accent, at, onClose }) {
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("hallucination");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const trapRef = useRef(null);
+
+  useEffect(() => { if (trapRef.current) trapRef.current.focus(); }, []);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!description.trim()) return;
+    setSubmitting(true);
+    try {
+      await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, description: description.trim(), category }),
+      });
+      setSubmitted(true);
+      setTimeout(() => onClose(), 1800);
+    } catch {
+      setSubmitted(true);
+      setTimeout(() => onClose(), 1800);
+    }
+  };
+
+  const categories = [
+    { id: "hallucination", label: "Hallucinated claim" },
+    { id: "wrong-citation", label: "Wrong citation" },
+    { id: "broken-source", label: "Broken source link" },
+    { id: "outdated", label: "Outdated information" },
+    { id: "other", label: "Other" },
+  ];
+
+  return (
+    <div onClick={onClose} role="dialog" aria-modal="true" aria-label="Report data issue" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 220, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 3, maxWidth: 460, width: "100%", padding: "28px", outline: "none",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
+      }} className="cb-modal">
+        {submitted ? (
+          <div style={{ textAlign: "center", padding: "20px 0" }}>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: withAlpha(STATUS.good, 0.12), color: STATUS.good, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+              <Icon name="check" size={20} />
+            </div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Report received</div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 6 }}>Thank you for improving data quality.</div>
+          </div>
+        ) : (
+          <form onSubmit={submit}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Report data issue</div>
+              <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 8 }}>Category</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {categories.map((c) => (
+                  <button key={c.id} type="button" onClick={() => setCategory(c.id)} style={{
+                    fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 3, cursor: "pointer",
+                    fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.15s ease",
+                    background: category === c.id ? withAlpha(accent, 0.16) : "transparent",
+                    color: category === c.id ? accent : P.ink2,
+                    border: `1px solid ${category === c.id ? withAlpha(accent, 0.3) : P.line}`,
+                  }}>{c.label}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Describe the issue</div>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} placeholder="Which claim is incorrect? What should it say instead?" style={{
+                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 3,
+                border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
+                color: P.ink, fontFamily: "var(--cb-body)", resize: "vertical", outline: "none",
+              }} />
+            </div>
+            <button type="submit" disabled={submitting || !description.trim()} style={{
+              width: "100%", padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600,
+              background: accent, color: at, border: "none", borderRadius: 3,
+              cursor: submitting || !description.trim() ? "default" : "pointer",
+              opacity: submitting || !description.trim() ? 0.6 : 1,
+              fontFamily: "var(--cb-body)",
+            }}>{submitting ? "Sending…" : "Submit report"}</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Onboarding guided tour — localStorage-gated, shown once for new visitors.
+// Three pulsing tooltip popovers highlighting the search bar, evidence
+// filters, and source network. Skip button dismisses permanently.
+const TOUR_STEPS = [
+  {
+    target: ".cb-search-shell",
+    title: "Search bar",
+    text: "Ask any scientific question — Cerebrum searches 14 scholarly databases in parallel and writes you a cited answer.",
+    position: "bottom",
+  },
+  {
+    target: ".cb-filter-row",
+    title: "Evidence filters",
+    text: "Filter results by publication type, date range, and evidence tier to narrow findings to what matters most.",
+    position: "bottom",
+  },
+  {
+    target: ".cb-answer-enter",
+    title: "Source network & timeline",
+    text: "Once results arrive, explore how sources relate in a visual network or trace the literature chronologically.",
+    position: "top",
+  },
+];
+
+function GuidedTour({ P, accent }) {
+  const [step, setStep] = useState(0);
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem("cb_tour_done") === "1"; } catch { return false; }
+  });
+  const [targetRect, setTargetRect] = useState(null);
+
+  useEffect(() => {
+    if (dismissed) return;
+    const find = () => {
+      const el = document.querySelector(TOUR_STEPS[step]?.target);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        setTargetRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+      } else {
+        setTargetRect(null);
+      }
+    };
+    find();
+    const iv = setInterval(find, 800);
+    return () => clearInterval(iv);
+  }, [step, dismissed]);
+
+  const dismiss = () => {
+    try { localStorage.setItem("cb_tour_done", "1"); } catch {}
+    setDismissed(true);
+  };
+  const next = () => {
+    if (step >= TOUR_STEPS.length - 1) { dismiss(); return; }
+    setStep(step + 1);
+  };
+
+  if (dismissed || !targetRect) return null;
+
+  const current = TOUR_STEPS[step];
+  const isBottom = current.position === "bottom";
+  const tooltipTop = isBottom
+    ? targetRect.top + targetRect.height + 14
+    : targetRect.top - 14;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 250, pointerEvents: "none" }}>
+      {/* Pulsing ring around target */}
+      <div style={{
+        position: "fixed",
+        top: targetRect.top - 6, left: targetRect.left - 6,
+        width: targetRect.width + 12, height: targetRect.height + 12,
+        borderRadius: 8, border: `2px solid ${accent}`,
+        boxShadow: `0 0 0 4px ${withAlpha(accent, 0.2)}`,
+        animation: "cbpulse 2s ease-in-out infinite",
+        pointerEvents: "none",
+      }} />
+      {/* Tooltip */}
+      <div style={{
+        position: "fixed",
+        top: isBottom ? tooltipTop : "auto",
+        bottom: isBottom ? "auto" : `calc(100vh - ${tooltipTop}px)`,
+        left: Math.min(Math.max(targetRect.left, 16), window.innerWidth - 320),
+        width: 300, padding: "18px 20px",
+        background: P.dark ? "rgba(15, 17, 26, 0.95)" : "rgba(255, 255, 255, 0.97)",
+        backdropFilter: "blur(24px) saturate(150%)", WebkitBackdropFilter: "blur(24px) saturate(150%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
+        borderRadius: 8, boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+        pointerEvents: "auto",
+      }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginBottom: 6 }}>
+          {step + 1}/{TOUR_STEPS.length} · {current.title}
+        </div>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.6, marginBottom: 14 }}>{current.text}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={dismiss} style={{ fontSize: FONT_SIZES.caption, color: P.faint, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-mono)", padding: 0 }}>Skip tour</button>
+          <button onClick={next} style={{
+            fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "7px 16px", borderRadius: 3,
+            background: accent, color: P.dark ? "#000" : "#fff", border: "none", cursor: "pointer",
+            fontFamily: "var(--cb-body)",
+          }}>{step >= TOUR_STEPS.length - 1 ? "Done" : "Next"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   const [copiedAnswer, setCopiedAnswer] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   return (
     <div style={S.turn} className="cb-rise">
       {/* Query label — monospaced, quiet */}
@@ -2139,6 +2340,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                 {done && <ToolbarBtn title="Illustrate this answer" icon="wand" accent={accent} P={P} onClick={() => onIllustrate(t.q)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
+                <ToolbarBtn title="Report bad data" icon="shield" accent={accent} P={P} onClick={() => setShowReport(true)} />
               </div>
             )}
           </div>
@@ -2150,6 +2352,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
             <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           </div>
         )}
+        {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} />}
       </div>
       {/* Points of Friction — conflicting claims detected across sources */}
       {done && t.literatureConflicts && t.literatureConflicts.length > 0 && (
@@ -3208,7 +3411,7 @@ function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Sign in to Cerebrum" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", borderRadius: 3, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
         <div style={{ padding: "26px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Your account</div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
@@ -3857,13 +4060,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     searchShell: {
       display: "flex", alignItems: "center", gap: 10,
       width: "100%", maxWidth: 700,
-      backdropFilter: "blur(14px) saturate(1.3)",
-      WebkitBackdropFilter: "blur(14px) saturate(1.3)",
-      background: P.dark ? "rgba(255,255,255,0.03)" : "#ffffff",
-      border: "1px solid " + P.line,
+      backdropFilter: "blur(40px) saturate(150%)",
+      WebkitBackdropFilter: "blur(40px) saturate(150%)",
+      background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
+      border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 100,
       padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
-      boxShadow: P.shadowSm,
+      boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
       transition: "border-color 0.3s ease, box-shadow 0.3s ease",
       position: "relative"
     },
@@ -3964,11 +4167,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        canvas is doing underneath it. */
     answerCard: {
       position: "relative",
-      background: "transparent",
-      border: "1px solid " + P.line,
+      background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
+      backdropFilter: "blur(40px) saturate(150%)",
+      WebkitBackdropFilter: "blur(40px) saturate(150%)",
+      border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 3,
       padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
-      boxShadow: "none",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
       lineHeight: 1.7,
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
     },
@@ -3988,7 +4193,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       display: "flex", alignItems: "flex-start", gap: 12,
       backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
     },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(255,255,255,0.03)" : "#ffffff", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid " + P.line, borderRadius: 3, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: P.shadowSm, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 3, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
@@ -4023,8 +4228,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        chase, not another compositor-hint removal. */
     panel: {
       position: "sticky", top: 24,
-      background: P.dark ? P.surface : withAlpha(P.bg, 0.97),
-      border: "1px solid " + P.line, borderRadius: 3,
+      background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
+      backdropFilter: "blur(40px) saturate(150%)",
+      WebkitBackdropFilter: "blur(40px) saturate(150%)",
+      border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+      borderRadius: 3,
       padding: "20px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
     },
@@ -4103,7 +4311,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
 
     /* ── Modals ── */
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
-    modal: { background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 3, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
+    modal: { background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 3, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
     modalTitle: { fontSize: FONT_SIZES.display, fontWeight: 400, color: P.ink, marginBottom: 24, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" },
     // v7.0 cleanup: setLabel/palRow/palCard/accentRow/accentDot/customDot
     // removed — leftovers from an older, untabbed Settings layout with an
@@ -4997,6 +5205,7 @@ function App() {
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
       {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} speed={animSpeed} paused={settingsOpen} variant="main" />}
       <div style={S.grain} />
+      <GuidedTour P={P} accent={accent} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: FONT_SIZES.subhead }}>↑</button>}
       <header style={S.header}>
@@ -5084,7 +5293,7 @@ function App() {
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
               )}
-              <div className="cb-search-glow" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+              <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Ask anything..." />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
@@ -5095,7 +5304,7 @@ function App() {
                   ><Icon name="arrowRight" size={17} /></button>
               </div>
               {/* Evidence tier filter — pre-search constraint for study type */}
-              <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 16, flexWrap: "wrap", maxWidth: 700 }}>
+              <div className="cb-filter-row" style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 16, flexWrap: "wrap", maxWidth: 700 }}>
                 {[["all", "All Evidence"], ["systematic-review", "Systematic Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo / In Vitro"]].map(([val, label]) => (
                   <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
                     style={{
@@ -5355,6 +5564,7 @@ summary::-webkit-details-marker { display: none; }
 /* ── Keyframes: all blur-to-focus, slow, intentional ── */
 @keyframes cbspin { to { transform: rotate(360deg); } }
 @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes cbpulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(255,255,255,0.1); } 50% { box-shadow: 0 0 0 8px rgba(255,255,255,0.2); } }
 
 /* v6.6: this used to drift via a continuous 34s transform animation. Given
    a live, repeated report of laggy/unresponsive scrolling, that's a risk not
