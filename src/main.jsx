@@ -1409,13 +1409,25 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         </div>
       )}
 
-      {/* v30: retiring the terminal-vignette concept — see the matching
-          `.cb-ambient` comment in makeStyles. Flat, solid black; the WebGL
-          field (or the plain black surface for reduced-motion visitors)
-          carries the visual weight now, not a gradient. */}
+      {/* v30 tried a flat, gradient-free surface here on the theory the
+          WebGL field alone could "carry the visual weight." Reverted: the
+          Orb fills the entire viewport behind the copy (LivingBackground's
+          host is position:fixed, inset:0 — full-bleed, not confined to some
+          corner), so every line of hero text sits directly over a bright,
+          saturated, constantly-shifting shader with nothing behind it to
+          guarantee contrast. That's the actual "can't read the text" bug —
+          the earlier z-index fix corrected stacking order (text really is
+          painted above the canvas now), but stacking order was never what
+          made it unreadable. This scrim sits between the two: darkest where
+          the hero copy actually lives (left-of-center, full height, so nav
+          and the database strip get the same floor of contrast), fading out
+          toward the right and center so the Orb still reads as a visible,
+          colorful presence rather than being smothered. */}
       <div aria-hidden="true" className="cb-ambient" style={{
-        position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
-        background: "transparent",
+        position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none", overflow: "hidden",
+        background: isMobile
+          ? "linear-gradient(180deg, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0.68) 100%)"
+          : "linear-gradient(115deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0.46) 58%, rgba(0,0,0,0.32) 100%), linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.24) 18%, rgba(0,0,0,0.24) 80%, rgba(0,0,0,0.55) 100%)",
       }} />
 
       {/* Nav */}
@@ -1430,8 +1442,8 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         </div>
         <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
           {["About", "Privacy", "Contact"].map((item) => (
-            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: FONT_SIZES.small, color: "#6b7a90", textDecoration: "none", fontWeight: 500, transition: "color 0.2s" }}
-              onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#6b7a90"}>{item}</a>
+            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: FONT_SIZES.small, color: "#a3b0c2", textDecoration: "none", fontWeight: 500, transition: "color 0.2s", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}
+              onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#a3b0c2"}>{item}</a>
           ))}
         </div>
       </nav>
@@ -1454,8 +1466,9 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         <h1 style={{
           fontSize: isMobile ? 38 : "clamp(52px, 6.5vw, 76px)",
           fontWeight: 300, letterSpacing: "-0.04em", lineHeight: 1.08,
-          color: "#e8edf5", margin: "0 0 28px",
+          color: "#f4f7fb", margin: "0 0 28px",
           fontFamily: "var(--cb-display)",
+          textShadow: "0 4px 32px rgba(0,0,0,0.65)",
           opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(24px)",
           filter: revealed ? "blur(0)" : "blur(10px)",
           transition: "all 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s",
@@ -1465,8 +1478,9 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         </h1>
 
         <p style={{
-          fontSize: isMobile ? FONT_SIZES.body : FONT_SIZES.subhead, color: "#7a8599", lineHeight: 1.65,
+          fontSize: isMobile ? FONT_SIZES.body : FONT_SIZES.subhead, color: "#b0bacb", lineHeight: 1.65,
           margin: "0 0 44px", maxWidth: 460, fontWeight: 400,
+          textShadow: "0 2px 16px rgba(0,0,0,0.6)",
           opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(16px)",
           filter: revealed ? "blur(0)" : "blur(6px)",
           transition: "all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.35s",
@@ -1480,10 +1494,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
 
         <div style={{
           display: "flex", flexWrap: "wrap", gap: "7px 18px", marginBottom: 32,
-          opacity: revealed ? 0.6 : 0, transition: "opacity 1s cubic-bezier(0.16, 1, 0.3, 1) 0.5s",
+          opacity: revealed ? 0.85 : 0, transition: "opacity 1s cubic-bezier(0.16, 1, 0.3, 1) 0.5s",
         }}>
           {["Cited answers", "Compare investigations", "Source network", "Literature timeline", "AI illustrations"].map((f) => (
-            <span key={f} style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: "#7a8599", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)" }}>{f}</span>
+            <span key={f} style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: "#a3b0c2", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>{f}</span>
           ))}
         </div>
 
@@ -1511,9 +1525,9 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           <button onClick={() => window.location.href = "/about"} style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             padding: "15px 20px", fontSize: FONT_SIZES.body, fontWeight: 500,
-            background: "transparent", color: "#7a8599", border: "none",
-            cursor: "pointer", fontFamily: "var(--cb-body)",
-          }} onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#7a8599"}>
+            background: "transparent", color: "#a3b0c2", border: "none",
+            cursor: "pointer", fontFamily: "var(--cb-body)", textShadow: "0 1px 8px rgba(0,0,0,0.7)",
+          }} onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#a3b0c2"}>
             How it works →
           </button>
         </div>
@@ -1527,12 +1541,12 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         opacity: ready ? 0.35 : 0, transition: "opacity 1.5s ease 0.6s",
       }}>
         {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE", "arXiv"].map((d) => (
-          <span key={d} style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: "#6b7a90", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{d}</span>
+          <span key={d} style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: "#8b98ab", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "var(--cb-mono)", textShadow: "0 1px 6px rgba(0,0,0,0.7)" }}>{d}</span>
         ))}
         {/* Bug: said "+10" after 6 named databases (implying 16 total) —
             the real backend fanout queries 14. See matching fix in the
             trustRow strip elsewhere in this file. */}
-        <span style={{ fontSize: FONT_SIZES.micro, color: "#3d4a5c", fontFamily: "var(--cb-mono)", letterSpacing: "0.1em" }}>+8</span>
+        <span style={{ fontSize: FONT_SIZES.micro, color: "#5a6678", fontFamily: "var(--cb-mono)", letterSpacing: "0.1em", textShadow: "0 1px 6px rgba(0,0,0,0.7)" }}>+8</span>
       </div>
     </div>
   );
