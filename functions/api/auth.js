@@ -347,7 +347,20 @@ async function rateLimit() {
 // SAME response rather than needing a second round trip.
 async function issueSession(env, user, isSecure, cors, extraSetCookies = []) {
   const auth = await fullAuth();
-  const payload = { id: user.id, email: user.email };
+  // username/name/affiliation are only ever present on `user` objects the
+  // OTP path builds (it selects/inserts them explicitly); the legacy
+  // signup/login/magic-verify paths below still pass a plain {id, email}
+  // and get `null` for all three here rather than a thrown error — their
+  // own SELECT queries weren't touched, so this is what "not fetched on
+  // THIS request" looks like, not a bug. A subsequent get-profile call
+  // (functions/api/data.js) picks up the real values regardless of path.
+  const payload = {
+    id: user.id,
+    email: user.email,
+    username: user.username ?? null,
+    name: user.name ?? null,
+    affiliation: user.affiliation ?? null,
+  };
   const headers = new Headers(cors);
   for (const c of extraSetCookies) headers.append("Set-Cookie", c);
   if (env.JWT_SECRET) {
@@ -538,6 +551,8 @@ export async function onRequest(context) {
 
       if (fullMode) {
         await ensureOtpTable(env);
+        await auth.ensureUserProfileColumns(env);
+        await auth.ensureSocialTables(env);
         const row = await env.DB.prepare("SELECT * FROM otp_codes WHERE email_lower = ?")
           .bind(emailLower)
           .first();
@@ -562,18 +577,50 @@ export async function onRequest(context) {
         // Correct — burn it immediately so it can never be replayed.
         await env.DB.prepare("DELETE FROM otp_codes WHERE email_lower = ?").bind(emailLower).run();
 
-        let user = await env.DB.prepare("SELECT id, email FROM users WHERE email_lower = ?")
+        // email_lower, not email, is the lookup key here — same as every
+        // other query in this file — so "Foo@x.com" and "foo@x.com" resolve
+        // to the same account instead of silently creating two.
+        let user = await env.DB.prepare("SELECT id, email, username, name, affiliation FROM users WHERE email_lower = ?")
           .bind(emailLower)
           .first();
         if (!user) {
           const id = auth.newId("u");
           const nowTs = Date.now();
-          await env.DB.prepare(
-            "INSERT INTO users (id, email, email_lower, password_hash, password_salt, created_at, last_login_at) VALUES (?, ?, ?, NULL, NULL, ?, ?)"
-          )
-            .bind(id, email, emailLower, nowTs, nowTs)
+          // users.username carries a real UNIQUE constraint on the live
+          // table, and the default here is just the email's local part —
+          // two different domains can easily share one ("info@", "admin@",
+          // "contact@"), so the plain derived value WILL collide sooner or
+          // later. Retry with a short random suffix on that specific
+          // failure rather than letting a collision surface as a raw 500
+          // on what should be a routine signup.
+          const baseUsername = (emailLower.split("@")[0] || "user").replace(/[^a-z0-9_]/gi, "").slice(0, 30) || "user";
+          let username = baseUsername;
+          let inserted = false;
+          for (let attempt = 0; attempt < 6 && !inserted; attempt++) {
+            try {
+              await env.DB.prepare(
+                "INSERT INTO users (id, email, email_lower, username, name, affiliation, created_at, last_login_at) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)"
+              )
+                .bind(id, email, emailLower, username, nowTs, nowTs)
+                .run();
+              inserted = true;
+            } catch (e) {
+              if (attempt === 5 || !/UNIQUE constraint failed:\s*users\.username/i.test(String(e && e.message))) throw e;
+              username = `${baseUsername}${Math.floor(1000 + Math.random() * 9000)}`;
+            }
+          }
+          user = { id, email, username, name: null, affiliation: null };
+          // Genuinely true for anyone whose account is being created during
+          // this preview phase — see PROFILE_BADGES' own comment in
+          // main.jsx for why the other two badges (peer reviewer, published
+          // author) are NOT auto-granted: there's no verification behind
+          // them yet, so granting them to everyone would turn an honest
+          // "not implemented" gap into a false claim. accolades.id is a
+          // plain TEXT primary key on the live table (no autoincrement), so
+          // it has to be generated here rather than left for the database.
+          await env.DB.prepare("INSERT OR IGNORE INTO accolades (id, user_id, badge_type, granted_at) VALUES (?, ?, 'early_adopter', ?)")
+            .bind(auth.newId("acc"), id, nowTs)
             .run();
-          user = { id, email };
         } else {
           await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?")
             .bind(Date.now(), user.id)
