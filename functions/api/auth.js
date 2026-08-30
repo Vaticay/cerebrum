@@ -328,7 +328,7 @@ async function sendMagicLinkEmail(env, email, link) {
 let _fullAuth = null;
 async function fullAuth() {
   if (!_fullAuth) {
-    _fullAuth = await import("../lib/auth.js");
+    _fullAuth = await import("../lib/authHelpers.js");
   }
   return _fullAuth;
 }
