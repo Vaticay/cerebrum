@@ -1074,7 +1074,7 @@ function Orb({ hue = 0, hoverIntensity = 0.2, rotateOnHover = true, forceHoverSt
           vec4 mainImage(vec2 fragCoord) {
             vec2 center = iResolution.xy * 0.5;
             float size = min(iResolution.x, iResolution.y);
-            vec2 uv = (fragCoord - center) / size * 2.0;
+            vec2 uv = (fragCoord - center) / size * 2.8;
             float angle = rot;
             float s = sin(angle); float c = cos(angle);
             uv = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
@@ -1437,7 +1437,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       <main style={{
         flex: 1, display: "flex", flexDirection: "column", justifyContent: "center",
         padding: isMobile ? "0 24px 60px" : "0 clamp(48px, 8vw, 140px) 80px",
-        position: "relative", zIndex: 3, maxWidth: 820,
+        position: "relative", zIndex: 10, pointerEvents: "auto", maxWidth: 820,
       }}>
         <div style={{
           marginBottom: 32,
@@ -1814,7 +1814,7 @@ function InfoPage({ page }) {
   // the comment on App's animationMode state for why "off" was the actual
   // reason the WebGL background never appeared for new visitors.
   const animationMode = (() => { try { return getCookie("cb_anim2") || "cinematic"; } catch { return "cinematic"; } })();
-  const goHome = () => { try { setCookie("cb_entered_v5", "1", 365); } catch {} window.location.href = "/"; };
+  const goHome = () => { window.location.href = "/"; };
   const PAGES = {
     about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
     privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible — and we can show our work", lede: "No tracking pixels. No third-party analytics. No ads. No selling data — there is nothing to sell. An account is entirely optional, and everything below is a specific, checkable claim, not a marketing line.", updated: "Last updated August 2026", blocks: [
@@ -2141,22 +2141,34 @@ function ReportModal({ query, P, accent, at, onClose }) {
 // filters, and source network. Skip button dismisses permanently.
 const TOUR_STEPS = [
   {
-    target: ".cb-search-shell",
-    title: "Search bar",
-    text: "Ask any scientific question — Cerebrum searches 14 scholarly databases in parallel and writes you a cited answer.",
-    position: "bottom",
+    title: "Command Line",
+    icon: "⌘",
+    text: "Type any scientific question into the search bar. Cerebrum queries 14 scholarly databases in parallel — PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more — then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
+    hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to focus the search bar from anywhere.`,
   },
   {
-    target: ".cb-filter-row",
-    title: "Evidence filters",
-    text: "Filter results by publication type, date range, and evidence tier to narrow findings to what matters most.",
-    position: "bottom",
+    title: "Evidence Filters",
+    icon: "◉",
+    text: "After results arrive, use the filter row to narrow by publication type (meta-analysis, RCT, review, preprint), date range, and evidence tier. Filters apply instantly — the source panel and synthesis update in real time so you see only the evidence that meets your threshold.",
+    hint: "Combine filters to surface the highest-confidence subset of the literature.",
   },
   {
-    target: ".cb-answer-enter",
-    title: "Source network & timeline",
-    text: "Once results arrive, explore how sources relate in a visual network or trace the literature chronologically.",
-    position: "top",
+    title: "Deep Read Drawer",
+    icon: "⊞",
+    text: "Click any source card to open its deep-read panel: full abstract, author list, journal metadata, DOI link, relevance score, and evidence classification. Save or pin papers directly from here, and use the Author button to instantly find more work by the same research group.",
+    hint: "Navigate source cards with J/K keys; Enter opens the drawer, Escape closes it.",
+  },
+  {
+    title: "Contradiction Engine",
+    icon: "⟁",
+    text: "The Divergent Findings & Gaps section surfaces papers that disagree with each other or with the consensus. Instead of burying conflicting evidence, Cerebrum highlights it — so you can evaluate the full landscape of a question, not just the majority position.",
+    hint: "Methodological Confidence scores help distinguish strong from weak disagreements.",
+  },
+  {
+    title: "High-APM Navigation",
+    icon: "⚡",
+    text: "Cerebrum is built for speed. Open the command palette to jump between investigations instantly. Use keyboard shortcuts for every major action: search, new investigation, saved articles, settings, and theme toggle. Pin key papers so they persist across follow-up queries in the same session.",
+    hint: `${IS_MAC ? "⌘" : "Ctrl"}+K Search · ${IS_MAC ? "⌘" : "Ctrl"}+J New investigation · ${IS_MAC ? "⌘" : "Ctrl"}+B Saved · Esc Close`,
   },
 ];
 
@@ -2165,23 +2177,24 @@ function GuidedTour({ P, accent }) {
   const [dismissed, setDismissed] = useState(() => {
     try { return localStorage.getItem("cb_tour_done") === "1"; } catch { return false; }
   });
-  const [targetRect, setTargetRect] = useState(null);
+  const [entering, setEntering] = useState(true);
 
   useEffect(() => {
     if (dismissed) return;
-    const find = () => {
-      const el = document.querySelector(TOUR_STEPS[step]?.target);
-      if (el) {
-        const r = el.getBoundingClientRect();
-        setTargetRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-      } else {
-        setTargetRect(null);
-      }
+    const t = setTimeout(() => setEntering(false), 400);
+    return () => clearTimeout(t);
+  }, [dismissed]);
+
+  useEffect(() => {
+    if (dismissed) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") { dismiss(); return; }
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); next(); }
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }
     };
-    find();
-    const iv = setInterval(find, 800);
-    return () => clearInterval(iv);
-  }, [step, dismissed]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dismissed, step]);
 
   const dismiss = () => {
     try { localStorage.setItem("cb_tour_done", "1"); } catch {}
@@ -2191,51 +2204,137 @@ function GuidedTour({ P, accent }) {
     if (step >= TOUR_STEPS.length - 1) { dismiss(); return; }
     setStep(step + 1);
   };
+  const prev = () => setStep((s) => Math.max(0, s - 1));
 
-  if (dismissed || !targetRect) return null;
+  if (dismissed) return null;
 
   const current = TOUR_STEPS[step];
-  const isBottom = current.position === "bottom";
-  const tooltipTop = isBottom
-    ? targetRect.top + targetRect.height + 14
-    : targetRect.top - 14;
+  const progress = ((step + 1) / TOUR_STEPS.length) * 100;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 250, pointerEvents: "none" }}>
-      {/* Pulsing ring around target */}
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 300,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: "rgba(0, 0, 0, 0.6)",
+      backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+      opacity: entering ? 0 : 1,
+      transition: "opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+    }} onClick={(e) => { if (e.target === e.currentTarget) dismiss(); }}>
       <div style={{
-        position: "fixed",
-        top: targetRect.top - 6, left: targetRect.left - 6,
-        width: targetRect.width + 12, height: targetRect.height + 12,
-        borderRadius: 8, border: `2px solid ${accent}`,
-        boxShadow: `0 0 0 4px ${withAlpha(accent, 0.2)}`,
-        animation: "cbpulse 2s ease-in-out infinite",
-        pointerEvents: "none",
-      }} />
-      {/* Tooltip */}
-      <div style={{
-        position: "fixed",
-        top: isBottom ? tooltipTop : "auto",
-        bottom: isBottom ? "auto" : `calc(100vh - ${tooltipTop}px)`,
-        left: Math.min(Math.max(targetRect.left, 16), window.innerWidth - 320),
-        width: 300, padding: "18px 20px",
-        background: P.dark ? "rgba(15, 17, 26, 0.95)" : "rgba(255, 255, 255, 0.97)",
-        backdropFilter: "blur(24px) saturate(150%)", WebkitBackdropFilter: "blur(24px) saturate(150%)",
+        width: "min(480px, calc(100vw - 48px))",
+        background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)",
+        backdropFilter: "blur(40px) saturate(150%)",
+        WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
-        borderRadius: 8, boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
-        pointerEvents: "auto",
+        borderRadius: 16,
+        boxShadow: P.dark
+          ? "0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset"
+          : "0 24px 80px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.03) inset",
+        overflow: "hidden",
+        transform: entering ? "scale(0.95) translateY(12px)" : "scale(1) translateY(0)",
+        transition: "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
       }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginBottom: 6 }}>
-          {step + 1}/{TOUR_STEPS.length} · {current.title}
+        {/* Progress bar */}
+        <div style={{ height: 2, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
+          <div style={{
+            height: "100%", width: progress + "%",
+            background: accent,
+            transition: "width 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+          }} />
         </div>
-        <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.6, marginBottom: 14 }}>{current.text}</div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <button onClick={dismiss} style={{ fontSize: FONT_SIZES.caption, color: P.faint, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-mono)", padding: 0 }}>Skip tour</button>
-          <button onClick={next} style={{
-            fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "7px 16px", borderRadius: 3,
-            background: accent, color: P.dark ? "#000" : "#fff", border: "none", cursor: "pointer",
-            fontFamily: "var(--cb-body)",
-          }}>{step >= TOUR_STEPS.length - 1 ? "Done" : "Next"}</button>
+
+        <div style={{ padding: "32px 32px 28px" }}>
+          {/* Step icon + counter */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 12,
+              background: withAlpha(accent, 0.12),
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 20, color: accent,
+            }}>{current.icon}</div>
+            <span style={{
+              fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em",
+              textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)",
+            }}>{step + 1} of {TOUR_STEPS.length}</span>
+          </div>
+
+          {/* Title */}
+          <h3 style={{
+            fontSize: "clamp(18px, 2.5vw, 22px)", fontWeight: 700, color: P.ink,
+            margin: "0 0 12px", fontFamily: "var(--cb-heading)", letterSpacing: "-0.02em",
+            lineHeight: 1.2,
+          }}>{current.title}</h3>
+
+          {/* Body text */}
+          <p style={{
+            fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7,
+            margin: "0 0 16px", fontFamily: "var(--cb-body)",
+          }}>{current.text}</p>
+
+          {/* Hint */}
+          {current.hint && (
+            <div style={{
+              fontSize: FONT_SIZES.small, color: P.faint,
+              background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+              border: P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.06)",
+              borderRadius: 8, padding: "10px 14px",
+              fontFamily: "var(--cb-mono)", letterSpacing: "0.01em", lineHeight: 1.5,
+            }}>{current.hint}</div>
+          )}
+        </div>
+
+        {/* Navigation footer */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "16px 32px 24px",
+          borderTop: P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.06)",
+        }}>
+          <button onClick={dismiss} style={{
+            fontSize: FONT_SIZES.small, color: P.faint,
+            background: "none", border: "none", cursor: "pointer",
+            fontFamily: "var(--cb-body)", padding: "6px 0",
+            transition: "color 0.2s",
+          }} onMouseEnter={(e) => e.target.style.color = P.ink}
+             onMouseLeave={(e) => e.target.style.color = P.faint}>
+            Skip tour
+          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {step > 0 && (
+              <button onClick={prev} style={{
+                fontSize: FONT_SIZES.small, fontWeight: 600, padding: "8px 18px", borderRadius: 8,
+                background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+                color: P.ink, border: "none", cursor: "pointer",
+                fontFamily: "var(--cb-body)", transition: "background 0.2s",
+              }} onMouseEnter={(e) => e.target.style.background = P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}
+                 onMouseLeave={(e) => e.target.style.background = P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"}>
+                Back
+              </button>
+            )}
+            <button onClick={next} style={{
+              fontSize: FONT_SIZES.small, fontWeight: 600, padding: "8px 22px", borderRadius: 8,
+              background: accent, color: P.dark ? "#000" : "#fff",
+              border: "none", cursor: "pointer", fontFamily: "var(--cb-body)",
+              transition: "filter 0.2s",
+            }} onMouseEnter={(e) => e.target.style.filter = "brightness(1.15)"}
+               onMouseLeave={(e) => e.target.style.filter = "none"}>
+              {step >= TOUR_STEPS.length - 1 ? "Get started" : "Next"}
+            </button>
+          </div>
+        </div>
+
+        {/* Step dots */}
+        <div style={{
+          display: "flex", justifyContent: "center", gap: 6,
+          paddingBottom: 20,
+        }}>
+          {TOUR_STEPS.map((_, i) => (
+            <button key={i} onClick={() => setStep(i)} aria-label={`Go to step ${i + 1}`} style={{
+              width: i === step ? 20 : 6, height: 6, borderRadius: 3,
+              background: i === step ? accent : P.dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)",
+              border: "none", cursor: "pointer", padding: 0,
+              transition: "all 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+            }} />
+          ))}
         </div>
       </div>
     </div>
@@ -4101,13 +4200,18 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       background: "transparent",
       border: "1px solid " + P.line,
       borderRadius: 100, padding: "10px 18px",
-      cursor: "pointer", transition: "all 0.25s ease",
-      fontFamily: "var(--cb-body)", letterSpacing: "-0.01em"
+      cursor: "pointer",
+      transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
+      fontFamily: "var(--cb-body)", letterSpacing: "-0.01em",
+      outline: "none",
+      WebkitTapHighlightColor: "transparent",
+      boxSizing: "border-box",
     },
     chipHover: {
       borderColor: P.line2, color: P.ink,
       background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.02)",
-      boxShadow: "none"
+      boxShadow: `0 0 0 1px ${P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}`,
+      outline: "none",
     },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
@@ -4419,7 +4523,7 @@ function ToastHost({ P, accent }) {
 
 function App() {
   const isMobile = useIsMobile();
-  const [entered, setEntered] = useState(() => { try { return getCookie("cb_entered_v5") === "1"; } catch { return false; } });
+  const [entered, setEntered] = useState(false);
   // V5 "what's new" announcement — shows once per browser, the first time
   // someone lands on the main app after this ships. Keyed off its own
   // localStorage flag rather than the entry cookie above, since a returning
@@ -5106,7 +5210,7 @@ function App() {
   const grouped = useMemo(() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; }, [sortedSources, srcSort]);
 
   if (!entered) {
-    return <Intro accent={accent} P={P} onEnter={() => { sfx(); try { setCookie("cb_entered_v5", "1", 365); } catch {} setEntered(true); }} animationMode={animationMode} />;
+    return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} animationMode={animationMode} />;
   }
 
   const started = turns.length > 0 || busy;
@@ -5218,7 +5322,7 @@ function App() {
                   the app being a smooth fade/blur. Flipping `entered` back to
                   false replays the exact same Intro the cookie-clear was
                   trying to reach, without throwing away the JS runtime. */}
-              <div onClick={(e) => { e.stopPropagation(); sfx(); try { document.cookie = "cb_entered_v5=; path=/; max-age=0"; } catch {} setEntered(false); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); try { document.cookie = "cb_entered_v5=; path=/; max-age=0"; } catch {} setEntered(false); } }} role="button" tabIndex={0} aria-label="Back to landing page" style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <div onClick={(e) => { e.stopPropagation(); sfx(); setEntered(false); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEntered(false); } }} role="button" tabIndex={0} aria-label="Back to landing page" style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                 <span style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
                 <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
               </div>
@@ -5755,6 +5859,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .cb-chip-hover {
   position: relative;
   overflow: hidden;
+  outline: none !important;
+}
+.cb-chip-hover:focus,
+.cb-chip-hover:focus-visible {
+  outline: none !important;
+  box-shadow: none;
 }
 .cb-chip-hover::after {
   content: '';
