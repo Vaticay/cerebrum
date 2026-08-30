@@ -818,13 +818,13 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)
         }}
         style={{
           display: "inline-flex", alignItems: "center",
-          fontSize: 11, color: accent, verticalAlign: "baseline",
+          fontSize: 11, color: P.ink, verticalAlign: "baseline",
           textDecoration: "none", fontWeight: 600,
           fontFamily: "var(--cb-body)",
           margin: "0 2px", padding: "2px 8px",
           borderRadius: 12,
-          background: hoverCite === n ? withAlpha(accent, 0.22) : withAlpha(accent, 0.15),
-          border: `1px solid ${withAlpha(accent, 0.3)}`,
+          background: hoverCite === n ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.07)") : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
+          border: "1px solid " + P.line,
           transition: "background 0.15s ease", cursor: "pointer",
         }}>{n}</a>;
     }
@@ -1573,14 +1573,17 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           filter: ready ? "blur(0)" : "blur(4px)",
           transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s",
         }}>
-          <button onClick={go} className="cb-glow-btn" style={{
+          <button onClick={go} style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             padding: "15px 32px", fontSize: FONT_SIZES.body, fontWeight: 600,
-            background: accent, color: accentText(accent),
-            border: "none", borderRadius: 3, cursor: "pointer",
+            background: P.ink, color: P.bg,
+            border: "none", borderRadius: 4, cursor: "pointer",
             fontFamily: "var(--cb-body)",
-            boxShadow: `0 4px 28px ${withAlpha(accent, 0.4)}`,
-          }}>
+            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+            transition: "opacity 0.2s ease",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}>
             Start exploring
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
           </button>
@@ -3610,17 +3613,17 @@ function makeStyles(P, accent, at, isMobile = false) {
       width: "100%", maxWidth: 700,
       backdropFilter: "blur(14px) saturate(1.3)",
       WebkitBackdropFilter: "blur(14px) saturate(1.3)",
-      background: glass,
-      border: glassBorder,
+      background: P.dark ? "rgba(255,255,255,0.03)" : "#ffffff",
+      border: "1px solid " + P.line,
       borderRadius: 100,
       padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
-      boxShadow: P.shadow,
+      boxShadow: P.shadowSm,
       transition: "border-color 0.3s ease, box-shadow 0.3s ease",
       position: "relative"
     },
     searchShellActive: {
-      borderColor: withAlpha(accent, 0.4),
-      boxShadow: `${P.shadow}, 0 0 0 1px ${withAlpha(accent, 0.15)}, 0 0 40px ${withAlpha(accent, 0.06)}`
+      borderColor: P.line2,
+      boxShadow: P.shadow
     },
     searchInput: {
       flex: 1, border: "none", outline: "none", background: "transparent",
@@ -3630,11 +3633,12 @@ function makeStyles(P, accent, at, isMobile = false) {
     searchBtn: {
       display: "inline-flex", alignItems: "center", justifyContent: "center",
       width: 38, height: 38, flexShrink: 0,
-      background: accent, color: at,
-      border: "none",
+      background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+      color: P.ink,
+      border: "1px solid " + P.line,
       borderRadius: "50%", cursor: "pointer",
-      transition: "transform 0.15s ease, box-shadow 0.2s ease",
-      boxShadow: `0 2px 12px ${withAlpha(accent, 0.35)}`,
+      transition: "transform 0.15s ease, background 0.2s ease",
+      boxShadow: "none",
     },
 
     /* ── Suggestion chips: fluid conversational prompts ──
@@ -3646,15 +3650,15 @@ function makeStyles(P, accent, at, isMobile = false) {
     chip: {
       fontSize: FONT_SIZES.small, color: P.ink2,
       background: "transparent",
-      border: `1px solid ${withAlpha(P.ink, 0.1)}`,
+      border: "1px solid " + P.line,
       borderRadius: 100, padding: "10px 18px",
       cursor: "pointer", transition: "all 0.25s ease",
       fontFamily: "var(--cb-body)", letterSpacing: "-0.01em"
     },
     chipHover: {
-      borderColor: withAlpha(accent, 0.35), color: accent,
-      background: withAlpha(accent, 0.06),
-      boxShadow: `0 4px 20px ${withAlpha(accent, 0.1)}`
+      borderColor: P.line2, color: P.ink,
+      background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.02)",
+      boxShadow: "none"
     },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
@@ -3745,7 +3749,7 @@ function makeStyles(P, accent, at, isMobile = false) {
       display: "flex", alignItems: "flex-start", gap: 12,
       backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
     },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(5,8,22,0.85)" : "rgba(255,255,255,0.9)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: glassBorder, borderRadius: 3, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: P.shadow, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(255,255,255,0.03)" : "#ffffff", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid " + P.line, borderRadius: 3, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: P.shadowSm, transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
@@ -3782,7 +3786,7 @@ function makeStyles(P, accent, at, isMobile = false) {
       position: "sticky", top: 24,
       background: P.dark ? P.surface : withAlpha(P.bg, 0.97),
       border: "1px solid " + P.line, borderRadius: 3,
-      padding: "20px", boxShadow: P.shadow,
+      padding: "20px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
@@ -3792,10 +3796,10 @@ function makeStyles(P, accent, at, isMobile = false) {
     srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 3, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 3, marginBottom: 14, border: `1px solid ${P.line}` },
     sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.2s ease" },
-    sortTabActive: { background: P.dark ? P.raised : P.surface, color: P.ink, boxShadow: P.shadowSm, fontWeight: 600 },
+    sortTabActive: { background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", color: P.ink, boxShadow: "none", fontWeight: 600 },
     srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" },
     sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
-    sBtnP: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: accent, color: at, border: "none", borderRadius: 3, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-mono)" },
+    sBtnP: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.ink, color: P.bg, border: "none", borderRadius: 3, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-mono)" },
     savedNote: { fontSize: FONT_SIZES.caption, color: accent, marginBottom: 12, fontFamily: "var(--cb-mono)" },
     zBox: { background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, border: glassBorder, borderRadius: 3, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
     zIn: { padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.surface, 0.4) : P.surface, color: P.ink, borderRadius: 3, outline: "none", fontFamily: "var(--cb-mono)" },
@@ -5066,17 +5070,7 @@ summary::-webkit-details-marker { display: none; }
 }
 @keyframes cbCaret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0.15; } }
 
-/* CTA shimmer */
-.cb-glow-btn { position: relative; overflow: hidden; }
-.cb-glow-btn::before {
-  content: "";
-  position: absolute; inset: 0;
-  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.12) 55%, transparent 65%);
-  background-size: 250% 100%;
-  animation: cbBtnShimmer 4s ease-in-out infinite;
-  border-radius: inherit;
-}
-@keyframes cbBtnShimmer { 0% { background-position: 200% center; } 100% { background-position: -200% center; } }
+/* CTA shimmer — removed: monochrome CTA needs no shimmer */
 
 /* ── Entrance classes: SNAPPY (200-250ms) — instant-feeling, not sluggish ── */
 .cb-fade    { animation: cbFade  200ms var(--cb-ease) both; }
