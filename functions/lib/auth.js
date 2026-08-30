@@ -118,14 +118,80 @@ export function readSessionCookie(request) {
   return match ? match[1] : null;
 }
 
-// Looks up the current user from the request's session cookie. Returns
-// null (not a throw) for "not logged in" — every caller treats that as the
-// normal guest-mode case, not an error.
+// --- JWT plumbing (stateless sessions) ------------------------------------
+
+const JWT_TTL_S = 60 * 60 * 24 * 30; // 30 days
+
+function b64UrlEncode(buf) {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function b64UrlEncodeStr(str) { return b64UrlEncode(new TextEncoder().encode(str)); }
+function b64UrlDecode(str) {
+  let s = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  const raw = atob(s);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
+
+async function hmacKey(secret) {
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+}
+
+export async function signJWT(payload, env) {
+  if (!env.JWT_SECRET) throw new Error("JWT_SECRET not configured");
+  const key = await hmacKey(env.JWT_SECRET);
+  const header = b64UrlEncodeStr(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { ...payload, iat: now, exp: now + JWT_TTL_S };
+  const body = b64UrlEncodeStr(JSON.stringify(claims));
+  const data = new TextEncoder().encode(`${header}.${body}`);
+  const sig = await crypto.subtle.sign("HMAC", key, data);
+  return `${header}.${body}.${b64UrlEncode(sig)}`;
+}
+
+export async function verifyJWT(token, env) {
+  if (!env.JWT_SECRET) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const key = await hmacKey(env.JWT_SECRET);
+    const data = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+    const sig = b64UrlDecode(parts[2]);
+    const valid = await crypto.subtle.verify("HMAC", key, sig, data);
+    if (!valid) return null;
+    const payload = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[1])));
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch { return null; }
+}
+
+export function jwtCookieHeader(jwt, secure) {
+  return `${COOKIE_NAME}=${jwt}; Path=/; Max-Age=${JWT_TTL_S}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
+}
+
+// Looks up the current user from the request's session cookie.
+// Tries JWT verification first (stateless, no DB call). Falls back to
+// legacy DB session lookup for backward compatibility with older tokens.
+// Returns null (not a throw) for "not logged in."
 export async function getSessionUser(request, env) {
+  const raw = readSessionCookie(request);
+  if (!raw) return null;
+
+  // JWT tokens contain dots; legacy session tokens don't.
+  if (raw.includes(".") && env.JWT_SECRET) {
+    const payload = await verifyJWT(raw, env);
+    if (payload && payload.sub && payload.email) {
+      return { id: payload.sub, email: payload.email };
+    }
+    return null;
+  }
+
+  // Legacy DB session fallback
   if (!env.DB) return null;
-  const token = readSessionCookie(request);
-  if (!token) return null;
-  const tokenHash = await sha256Hex(token);
+  const tokenHash = await sha256Hex(raw);
   const row = await env.DB.prepare(
     `SELECT s.user_id AS id, s.expires_at AS expires_at, u.email AS email
      FROM sessions s JOIN users u ON u.id = s.user_id
@@ -133,7 +199,6 @@ export async function getSessionUser(request, env) {
   ).bind(tokenHash).first();
   if (!row) return null;
   if (row.expires_at < Date.now()) {
-    // Expired — best-effort cleanup, doesn't block the "not logged in" result.
     try { await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run(); } catch {}
     return null;
   }
