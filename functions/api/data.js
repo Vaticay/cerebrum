@@ -19,6 +19,12 @@ const MAX_MESSAGE_LEN = 4000;
 const MAX_NAME_LEN = 120;
 const MAX_USERNAME_LEN = 40;
 const MAX_AFFILIATION_LEN = 200;
+// A 256x256 JPEG comes back from the client-side canvas compressor at
+// roughly 15-50KB before base64's ~4/3 inflation, so this leaves generous
+// headroom for a lower-quality/less-compressible image while still
+// rejecting anything that isn't actually a compressed 256x256 thumbnail
+// (a full-res photo someone points a hand-rolled client at, for instance).
+const MAX_AVATAR_BASE64_LEN = 300000;
 
 // The live social tables declare their timestamp columns DATETIME DEFAULT
 // CURRENT_TIMESTAMP (a SQLite string default), but every write this file
@@ -124,7 +130,7 @@ export async function onRequest(context) {
       // raise, so it's not being guessed at here.
       if (resource === "profile") {
         const row = await env.DB.prepare(
-          "SELECT id, email, username, name, affiliation FROM users WHERE id = ?"
+          "SELECT id, email, username, name, affiliation, avatar_base64 FROM users WHERE id = ?"
         ).bind(user.id).first();
         if (!row) return new Response(JSON.stringify({ error: "Account not found." }), { status: 404, headers: cors });
         const followerCount = await env.DB.prepare(
@@ -134,7 +140,7 @@ export async function onRequest(context) {
           "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
         ).bind(user.id).all();
         return new Response(JSON.stringify({
-          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation },
+          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, avatar_base64: row.avatar_base64 || null },
           followers: followerCount?.n || 0,
           badges: (badgeRows.results || []).map((b) => b.badge_type),
         }), { status: 200, headers: cors });
@@ -360,11 +366,27 @@ export async function onRequest(context) {
       let username = typeof body.username === "string" ? body.username.trim().replace(/^@+/, "").slice(0, MAX_USERNAME_LEN) : undefined;
       if (username === "") username = null;
       const affiliation = typeof body.affiliation === "string" ? body.affiliation.trim().slice(0, MAX_AFFILIATION_LEN) : undefined;
+      // `null` (explicit removal) is a valid value here too, so this can't
+      // use the same `typeof === "string" ? … : undefined` shape as the
+      // text fields above — `undefined` still means "leave it alone."
+      let avatarBase64;
+      if (body.avatar_base64 === null) {
+        avatarBase64 = null;
+      } else if (typeof body.avatar_base64 === "string") {
+        if (body.avatar_base64.length > MAX_AVATAR_BASE64_LEN) {
+          return new Response(JSON.stringify({ error: "Image is too large. Try a smaller photo." }), { status: 400, headers: cors });
+        }
+        if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(body.avatar_base64)) {
+          return new Response(JSON.stringify({ error: "Unsupported image format." }), { status: 400, headers: cors });
+        }
+        avatarBase64 = body.avatar_base64;
+      }
       const sets = [];
       const binds = [];
       if (name !== undefined) { sets.push("name = ?"); binds.push(name); }
       if (username !== undefined) { sets.push("username = ?"); binds.push(username); }
       if (affiliation !== undefined) { sets.push("affiliation = ?"); binds.push(affiliation); }
+      if (avatarBase64 !== undefined) { sets.push("avatar_base64 = ?"); binds.push(avatarBase64); }
       if (!sets.length) return new Response(JSON.stringify({ error: "Nothing to update." }), { status: 400, headers: cors });
       binds.push(user.id);
       try {
