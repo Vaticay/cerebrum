@@ -11,15 +11,20 @@
 // UI for them, but nothing about an existing password-holding account
 // breaks by leaving the code serving it intact.
 //
-// Dual-mode throughout, same principle as everywhere else in this file: when
-// env.DB is configured, OTP state (a hash of the code, a hash of a paired
-// flow-cookie value, an attempt counter, an expiry) lives in the `otp_codes`
-// D1 table — one row per email, replaced wholesale on every new request so
-// only the most recently issued code is ever valid. Without env.DB, the same
-// state lives in a per-isolate in-memory Map, exactly the same honest
-// tradeoff already documented in lib/rateLimit.js: it works end-to-end with
-// no database provisioned yet, but a pending code isn't guaranteed to survive
-// a request landing on a different edge isolate mid-flow.
+// Three-tier storage for pending OTP state (a hash of the code, a hash of a
+// paired flow-cookie value, an attempt counter, an expiry), best available
+// first: the `otp_codes` D1 table when env.DB is configured (one row per
+// email, replaced wholesale on every new request so only the most recently
+// issued code is ever valid; the table is created on first use if schema.sql
+// hasn't been run against the live database yet — see ensureOtpTable below,
+// added after a missing-table 503 turned out to be exactly what "sign-in
+// doesn't work" looked like in practice); then env.RATE_LIMIT_KV when D1
+// isn't bound, since it's genuinely shared across every Cloudflare
+// isolate/colo; and only when NEITHER is configured, a per-isolate in-memory
+// Map — the same honest tradeoff already documented in lib/rateLimit.js,
+// kept purely so the flow still works end-to-end with nothing provisioned,
+// with no guarantee a pending code survives a request landing on a
+// different edge isolate mid-flow.
 //
 // Security properties of the OTP path specifically:
 //   - The 6-digit code is drawn from crypto.getRandomValues with rejection
@@ -153,10 +158,75 @@ function getPendingCookie(request) {
   return match ? match[1] : null;
 }
 
-// Per-isolate fallback store for OTP state when env.DB isn't configured —
-// same tradeoff as memoryBuckets in lib/rateLimit.js, spelled out in the
-// file header above.
+// otp_codes is a NEW table — it did not exist before this OTP flow shipped,
+// which means it only exists in a live D1 database once someone has
+// actually run schema.sql against it (a separate, manual `wrangler d1
+// execute` step from deploying this file). Forgetting that step looks
+// EXACTLY like "sign in doesn't work": env.DB is bound, so fullMode is true
+// and every code path below assumes the table is there, but the INSERT a
+// few lines down throws "no such table: otp_codes", the catch around it
+// returns a generic "temporarily unavailable" 503, and nothing about that
+// experience tells anyone what actually went wrong. Rather than depend on a
+// migration step someone has to remember to run separately, this creates
+// the table itself, once per isolate, the moment it's first needed —
+// CREATE TABLE IF NOT EXISTS is a no-op once schema.sql (or this) has
+// already created it, so this is always safe to call.
+let _otpTableEnsured = false;
+async function ensureOtpTable(env) {
+  if (_otpTableEnsured) return;
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS otp_codes (email_lower TEXT NOT NULL PRIMARY KEY, code_hash TEXT NOT NULL, flow_hash TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
+  );
+  _otpTableEnsured = true;
+}
+
+// ── Pending-OTP storage, no-D1 tiers ────────────────────────────────────
+// Below fullMode there are two further tiers, in preference order:
+//   1. env.RATE_LIMIT_KV, if bound — genuinely shared across every
+//      Cloudflare isolate/colo (same namespace lib/rateLimit.js already
+//      uses for counters), so a pending code survives send-code and
+//      verify-code landing on two different isolates, which is the ordinary
+//      case once there's real human think-time between the two requests.
+//   2. A per-isolate in-memory Map — works fine when both requests happen
+//      to land on the same isolate, but has no cross-isolate guarantee at
+//      all. Genuinely last resort, kept only so the flow still works end to
+//      end on a deployment with neither D1 nor KV configured yet.
+// (As of this deploy, wrangler.toml has the KV binding commented out
+// pending a real namespace ID, so tier 2 is what's actually live if D1 also
+// isn't migrated yet — see ensureOtpTable above for why that's the likelier
+// gap to close first.)
 const pendingOtpMemory = new Map();
+
+function otpKvKey(emailLower) {
+  return `otp_pending:${emailLower}`;
+}
+async function kvGetOtp(kv, emailLower) {
+  try {
+    const raw = await kv.get(otpKvKey(emailLower));
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    console.error("OTP KV read failed:", e);
+    return null;
+  }
+}
+async function kvPutOtp(kv, emailLower, entry) {
+  try {
+    await kv.put(otpKvKey(emailLower), JSON.stringify(entry), {
+      expirationTtl: Math.ceil(OTP_TTL_MS / 1000),
+    });
+    return true;
+  } catch (e) {
+    console.error("OTP KV write failed:", e);
+    return false;
+  }
+}
+async function kvDeleteOtp(kv, emailLower) {
+  try {
+    await kv.delete(otpKvKey(emailLower));
+  } catch (e) {
+    console.error("OTP KV delete failed:", e);
+  }
+}
 
 // Six random digits, rejection-sampled so every digit is uniformly 0-9 (a
 // plain `byte % 10` is very slightly biased toward 0-5 since 256 isn't a
@@ -318,6 +388,7 @@ export async function onRequest(context) {
 
   const hasDB = !!(env && env.DB);
   const fullMode = hasDB;
+  const hasKV = !!(env && env.RATE_LIMIT_KV);
 
   // ── Rate limiting (both modes) ──────────────────────────────────────
   // Used to only run in full mode; moved outside that gate because a
@@ -402,15 +473,26 @@ export async function onRequest(context) {
 
       if (fullMode) {
         try {
+          await ensureOtpTable(env);
           await env.DB.prepare(
             "INSERT OR REPLACE INTO otp_codes (email_lower, code_hash, flow_hash, attempts, created_at, expires_at) VALUES (?, ?, ?, 0, ?, ?)"
           )
             .bind(emailLower, codeHash, flowHash, now, now + OTP_TTL_MS)
             .run();
         } catch (e) {
-          // otp_codes not migrated in yet — fail closed rather than silently
-          // pretending a code was issued that verify-code could never check.
-          console.error("send-code DB write failed (otp_codes table may not exist yet):", e);
+          // ensureOtpTable() above should make this unreachable in practice,
+          // but fail closed rather than silently pretending a code was
+          // issued that verify-code could never check against.
+          console.error("send-code DB write failed:", e);
+          return json(
+            { error: "Sign-in is temporarily unavailable. Please try again shortly." },
+            503,
+            cors
+          );
+        }
+      } else if (hasKV) {
+        const ok = await kvPutOtp(env.RATE_LIMIT_KV, emailLower, { codeHash, flowHash, attempts: 0, expiresAt: now + OTP_TTL_MS });
+        if (!ok) {
           return json(
             { error: "Sign-in is temporarily unavailable. Please try again shortly." },
             503,
@@ -436,9 +518,17 @@ export async function onRequest(context) {
       const email = (body.email || "").trim();
       const code = (body.code || "").trim();
       const emailLower = email.toLowerCase();
-      const fail = () => json({ error: "Invalid or expired code." }, 401, cors);
+      // Client always sees the same generic message — telling an attacker
+      // WHY a guess failed (wrong code vs. no pending code vs. expired vs.
+      // missing cookie) is a free enumeration/timing oracle. The reason
+      // still goes to the server log, since "sign-in doesn't work" reports
+      // are otherwise impossible to diagnose after the fact.
+      const fail = (reason) => {
+        console.error("verify-code rejected:", reason, "email:", emailLower);
+        return json({ error: "Invalid or expired code." }, 401, cors);
+      };
 
-      if (!isValidEmail(email) || !/^\d{6}$/.test(code)) return fail();
+      if (!isValidEmail(email) || !/^\d{6}$/.test(code)) return fail("malformed email or code in request body");
       if (!(await checkRateLimit(env, `otp-verify:${emailLower}`, 8, 15 * 60000))) {
         return json({ error: "Too many attempts. Please wait a moment." }, 429, cors);
       }
@@ -447,24 +537,26 @@ export async function onRequest(context) {
       const flowToken = getPendingCookie(request);
 
       if (fullMode) {
+        await ensureOtpTable(env);
         const row = await env.DB.prepare("SELECT * FROM otp_codes WHERE email_lower = ?")
           .bind(emailLower)
           .first();
-        if (!row || row.expires_at < Date.now()) return fail();
+        if (!row) return fail("no pending D1 row for this email — was send-code ever called, or already consumed?");
+        if (row.expires_at < Date.now()) return fail("D1 row expired");
         if (row.attempts >= 5) {
           await env.DB.prepare("DELETE FROM otp_codes WHERE email_lower = ?").bind(emailLower).run();
           return json({ error: "Too many incorrect attempts. Request a new code." }, 429, cors);
         }
-        if (!flowToken) return fail();
+        if (!flowToken) return fail("missing cb_pending_auth cookie");
         const flowHash = await auth.sha256Hex(flowToken);
-        if (!auth.timingSafeEqualHex(flowHash, row.flow_hash)) return fail();
+        if (!auth.timingSafeEqualHex(flowHash, row.flow_hash)) return fail("pending-auth cookie doesn't match the one send-code issued");
 
         const codeHash = await auth.sha256Hex(`${emailLower}:${code}`);
         if (!auth.timingSafeEqualHex(codeHash, row.code_hash)) {
           await env.DB.prepare("UPDATE otp_codes SET attempts = attempts + 1 WHERE email_lower = ?")
             .bind(emailLower)
             .run();
-          return fail();
+          return fail("code does not match the one on record (wrong digits, or a stale/already-superseded code)");
         }
 
         // Correct — burn it immediately so it can never be replayed.
@@ -491,26 +583,43 @@ export async function onRequest(context) {
         return issueSession(env, user, isSecure, cors, [clearPendingCookieHeader(isSecure)]);
       }
 
-      // ── fallback mode (no DB) ──────────────────────────────────────
-      const entry = pendingOtpMemory.get(emailLower);
+      // ── fallback modes (no D1) — KV first if bound, else per-isolate
+      // memory as the last resort. See the tier comment above
+      // pendingOtpMemory's declaration for why KV is preferred here.
+      let entry, deleteEntry, bumpAttempts;
+      if (hasKV) {
+        entry = await kvGetOtp(env.RATE_LIMIT_KV, emailLower);
+        deleteEntry = () => kvDeleteOtp(env.RATE_LIMIT_KV, emailLower);
+        bumpAttempts = async () => {
+          if (!entry) return;
+          entry.attempts += 1;
+          await kvPutOtp(env.RATE_LIMIT_KV, emailLower, entry);
+        };
+      } else {
+        entry = pendingOtpMemory.get(emailLower) || null;
+        deleteEntry = async () => { pendingOtpMemory.delete(emailLower); };
+        bumpAttempts = async () => { if (entry) entry.attempts += 1; };
+      }
+      const tierName = hasKV ? "KV" : "in-memory";
+
       if (!entry || entry.expiresAt < Date.now()) {
-        pendingOtpMemory.delete(emailLower);
-        return fail();
+        await deleteEntry();
+        return fail(`no pending ${tierName} entry for this email — was send-code ever called, or already consumed/expired?`);
       }
       if (entry.attempts >= 5) {
-        pendingOtpMemory.delete(emailLower);
+        await deleteEntry();
         return json({ error: "Too many incorrect attempts. Request a new code." }, 429, cors);
       }
-      if (!flowToken) return fail();
+      if (!flowToken) return fail("missing cb_pending_auth cookie");
       const flowHash = await auth.sha256Hex(flowToken);
-      if (!auth.timingSafeEqualHex(flowHash, entry.flowHash)) return fail();
+      if (!auth.timingSafeEqualHex(flowHash, entry.flowHash)) return fail(`pending-auth cookie doesn't match the one send-code issued (${tierName} tier)`);
 
       const codeHash = await auth.sha256Hex(`${emailLower}:${code}`);
       if (!auth.timingSafeEqualHex(codeHash, entry.codeHash)) {
-        entry.attempts += 1;
-        return fail();
+        await bumpAttempts();
+        return fail(`code does not match the one on record (${tierName} tier)`);
       }
-      pendingOtpMemory.delete(emailLower);
+      await deleteEntry();
 
       const token = makeFallbackToken(email);
       const headers = new Headers(cors);
