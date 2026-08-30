@@ -466,6 +466,19 @@ function accentText(hex) {
 }
 function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
 
+// Relative (perceptual) luminance of a hex color, 0 (black) to 1 (white) —
+// used wherever a color needs to be checked against a FIXED surface rather
+// than the current theme, since this app's own accent isn't always a real
+// color: the only built-in scheme is genuine monochrome (see ACCENTS —
+// white in dark mode, black in light mode), so "accent" can legitimately BE
+// black. Anything checking accent against a hardcoded dark surface needs to
+// know that, not just trust the prop.
+function relLuminance(hex) {
+  if (typeof hex !== "string" || !/^#[0-9a-fA-F]{6}$/.test(hex)) return 1;
+  const c = (v) => { const n = parseInt(v, 16) / 255; return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4); };
+  return 0.2126 * c(hex.slice(1, 3)) + 0.7152 * c(hex.slice(3, 5)) + 0.0722 * c(hex.slice(5, 7));
+}
+
 // Rotates a hex color's hue by `deg` degrees, keeping its own saturation/
 // lightness — used to derive a second, related-but-distinct color from a
 // single accent (e.g. LivingBackground's two-stop fallback gradient) so a
@@ -1376,6 +1389,20 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const [ready, setReady] = useState(false);
   const isMobile = useIsMobile();
 
+  // This screen's surface is unconditionally black (see `background:
+  // "#000000"` below) — a fixed splash look, independent of whichever
+  // palette the visitor has chosen for the app itself. `accent` is NOT
+  // fixed, though: this app's only built-in accent scheme is real
+  // monochrome (white in dark mode, black in light mode — see App()'s own
+  // accent computation, and ACCENTS itself), so a visitor who last used the
+  // app in light mode arrives here with accent === black. Every
+  // accent-colored element on this permanently-black screen — both wordmark
+  // glyphs and the "We'll find the paper." line — would render invisible
+  // without this guard. A real luminance check rather than a literal
+  // string-match against "#000000" also catches a custom accent color a
+  // visitor picked in Settings that happens to be too dark to read here.
+  const introAccent = relLuminance(accent) < 0.15 ? "#5be8b0" : accent;
+
   useEffect(() => {
     if (animationMode === "off") { setRevealed(true); setReady(true); return; }
   }, [animationMode]);
@@ -1437,7 +1464,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         position: "relative", zIndex: 3,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Mark size={20} accent={accent} glow />
+          <Mark size={20} accent={introAccent} glow />
           <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#e8edf5", letterSpacing: "-0.02em" }}>Cerebrum</span>
         </div>
         <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
@@ -1460,7 +1487,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           filter: revealed ? "blur(0)" : "blur(6px)",
           transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
         }}>
-          <Mark size={36} accent={accent} glow />
+          <Mark size={36} accent={introAccent} glow />
         </div>
 
         <h1 style={{
@@ -1474,7 +1501,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           transition: "all 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s",
         }}>
           Ask anything.<br />
-          <span style={{ fontWeight: 700, color: accent }}>We'll find the paper.</span>
+          <span style={{ fontWeight: 700, color: introAccent }}>We'll find the paper.</span>
         </h1>
 
         <p style={{
