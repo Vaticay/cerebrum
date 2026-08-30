@@ -1,8 +1,11 @@
 // Per-account data endpoint: GET /api/data?resource=saved|collections|history
-// and POST /api/data (action-multiplexed by { resource, action, ...payload })
-// for everything that mutates it. This is what a signed-in user's Saved
-// articles / Collections / History switch to instead of localStorage — see
-// the frontend's `useServerData` in src/main.jsx for the client side.
+// |profile|inbox|thread, and POST /api/data (action-multiplexed by
+// { resource, action, ...payload } for saved/collections/history, or a bare
+// { action, ...payload } for update-profile/toggle-follow/send-message — see
+// the comment further down where those three are defined). This is what a
+// signed-in user's Saved articles / Collections / History / Profile / Inbox
+// switch to instead of localStorage or local-only component state — see
+// apiDataGet/apiDataPost/apiDataAction in src/main.jsx for the client side.
 //
 // Every single handler below starts by resolving the session and rejecting
 // with 401 if there isn't one — there is no "read someone else's data by
@@ -179,6 +182,64 @@ export async function onRequest(context) {
         }
         items.sort((a, b) => (b.lastMessage?.createdAt || 0) - (a.lastMessage?.createdAt || 0));
         return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
+      }
+      // A single thread's full message history — get-inbox above only ever
+      // returns the most recent message per thread (that's what a thread
+      // list needs), so opening a conversation needs its own fetch. Same
+      // membership guard as send-message: no row in thread_participants for
+      // this thread and this user means a 403, not a peek at someone else's
+      // conversation.
+      if (resource === "thread") {
+        const threadId = (url.searchParams.get("thread_id") || "").toString();
+        if (!threadId) return new Response(JSON.stringify({ error: "Missing thread_id." }), { status: 400, headers: cors });
+        const membership = await env.DB.prepare(
+          "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+        ).bind(threadId, user.id).first();
+        if (!membership) return new Response(JSON.stringify({ error: "You're not part of that conversation." }), { status: 403, headers: cors });
+        const threadRow = await env.DB.prepare("SELECT id, kind, name FROM threads WHERE id = ?").bind(threadId).first();
+        if (!threadRow) return new Response(JSON.stringify({ error: "That conversation no longer exists." }), { status: 404, headers: cors });
+        const participantRows = await env.DB.prepare(
+          `SELECT u.id, u.name, u.username, u.email, u.affiliation FROM thread_participants tp
+           JOIN users u ON u.id = tp.user_id
+           WHERE tp.thread_id = ?`
+        ).bind(threadId).all();
+        const participants = participantRows.results || [];
+        const byId = new Map(participants.map((p) => [p.id, p]));
+        const displayNameFor = (p) => (p ? (p.name || p.username || p.email) : "Someone");
+        let name = threadRow.name;
+        let otherEmail = null;
+        let otherAffiliation = null;
+        if (!name && threadRow.kind === "dm") {
+          const other = participants.find((p) => p.id !== user.id);
+          name = other ? displayNameFor(other) : "Conversation";
+          otherEmail = other?.email || null;
+          otherAffiliation = other?.affiliation || null;
+        }
+        // Every message's sender is guaranteed to be a thread participant
+        // (send-message enforces that on the way in), so the participant
+        // rows already fetched above double as the sender-lookup table —
+        // no extra per-message query needed for the "who said this" label.
+        const messageRows = await env.DB.prepare(
+          "SELECT id, sender_id, text, attachment_title, created_at FROM messages WHERE thread_id = ? ORDER BY created_at ASC"
+        ).bind(threadId).all();
+        const messages = (messageRows.results || []).map((m) => ({
+          id: m.id,
+          senderId: m.sender_id,
+          mine: m.sender_id === user.id,
+          text: m.text,
+          attachmentTitle: m.attachment_title || null,
+          createdAt: toEpochMs(m.created_at),
+          who: displayNameFor(byId.get(m.sender_id)),
+        }));
+        return new Response(JSON.stringify({
+          id: threadRow.id,
+          kind: threadRow.kind,
+          name: name || "Conversation",
+          memberCount: participants.length,
+          otherEmail,
+          otherAffiliation,
+          messages,
+        }), { status: 200, headers: cors });
       }
       if (resource === "history") {
         const rows = await env.DB.prepare(
