@@ -567,6 +567,9 @@ function Icon({ name, size = 17, className, style }) {
     case "refresh": return <svg {...common}><path d="M21 12a9 9 0 01-15.3 6.4M3 12a9 9 0 0115.3-6.4" /><path d="M21 4v6h-6M3 20v-6h6" /></svg>;
     case "wand": return <svg {...common}><path d="M4 20L18 6" /><path d="M15 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1z" /><path d="M6 15l.6 1.4L8 17l-1.4.6L6 19l-.6-1.4L4 17l1.4-.6z" /></svg>;
     case "timeline": return <svg {...common}><path d="M3 12h18" /><circle cx="6" cy="12" r="1.8" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" /><circle cx="18" cy="12" r="1.8" fill="currentColor" stroke="none" /></svg>;
+    case "mail": return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3.5 6.5L12 13l8.5-6.5" /></svg>;
+    case "badge": return <svg {...common}><circle cx="12" cy="9" r="5.5" /><path d="M8.5 13.5L7 21l5-2.6L17 21l-1.5-7.5" /></svg>;
+    case "send": return <svg {...common}><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>;
     default: return null;
   }
 }
@@ -3425,60 +3428,46 @@ function LiteratureTimeline({ P, accent, at, sources, close }) {
   );
 }
 
-// Accounts modal — sign in / create account / passwordless email link, all
-// three tabs in one place. Talks to /api/auth (see functions/api/auth.js).
-// `onAuthed(user)` fires on a successful login/signup/magic-verify; the
-// caller (App) is the one that decides what to do with the account's data
+// Accounts modal — a single 6-digit-code sign-in flow. Talks to /api/auth
+// (see functions/api/auth.js). `onAuthed(user)` fires once verify-code
+// succeeds; the caller (App) decides what to do with the account's data
 // (pull it down, offer to import local data, etc.) — this component only
-// handles the credentials exchange itself.
-const AUTH_TAB_IDS = ["login", "signup", "magic"];
+// handles the two-step credential exchange itself: send-code, verify-code.
+// No password is ever collected — proving inbox ownership is the entire
+// credential, which is also why there's nothing here for a phishing page to
+// usefully imitate beyond the code itself, and that code is single-use and
+// dead within 15 minutes even if it leaks.
+const OTP_LENGTH = 6;
+const OTP_RESEND_COOLDOWN_S = 30;
 
-// Rough, dependency-free password strength read — not a security control
-// (the server-side PBKDF2 cost is what actually matters), just an honest
-// nudge so "Create account" isn't a black box until the request fails.
-function passwordStrength(pw) {
-  if (!pw) return { label: "", score: 0 };
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (pw.length >= 12) score++;
-  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
-  if (/[0-9]/.test(pw) && /[^a-zA-Z0-9]/.test(pw)) score++;
-  const label = pw.length < 8 ? "Too short" : score <= 1 ? "Weak" : score === 2 ? "Fair" : score === 3 ? "Good" : "Strong";
-  const color = pw.length < 8 || score <= 1 ? STATUS.bad : score === 2 ? STATUS.warn : STATUS.good;
-  return { label, score: Math.min(score, 4), color };
-}
-
-function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
-  const [tab, setTab] = useState(initialTab || "login"); // "login" | "signup" | "magic"
+function AuthModal({ P, accent, at, close, onAuthed }) {
+  const [step, setStep] = useState("email"); // "email" | "code"
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [digits, setDigits] = useState(Array(OTP_LENGTH).fill(""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [magicSent, setMagicSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const boxRefs = useRef([]);
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
 
-  const strength = passwordStrength(password);
-  const passwordsMismatch = tab === "signup" && confirmPassword.length > 0 && password !== confirmPassword;
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setInterval(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(id);
+  }, [cooldown]);
 
-  async function submit(e) {
-    e.preventDefault();
+  async function requestCode(e) {
+    if (e) e.preventDefault();
     if (busy) return;
     setError("");
-    // Client-side confirm-password check before ever hitting the network —
-    // a mismatch is the single most common signup mistake and shouldn't
-    // need a round trip to catch.
-    if (tab === "signup" && password !== confirmPassword) { setError("Those passwords don't match."); return; }
     setBusy(true);
     try {
-      if (tab === "magic") {
-        await apiAuth("magic-request", { email });
-        setMagicSent(true);
-      } else {
-        const data = await apiAuth(tab === "signup" ? "signup" : "login", { email, password });
-        onAuthed(data.user);
-      }
+      await apiAuth("send-code", { email });
+      setDigits(Array(OTP_LENGTH).fill(""));
+      setStep("code");
+      setCooldown(OTP_RESEND_COOLDOWN_S);
+      setTimeout(() => boxRefs.current[0]?.focus(), 60);
     } catch (err) {
       setError(err.message || "Something went wrong.");
     } finally {
@@ -3486,89 +3475,328 @@ function AuthModal({ P, accent, at, close, onAuthed, initialTab }) {
     }
   }
 
-  const switchTab = (id) => { setTab(id); setError(""); setMagicSent(false); setConfirmPassword(""); };
+  async function verify(fullCode) {
+    if (busy) return;
+    setError("");
+    setBusy(true);
+    try {
+      const data = await apiAuth("verify-code", { email, code: fullCode });
+      onAuthed(data.user);
+    } catch (err) {
+      setError(err.message || "That code didn't work.");
+      setDigits(Array(OTP_LENGTH).fill(""));
+      setTimeout(() => boxRefs.current[0]?.focus(), 60);
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  // Underline tab bar — a real font/interaction distinct from the small
-  // filled-pill mono-font segmented control used elsewhere (Settings,
-  // command palette): larger body-font labels, a single indicator that
-  // slides between tabs instead of each tab getting its own background fill.
-  const tabIndex = AUTH_TAB_IDS.indexOf(tab);
-  const tabBtn = (id, label) => (
-    <button
-      type="button"
-      role="tab"
-      id={`authtab-${id}`}
-      aria-selected={tab === id}
-      aria-controls="authtab-panel"
-      tabIndex={tab === id ? 0 : -1}
-      onClick={() => switchTab(id)}
-      style={{ flex: 1, padding: "12px 0 13px", fontSize: FONT_SIZES.body, fontWeight: tab === id ? 700 : 500, letterSpacing: "-0.01em", border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--cb-body)", color: tab === id ? P.ink : P.faint, transition: "color 0.2s ease" }}
-    >{label}</button>
-  );
+  function setDigitAt(i, val) {
+    setDigits((prev) => {
+      const next = [...prev];
+      next[i] = val;
+      const joined = next.join("");
+      if (joined.length === OTP_LENGTH && next.every((d) => d !== "")) {
+        setTimeout(() => verify(joined), 0);
+      }
+      return next;
+    });
+  }
+
+  function onBoxChange(i, e) {
+    const raw = e.target.value;
+    const clean = raw.replace(/\D/g, "");
+    if (!clean) { setDigitAt(i, ""); return; }
+    // Typing normally lands one digit; a fast mobile keyboard or autofill
+    // can hand this box more than one character at once — treat either the
+    // same way paste is handled below rather than dropping the extras.
+    if (clean.length > 1) { distributeFromIndex(i, clean); return; }
+    setDigitAt(i, clean);
+    if (i < OTP_LENGTH - 1) boxRefs.current[i + 1]?.focus();
+  }
+
+  function distributeFromIndex(startIdx, str) {
+    const chars = str.replace(/\D/g, "").slice(0, OTP_LENGTH - startIdx).split("");
+    setDigits((prev) => {
+      const next = [...prev];
+      chars.forEach((c, j) => { next[startIdx + j] = c; });
+      const joined = next.join("");
+      if (joined.length === OTP_LENGTH && next.every((d) => d !== "")) {
+        setTimeout(() => verify(joined), 0);
+      }
+      return next;
+    });
+    const landOn = Math.min(startIdx + chars.length, OTP_LENGTH - 1);
+    setTimeout(() => boxRefs.current[landOn]?.focus(), 0);
+  }
+
+  function onBoxKeyDown(i, e) {
+    if (e.key === "Backspace") {
+      if (digits[i]) { setDigitAt(i, ""); return; }
+      if (i > 0) { boxRefs.current[i - 1]?.focus(); setDigitAt(i - 1, ""); }
+      e.preventDefault();
+    } else if (e.key === "ArrowLeft" && i > 0) {
+      e.preventDefault(); boxRefs.current[i - 1]?.focus();
+    } else if (e.key === "ArrowRight" && i < OTP_LENGTH - 1) {
+      e.preventDefault(); boxRefs.current[i + 1]?.focus();
+    }
+  }
+
+  function onBoxPaste(i, e) {
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    if (!/\d/.test(text)) return;
+    e.preventDefault();
+    distributeFromIndex(0, text);
+  }
 
   const inputStyle = { width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 3, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", marginTop: 6 };
+  const boxStyle = { width: 44, height: 52, textAlign: "center", fontSize: 22, fontWeight: 700, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-mono)", outline: "none" };
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Sign in to Cerebrum" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", borderRadius: 3, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
         <div style={{ padding: "26px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Your account</div>
+          <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>{step === "email" ? "Sign in" : "Enter your code"}</div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
-        <div style={{ padding: "18px 26px 0" }}>
-          <div role="tablist" aria-label="Account access method" style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}` }}>
-            {tabBtn("login", "Sign in")}
-            {tabBtn("signup", "Create account")}
-            {tabBtn("magic", "Email link")}
-            <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: `${(tabIndex / AUTH_TAB_IDS.length) * 100}%`, width: `${100 / AUTH_TAB_IDS.length}%`, height: 2, background: accent, borderRadius: 2, transition: "left 0.25s cubic-bezier(0.4, 0, 0.2, 1)" }} />
-          </div>
-        </div>
-        {magicSent ? (
-          <div id="authtab-panel" role="tabpanel" aria-labelledby={`authtab-${tab}`} style={{ padding: "24px 26px 30px", textAlign: "center" }}>
-            <div style={{ width: 44, height: 44, borderRadius: 3, background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}><Icon name="link" size={20} /></div>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6 }}>Check your inbox</div>
-            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>We sent a one-time sign-in link to <strong>{email}</strong>. It expires in 15 minutes.</div>
-          </div>
-        ) : (
-          <form id="authtab-panel" role="tabpanel" aria-labelledby={`authtab-${tab}`} onSubmit={submit} style={{ padding: "18px 26px 26px" }}>
+
+        {step === "email" ? (
+          <form onSubmit={requestCode} style={{ padding: "18px 26px 26px" }}>
             <label style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2 }}>
               Email
               <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@example.com" aria-label="Email" />
             </label>
-            {tab !== "magic" && (
-              <label style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginTop: 14 }}>
-                Password
-                <input type="password" required minLength={8} autoComplete={tab === "signup" ? "new-password" : "current-password"} value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} placeholder={tab === "signup" ? "At least 8 characters" : "••••••••"} aria-label="Password" />
-              </label>
-            )}
-            {tab === "signup" && password.length > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
-                <div style={{ flex: 1, height: 4, borderRadius: 2, background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", overflow: "hidden" }}>
-                  <div style={{ width: `${Math.min(strength.score, 4) / 4 * 100}%`, height: "100%", background: strength.color, borderRadius: 2, transition: "width 0.2s ease, background 0.2s ease" }} />
-                </div>
-                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: strength.color, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{strength.label}</span>
-              </div>
-            )}
-            {tab === "signup" && (
-              <label style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginTop: 14 }}>
-                Confirm password
-                <input type="password" required minLength={8} autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={{ ...inputStyle, borderColor: passwordsMismatch ? STATUS.bad : P.line }} placeholder="Type it again" aria-label="Confirm password" aria-invalid={passwordsMismatch} />
-                {passwordsMismatch && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: STATUS.bad, marginTop: 5, fontWeight: 500 }}>Doesn't match yet</span>}
-                {tab === "signup" && confirmPassword.length > 0 && !passwordsMismatch && confirmPassword.length >= 8 && (
-                  <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.caption, color: STATUS.good, marginTop: 5, fontWeight: 500 }}><Icon name="check" size={11} />Passwords match</span>
-                )}
-              </label>
-            )}
-            {tab === "magic" && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>No password needed — we'll email you a link that signs you in.</div>}
+            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>No password to remember — we'll email you a 6-digit code that signs you in.</div>
             {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: 3, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5 }}>{error}</div>}
-            <button type="submit" disabled={busy || passwordsMismatch} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: (busy || passwordsMismatch) ? "default" : "pointer", opacity: (busy || passwordsMismatch) ? 0.7 : 1, fontFamily: "var(--cb-body)" }}>
-              {busy ? "Please wait…" : tab === "signup" ? "Create account" : tab === "magic" ? "Send sign-in link" : "Sign in"}
+            <button type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-body)" }}>
+              {busy ? "Sending…" : "Send sign-in code"}
             </button>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 14, lineHeight: 1.6 }}>
-              Passwords are hashed, never stored in plain form. Saved articles, collections, and history stay local unless you sign in — see <a href="/privacy" style={{ color: P.faint, borderBottom: `1px dotted ${P.faint}`, textDecoration: "none" }}>Privacy</a> for exactly what that means.
+              Saved articles, collections, and history stay local unless you sign in — see <a href="/privacy" style={{ color: P.faint, borderBottom: `1px dotted ${P.faint}`, textDecoration: "none" }}>Privacy</a> for exactly what that means.
             </div>
           </form>
+        ) : (
+          <div style={{ padding: "18px 26px 26px" }}>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 18 }}>We sent a 6-digit code to <strong>{email}</strong>. It expires in 15 minutes.</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }} onPaste={(e) => onBoxPaste(0, e)}>
+              {digits.map((d, i) => (
+                <input
+                  key={i}
+                  ref={(el) => { boxRefs.current[i] = el; }}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete={i === 0 ? "one-time-code" : "off"}
+                  maxLength={1}
+                  value={d}
+                  disabled={busy}
+                  onChange={(e) => onBoxChange(i, e)}
+                  onKeyDown={(e) => onBoxKeyDown(i, e)}
+                  onPaste={(e) => onBoxPaste(i, e)}
+                  aria-label={`Digit ${i + 1} of ${OTP_LENGTH}`}
+                  style={{ ...boxStyle, borderColor: error ? STATUS.bad : P.line }}
+                />
+              ))}
+            </div>
+            {error && <div role="alert" style={{ marginTop: 16, padding: "9px 12px", borderRadius: 3, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5, textAlign: "center" }}>{error}</div>}
+            {busy && <div style={{ marginTop: 16, textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint }}>Verifying…</div>}
+            <div style={{ marginTop: 20, textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint }}>
+              {cooldown > 0 ? (
+                <span>Didn't receive it? Resend in {cooldown}s</span>
+              ) : (
+                <button type="button" onClick={requestCode} disabled={busy} style={{ background: "none", border: "none", color: accent, fontWeight: 600, cursor: busy ? "default" : "pointer", fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, padding: 0 }}>Resend code</button>
+              )}
+            </div>
+            <button type="button" onClick={() => { setStep("email"); setError(""); setDigits(Array(OTP_LENGTH).fill("")); }} style={{ width: "100%", marginTop: 16, padding: "9px", fontSize: FONT_SIZES.small, color: P.faint, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-body)" }}>Use a different email</button>
+          </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Mock thread for the Inbox preview — the messaging backend itself (actual
+// delivery between two real accounts) doesn't exist yet; this is the UI
+// shape of it, built ahead of the wiring so the eventual backend has a
+// concrete target to fill in. Labeled "Early preview" in the header rather
+// than presented as live so nobody mistakes the illustrative conversation
+// below for something that actually reached anyone.
+const INBOX_MOCK_THREAD = {
+  id: "t1",
+  sender: { name: "Dr. Chen", email: "dr.chen@mit.edu", affiliation: "MIT" },
+  preview: "Take a look at these water quality metrics for the New Tank Syndrome paper…",
+  time: "2h ago",
+  messages: [
+    {
+      from: "them",
+      text: "Take a look at these water quality metrics for the New Tank Syndrome paper. The ammonia spike data aligns perfectly with what we pulled for the DATA 101 dataset.",
+      attachment: { title: "Nitrogen Cycle Dynamics in Closed Aquatic Ecosystems" },
+    },
+  ],
+};
+
+function InboxModal({ P, accent, at, close }) {
+  const [activeId, setActiveId] = useState(INBOX_MOCK_THREAD.id);
+  const [draft, setDraft] = useState("");
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const thread = activeId === INBOX_MOCK_THREAD.id ? INBOX_MOCK_THREAD : null;
+
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="Inbox" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 12, maxWidth: 820, width: "100%", maxHeight: "80vh", display: "flex",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
+      }} className="cb-modal">
+        {/* Left pane — conversations */}
+        <div style={{ width: 240, flexShrink: 0, borderRight: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Inbox</div>
+            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 100, padding: "2px 8px", fontFamily: "var(--cb-mono)" }}>Preview</span>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
+            <button onClick={() => setActiveId(INBOX_MOCK_THREAD.id)} style={{
+              width: "100%", textAlign: "left", padding: "10px 10px", borderRadius: 8, border: "none", cursor: "pointer",
+              background: activeId === INBOX_MOCK_THREAD.id ? withAlpha(accent, 0.1) : "transparent",
+              display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-body)",
+            }}>
+              <span style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0, background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>DC</span>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                  <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{INBOX_MOCK_THREAD.sender.name}</span>
+                  <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0 }}>{INBOX_MOCK_THREAD.time}</span>
+                </span>
+                <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{INBOX_MOCK_THREAD.preview}</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Right pane — active thread */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {thread ? (<>
+            <div style={{ padding: "16px 22px", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{thread.sender.name}</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{thread.sender.email} · {thread.sender.affiliation}</div>
+              </div>
+              <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+              {thread.messages.map((m, i) => (
+                <div key={i} style={{ maxWidth: 460, alignSelf: "flex-start" }}>
+                  <div style={{
+                    padding: "12px 16px", borderRadius: "4px 14px 14px 14px", fontSize: FONT_SIZES.small, lineHeight: 1.6, color: P.ink,
+                    background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+                    border: P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)",
+                  }}>{m.text}</div>
+                  {m.attachment && (
+                    <div style={{
+                      marginTop: 8, padding: "10px 14px", borderRadius: 8, display: "flex", alignItems: "center", gap: 10,
+                      background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.2)}`,
+                    }}>
+                      <Icon name="external" size={15} style={{ color: accent, flexShrink: 0 }} />
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>Attached: {m.attachment.title}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "14px 22px 20px", borderTop: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", gap: 10 }}>
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Multiplayer messaging is coming soon…"
+                aria-label="Reply"
+                style={{ flex: 1, padding: "10px 14px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); toast("Multiplayer messaging is coming soon.", { tone: "info" }); } }}
+              />
+              <button onClick={() => toast("Multiplayer messaging is coming soon.", { tone: "info" })} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icon name="send" size={16} />
+              </button>
+            </div>
+          </>) : (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small }}>Select a conversation</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Static, illustrative badges for the profile's Accolades strip — visual
+// design-system chrome (the same category as a UI achievement badge), not a
+// claim of externally-verified credentials. "Verified sign-in" is the one
+// exception: it's genuinely true the instant this modal is reachable at
+// all, since getting here requires a completed OTP verification.
+const PROFILE_BADGES = [
+  { label: "Verified sign-in", real: true },
+  { label: "Early adopter" },
+  { label: "Top 5% peer reviewer" },
+  { label: "Published author" },
+];
+
+function UserProfileModal({ P, accent, at, close, user, profile, setProfile, onManageAccount }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const emailLocal = (user?.email || "").split("@")[0] || "";
+  const displayInitial = (profile.name || emailLocal || "?")[0]?.toUpperCase() || "?";
+  const inputStyle = { width: "100%", padding: "10px 13px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", marginTop: 6 };
+
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="Your profile" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 216, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 16, maxWidth: 420, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", outline: "none",
+      }} className="cb-modal">
+        <div style={{ padding: "28px 28px 0", display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+        </div>
+        <div style={{ padding: "0 28px 28px", textAlign: "center" }}>
+          <div style={{
+            width: 72, height: 72, borderRadius: "50%", margin: "0 auto 16px",
+            background: withAlpha(accent, 0.15), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 28, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `1px solid ${withAlpha(accent, 0.35)}`,
+          }}>{displayInitial}</div>
+
+          <input
+            value={profile.name || ""}
+            onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
+            placeholder={emailLocal ? emailLocal[0].toUpperCase() + emailLocal.slice(1) : "Your name"}
+            aria-label="Your name"
+            style={{ ...inputStyle, marginTop: 0, textAlign: "center", fontSize: FONT_SIZES.body, fontWeight: 700 }}
+          />
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, fontFamily: "var(--cb-mono)" }}>{user?.email}</div>
+
+          <input
+            value={profile.affiliation || ""}
+            onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
+            placeholder="Affiliation, e.g. University of Tennessee"
+            aria-label="Affiliation"
+            style={{ ...inputStyle, textAlign: "center" }}
+          />
+
+          <div style={{ marginTop: 22, textAlign: "left" }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Accolades</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {PROFILE_BADGES.map((b) => (
+                <span key={b.label} style={{
+                  display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT_SIZES.caption, fontWeight: 600,
+                  padding: "6px 12px", borderRadius: 100,
+                  color: b.real ? accent : P.ink2,
+                  background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                  border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
+                }}><Icon name="badge" size={12} />{b.label}</span>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={onManageAccount} style={{ width: "100%", marginTop: 24, padding: "10px", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Manage account &amp; security</button>
+        </div>
       </div>
     </div>
   );
@@ -4549,6 +4777,14 @@ function App() {
   const [collections, setCollections] = useState([]);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  // Elite profile — name/affiliation the visitor types in themselves, kept
+  // local to this browser exactly like `saved`/`history` below (no backend
+  // field exists for either, so nothing here is presented as pulled from
+  // anywhere but what was typed into the modal).
+  const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_profile") || "{}"); } catch { return {}; } });
+  useEffect(() => { try { localStorage.setItem("cb_profile", JSON.stringify(profile)); } catch {} }, [profile]);
   const [networkGraphSources, setNetworkGraphSources] = useState(null);
   const [timelineSources, setTimelineSources] = useState(null);
   const [illustrateQuery, setIllustrateQuery] = useState(null);
@@ -4869,7 +5105,7 @@ function App() {
     const onNav = (e) => {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (settingsOpen || cmdOpen || savedOpen || historyOpen || authOpen || collectionsOpen) return;
+      if (settingsOpen || cmdOpen || savedOpen || historyOpen || authOpen || collectionsOpen || inboxOpen || profileOpen) return;
       const srcCount = allSources.length;
       if (e.key === "j" || e.key === "J") {
         e.preventDefault();
@@ -4889,7 +5125,7 @@ function App() {
     };
     window.addEventListener("keydown", onNav);
     return () => window.removeEventListener("keydown", onNav);
-  }, [allSources, focusedSourceIdx, drawerSource, settingsOpen, cmdOpen, savedOpen, historyOpen, authOpen, collectionsOpen]);
+  }, [allSources, focusedSourceIdx, drawerSource, settingsOpen, cmdOpen, savedOpen, historyOpen, authOpen, collectionsOpen, inboxOpen, profileOpen]);
 
   // Auto-attribution clipboard: when text containing citation brackets
   // [N] is copied from an answer card, append full references to the
@@ -4994,7 +5230,7 @@ function App() {
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
     const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel || historyOpen
-      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
+      || authOpen || collectionsOpen || compareOpen || inboxOpen || profileOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -5014,7 +5250,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
+  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, inboxOpen, profileOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -5364,11 +5600,12 @@ function App() {
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setHistoryOpen(true); }} title="Previous conversations" aria-label={`Previous conversations${history.length ? `, ${history.length}` : ""}`}><Icon name="history" size={16} />{!isMobile && <span style={S.iconBtnLabel}>History</span>}</button>
             <button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button>
             {user && !isMobile && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setCollectionsOpen(true); }} title="Collections" aria-label="Collections"><Icon name="folder" size={16} /><span style={S.iconBtnLabel}>Collections</span></button>)}
+            {user && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setInboxOpen(true); }} title="Inbox" aria-label="Inbox"><Icon name="mail" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Inbox</span>}</button>)}
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}><Icon name={muted ? "volumeOff" : "volumeOn"} size={16} /></button>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsInitialTab("general"); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button>
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); if (user) { setSettingsInitialTab("account"); setSettingsOpen(true); } else { setAuthInitialTab("login"); setAuthOpen(true); } }} title={user ? user.email : "Sign in"} aria-label={user ? `Signed in as ${user.email} — open account settings` : "Sign in or create an account"}>
-              {user ? <span aria-hidden="true" style={{ width: 19, height: 19, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)" }}>{user.email[0].toUpperCase()}</span> : <Icon name="user" size={16} />}
-              {!isMobile && <span style={S.iconBtnLabel}>{user ? "Account" : "Sign in"}</span>}
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); if (user) { setProfileOpen(true); } else { setAuthInitialTab("login"); setAuthOpen(true); } }} title={user ? user.email : "Sign in"} aria-label={user ? `Signed in as ${user.email} — open your profile` : "Sign in or create an account"}>
+              {user ? <span aria-hidden="true" style={{ width: 19, height: 19, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)" }}>{(profile.name || user.email)[0].toUpperCase()}</span> : <Icon name="user" size={16} />}
+              {!isMobile && <span style={S.iconBtnLabel}>{user ? "Profile" : "Sign in"}</span>}
             </button>
           </div>
         </div>
@@ -5577,7 +5814,9 @@ function App() {
       {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setSettingsOpen(false); setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setSettingsOpen(false), dataDensity, setDataDensity, collections, turns }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
-      {authOpen && <AuthModal P={P} accent={accent} at={at} initialTab={authInitialTab} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
+      {authOpen && <AuthModal P={P} accent={accent} at={at} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
+      {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} />}
+      {profileOpen && <UserProfileModal P={P} accent={accent} at={at} user={user} profile={profile} setProfile={setProfile} close={() => setProfileOpen(false)} onManageAccount={() => { setProfileOpen(false); setSettingsInitialTab("account"); setSettingsOpen(true); }} />}
       {importPrompt && (
         <ImportLocalDataPrompt
           P={P} accent={accent} at={at}
