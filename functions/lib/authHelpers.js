@@ -285,6 +285,7 @@ export async function ensureUserProfileColumns(env) {
     "ALTER TABLE users ADD COLUMN password_hash TEXT",
     "ALTER TABLE users ADD COLUMN password_salt TEXT",
     "ALTER TABLE users ADD COLUMN last_login_at INTEGER",
+    "ALTER TABLE users ADD COLUMN avatar_base64 TEXT",
   ];
   for (const sql of alters) {
     try {
