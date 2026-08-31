@@ -731,7 +731,14 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     // Bullet lists: lines starting with "- " or "• "
     const bulletMatch = para.match(/^(?:[•\-]\s+.+\n?)+$/m);
     if (bulletMatch) {
-      const items = para.split("\n").filter(l => /^[•\-]\s+/.test(l)).map(l => l.replace(/^[•\-]\s+/, ""));
+      // Strip stray "##"/"###" that survived normalizeSectionHeaders as
+      // plain text (see its own comment: a "##" NOT followed by a capital
+      // letter is deliberately left alone there, so it doesn't get promoted
+      // to a real header, but that also means it's never removed either —
+      // it was reaching the page as literal hash characters). Safe here
+      // because by definition this line already matched as a bullet, not a
+      // header, so any "#" left in it is stray, not a marker.
+      const items = para.split("\n").filter(l => /^[•\-]\s+/.test(l)).map(l => l.replace(/^[•\-]\s+/, "").replace(/#{2,3}\s*/g, ""));
       return (
         <ul key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none" }}>
           {items.map((item, ii) => (
@@ -747,7 +754,8 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     // Numbered lists: lines starting with "1. ", "2. ", etc.
     const numberedMatch = para.match(/^(?:\d+\.\s+.+\n?)+$/m);
     if (numberedMatch) {
-      const items = para.split("\n").filter(l => /^\d+\.\s+/.test(l)).map(l => l.replace(/^\d+\.\s+/, ""));
+      // Same stray-hash cleanup as the bullet-list branch above.
+      const items = para.split("\n").filter(l => /^\d+\.\s+/.test(l)).map(l => l.replace(/^\d+\.\s+/, "").replace(/#{2,3}\s*/g, ""));
       return (
         <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
           {items.map((item, ii) => (
@@ -760,12 +768,24 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
       );
     }
 
+    // Last-resort cleanup: anything reaching this default branch already
+    // failed the h2/h3/bold-header checks above, so it is definitionally
+    // NOT a real header — normalizeSectionHeaders only forces "##"/"###"
+    // onto its own paragraph when a capital letter follows (deliberately,
+    // to avoid turning a stray "##" glued into ordinary lowercase prose
+    // into a fake giant heading — see that function's own comment). That
+    // left exactly this case unhandled: the stray hash was correctly left
+    // out of the heading path, but nothing ever removed the literal
+    // characters either, so they were still reaching the page as visible
+    // "##" text. Safe to strip unconditionally here since real headers
+    // never reach this branch in the first place.
+    const paraClean = para.replace(/#{2,3}\s*/g, "");
     return (
     <p key={pi} style={{ fontSize: 16, lineHeight: 1.7, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 400 }}>
-      {para.split("\n").map((line, li) => (
+      {paraClean.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)}
-          {li < para.split("\n").length - 1 && <br />}
+          {li < paraClean.split("\n").length - 1 && <br />}
         </React.Fragment>
       ))}
     </p>
@@ -2607,13 +2627,13 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                 <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.06), borderRadius: 3, border: `1px solid ${withAlpha(STATUS.warn, 0.15)}` }}>
                   <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", marginBottom: 6 }}>[{c.idxA}]</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{c.claimA}</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{(c.sourceA || "").replace(/<\/?(sub|sup|i|b)>/gi, "")}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceA ? renderCleanTitle(c.sourceA) : ""}</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: withAlpha(STATUS.warn, 0.5), fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)", fontWeight: 700 }}>vs</div>
                 <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.06), borderRadius: 3, border: `1px solid ${withAlpha(STATUS.warn, 0.15)}` }}>
                   <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", marginBottom: 6 }}>[{c.idxB}]</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{c.claimB || "—"}</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{(c.sourceB || "").replace(/<\/?(sub|sup|i|b)>/gi, "")}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceB ? renderCleanTitle(c.sourceB) : ""}</div>
                 </div>
               </div>
             ))}
@@ -3233,7 +3253,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 6 }}>Deep Read</div>
             <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, margin: 0, lineHeight: 1.4, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>
-              {(source.title || "").replace(/<\/?(sub|sup|i|b)>/gi, "")}
+              {source.title ? renderCleanTitle(source.title) : ""}
             </h2>
           </div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}><Icon name="close" size={18} /></button>
@@ -4839,9 +4859,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       WebkitBackdropFilter: "blur(14px) saturate(1.3)",
     },
     headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
-    brandRow: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer" },
+    // v36: headActions picked up a 7th button ("Find People") without any
+    // extra room to hold it — at gap:4 with no breathing room on either end,
+    // seven icon buttons in a row read as one solid, cramped block. Bumped
+    // gap and added a little padding on both rows so the header settles back
+    // to feeling like a toolbar instead of a squeeze; brandRow's own
+    // padding keeps it from crowding the search pill immediately next to it.
+    brandRow: { display: "flex", alignItems: "center", gap: 12, paddingRight: 8, cursor: "pointer" },
     brand: { fontWeight: 700, fontSize: FONT_SIZES.heading, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-display)" },
-    headActions: { display: "flex", alignItems: "center", gap: isMobile ? 1 : 4 },
+    headActions: { display: "flex", alignItems: "center", gap: isMobile ? 3 : 7, paddingLeft: isMobile ? 4 : 10 },
     // v6.6: this whole pill — including the plain word "Search" — was set in
     // --cb-mono (a JetBrains-Mono-first stack), which reads as a dev-tool/
     // terminal typeface for what's actually the single most-used control in
@@ -6050,16 +6076,15 @@ function App() {
         {typeof s.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.relevance}% · {relLabel(s.relevance)}</span>}
         {s.year && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{s.year}</span>}
       </div>
-      {/* v34: this card renders straight from `s.title` — raw metadata off
-          the wire, not something `escapeHtml` ever touches — so a chemistry
-          or genetics title carrying literal "<sub>2</sub>"/"<i>E. coli</i>"
-          markup was hitting the page as visible angle-bracket text instead
-          of the formatting it was meant to convey. `renderCleanTitle` used
-          to turn those into real rendered sub/sup/i/b elements; simplified
-          here per explicit direction to just strip the tags outright so a
-          formula like "CO2" reads clean either way without needing a parser
-          in the hot render path for every card in the list. */}
-      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? s.title.replace(/<\/?(sub|sup|i|b)>/gi, "") : s.url)}</a>
+      {/* v34 had simplified this to stripping <sub>/<sup>/<i>/<b> outright —
+          "CO2" instead of "CO<sub>2</sub>" reads clean, but it also flattens
+          "<i>E. coli</i>" to "E. coli" with the italics (and the species-name
+          convention they signal) gone. v36: back to rendering the four
+          whitelisted tags as real elements via renderCleanTitle (same
+          safe, non-dangerouslySetInnerHTML parser already used at its other
+          call site below) — a formula still reads clean AND a species name
+          still reads like one. */}
+      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? renderCleanTitle(s.title) : s.url)}</a>
       <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
       <div style={S.srcRow}>
         <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); toggleSave(s); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
