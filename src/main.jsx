@@ -2175,7 +2175,7 @@ function ToolbarBtn({ title, icon, onClick, accent, P, active = false, spin = fa
     </button>
   );
 }
-function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 3, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", transition: "background 0.15s ease, color 0.15s ease" }; }
+function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "1px solid transparent", borderRadius: 3, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", transition: "background 0.15s ease, color 0.15s ease, border-color 0.15s ease", boxSizing: "border-box" }; }
 
 function ReportModal({ query, P, accent, at, onClose }) {
   const [description, setDescription] = useState("");
@@ -2715,7 +2715,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }} className="cb-stagger">
             {t.videos.slice(0, 6).map((v, i) => (
               <a key={v.id || i} href={safeHref(v.url)} target="_blank" rel="noreferrer" className="cb-fade cb-card" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 3, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 0 0 1px ${withAlpha(accent, 0.4)}, 0 8px 24px ${withAlpha(accent, 0.12)}`; }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 8px 24px ${withAlpha(accent, 0.12)}`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
                 <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
                   <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
@@ -5769,14 +5769,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     countPill: { fontSize: FONT_SIZES.micro, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 3, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
 
     /* ── App shell: fixed Sidebar + everything else shifted right of it ──
-       The header used to carry every destination (New, Document, Trending,
-       History, Saved, Collections, Find People, Settings) as its own icon
-       button — a dozen controls fighting for one 56px-tall row. Those all
-       live in the Sidebar now; the header keeps only the brand, the search
-       command bar, and account/inbox. Desktop: sidebar is always visible
-       and `appMain` is permanently offset by its width. Mobile: sidebar
-       becomes a slide-in drawer (see `sidebarMobile*` below) and `appMain`
-       stays full-width, opened with a hamburger button in the header. */
+       No top header — the right pane is just canvas breathing room plus
+       the active view. Desktop: sidebar is always visible and `appMain`
+       is permanently offset by its width. Mobile: sidebar is a slide-in
+       drawer, opened with a floating hamburger (not a full-width bar). */
     sidebarWidth: 260,
     sidebar: {
       position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 30,
@@ -5791,14 +5787,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", padding: "14px 10px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
-      padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent",
+      padding: "10px 12px", borderRadius: 8, border: "1px solid transparent", background: "transparent",
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500,
-      fontFamily: "var(--cb-body)", transition: "background 150ms ease, color 150ms ease",
+      fontFamily: "var(--cb-body)", transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
+      boxSizing: "border-box",
     },
     sidebarItemActive: { background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600 },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" },
     sidebarFooter: { flexShrink: 0, padding: "10px 12px 14px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
-    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 260 },
+    appMain: { flex: 1, minWidth: 0, minHeight: "100dvh", display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 260 },
 
     /* ── Full-page views (Profile / Settings / Trending) ──
        Replace what used to be centered modal dialogs — no backdrop, no
@@ -5824,7 +5821,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // check but wasn't). Giving this box its own stacking position at a
     // z-index above the canvas's is the actual fix; the header above uses
     // the same trick at zIndex 20 for the same reason.
-    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100%", position: "relative", zIndex: 1 },
+    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100dvh", position: "relative", zIndex: 1 },
     pageViewInner: { maxWidth: 920, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "40px 32px 80px" },
     pageViewTitle: { fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" },
 
@@ -5833,16 +5830,17 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // real document scrolls now. `flex: 1` still lets it fill remaining
     // height below the sticky header on short pages, and the bottom padding
     // still clears the floating mobile "Sources" FAB.
-    scroll: { flex: 1, paddingBottom: isMobile ? 88 : 0 },
-    container: { maxWidth: 1200, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
+    scroll: { flex: 1, display: "flex", flexDirection: "column", minHeight: "100dvh", paddingBottom: isMobile ? 88 : 0 },
+    container: { maxWidth: 1200, width: "100%", margin: "0 auto", padding: `0 ${pad}px`, flex: 1, minHeight: "100%", display: "flex", flexDirection: "column", position: "relative" },
 
-    /* ── Hero: LEFT-ALIGNED editorial layout ── */
+    /* ── Hero: the search engine, flex-centered in the right pane ── */
     hero: { 
       flex: 1, display: "flex", flexDirection: "column", 
       alignItems: "center", justifyContent: "center", 
       textAlign: "center",
-      padding: isMobile ? "32px 0 40px" : "40px 0 56px", 
+      padding: isMobile ? "48px 0 72px" : "32px 0 80px", 
       position: "relative",
+      width: "100%",
     },
     heroGlow: { display: "none" },
     heroMark: { marginBottom: 32, position: "relative" },
@@ -5859,7 +5857,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     heroSub: {
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, color: P.ink2,
-      maxWidth: 560, lineHeight: 1.65, marginBottom: 52,
+      maxWidth: 560, lineHeight: 1.65, marginBottom: 28,
       letterSpacing: "-0.01em", position: "relative", fontWeight: 300,
       // v30: "Darknode" round retired — mono in the subheadline was that
       // round's signature move, and this round's explicit target
@@ -5918,10 +5916,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     chip: {
       fontSize: FONT_SIZES.small, color: P.ink2,
       background: "transparent",
-      border: "1px solid " + P.line,
+      border: "1px solid transparent",
       borderRadius: 100, padding: "10px 18px",
       cursor: "pointer",
-      transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
+      transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease",
       fontFamily: "var(--cb-body)", letterSpacing: "-0.01em",
       outline: "none",
       WebkitTapHighlightColor: "transparent",
@@ -5930,8 +5928,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     chipHover: {
       borderColor: P.line2, color: P.ink,
       background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.02)",
-      boxShadow: `0 0 0 1px ${P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}`,
       outline: "none",
+    },
+    filterPill: {
+      fontFamily: "var(--cb-mono)", fontWeight: 600, letterSpacing: "0.03em",
+      borderRadius: 100, cursor: "pointer", background: "transparent",
+      border: "1px solid transparent", boxSizing: "border-box",
+      transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease",
     },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
@@ -5956,7 +5959,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // itself (rather than the FAB or some wrapper) guarantees real content
     // never lands in that reserved strip regardless of how long the answer
     // runs. Desktop keeps the old, smaller value — there's no floating FAB there.
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? 120 : 48, flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "40px 0 48px", paddingBottom: isMobile ? 120 : 48, flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -6027,7 +6030,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, color: P.ink2,
       border: glassBorder, borderRadius: 3,
       cursor: "pointer", fontFamily: font,
-      transition: "all 0.25s ease", letterSpacing: "-0.01em",
+      transition: "color 0.25s ease, background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease", letterSpacing: "-0.01em",
       lineHeight: 1.45,
     },
 
@@ -6058,7 +6061,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 3,
       padding: "20px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
-      maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
+      maxHeight: "calc(100dvh - 48px)", overflowY: "auto",
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
@@ -6066,7 +6069,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
     srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 3, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 3, marginBottom: 14, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.2s ease" },
+    sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "1px solid transparent", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease", boxSizing: "border-box" },
     sortTabActive: { background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", color: P.ink, boxShadow: "none", fontWeight: 600 },
     srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" },
     sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
@@ -6086,7 +6089,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
     srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-body)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
-    chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "all 0.2s ease" },
+    chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid transparent", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease", boxSizing: "border-box" },
     // v28: the old row (icon+text-label buttons, `flexWrap: "wrap"`) read as
     // a loose pile that reflowed onto 2-3 ragged lines the moment "Source
     // network"/"Timeline" showed up next to "Print / Save PDF" — six
@@ -6243,13 +6246,9 @@ function ToastHost({ P, accent }) {
 
 /* ════════════════════════════════════════════════════════════════
    SIDEBAR — the App Shell's left-hand navigation.
-   Replaces the old header's icon-button row (New, Document, Trending,
-   History, Saved, Collections, Find People, Settings all fighting for
-   space in one 56px bar). Four of these entries — Search, Trending,
-   Settings, Profile — switch which full-page `view` fills the shell;
-   the rest open their existing dialog exactly as the header buttons
-   used to, just relocated here so the header itself can stay down to
-   the brand, the search bar, and account/inbox.
+   Destinations (Search, Trending, Settings, Profile) swap the full-page
+   `view`; the rest open their existing dialogs. Inbox lives in the
+   footer next to Profile so the main pane can stay headerless.
    ════════════════════════════════════════════════════════════════ */
 function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, muted, onToggleMute, onLogoClick }) {
   const NAV = [
@@ -6298,6 +6297,11 @@ function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onC
           <Icon name={muted ? "volumeOff" : "volumeOn"} size={17} />
           <span>{muted ? "Unmute" : "Mute"}</span>
         </button>
+        {user && (
+          <button onClick={() => onNavigate("inbox")} style={S.sidebarItem} onMouseEnter={hoverIn} onMouseLeave={hoverOut("inbox")}>
+            <Icon name="mail" size={17} /><span>Inbox</span>
+          </button>
+        )}
         <button onClick={() => onNavigate("profile")} style={itemStyle("profile")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}>
           {user ? <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{(user.email || "?")[0].toUpperCase()}</span> : <Icon name="user" size={17} />}
           <span>{user ? "Profile" : "Sign in"}</span>
@@ -6628,13 +6632,6 @@ function App() {
   const [hoverCite, setHoverCite] = useState(0);
   const inputRef = useRef(null);
   const cmdRef = useRef(null);
-  // A quiet tribute, not a feature: the version badge used to read "DP" —
-  // a private nod to Dolly Parton, kept as an initialism nobody would think
-  // twice about. Now that it's spelled out as a real version number,
-  // pressing and holding the badge surfaces the tribute directly, for
-  // anyone curious enough to try. Doesn't touch any other state, doesn't
-  // persist anything — genuinely just for whoever finds it.
-  const dpEggRef = useRef({ longPressed: false, timer: null });
   const threadRef = useRef(null);
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
@@ -7021,6 +7018,7 @@ function App() {
       case "collections": if (user) setCollectionsOpen(true); break;
       case "settings": setSettingsInitialTab("general"); setView("settings"); break;
       case "findPeople": if (user) setNetworkSearchOpen(true); break;
+      case "inbox": if (user) setInboxOpen(true); break;
       case "profile": if (user) setView("profile"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       default: break;
     }
@@ -7241,75 +7239,17 @@ function App() {
         onLogoClick={() => { sfx(); setEntered(false); setView("search"); }}
       />
       <div style={S.appMain}>
-      <header style={S.header}>
-        <div style={S.headerGlass} aria-hidden="true" />
-        <div style={S.headInner}>
-          <div style={{ ...S.brandRow, position: "relative" }}>
-            {/* The Sidebar carries every destination now — this hamburger is
-                purely how a small viewport reaches it, since a permanently
-                docked 260px rail doesn't fit next to search results on a
-                phone screen the way it does on desktop. */}
-            {isMobile && (
-              <button className="cb-hbtn" style={{ ...S.iconBtn, minWidth: 34, padding: "0 6px" }} onClick={() => { sfx(); setSidebarMobileOpen(true); }} aria-label="Open menu" title="Menu">
-                <Icon name="menu" size={18} />
-              </button>
-            )}
-              {/* v5: this used to clear the cookie and hard-reload the whole
-                  page — a jarring flash-to-white on every other transition in
-                  the app being a smooth fade/blur. Flipping `entered` back to
-                  false replays the exact same Intro the cookie-clear was
-                  trying to reach, without throwing away the JS runtime. */}
-              <div onClick={(e) => { e.stopPropagation(); sfx(); setEntered(false); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEntered(false); } }} role="button" tabIndex={0} aria-label="Back to landing page" style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                <span style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
-                <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
-              </div>
-              {/* Reopens the "what's new" modal on demand — otherwise it's a
-                  one-time popup nobody could get back to once dismissed. */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // A "5 rapid clicks" version of this used to live here —
-                  // real bug: the very first click opens a full-viewport
-                  // modal on top of this exact button, so clicks 2-5 never
-                  // actually land on the badge again, they land on the
-                  // modal's backdrop instead (closing it). Nearly
-                  // impossible to trigger for real, which is exactly what
-                  // happened. A press-and-hold doesn't have that problem —
-                  // it's one continuous pointer interaction, nothing else
-                  // can steal it mid-way through.
-                  if (dpEggRef.current.longPressed) { dpEggRef.current.longPressed = false; return; }
-                  sfx(); setV5Open(true);
-                }}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  dpEggRef.current.longPressed = false;
-                  dpEggRef.current.timer = setTimeout(() => {
-                    dpEggRef.current.longPressed = true;
-                    toast("Science loved Dolly 🦋", { tone: "success" });
-                  }, 850);
-                }}
-                onPointerUp={() => clearTimeout(dpEggRef.current.timer)}
-                onPointerLeave={() => clearTimeout(dpEggRef.current.timer)}
-                title="What's new in V5 (press and hold for a surprise)"
-                aria-label="What's new in Cerebrum V5"
-                style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 3, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}
-              >V5</button>
-          </div>
-          {/* Everything that used to crowd this row (New, Document, Trending,
-              History, Saved, Collections, Find People, Settings — a dozen
-              controls fighting for one 56px bar) now lives in the Sidebar.
-              The header keeps exactly three things: the search command bar,
-              Inbox, and the account/Profile control. */}
-          <div style={S.headActions}>
-            <button className="cb-hbtn" style={isMobile ? { ...S.cmdHint, padding: "0 10px", justifyContent: "center", height: 38 } : S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={isMobile ? 16 : 13} />{!isMobile && <span>Search</span>}{!isMobile && <kbd style={S.kbd}>{kbdLabel("K")}</kbd>}</button>
-            {user && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setInboxOpen(true); }} title="Inbox" aria-label="Inbox"><Icon name="mail" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Inbox</span>}</button>)}
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); if (user) { setView("profile"); } else { setAuthInitialTab("login"); setAuthOpen(true); } }} title={user ? user.email : "Sign in"} aria-label={user ? `Signed in as ${user.email} — open your profile` : "Sign in or create an account"}>
-              {user ? <span aria-hidden="true" style={{ width: 19, height: 19, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)" }}>{(profile.name || user.email)[0].toUpperCase()}</span> : <Icon name="user" size={16} />}
-              {!isMobile && <span style={S.iconBtnLabel}>{user ? "Profile" : "Sign in"}</span>}
-            </button>
-          </div>
-        </div>
-      </header>
+      {isMobile && (
+        <button
+          className="cb-hbtn"
+          style={{ position: "fixed", top: 14, left: 14, zIndex: 28, ...S.iconBtn, minWidth: 44, height: 44, padding: 0, background: P.dark ? "rgba(15,17,26,0.55)" : "rgba(255,255,255,0.7)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", border: "1px solid transparent" }}
+          onClick={() => { sfx(); setSidebarMobileOpen(true); }}
+          aria-label="Open menu"
+          title="Menu"
+        >
+          <Icon name="menu" size={18} />
+        </button>
+      )}
       {view === "search" && (
       <div style={S.scroll} ref={threadRef} onDoubleClick={(e) => {
         const sel = window.getSelection()?.toString()?.trim();
@@ -7350,13 +7290,10 @@ function App() {
                 {[["all", "All Evidence"], ["systematic-review", "Systematic Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo / In Vitro"]].map(([val, label]) => (
                   <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
                     style={{
-                      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", fontWeight: 600,
-                      letterSpacing: "0.03em",
-                      padding: "6px 14px", borderRadius: 100, cursor: "pointer",
-                      transition: "all 0.2s ease",
+                      ...S.filterPill, fontSize: FONT_SIZES.caption, padding: "6px 14px",
                       background: evidenceFilter === val ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)") : "transparent",
                       color: evidenceFilter === val ? P.ink : P.faint,
-                      border: evidenceFilter === val ? "1px solid " + P.line2 : "1px solid " + P.line,
+                      borderColor: evidenceFilter === val ? P.line2 : P.line,
                     }}>{label}</button>
                 ))}
               </div>
@@ -7388,16 +7325,14 @@ function App() {
                       <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  <div className="cb-filter-row" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                     {[["all", "All"], ["systematic-review", "Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo/Vitro"]].map(([val, label]) => (
                       <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
                         style={{
-                          fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 600,
-                          padding: "4px 10px", borderRadius: 100, cursor: "pointer",
-                          transition: "all 0.2s ease",
+                          ...S.filterPill, fontSize: FONT_SIZES.micro, padding: "4px 10px",
                           background: evidenceFilter === val ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)") : "transparent",
                           color: evidenceFilter === val ? P.ink : P.faint,
-                          border: evidenceFilter === val ? "1px solid " + P.line2 : "1px solid " + P.line,
+                          borderColor: evidenceFilter === val ? P.line2 : P.line,
                         }}>{label}</button>
                     ))}
                   </div>
@@ -7419,7 +7354,7 @@ function App() {
               )}
             </div>
           )}
-          <div style={S.foot}>
+          <div style={{ ...S.foot, ...(!started ? { position: "absolute", bottom: 0, left: 0, right: 0, marginTop: 0 } : {}) }}>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Answers are assembled from real papers by AI. Always check the cited sources.</div>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>
               <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", background: "none", border: "none", borderBottom: `1px dotted ${P.faint}`, padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
@@ -7788,13 +7723,21 @@ summary::-webkit-details-marker { display: none; }
 .cb-stagger > *:nth-child(8) { animation-delay: 420ms; }
 .cb-stagger > *:nth-child(n+9) { animation-delay: 480ms; }
 
-/* ── Global button physics: subtle, no bounce ── */
+/* ── Global button physics: subtle, no bounce ──
+   Border is always present (transparent by default on unstyled buttons) so
+   hover never adds a new 1px ring and cannot shift layout. Transition
+   border-color / box-shadow only — never border-width. */
 button {
+  box-sizing: border-box;
   transition: transform 120ms ease, opacity 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
 }
 button:not(:disabled):hover { transform: translateY(-1px); }
 button:not(:disabled):active { transform: scale(0.98) translateY(0); transition-duration: 60ms; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
+.cb-chip-hover:not(:disabled):hover,
+.cb-filter-row button:not(:disabled):hover {
+  transform: none;
+}
 
 /* ── Search focus glow — clean, no radar ── */
 .cb-search-glow { position: relative; }
