@@ -5803,26 +5803,90 @@ Respond naturally to the user's message. Be yourself.`;
     // the old ceilings, cutting sentences off mid-thought before the model
     // reached its closing section. Every tier now clears the 1500-token
     // anti-truncation floor.
+    // v36: "Detailed" was routinely coming back as ~250 words — the old hint
+    // ("five to eight paragraphs... think review article") is a suggestion a
+    // free-tier model can and did shrug off. Made the floor a literal,
+    // checkable number instead of a vibe, and named the kind of specificity
+    // ("effector genes", "genetic pathways") that separates an actual deep
+    // dive from a longer restatement of the same superficial summary.
+    // maxTokens bumped alongside it (3200→4200) so an honest 800+-word,
+    // four-section answer has real headroom instead of getting cut off
+    // approaching its own target length.
     const maxTokens =
       answerLength === "short"
         ? 1200
         : answerLength === "long"
-        ? 3200
+        ? 4200
         : 1800;
     const lengthHint =
       answerLength === "short"
         ? "Two to three focused paragraphs. Hit the key mechanism and the strongest evidence, then stop."
         : answerLength === "long"
-        ? "Give a thorough, well-structured deep dive — this is the user's preferred mode. Use **bold** for key terms. " +
-          "Cover the mechanism in detail, name specific compounds/genes/species, include quantitative findings from the sources, " +
-          "address conflicting evidence, and end with what's still unknown or debated. " +
-          "Five to eight paragraphs minimum. Think review article, not abstract summary."
+        ? "You must write a comprehensive, highly detailed academic synthesis EXCEEDING 800 WORDS. This is the user's preferred " +
+          "mode — do not write a superficial summary. Use **bold** for key terms. You MUST dive into deep molecular mechanisms, " +
+          "genetic pathways, effector genes, and granular data: name the specific genes, proteins, enzymes, receptors, or " +
+          "pathways involved rather than gesturing at 'a genetic mechanism' or 'cellular signaling.' Name specific compounds/" +
+          "genes/species, include quantitative findings from the sources (sample sizes, effect sizes, concentrations, p-values " +
+          "where reported), address conflicting evidence, and end with what's still unknown or debated. " +
+          "Five to eight substantive paragraphs minimum. Think review article, not abstract summary."
         : "Four to five clear paragraphs. Cover the core mechanism, key evidence with numbers, and any nuance. " +
           "Bold key terms. Don't summarize — explain.";
 
     // Videos are fetched by frontend via /api/videos in parallel, so we don't
     // block the answer waiting for YouTube. Return empty array here.
     const videos = [];
+
+    // ============ D1 ANSWER CACHE — EARLY CHECK ============
+    // There was already a cache check further down (still there — see
+    // "D1 ANSWER CACHE" below), but it ran AFTER gatherPapers() had already
+    // completed, because it needed sourceList (the freshly gathered papers)
+    // to build its response. That meant a cache HIT still paid the full
+    // cost of the paper-gathering ladder (bounded at GATHER_PAPERS_BUDGET_MS
+    // = 20s) before the cache ever did anything useful — caching only ever
+    // saved the LLM call, never the search itself, which is most of "search
+    // time is still way too long" for a question Cerebrum has already
+    // answered well before.
+    //
+    // This check runs before ANY of that — before the query resolver, the
+    // self-reasoning chain, intent classification, or gatherPapers — so a
+    // verified hit returns in low milliseconds instead of tens of seconds.
+    // Same bar as the later check (score >= 2, i.e. net-upvoted at least
+    // twice) — deliberately NOT loosened to "any cached row" the way a
+    // literal "if a high-score answer exists" reading might suggest, since
+    // an unverified score-0 row is exactly as likely to be a bad answer as
+    // a good one, and serving it uncritically on every repeat of a popular-
+    // but-wrong query would make Cerebrum confidently wrong FASTER, not
+    // smarter. It can't reuse sourceList (nothing's been fetched yet), so it
+    // serves the sources exactly as they were stored alongside the cached
+    // answer instead (JSON, up to 10 — the same cap the write side already
+    // applies), which is also why this only fires for the plain-query key
+    // (versionedCacheKey(query)) and not follow-up-aware in any special
+    // way — it's the identical key the existing read/write below already
+    // use, just consulted sooner.
+    if (env.DB) {
+      try {
+        const earlyCacheKey = versionedCacheKey(query);
+        const earlyHit = await env.DB.prepare(
+          "SELECT answer, sources FROM answer_cache WHERE query_key = ? AND score >= 2 ORDER BY score DESC, created_at DESC LIMIT 1"
+        ).bind(earlyCacheKey).first();
+        if (earlyHit && earlyHit.answer) {
+          let cachedSources = [];
+          try { cachedSources = JSON.parse(earlyHit.sources || "[]"); } catch {}
+          return new Response(
+            JSON.stringify({
+              answer: earlyHit.answer,
+              sources: cachedSources,
+              videos,
+              factCheck: null,
+              related: [],
+              source: "Cached (verified)",
+              _cached: true,
+            }),
+            { status: 200, headers: cors }
+          );
+        }
+      } catch {} // Cache read failure just falls through to a live search — never blocks the request
+    }
 
     // ════════════════════════════════════════════════════════════════
     // CONVERSATIONAL INTELLIGENCE — launch LLM understanding IN PARALLEL
@@ -6729,7 +6793,12 @@ Respond naturally to the user's message. Be yourself.`;
       "2. NEVER REPEAT YOURSELF: If you already explained a mechanism, go deeper on a follow-up, don't restart.\n" +
       "3. ACCEPT CORRECTIONS: If the user says you're wrong, they probably are right. Correct yourself without defensiveness.\n" +
       "4. BUILD ON CONTEXT: Each answer should advance the conversation. Reference what you've already established.\n" +
-      "5. ANTICIPATE: If you notice the user's line of questioning leads somewhere, mention relevant connections proactively.\n\n" +
+      "5. ANTICIPATE: If you notice the user's line of questioning leads somewhere, mention relevant connections proactively.\n" +
+      "6. HISTORY LENGTH IS NOT EVIDENCE: A long conversation, or a large number of papers cited across earlier turns, does " +
+      "NOT make your citations in THIS answer more certain and does NOT raise your confidence. Recalibrate confidence and " +
+      "citation validity fresh for every turn from the EVIDENCE PROFILE and sources given for THIS question alone — never " +
+      "carry confidence forward from earlier turns just because there's more context around it now. A follow-up citing one " +
+      "thin source is exactly as hedged as a first question citing that same thin source.\n\n" +
       "HANDLING GAPS: If retrieved sources don't fully answer the question, state what they cover in ONE sentence, " +
       "then seamlessly extend with your broader knowledge. Never refuse. Never apologize more than once. " +
       "Your knowledge IS the ceiling — papers are evidence anchors, not limits.\n\n" +
@@ -7170,7 +7239,19 @@ Respond naturally to the user's message. Be yourself.`;
     // Scale the floor to what each tier actually promises (still well under
     // the target, just enough to reject an obviously-too-short response and
     // force a retry against the next model).
-    const minAnswerLen = answerLength === "long" ? 500 : answerLength === "short" ? 30 : 150;
+    // v36: "long" now explicitly asks for 800+ words (~4500-5000 chars) —
+    // this floor is deliberately NOT set to that number. This bar's job is
+    // to fail a response over to the next model in the SAME wave (cheap:
+    // the wave is already racing several models in parallel) or, only if
+    // every model in the wave was lazy, over to wave 2 (NOT cheap: another
+    // sequential ~12s). Setting it near the actual 800-word target would
+    // reject a genuinely solid 550-600 word answer just as readily as the
+    // "two lazy sentences" this exists to catch, buying a wave-2 fallback
+    // more often — trading the depth problem for the latency complaint
+    // sitting right next to it. 2500 chars (~380-400 words) still rejects
+    // the specific failure mode reported (a ~250-word answer to a Detailed
+    // request) without turning "not quite 800" into a retry trigger.
+    const minAnswerLen = answerLength === "long" ? 2500 : answerLength === "short" ? 30 : 150;
 
     // Every thrown error is prefixed with the model name and, where possible,
     // the response body text. This is the difference between a future total
