@@ -441,21 +441,21 @@ const PALETTES = {
   // base instead of blue-white, matching the same undertone Sage already
   // uses. Not merged into Sage's own hue — Sage stays the more saturated
   // olive/linen option; these two are the calmer neutral pair.
-  Dark:  { dark: true,  bg: "#201f1d", surface: "#2b2a27", raised: "#38362f", ink: "#e6e3de", ink2: "#a19d96", faint: "#827e77", line: "rgba(230,227,222,0.09)", line2: "rgba(230,227,222,0.15)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2b2a27 25%, #38362f 50%, #2b2a27 75%)" },
+  Dark:  { dark: true,  bg: "#201f1d", surface: "#2b2a27", raised: "#38362f", ink: "#e6e3de", ink2: "#a19d96", faint: "#95918b", line: "rgba(230,227,222,0.09)", line2: "rgba(230,227,222,0.15)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2b2a27 25%, #38362f 50%, #2b2a27 75%)" },
   // Slate: a cooler, blue-leaning dark surface (the Discord/Linear
   // register) for anyone who wants dark without Dark's neutral-grey cast —
   // kept deliberately cool rather than folded into the warm pair above, so
   // it stays a real alternative and not a fourth near-duplicate. Ink
   // softened off pure white to match the other three's restraint.
-  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#82858c", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
-  Light: { dark: false, bg: "#f5f4f1", surface: "#fbfaf8", raised: "#ffffff", ink: "#29261f", ink2: "#5a5548", faint: "#7a7568", line: "rgba(41,38,31,0.07)", line2: "rgba(41,38,31,0.12)", shadow: "0 1px 2px rgba(41,38,31,0.05), 0 6px 18px rgba(41,38,31,0.07)", shadowSm: "0 1px 2px rgba(41,38,31,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #efeeea 25%, #f6f5f2 50%, #efeeea 75%)" },
+  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#9a9ca2", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
+  Light: { dark: false, bg: "#f5f4f1", surface: "#fbfaf8", raised: "#ffffff", ink: "#29261f", ink2: "#5a5548", faint: "#736e62", line: "rgba(41,38,31,0.07)", line2: "rgba(41,38,31,0.12)", shadow: "0 1px 2px rgba(41,38,31,0.05), 0 6px 18px rgba(41,38,31,0.07)", shadowSm: "0 1px 2px rgba(41,38,31,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #efeeea 25%, #f6f5f2 50%, #efeeea 75%)" },
   // Sage — "Modern Organic," and now the default palette a fresh browser
   // lands on (see App()'s paletteName useState below): warm stone instead
   // of neutral charcoal, linen instead of stark white, paired by default
   // with the muted sage-green accent (ACCENTS.Sage) instead of a neon hue.
   // Also lifted off its earlier near-black #121315 for the same reason as
   // Dark/Mid above.
-  Sage:  { dark: true, bg: "#242420", surface: "#2e2e29", raised: "#3a3a33", ink: "#f0ead9", ink2: "#b8b2a0", faint: "#948e7c", line: "rgba(240,234,217,0.10)", line2: "rgba(240,234,217,0.16)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2e2e29 25%, #3a3a33 50%, #2e2e29 75%)" },
+  Sage:  { dark: true, bg: "#242420", surface: "#2e2e29", raised: "#3a3a33", ink: "#f0ead9", ink2: "#b8b2a0", faint: "#9d9786", line: "rgba(240,234,217,0.10)", line2: "rgba(240,234,217,0.16)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2e2e29 25%, #3a3a33 50%, #2e2e29 75%)" },
 };
 // Cyberpunk-leaning neon set — the two hues the blueprint calls out by name
 // (Matrix Green, Cyberpunk Cyan) moved to the front and pushed slightly
@@ -476,8 +476,8 @@ const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888" };
 // hero wordmark's responsive clamp()) are left as literals on purpose: they
 // answer to their own unique layout, not to a shared metadata/heading scale.
 const FONT_SIZES = {
-  micro: 10,        // footnotes, superscripts, smallest badges
-  caption: 11,      // metadata labels, timestamps, byline text
+  micro: 10.5,      // footnotes, superscripts, smallest badges
+  caption: 11.5,    // metadata labels, timestamps, byline text
   small: 12.5,      // secondary text, form inputs, chips, tab labels
   body: 14,         // primary body copy
   subhead: 16.5,    // card titles, list items, modal subheads
@@ -2175,7 +2175,7 @@ function ToolbarBtn({ title, icon, onClick, accent, P, active = false, spin = fa
     </button>
   );
 }
-function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "1px solid transparent", borderRadius: 3, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", transition: "background 0.15s ease, color 0.15s ease, border-color 0.15s ease", boxSizing: "border-box" }; }
+function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 3, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", transition: "background 0.15s ease, color 0.15s ease" }; }
 
 function ReportModal({ query, P, accent, at, onClose }) {
   const [description, setDescription] = useState("");
@@ -2715,7 +2715,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }} className="cb-stagger">
             {t.videos.slice(0, 6).map((v, i) => (
               <a key={v.id || i} href={safeHref(v.url)} target="_blank" rel="noreferrer" className="cb-fade cb-card" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 3, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 8px 24px ${withAlpha(accent, 0.12)}`; }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 0 0 1px ${withAlpha(accent, 0.4)}, 0 8px 24px ${withAlpha(accent, 0.12)}`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
                 <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
                   <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
@@ -3575,15 +3575,16 @@ function IllustrationModal({ P, accent, at, query, close }) {
 // Nebula's featured-show rail both lead with one large cinematic card
 // before dropping into a grid, rather than just a bigger version of the
 // same image-on-top-text-below card every other story uses.
-function TrendingHero({ P, accent, item }) {
+function TrendingHero({ P, accent, item, onExpand }) {
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
   return (
-    <a
-      href={safeHref(item.url)} target="_blank" rel="noreferrer"
+    <button
+      type="button" onClick={() => onExpand(item)}
       style={{
-        position: "relative", display: "block", borderRadius: 16, overflow: "hidden",
+        position: "relative", display: "block", width: "100%", borderRadius: 16, overflow: "hidden",
         aspectRatio: "16/9", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-        textDecoration: "none", color: "inherit", border: `1px solid ${P.line}`,
+        textDecoration: "none", color: "inherit", border: `1px solid ${P.line}`, padding: 0,
+        font: "inherit", cursor: "pointer", textAlign: "left",
       }}
       className="cb-trend-hero"
     >
@@ -3609,21 +3610,25 @@ function TrendingHero({ P, accent, item }) {
         )}
         <div style={{ fontSize: "clamp(22px, 3vw, 34px)", fontWeight: 700, color: "#fff", lineHeight: 1.15, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)", maxWidth: 780, textShadow: "0 2px 20px rgba(0,0,0,0.4)" }}>{item.title}</div>
         <div style={{ fontSize: FONT_SIZES.body, color: "rgba(255,255,255,0.82)", lineHeight: 1.55, maxWidth: 640, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
-        <div style={{ fontSize: FONT_SIZES.micro, color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-mono)", marginTop: 4 }}>{item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : ""}</div>
+        <div style={{ fontSize: FONT_SIZES.micro, color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-mono)", marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
+          {item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : ""}
+          <span style={{ color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Read the full story <Icon name="arrowRight" size={12} /></span>
+        </div>
       </div>
-    </a>
+    </button>
   );
 }
 
-function TrendingCard({ P, accent, at, item }) {
+function TrendingCard({ P, accent, at, item, onExpand }) {
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
   return (
-    <a
-      href={safeHref(item.url)} target="_blank" rel="noreferrer"
+    <button
+      type="button" onClick={() => onExpand(item)}
       style={{
         borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden",
         background: P.surface, display: "flex", flexDirection: "column",
-        textDecoration: "none", color: "inherit",
+        textDecoration: "none", color: "inherit", width: "100%", padding: 0,
+        font: "inherit", cursor: "pointer", textAlign: "left",
       }}
       className="cb-trend-card"
     >
@@ -3645,10 +3650,94 @@ function TrendingCard({ P, accent, at, item }) {
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55, flex: 1, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
         <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
           {item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : ""}
-          <span style={{ color: accent, marginLeft: "auto", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Read <Icon name="external" size={11} /></span>
+          <span style={{ color: accent, marginLeft: "auto", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Expand <Icon name="arrowRight" size={11} /></span>
         </div>
       </div>
-    </a>
+    </button>
+  );
+}
+
+// Client-side dedup safety net — mirrors the normalization functions.
+// lib/trendingSource.js runs server-side (see that file), so a cached or
+// slightly-stale response, or any future backend change, still can't put
+// the same story on screen twice. Dedupes by normalized URL first, falling
+// back to normalized title for two different URLs carrying the same
+// syndicated story.
+function normalizeTrendingUrl(url) {
+  return String(url || "").trim().toLowerCase()
+    .replace(/^https?:\/\//, "").replace(/^www\./, "")
+    .replace(/[?#].*$/, "").replace(/\/+$/, "");
+}
+function normalizeTrendingTitle(title) {
+  return String(title || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+function dedupeTrendingItems(items) {
+  const seenUrls = new Set();
+  const seenTitles = new Set();
+  const out = [];
+  for (const item of items) {
+    const urlKey = normalizeTrendingUrl(item.url);
+    const titleKey = normalizeTrendingTitle(item.title);
+    if ((urlKey && seenUrls.has(urlKey)) || (titleKey && seenTitles.has(titleKey))) continue;
+    if (urlKey) seenUrls.add(urlKey);
+    if (titleKey) seenTitles.add(titleKey);
+    out.push(item);
+  }
+  return out;
+}
+
+// Article detail — opened by clicking a TrendingHero/TrendingCard instead
+// of leaving the app immediately. Same dialog pattern as InstitutionModal/
+// InboxModal (backdrop click + Escape both close, focus trapped inside):
+// full title, full untruncated summary, source, published date, and the
+// actual outbound link to the original article, which lives here now
+// instead of on the card itself.
+function TrendingArticleModal({ P, accent, at, item, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
+  const publishedLabel = item.publishedAt
+    ? new Date(item.publishedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+    : "";
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label={item.title || "Article"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 217, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
+      }} className="cb-modal">
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          {item.image_url && imgStatus !== "error" && (
+            <div style={{ position: "relative", aspectRatio: "16/9", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }}>
+              <img src={item.image_url} alt="" aria-hidden="true" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }} />
+              <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(0deg, rgba(0,0,0,0.55) 0%, transparent 45%)" }} />
+            </div>
+          )}
+          <button onClick={close} aria-label="Close" style={{ position: "absolute", top: 14, right: 14, width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", color: "#fff", border: "none", cursor: "pointer" }}><Icon name="close" size={16} /></button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 26 }}>
+          {item.source && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)" }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
+              {item.source}
+            </span>
+          )}
+          <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, lineHeight: 1.25, letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", marginTop: 10 }}>{item.title}</div>
+          {publishedLabel && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", marginTop: 8 }}>{publishedLabel}</div>}
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{item.summary}</div>
+          <a href={safeHref(item.url)} target="_blank" rel="noreferrer" style={{
+            display: "inline-flex", alignItems: "center", gap: 8, marginTop: 24, padding: "10px 18px",
+            fontSize: FONT_SIZES.small, fontWeight: 600, color: at, background: accent, borderRadius: 8,
+            textDecoration: "none",
+          }}>
+            Read the full story{item.source ? ` at ${item.source}` : ""} <Icon name="external" size={14} />
+          </a>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3663,6 +3752,7 @@ function TrendingView({ P, accent, at, isMobile }) {
   const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
   const [items, setItems] = useState([]);
   const [generatedAt, setGeneratedAt] = useState(0);
+  const [expanded, setExpanded] = useState(null);
   // Forces the "Updated Xm ago" line to keep counting up between polls,
   // not just re-render whenever a fetch happens to land.
   const [, forceTick] = useState(0);
@@ -3697,7 +3787,11 @@ function TrendingView({ P, accent, at, isMobile }) {
     return () => { cancelled = true; clearInterval(timer); clearInterval(tickTimer); };
   }, []);
 
-  const [hero, ...rest] = items;
+  // Deduped here regardless of what the backend already did (see
+  // dedupeTrendingItems above) — a safety net against a stale cache row or
+  // a future source change, never a substitute for the server-side dedup.
+  const deduped = useMemo(() => dedupeTrendingItems(items), [items]);
+  const [hero, ...rest] = deduped;
 
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
@@ -3742,13 +3836,14 @@ function TrendingView({ P, accent, at, isMobile }) {
         )}
         {status === "ready" && (
           <>
-            {hero && <div style={{ marginBottom: 24 }}><TrendingHero P={P} accent={accent} item={hero} /></div>}
+            {hero && <div style={{ marginBottom: 24 }}><TrendingHero P={P} accent={accent} item={hero} onExpand={setExpanded} /></div>}
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
-              {rest.map((item, i) => <TrendingCard key={item.url || i} P={P} accent={accent} at={at} item={item} />)}
+              {rest.map((item, i) => <TrendingCard key={item.url || i} P={P} accent={accent} at={at} item={item} onExpand={setExpanded} />)}
             </div>
           </>
         )}
       </div>
+      {expanded && <TrendingArticleModal P={P} accent={accent} at={at} item={expanded} close={() => setExpanded(null)} />}
     </div>
   );
 }
@@ -4300,12 +4395,157 @@ const BADGE_DISPLAY = {
   early_adopter: { label: "Early adopter", icon: "zap", tint: "#b45309" },
 };
 
-// Mock universities for the affiliation search below — command-palette-style
-// filter-as-you-type, not a real institution directory lookup (there isn't
-// one wired up yet). Selecting one just sets the same `profile.affiliation`
+// Reference list of universities for the affiliation field's filter-as-you-
+// type suggestions below — command-palette-style, not a live institution
+// directory lookup (there isn't a real one wired up yet). These are real
+// institution names (Ivy League, major US state flagships, major private
+// research universities, and a solid cross-section of top global schools
+// across the UK, continental Europe, Canada, Asia, and Australia/NZ) so the
+// dropdown is actually useful rather than a token demo list; the field stays
+// free text underneath, so an institution not on this list can still be
+// typed and saved. Selecting one just sets the same `profile.affiliation`
 // field the plain text input always wrote to, so nothing about persistence
 // changes — it's a faster way to fill in the same field.
-const MOCK_AFFILIATIONS = ["University of Tennessee", "MIT", "Stanford", "Harvard"];
+const UNIVERSITIES = [
+  // Ivy League
+  "Harvard University", "Yale University", "Princeton University", "Columbia University",
+  "University of Pennsylvania", "Cornell University", "Dartmouth College", "Brown University",
+
+  // Major US state flagships / public research universities
+  "University of Alabama", "Auburn University", "University of Alabama in Huntsville",
+  "University of Alaska Fairbanks", "University of Arizona", "Arizona State University",
+  "University of Arkansas", "University of California, Berkeley", "University of California, Los Angeles",
+  "University of California, San Diego", "University of California, Davis", "University of California, Irvine",
+  "University of California, Santa Barbara", "University of California, Santa Cruz",
+  "University of California, Riverside", "University of California, Merced",
+  "University of Colorado Boulder", "Colorado State University", "Colorado School of Mines",
+  "University of Connecticut", "University of Delaware", "University of Florida", "Florida State University",
+  "University of Central Florida", "University of South Florida", "Florida International University",
+  "University of Georgia", "Georgia Institute of Technology", "Georgia State University",
+  "University of Hawaii at Manoa", "University of Idaho", "University of Illinois Urbana-Champaign",
+  "University of Illinois Chicago", "Indiana University Bloomington", "Purdue University",
+  "University of Iowa", "Iowa State University", "University of Kansas", "Kansas State University",
+  "University of Kentucky", "Louisiana State University", "Louisiana Tech University",
+  "University of Maine", "University of Maryland, College Park", "University of Maryland, Baltimore County",
+  "University of Massachusetts Amherst", "University of Massachusetts Boston",
+  "University of Michigan", "Michigan State University", "Michigan Technological University",
+  "University of Minnesota Twin Cities", "University of Mississippi", "Mississippi State University",
+  "University of Missouri", "University of Missouri-Kansas City", "Missouri University of Science and Technology",
+  "University of Montana", "University of Nebraska-Lincoln", "University of Nebraska Omaha",
+  "University of Nevada, Reno", "University of Nevada, Las Vegas", "University of New Hampshire",
+  "Rutgers University", "University of New Mexico", "University at Buffalo, SUNY", "Stony Brook University",
+  "University at Albany, SUNY", "University of North Carolina at Chapel Hill", "North Carolina State University",
+  "University of North Carolina at Charlotte", "University of North Carolina at Greensboro",
+  "East Carolina University", "Appalachian State University", "University of North Dakota",
+  "Ohio State University", "Ohio University", "Miami University", "Kent State University",
+  "Bowling Green State University", "University of Toledo", "University of Akron",
+  "University of Oklahoma", "Oklahoma State University", "University of Oregon", "Oregon State University",
+  "Pennsylvania State University", "University of Pittsburgh", "Temple University",
+  "University of Rhode Island", "University of South Carolina", "Clemson University",
+  "University of South Dakota", "University of Tennessee", "University of Memphis",
+  "University of Texas at Austin", "Texas A&M University", "Texas Tech University",
+  "University of North Texas", "University of Houston", "University of Utah", "Utah State University",
+  "University of Vermont", "University of Virginia", "Virginia Tech", "Virginia Commonwealth University",
+  "George Mason University", "James Madison University", "Old Dominion University",
+  "University of Washington", "Washington State University", "West Virginia University",
+  "University of Wisconsin-Madison", "University of Wyoming", "San Diego State University",
+  "University of Cincinnati", "Wayne State University",
+
+  // Major private research universities
+  "Massachusetts Institute of Technology", "Stanford University", "University of Chicago",
+  "Northwestern University", "Duke University", "Johns Hopkins University", "Vanderbilt University",
+  "Rice University", "Washington University in St. Louis", "Emory University", "Georgetown University",
+  "University of Notre Dame", "Carnegie Mellon University", "University of Southern California",
+  "New York University", "Boston University", "Boston College", "Tufts University", "Brandeis University",
+  "Case Western Reserve University", "University of Rochester", "Lehigh University", "Northeastern University",
+  "Wake Forest University", "Tulane University", "University of Miami", "Southern Methodist University",
+  "Baylor University", "Yeshiva University", "Syracuse University", "George Washington University",
+  "American University", "Villanova University", "Fordham University", "Drexel University",
+  "Pepperdine University", "Santa Clara University", "University of Denver", "University of Tulsa",
+  "Texas Christian University", "Rensselaer Polytechnic Institute", "Worcester Polytechnic Institute",
+  "Stevens Institute of Technology", "Illinois Institute of Technology", "Rochester Institute of Technology",
+  "Clark University", "Brigham Young University", "University of San Diego", "Loyola University Chicago",
+  "DePaul University", "Marquette University", "Saint Louis University", "University of Dayton",
+  "Creighton University", "Duquesne University", "Seton Hall University", "Quinnipiac University",
+  "University of the Pacific", "Chapman University", "Loyola Marymount University",
+
+  // Liberal arts colleges
+  "Williams College", "Amherst College", "Swarthmore College", "Pomona College", "Wellesley College",
+  "Bowdoin College", "Middlebury College", "Carleton College", "Claremont McKenna College",
+  "Davidson College", "Colby College", "Hamilton College", "Vassar College", "Haverford College",
+  "Colgate University", "Smith College", "Bryn Mawr College", "Grinnell College", "Oberlin College",
+  "Bates College", "Barnard College", "Mount Holyoke College", "Wesleyan University", "Reed College",
+  "Scripps College", "Trinity College", "Kenyon College", "Macalester College",
+
+  // Historically Black colleges and universities
+  "Howard University", "Spelman College", "Morehouse College", "Hampton University",
+  "Tuskegee University", "Xavier University of Louisiana",
+
+  // United Kingdom
+  "University of Oxford", "University of Cambridge", "Imperial College London", "University College London",
+  "London School of Economics and Political Science", "King's College London", "University of Edinburgh",
+  "University of Manchester", "University of Bristol", "University of Warwick", "University of Glasgow",
+  "University of Birmingham", "University of Leeds", "University of Sheffield", "University of Nottingham",
+  "University of Southampton", "Durham University", "University of St Andrews",
+  "Queen Mary University of London", "University of York", "Cardiff University", "University of Exeter",
+  "Lancaster University", "University of Bath", "Newcastle University", "Queen's University Belfast",
+  "University of Liverpool", "University of Aberdeen",
+
+  // Continental Europe
+  "ETH Zurich", "EPFL (École Polytechnique Fédérale de Lausanne)", "University of Zurich",
+  "LMU Munich", "Technical University of Munich", "Heidelberg University", "Humboldt University of Berlin",
+  "Free University of Berlin", "University of Freiburg", "University of Tübingen", "RWTH Aachen University",
+  "KU Leuven", "Ghent University", "University of Amsterdam", "Delft University of Technology",
+  "Utrecht University", "Leiden University", "Erasmus University Rotterdam", "Wageningen University",
+  "Sorbonne University", "Sciences Po", "École Normale Supérieure", "École Polytechnique",
+  "University of Copenhagen", "Technical University of Denmark", "Karolinska Institute",
+  "KTH Royal Institute of Technology", "Stockholm University", "Uppsala University", "Lund University",
+  "University of Oslo", "University of Helsinki", "Aalto University", "University of Vienna",
+  "University of Geneva", "University of Bologna", "Sapienza University of Rome", "Politecnico di Milano",
+  "University of Barcelona", "Universidad Autónoma de Madrid", "Universidad Complutense de Madrid",
+  "University of Warsaw", "Charles University", "University of Lisbon", "Trinity College Dublin",
+  "University College Dublin",
+
+  // Canada
+  "University of Toronto", "McGill University", "University of British Columbia", "University of Alberta",
+  "University of Waterloo", "McMaster University", "Université de Montréal", "Queen's University",
+  "Western University", "University of Calgary", "University of Ottawa", "Simon Fraser University",
+  "Dalhousie University", "University of Victoria", "York University", "Concordia University",
+
+  // Asia
+  "University of Tokyo", "Kyoto University", "Osaka University", "Tohoku University",
+  "Tokyo Institute of Technology", "Nagoya University", "Waseda University", "Keio University",
+  "Tsinghua University", "Peking University", "Fudan University", "Shanghai Jiao Tong University",
+  "Zhejiang University", "University of Science and Technology of China", "National University of Singapore",
+  "Nanyang Technological University", "Seoul National University", "KAIST", "Yonsei University",
+  "Korea University", "Hong Kong University of Science and Technology", "University of Hong Kong",
+  "Chinese University of Hong Kong", "National Taiwan University", "Indian Institute of Technology Bombay",
+  "Indian Institute of Technology Delhi", "Indian Institute of Science", "Indian Institute of Technology Madras",
+  "Indian Institute of Technology Kanpur", "University of Delhi", "Tel Aviv University",
+  "Hebrew University of Jerusalem", "Technion – Israel Institute of Technology",
+  "King Abdullah University of Science and Technology", "King Fahd University of Petroleum and Minerals",
+
+  // Australia and New Zealand
+  "University of Melbourne", "University of Sydney", "Australian National University",
+  "University of Queensland", "Monash University", "University of New South Wales",
+  "University of Western Australia", "University of Adelaide", "University of Auckland",
+  "University of Otago", "Victoria University of Wellington",
+];
+
+// Standard academic degrees and credentials for the degree field's matching
+// filter-as-you-type suggestions (see the affiliation dropdown above for the
+// same pattern). Short and finite by nature, unlike the university list, so
+// this covers the common associate/bachelor's/master's/doctoral and
+// professional credentials rather than trying to be exhaustive.
+const DEGREES = [
+  "A.A.", "A.S.", "A.A.S.",
+  "B.A.", "B.S.", "B.Sc.", "B.Eng.", "B.F.A.", "B.B.A.", "B.Arch.", "B.Mus.", "B.S.N.", "LL.B.",
+  "M.A.", "M.S.", "M.Sc.", "M.Eng.", "M.B.A.", "M.F.A.", "M.P.H.", "M.P.A.", "M.P.P.", "M.S.W.",
+  "M.Ed.", "LL.M.", "M.Arch.", "M.S.N.", "M.Div.", "M.Phil.",
+  "Ph.D.", "Ed.D.", "Psy.D.", "M.D.", "D.O.", "D.D.S.", "D.M.D.", "D.V.M.", "J.D.", "Pharm.D.",
+  "D.N.P.", "D.P.T.", "Sc.D.", "Th.D.", "Au.D.",
+  "Postdoctoral Fellowship",
+];
 
 // The Academic CV — a full page now (ProfileView), not a centered ID-card
 // modal. Same real, live data as before (name/username/affiliation/degree/
@@ -4393,16 +4633,30 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     ...(profileMeta?.badges || []).map((bt) => BADGE_DISPLAY[bt]).filter(Boolean),
   ];
 
-  // Affiliation command-palette: filters MOCK_AFFILIATIONS against whatever
-  // is currently typed, live, on every keystroke.
+  // Affiliation command-palette: filters UNIVERSITIES against whatever is
+  // currently typed, live, on every keystroke. Capped to a handful of
+  // results — with 350+ real institutions in the list, an empty query would
+  // otherwise render the entire list into the dropdown.
   const [affiliationOpen, setAffiliationOpen] = useState(false);
   const affiliationQuery = (profile.affiliation || "").trim().toLowerCase();
-  const affiliationMatches = MOCK_AFFILIATIONS.filter(
+  const affiliationMatches = UNIVERSITIES.filter(
     (u) => u.toLowerCase().includes(affiliationQuery) && u.toLowerCase() !== affiliationQuery
-  );
+  ).slice(0, 8);
+
+  // Degree command-palette: same filter-as-you-type pattern as affiliation
+  // above, matched against the DEGREES reference list.
+  const [degreeOpen, setDegreeOpen] = useState(false);
+  const degreeQuery = (profile.degree || "").trim().toLowerCase();
+  const degreeMatches = DEGREES.filter(
+    (d) => d.toLowerCase().includes(degreeQuery) && d.toLowerCase() !== degreeQuery
+  ).slice(0, 8);
 
   const inputStyle = { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)" };
-  const cardStyle = { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 14, padding: 20 };
+  // Raised (not surface) on purpose: the whole profile body now sits inside
+  // its own P.surface panel (see the return below), so these stat cards use
+  // the next elevation step up to still read as distinct, layered blocks
+  // rather than disappearing flush into the panel behind them.
+  const cardStyle = { background: P.raised, border: `1px solid ${P.line}`, borderRadius: 14, padding: 18 };
   const cardLabel = { fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 14 };
   const recentHistory = (history || []).slice(0, 6);
   const collectionCounts = (collections || []).map((c) => ({ ...c, count: (saved || []).filter((s) => s.collectionId === c.id).length }));
@@ -4416,28 +4670,54 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           already uses for depth, just at full page width. */}
       <div aria-hidden="true" style={{
         height: isMobile ? 130 : 200, width: "100%",
-        background: `linear-gradient(135deg, ${withAlpha(accent, 0.35)}, ${P.raised} 70%)`,
+        background: `linear-gradient(135deg, ${withAlpha(accent, 0.5)} 0%, ${P.raised} 60%, ${P.surface} 100%)`,
         position: "relative", overflow: "hidden",
       }}>
-        <div style={{ position: "absolute", inset: 0, opacity: 0.5, backgroundImage: `radial-gradient(circle at 20% 30%, ${withAlpha(accent, 0.4)}, transparent 45%), radial-gradient(circle at 80% 70%, ${withAlpha(accent, 0.25)}, transparent 40%)` }} />
+        <div style={{ position: "absolute", inset: 0, opacity: 0.6, backgroundImage: `radial-gradient(circle at 15% 25%, ${withAlpha(accent, 0.45)}, transparent 45%), radial-gradient(circle at 85% 75%, ${withAlpha(accent, 0.3)}, transparent 42%)` }} />
+        {/* Fades the banner's bottom edge into the panel's own P.surface so
+            the two read as one continuous piece instead of a hard seam. */}
+        <div style={{ position: "absolute", inset: 0, boxShadow: `inset 0 -46px 40px -20px ${withAlpha(P.surface, 0.95)}` }} />
       </div>
 
-      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: isMobile ? "0 18px 60px" : "0 32px 80px" }}>
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: isMobile ? "0 14px 60px" : "0 24px 80px" }}>
+        {/* Profile panel — a single elevated surface the cover banner tucks
+            behind, so identity, affiliation, and the stat cards below read
+            as one cohesive card instead of loose fields floating on bare
+            page background (the previous "soulless" complaint). */}
+        <div style={{
+          position: "relative", background: P.surface, border: `1px solid ${P.line}`,
+          borderRadius: isMobile ? 16 : 20,
+          boxShadow: P.dark ? "0 24px 64px rgba(0,0,0,0.35)" : (P.shadow || "0 12px 40px rgba(41,38,31,0.08)"),
+          padding: isMobile ? "0 18px 26px" : "0 28px 34px",
+        }}>
         {/* Roster info: overlapping avatar + identity + institution crest */}
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 20, marginTop: isMobile ? -46 : -64, marginBottom: 28 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 20, marginTop: isMobile ? -46 : -64, marginBottom: 24 }}>
           <div style={{ position: "relative", width: isMobile ? 92 : 120, height: isMobile ? 92 : 120, flexShrink: 0 }}>
             {avatarFailed && !profile.avatar_base64 ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
                 background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 38, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `4px solid ${P.bg}`,
+                fontSize: 38, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `4px solid ${P.surface}`,
+                boxShadow: `0 0 0 3px ${withAlpha(accent, 0.4)}, 0 10px 26px rgba(0,0,0,0.28)`,
               }}>{displayInitial}</div>
             ) : (
+              // Dicebear's own default background for the "shapes" style is
+              // an arbitrary hue picked per seed — against this app's warm-
+              // stone palette that reads as a random clash rather than a
+              // deliberate choice, so the background is pinned to the
+              // current accent instead. The ring below (accent-tinted, not
+              // Dicebear's) is what actually integrates the generated
+              // artwork into the page rather than leaving it looking pasted
+              // on top of the cover banner.
               <img
-                src={profile.avatar_base64 || `https://api.dicebear.com/7.x/shapes/svg?seed=${avatarSeed}&backgroundColor=0a0a0a`}
+                src={profile.avatar_base64 || `https://api.dicebear.com/7.x/shapes/svg?seed=${avatarSeed}&backgroundColor=${accent.replace("#", "")}`}
                 alt={`${displayName}'s avatar`}
                 onError={() => setAvatarFailed(true)}
-                style={{ width: "100%", height: "100%", borderRadius: "50%", display: "block", border: `4px solid ${P.bg}`, objectFit: "cover", background: P.surface }}
+                style={{
+                  width: "100%", height: "100%", borderRadius: "50%", display: "block", border: `4px solid ${P.surface}`,
+                  objectFit: "cover", background: P.surface,
+                  boxShadow: `0 0 0 3px ${withAlpha(accent, 0.4)}, 0 10px 26px rgba(0,0,0,0.28)`,
+                }}
               />
             )}
             <button
@@ -4449,8 +4729,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               style={{
                 position: "absolute", bottom: 2, right: 2, width: 32, height: 32, borderRadius: "50%",
                 display: "flex", alignItems: "center", justifyContent: "center", cursor: avatarSaving ? "default" : "pointer",
-                background: accent, color: at, border: `2px solid ${P.bg}`,
+                background: accent, color: at, border: `2px solid ${P.surface}`,
                 opacity: avatarSaving ? 0.6 : 1,
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
               }}
             >
               {avatarSaving ? <Icon name="refresh" size={14} className="cb-spin" /> : <Icon name="camera" size={14} />}
@@ -4474,13 +4755,35 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               <span>{followers} {followers === 1 ? "follower" : "followers"}</span>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-              <input
-                value={profile.degree || ""}
-                onChange={(e) => setProfile((p) => ({ ...p, degree: e.target.value }))}
-                placeholder="Degree, e.g. Ph.D. Microbiology"
-                aria-label="Degree"
-                style={{ ...inputStyle, width: "auto", flex: "1 1 200px", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
-              />
+              <div style={{ position: "relative", flex: "1 1 200px" }}>
+                <input
+                  value={profile.degree || ""}
+                  onChange={(e) => setProfile((p) => ({ ...p, degree: e.target.value }))}
+                  onFocus={() => setDegreeOpen(true)}
+                  onBlur={() => setDegreeOpen(false)}
+                  placeholder="Degree, e.g. Ph.D. Microbiology"
+                  aria-label="Degree"
+                  autoComplete="off"
+                  style={{ ...inputStyle, width: "100%", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
+                />
+                {degreeOpen && degreeMatches.length > 0 && (
+                  <div style={{
+                    position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
+                    background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
+                    overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+                  }}>
+                    {degreeMatches.map((d) => (
+                      <div
+                        key={d}
+                        onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, degree: d })); setDegreeOpen(false); }}
+                        style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                      >{d}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <input
                 value={profile.grad_year || ""}
                 onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
@@ -4500,14 +4803,14 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(profile.affiliation.trim())}&backgroundColor=${accent.replace("#", "")}`}
               alt={`${profile.affiliation} logo`}
               title={profile.affiliation}
-              style={{ width: 64, height: 64, borderRadius: 12, border: `1px solid ${P.line}`, flexShrink: 0 }}
+              style={{ width: 64, height: 64, borderRadius: 12, border: `1px solid ${withAlpha(accent, 0.3)}`, boxShadow: "0 6px 16px rgba(0,0,0,0.2)", flexShrink: 0 }}
             />
           )}
         </div>
 
         {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginBottom: 16 }}>{avatarError}</div>}
 
-        <div style={{ position: "relative", marginBottom: 28 }}>
+        <div style={{ position: "relative", marginBottom: 24 }}>
           <input
             value={profile.affiliation || ""}
             onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
@@ -4540,8 +4843,8 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         {/* Two-column body: Accolades/Affiliations on the left, Recent
             Investigations/Saved Collections — real data, not placeholder
             copy — on the right. */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0,1fr) minmax(0,1.4fr)", gap: 20, alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0,1fr) minmax(0,1.4fr)", gap: 16, alignItems: "start" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={cardStyle}>
               <div style={cardLabel}>Accolades</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -4568,7 +4871,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               )}
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={cardStyle}>
               <div style={cardLabel}>Recent Investigations</div>
               {recentHistory.length === 0 ? (
@@ -4604,8 +4907,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </div>
           </div>
         </div>
+        </div>
+        {/* /Profile panel */}
 
-        <button onClick={onManageAccount} style={{ marginTop: 28, padding: "10px 18px", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Manage account &amp; security</button>
+        <button onClick={onManageAccount} style={{ marginTop: 20, padding: "10px 18px", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Manage account &amp; security</button>
       </div>
     </div>
   );
@@ -5769,10 +6074,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     countPill: { fontSize: FONT_SIZES.micro, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 3, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
 
     /* ── App shell: fixed Sidebar + everything else shifted right of it ──
-       No top header — the right pane is just canvas breathing room plus
-       the active view. Desktop: sidebar is always visible and `appMain`
-       is permanently offset by its width. Mobile: sidebar is a slide-in
-       drawer, opened with a floating hamburger (not a full-width bar). */
+       The header used to carry every destination (New, Document, Trending,
+       History, Saved, Collections, Find People, Settings) as its own icon
+       button — a dozen controls fighting for one 56px-tall row. Those all
+       live in the Sidebar now; the header keeps only the brand, the search
+       command bar, and account/inbox. Desktop: sidebar is always visible
+       and `appMain` is permanently offset by its width. Mobile: sidebar
+       becomes a slide-in drawer (see `sidebarMobile*` below) and `appMain`
+       stays full-width, opened with a hamburger button in the header. */
     sidebarWidth: 260,
     sidebar: {
       position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 30,
@@ -5787,15 +6096,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", padding: "14px 10px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
-      padding: "10px 12px", borderRadius: 8, border: "1px solid transparent", background: "transparent",
+      padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent",
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500,
-      fontFamily: "var(--cb-body)", transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
-      boxSizing: "border-box",
+      fontFamily: "var(--cb-body)", transition: "background 150ms ease, color 150ms ease",
     },
     sidebarItemActive: { background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600 },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" },
     sidebarFooter: { flexShrink: 0, padding: "10px 12px 14px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
-    appMain: { flex: 1, minWidth: 0, minHeight: "100dvh", display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 260 },
+    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 260 },
 
     /* ── Full-page views (Profile / Settings / Trending) ──
        Replace what used to be centered modal dialogs — no backdrop, no
@@ -5821,7 +6129,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // check but wasn't). Giving this box its own stacking position at a
     // z-index above the canvas's is the actual fix; the header above uses
     // the same trick at zIndex 20 for the same reason.
-    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100dvh", position: "relative", zIndex: 1 },
+    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100%", position: "relative", zIndex: 1 },
     pageViewInner: { maxWidth: 920, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "40px 32px 80px" },
     pageViewTitle: { fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" },
 
@@ -5830,17 +6138,16 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // real document scrolls now. `flex: 1` still lets it fill remaining
     // height below the sticky header on short pages, and the bottom padding
     // still clears the floating mobile "Sources" FAB.
-    scroll: { flex: 1, display: "flex", flexDirection: "column", minHeight: "100dvh", paddingBottom: isMobile ? 88 : 0 },
-    container: { maxWidth: 1200, width: "100%", margin: "0 auto", padding: `0 ${pad}px`, flex: 1, minHeight: "100%", display: "flex", flexDirection: "column", position: "relative" },
+    scroll: { flex: 1, paddingBottom: isMobile ? 88 : 0 },
+    container: { maxWidth: 1200, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", display: "flex", flexDirection: "column" },
 
-    /* ── Hero: the search engine, flex-centered in the right pane ── */
+    /* ── Hero: LEFT-ALIGNED editorial layout ── */
     hero: { 
       flex: 1, display: "flex", flexDirection: "column", 
       alignItems: "center", justifyContent: "center", 
       textAlign: "center",
-      padding: isMobile ? "48px 0 72px" : "32px 0 80px", 
+      padding: isMobile ? "32px 0 40px" : "40px 0 56px", 
       position: "relative",
-      width: "100%",
     },
     heroGlow: { display: "none" },
     heroMark: { marginBottom: 32, position: "relative" },
@@ -5857,7 +6164,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     heroSub: {
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, color: P.ink2,
-      maxWidth: 560, lineHeight: 1.65, marginBottom: 28,
+      maxWidth: 560, lineHeight: 1.65, marginBottom: 52,
       letterSpacing: "-0.01em", position: "relative", fontWeight: 300,
       // v30: "Darknode" round retired — mono in the subheadline was that
       // round's signature move, and this round's explicit target
@@ -5916,10 +6223,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     chip: {
       fontSize: FONT_SIZES.small, color: P.ink2,
       background: "transparent",
-      border: "1px solid transparent",
+      border: "1px solid " + P.line,
       borderRadius: 100, padding: "10px 18px",
       cursor: "pointer",
-      transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease",
+      transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
       fontFamily: "var(--cb-body)", letterSpacing: "-0.01em",
       outline: "none",
       WebkitTapHighlightColor: "transparent",
@@ -5928,13 +6235,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     chipHover: {
       borderColor: P.line2, color: P.ink,
       background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.02)",
+      boxShadow: `0 0 0 1px ${P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}`,
       outline: "none",
-    },
-    filterPill: {
-      fontFamily: "var(--cb-mono)", fontWeight: 600, letterSpacing: "0.03em",
-      borderRadius: 100, cursor: "pointer", background: "transparent",
-      border: "1px solid transparent", boxSizing: "border-box",
-      transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease",
     },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
@@ -5959,7 +6261,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // itself (rather than the FAB or some wrapper) guarantees real content
     // never lands in that reserved strip regardless of how long the answer
     // runs. Desktop keeps the old, smaller value — there's no floating FAB there.
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "40px 0 48px", paddingBottom: isMobile ? 120 : 48, flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? 120 : 48, flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -6030,7 +6332,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, color: P.ink2,
       border: glassBorder, borderRadius: 3,
       cursor: "pointer", fontFamily: font,
-      transition: "color 0.25s ease, background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease", letterSpacing: "-0.01em",
+      transition: "all 0.25s ease", letterSpacing: "-0.01em",
       lineHeight: 1.45,
     },
 
@@ -6061,7 +6363,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 3,
       padding: "20px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
-      maxHeight: "calc(100dvh - 48px)", overflowY: "auto",
+      maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
@@ -6069,7 +6371,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
     srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 3, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 3, marginBottom: 14, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "1px solid transparent", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease", boxSizing: "border-box" },
+    sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.2s ease" },
     sortTabActive: { background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", color: P.ink, boxShadow: "none", fontWeight: 600 },
     srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" },
     sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
@@ -6089,7 +6391,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
     srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-body)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
-    chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid transparent", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease", boxSizing: "border-box" },
+    chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "all 0.2s ease" },
     // v28: the old row (icon+text-label buttons, `flexWrap: "wrap"`) read as
     // a loose pile that reflowed onto 2-3 ragged lines the moment "Source
     // network"/"Timeline" showed up next to "Print / Save PDF" — six
@@ -6246,9 +6548,13 @@ function ToastHost({ P, accent }) {
 
 /* ════════════════════════════════════════════════════════════════
    SIDEBAR — the App Shell's left-hand navigation.
-   Destinations (Search, Trending, Settings, Profile) swap the full-page
-   `view`; the rest open their existing dialogs. Inbox lives in the
-   footer next to Profile so the main pane can stay headerless.
+   Replaces the old header's icon-button row (New, Document, Trending,
+   History, Saved, Collections, Find People, Settings all fighting for
+   space in one 56px bar). Four of these entries — Search, Trending,
+   Settings, Profile — switch which full-page `view` fills the shell;
+   the rest open their existing dialog exactly as the header buttons
+   used to, just relocated here so the header itself can stay down to
+   the brand, the search bar, and account/inbox.
    ════════════════════════════════════════════════════════════════ */
 function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, muted, onToggleMute, onLogoClick }) {
   const NAV = [
@@ -6297,11 +6603,6 @@ function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onC
           <Icon name={muted ? "volumeOff" : "volumeOn"} size={17} />
           <span>{muted ? "Unmute" : "Mute"}</span>
         </button>
-        {user && (
-          <button onClick={() => onNavigate("inbox")} style={S.sidebarItem} onMouseEnter={hoverIn} onMouseLeave={hoverOut("inbox")}>
-            <Icon name="mail" size={17} /><span>Inbox</span>
-          </button>
-        )}
         <button onClick={() => onNavigate("profile")} style={itemStyle("profile")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}>
           {user ? <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{(user.email || "?")[0].toUpperCase()}</span> : <Icon name="user" size={17} />}
           <span>{user ? "Profile" : "Sign in"}</span>
@@ -6632,6 +6933,13 @@ function App() {
   const [hoverCite, setHoverCite] = useState(0);
   const inputRef = useRef(null);
   const cmdRef = useRef(null);
+  // A quiet tribute, not a feature: the version badge used to read "DP" —
+  // a private nod to Dolly Parton, kept as an initialism nobody would think
+  // twice about. Now that it's spelled out as a real version number,
+  // pressing and holding the badge surfaces the tribute directly, for
+  // anyone curious enough to try. Doesn't touch any other state, doesn't
+  // persist anything — genuinely just for whoever finds it.
+  const dpEggRef = useRef({ longPressed: false, timer: null });
   const threadRef = useRef(null);
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
@@ -7018,7 +7326,6 @@ function App() {
       case "collections": if (user) setCollectionsOpen(true); break;
       case "settings": setSettingsInitialTab("general"); setView("settings"); break;
       case "findPeople": if (user) setNetworkSearchOpen(true); break;
-      case "inbox": if (user) setInboxOpen(true); break;
       case "profile": if (user) setView("profile"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       default: break;
     }
@@ -7239,17 +7546,75 @@ function App() {
         onLogoClick={() => { sfx(); setEntered(false); setView("search"); }}
       />
       <div style={S.appMain}>
-      {isMobile && (
-        <button
-          className="cb-hbtn"
-          style={{ position: "fixed", top: 14, left: 14, zIndex: 28, ...S.iconBtn, minWidth: 44, height: 44, padding: 0, background: P.dark ? "rgba(15,17,26,0.55)" : "rgba(255,255,255,0.7)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", border: "1px solid transparent" }}
-          onClick={() => { sfx(); setSidebarMobileOpen(true); }}
-          aria-label="Open menu"
-          title="Menu"
-        >
-          <Icon name="menu" size={18} />
-        </button>
-      )}
+      <header style={S.header}>
+        <div style={S.headerGlass} aria-hidden="true" />
+        <div style={S.headInner}>
+          <div style={{ ...S.brandRow, position: "relative" }}>
+            {/* The Sidebar carries every destination now — this hamburger is
+                purely how a small viewport reaches it, since a permanently
+                docked 260px rail doesn't fit next to search results on a
+                phone screen the way it does on desktop. */}
+            {isMobile && (
+              <button className="cb-hbtn" style={{ ...S.iconBtn, minWidth: 34, padding: "0 6px" }} onClick={() => { sfx(); setSidebarMobileOpen(true); }} aria-label="Open menu" title="Menu">
+                <Icon name="menu" size={18} />
+              </button>
+            )}
+              {/* v5: this used to clear the cookie and hard-reload the whole
+                  page — a jarring flash-to-white on every other transition in
+                  the app being a smooth fade/blur. Flipping `entered` back to
+                  false replays the exact same Intro the cookie-clear was
+                  trying to reach, without throwing away the JS runtime. */}
+              <div onClick={(e) => { e.stopPropagation(); sfx(); setEntered(false); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEntered(false); } }} role="button" tabIndex={0} aria-label="Back to landing page" style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <span style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
+                <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
+              </div>
+              {/* Reopens the "what's new" modal on demand — otherwise it's a
+                  one-time popup nobody could get back to once dismissed. */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // A "5 rapid clicks" version of this used to live here —
+                  // real bug: the very first click opens a full-viewport
+                  // modal on top of this exact button, so clicks 2-5 never
+                  // actually land on the badge again, they land on the
+                  // modal's backdrop instead (closing it). Nearly
+                  // impossible to trigger for real, which is exactly what
+                  // happened. A press-and-hold doesn't have that problem —
+                  // it's one continuous pointer interaction, nothing else
+                  // can steal it mid-way through.
+                  if (dpEggRef.current.longPressed) { dpEggRef.current.longPressed = false; return; }
+                  sfx(); setV5Open(true);
+                }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  dpEggRef.current.longPressed = false;
+                  dpEggRef.current.timer = setTimeout(() => {
+                    dpEggRef.current.longPressed = true;
+                    toast("Science loved Dolly 🦋", { tone: "success" });
+                  }, 850);
+                }}
+                onPointerUp={() => clearTimeout(dpEggRef.current.timer)}
+                onPointerLeave={() => clearTimeout(dpEggRef.current.timer)}
+                title="What's new in V5 (press and hold for a surprise)"
+                aria-label="What's new in Cerebrum V5"
+                style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 3, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}
+              >V5</button>
+          </div>
+          {/* Everything that used to crowd this row (New, Document, Trending,
+              History, Saved, Collections, Find People, Settings — a dozen
+              controls fighting for one 56px bar) now lives in the Sidebar.
+              The header keeps exactly three things: the search command bar,
+              Inbox, and the account/Profile control. */}
+          <div style={S.headActions}>
+            <button className="cb-hbtn" style={isMobile ? { ...S.cmdHint, padding: "0 10px", justifyContent: "center", height: 38 } : S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={isMobile ? 16 : 13} />{!isMobile && <span>Search</span>}{!isMobile && <kbd style={S.kbd}>{kbdLabel("K")}</kbd>}</button>
+            {user && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setInboxOpen(true); }} title="Inbox" aria-label="Inbox"><Icon name="mail" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Inbox</span>}</button>)}
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); if (user) { setView("profile"); } else { setAuthInitialTab("login"); setAuthOpen(true); } }} title={user ? user.email : "Sign in"} aria-label={user ? `Signed in as ${user.email} — open your profile` : "Sign in or create an account"}>
+              {user ? <span aria-hidden="true" style={{ width: 19, height: 19, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)" }}>{(profile.name || user.email)[0].toUpperCase()}</span> : <Icon name="user" size={16} />}
+              {!isMobile && <span style={S.iconBtnLabel}>{user ? "Profile" : "Sign in"}</span>}
+            </button>
+          </div>
+        </div>
+      </header>
       {view === "search" && (
       <div style={S.scroll} ref={threadRef} onDoubleClick={(e) => {
         const sel = window.getSelection()?.toString()?.trim();
@@ -7290,10 +7655,13 @@ function App() {
                 {[["all", "All Evidence"], ["systematic-review", "Systematic Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo / In Vitro"]].map(([val, label]) => (
                   <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
                     style={{
-                      ...S.filterPill, fontSize: FONT_SIZES.caption, padding: "6px 14px",
+                      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", fontWeight: 600,
+                      letterSpacing: "0.03em",
+                      padding: "6px 14px", borderRadius: 100, cursor: "pointer",
+                      transition: "all 0.2s ease",
                       background: evidenceFilter === val ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)") : "transparent",
                       color: evidenceFilter === val ? P.ink : P.faint,
-                      borderColor: evidenceFilter === val ? P.line2 : P.line,
+                      border: evidenceFilter === val ? "1px solid " + P.line2 : "1px solid " + P.line,
                     }}>{label}</button>
                 ))}
               </div>
@@ -7325,14 +7693,16 @@ function App() {
                       <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                     </div>
                   )}
-                  <div className="cb-filter-row" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                     {[["all", "All"], ["systematic-review", "Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo/Vitro"]].map(([val, label]) => (
                       <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
                         style={{
-                          ...S.filterPill, fontSize: FONT_SIZES.micro, padding: "4px 10px",
+                          fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 600,
+                          padding: "4px 10px", borderRadius: 100, cursor: "pointer",
+                          transition: "all 0.2s ease",
                           background: evidenceFilter === val ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)") : "transparent",
                           color: evidenceFilter === val ? P.ink : P.faint,
-                          borderColor: evidenceFilter === val ? P.line2 : P.line,
+                          border: evidenceFilter === val ? "1px solid " + P.line2 : "1px solid " + P.line,
                         }}>{label}</button>
                     ))}
                   </div>
@@ -7354,7 +7724,7 @@ function App() {
               )}
             </div>
           )}
-          <div style={{ ...S.foot, ...(!started ? { position: "absolute", bottom: 0, left: 0, right: 0, marginTop: 0 } : {}) }}>
+          <div style={S.foot}>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Answers are assembled from real papers by AI. Always check the cited sources.</div>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>
               <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", background: "none", border: "none", borderBottom: `1px dotted ${P.faint}`, padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
@@ -7723,21 +8093,13 @@ summary::-webkit-details-marker { display: none; }
 .cb-stagger > *:nth-child(8) { animation-delay: 420ms; }
 .cb-stagger > *:nth-child(n+9) { animation-delay: 480ms; }
 
-/* ── Global button physics: subtle, no bounce ──
-   Border is always present (transparent by default on unstyled buttons) so
-   hover never adds a new 1px ring and cannot shift layout. Transition
-   border-color / box-shadow only — never border-width. */
+/* ── Global button physics: subtle, no bounce ── */
 button {
-  box-sizing: border-box;
   transition: transform 120ms ease, opacity 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
 }
 button:not(:disabled):hover { transform: translateY(-1px); }
 button:not(:disabled):active { transform: scale(0.98) translateY(0); transition-duration: 60ms; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
-.cb-chip-hover:not(:disabled):hover,
-.cb-filter-row button:not(:disabled):hover {
-  transform: none;
-}
 
 /* ── Search focus glow — clean, no radar ── */
 .cb-search-glow { position: relative; }
