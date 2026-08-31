@@ -3570,36 +3570,81 @@ function IllustrationModal({ P, accent, at, query, close }) {
    centered modal (TrendingModal); now a real full-page view, matched to
    the rest of the App Shell migration.
    ════════════════════════════════════════════════════════════════ */
-function TrendingCard({ P, accent, at, item, featured }) {
+// Hero treatment for the lead story — a full-bleed image with the
+// headline set directly over it, the way science.org's front page and
+// Nebula's featured-show rail both lead with one large cinematic card
+// before dropping into a grid, rather than just a bigger version of the
+// same image-on-top-text-below card every other story uses.
+function TrendingHero({ P, accent, item }) {
+  const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
+  return (
+    <a
+      href={safeHref(item.url)} target="_blank" rel="noreferrer"
+      style={{
+        position: "relative", display: "block", borderRadius: 16, overflow: "hidden",
+        aspectRatio: "16/9", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+        textDecoration: "none", color: "inherit", border: `1px solid ${P.line}`,
+      }}
+      className="cb-trend-hero"
+    >
+      {imgStatus !== "error" && (
+        <img src={item.image_url} alt="" aria-hidden="true" loading="eager" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.5s ease" }} />
+      )}
+      {imgStatus !== "ready" && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, background: P.surface }}>
+          <Icon name="image" size={36} style={{ opacity: 0.4 }} />
+        </div>
+      )}
+      {/* Always-on scrim (not opacity-gated to imgStatus) so the headline
+          stays legible over the placeholder background too, not just once
+          a real photo loads. */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(0deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.05) 100%)" }} />
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "28px 28px 26px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {item.source && (
+          <span style={{ display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#fff", fontFamily: "var(--cb-mono)" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
+            {item.source}
+          </span>
+        )}
+        <div style={{ fontSize: "clamp(22px, 3vw, 34px)", fontWeight: 700, color: "#fff", lineHeight: 1.15, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)", maxWidth: 780, textShadow: "0 2px 20px rgba(0,0,0,0.4)" }}>{item.title}</div>
+        <div style={{ fontSize: FONT_SIZES.body, color: "rgba(255,255,255,0.82)", lineHeight: 1.55, maxWidth: 640, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
+        <div style={{ fontSize: FONT_SIZES.micro, color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-mono)", marginTop: 4 }}>{item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : ""}</div>
+      </div>
+    </a>
+  );
+}
+
+function TrendingCard({ P, accent, at, item }) {
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
   return (
     <a
       href={safeHref(item.url)} target="_blank" rel="noreferrer"
       style={{
         borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden",
-        background: P.surface, display: "flex", flexDirection: featured ? "column" : "column",
-        textDecoration: "none", color: "inherit", gridColumn: featured ? "span 2" : undefined,
+        background: P.surface, display: "flex", flexDirection: "column",
+        textDecoration: "none", color: "inherit",
       }}
       className="cb-trend-card"
     >
-      <div style={{ position: "relative", aspectRatio: featured ? "21/9" : "16/10", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0 }}>
+      <div style={{ position: "relative", aspectRatio: "16/10", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0 }}>
         {imgStatus !== "error" && (
           <img src={item.image_url} alt="" aria-hidden="true" loading="lazy" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
             style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }} />
         )}
         {imgStatus !== "ready" && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint }}>
-            <Icon name="image" size={featured ? 30 : 20} style={{ opacity: 0.4 }} />
+            <Icon name="image" size={20} style={{ opacity: 0.4 }} />
           </div>
         )}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />
         {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>{item.source}</span>}
       </div>
-      <div style={{ padding: featured ? "20px 22px" : 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-        <div style={{ fontSize: featured ? FONT_SIZES.heading : FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{item.title}</div>
-        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55, flex: 1 }}>{item.summary}</div>
+      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+        <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{item.title}</div>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55, flex: 1, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
         <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-          {item.publishedAt ? new Date(item.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""}
+          {item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : ""}
           <span style={{ color: accent, marginLeft: "auto", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Read <Icon name="external" size={11} /></span>
         </div>
       </div>
@@ -3607,50 +3652,87 @@ function TrendingCard({ P, accent, at, item, featured }) {
   );
 }
 
+// How often an open Trending tab re-polls its own endpoint. The feed
+// itself only actually changes once an hour (trending-refresh.js's own
+// job) — this isn't trying to beat that clock, it's just making sure
+// someone who leaves the tab open for a while sees the next hourly
+// refresh land without having to manually reload.
+const TRENDING_POLL_MS = 5 * 60 * 1000;
+
 function TrendingView({ P, accent, at, isMobile }) {
   const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
   const [items, setItems] = useState([]);
+  const [generatedAt, setGeneratedAt] = useState(0);
+  // Forces the "Updated Xm ago" line to keep counting up between polls,
+  // not just re-render whenever a fetch happens to land.
+  const [, forceTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
-    fetch("/api/trending")
-      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
-      .then(({ ok, data }) => {
-        if (cancelled) return;
-        if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) { setStatus("error"); return; }
-        setItems(data.items);
-        setStatus("ready");
-      })
-      .catch(() => { if (!cancelled) setStatus("error"); });
-    return () => { cancelled = true; };
+    let timer = null;
+
+    const load = (isBackground) => {
+      if (!isBackground) setStatus((s) => (s === "ready" ? s : "loading"));
+      fetch("/api/trending")
+        .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+          if (cancelled) return;
+          if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) {
+            // A background poll that comes back empty shouldn't nuke a
+            // feed that's already on screen — only a genuine first-load
+            // failure shows the error state.
+            if (!isBackground) setStatus("error");
+            return;
+          }
+          setItems(data.items);
+          setGeneratedAt(data.generatedAt || Date.now());
+          setStatus("ready");
+        })
+        .catch(() => { if (!cancelled && !isBackground) setStatus("error"); });
+    };
+
+    load(false);
+    timer = setInterval(() => load(true), TRENDING_POLL_MS);
+    const tickTimer = setInterval(() => forceTick((n) => n + 1), 30000);
+    return () => { cancelled = true; clearInterval(timer); clearInterval(tickTimer); };
   }, []);
+
+  const [hero, ...rest] = items;
 
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
       <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "44px 32px 90px" }}>
         <div style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Trending in Science</div>
             <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>Preview</span>
+            {status === "ready" && (
+              <span title="Refreshed automatically once an hour" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+                <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS.good, flexShrink: 0, animation: "cbHuddlePulse 1.6s ease-in-out infinite" }} />
+                Live{generatedAt ? " · updated " + relativeTime(generatedAt) : ""}
+              </span>
+            )}
           </div>
           <div style={{ fontSize: FONT_SIZES.body, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
-            Real, live science journalism — not editorially curated by Cerebrum, and not run through Cerebrum's fact-check pass the way a single search answer is. Read the source before citing anything here.
+            Real science journalism, refreshed automatically every hour — not editorially curated by Cerebrum, and not run through Cerebrum's fact-check pass the way a single search answer is. Read the source before citing anything here.
           </div>
         </div>
         {status === "loading" && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <div key={i} style={{ borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden", gridColumn: i === 0 ? "span 2" : undefined }}>
-                <div style={{ aspectRatio: i === 0 ? "21/9" : "16/10", background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ height: 14, width: "80%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                  <div style={{ height: 10, width: "100%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                  <div style={{ height: 10, width: "60%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+          <>
+            <div style={{ borderRadius: 16, overflow: "hidden", aspectRatio: "16/9", background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.8s ease-in-out infinite", marginBottom: 24 }} />
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div key={i} style={{ borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden" }}>
+                  <div style={{ aspectRatio: "16/10", background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                  <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ height: 14, width: "80%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                    <div style={{ height: 10, width: "100%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                    <div style={{ height: 10, width: "60%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
         {status === "error" && (
           <div style={{ textAlign: "center", color: P.faint, padding: "60px 16px" }}>
@@ -3659,9 +3741,12 @@ function TrendingView({ P, accent, at, isMobile }) {
           </div>
         )}
         {status === "ready" && (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
-            {items.map((item, i) => <TrendingCard key={item.url || i} P={P} accent={accent} at={at} item={item} featured={i === 0 && !isMobile} />)}
-          </div>
+          <>
+            {hero && <div style={{ marginBottom: 24 }}><TrendingHero P={P} accent={accent} item={hero} /></div>}
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
+              {rest.map((item, i) => <TrendingCard key={item.url || i} P={P} accent={accent} at={at} item={item} />)}
+            </div>
+          </>
         )}
       </div>
     </div>
