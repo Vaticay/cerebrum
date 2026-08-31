@@ -19,6 +19,8 @@ const MAX_MESSAGE_LEN = 4000;
 const MAX_NAME_LEN = 120;
 const MAX_USERNAME_LEN = 40;
 const MAX_AFFILIATION_LEN = 200;
+const MAX_DEGREE_LEN = 120;
+const MAX_GRAD_YEAR_LEN = 9; // "2024" or a range like "2020-2024"
 // A 256x256 JPEG comes back from the client-side canvas compressor at
 // roughly 15-50KB before base64's ~4/3 inflation, so this leaves generous
 // headroom for a lower-quality/less-compressible image while still
@@ -139,7 +141,7 @@ export async function onRequest(context) {
       // raise, so it's not being guessed at here.
       if (resource === "profile") {
         const row = await env.DB.prepare(
-          "SELECT id, email, username, name, affiliation, avatar_base64 FROM users WHERE id = ?"
+          "SELECT id, email, username, name, affiliation, degree, grad_year, avatar_base64 FROM users WHERE id = ?"
         ).bind(user.id).first();
         if (!row) return new Response(JSON.stringify({ error: "Account not found." }), { status: 404, headers: cors });
         const followerCount = await env.DB.prepare(
@@ -149,7 +151,7 @@ export async function onRequest(context) {
           "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
         ).bind(user.id).all();
         return new Response(JSON.stringify({
-          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, avatar_base64: row.avatar_base64 || null },
+          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, degree: row.degree || null, grad_year: row.grad_year || null, avatar_base64: row.avatar_base64 || null },
           followers: followerCount?.n || 0,
           badges: (badgeRows.results || []).map((b) => b.badge_type),
         }), { status: 200, headers: cors });
@@ -266,10 +268,10 @@ export async function onRequest(context) {
       // keystroke.
       if (resource === "search-users") {
         const q = (url.searchParams.get("q") || "").trim();
-        if (q.length < 2) return new Response(JSON.stringify({ items: [] }), { status: 200, headers: cors });
+        if (q.length < 2) return new Response(JSON.stringify({ items: [], hubs: [] }), { status: 200, headers: cors });
         const like = "%" + escapeLikeWildcards(q) + "%";
         const rows = await env.DB.prepare(
-          `SELECT u.id, u.username, u.name, u.affiliation,
+          `SELECT u.id, u.username, u.name, u.affiliation, u.degree, u.grad_year,
                   (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
                   EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
            FROM users u
@@ -283,10 +285,52 @@ export async function onRequest(context) {
           username: r.username,
           name: r.name || r.username || "Researcher",
           affiliation: r.affiliation || "",
+          degree: r.degree || null,
+          gradYear: r.grad_year || null,
           followers: r.followers || 0,
           following: !!r.is_following,
         }));
-        return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
+        // "Hubs" are not a separate table — a Hub IS a distinct affiliation
+        // string that at least one real account has set, grouped and
+        // counted directly off `users`. That's deliberate: it means every
+        // Hub that shows up here corresponds to actual Cerebrum researchers,
+        // never an invented institution with a fabricated roster. An
+        // institution with zero matching users just doesn't appear as a
+        // Hub yet — see <InstitutionModal>'s empty state on the frontend
+        // for what that looks like when opened directly.
+        const hubRows = await env.DB.prepare(
+          `SELECT affiliation, COUNT(*) AS researcherCount
+           FROM users
+           WHERE affiliation IS NOT NULL AND affiliation != '' AND affiliation LIKE ? ESCAPE '\\'
+           GROUP BY affiliation
+           ORDER BY researcherCount DESC, affiliation ASC
+           LIMIT 8`
+        ).bind(like).all();
+        const hubs = (hubRows.results || []).map((h) => ({ name: h.affiliation, researcherCount: h.researcherCount || 0 }));
+        return new Response(JSON.stringify({ items, hubs }), { status: 200, headers: cors });
+      }
+      // One Hub's full roster — <InstitutionModal> loads this when opened,
+      // either from a search result or a profile's affiliation link.
+      // `name` is matched exactly (not LIKE) since it's always passed back
+      // verbatim from a value this same file already returned via
+      // search-users' `hubs` list — the affiliation string IS the Hub's
+      // identity, there's no separate id to look it up by.
+      if (resource === "hub") {
+        const name = (url.searchParams.get("name") || "").trim().slice(0, MAX_AFFILIATION_LEN);
+        if (!name) return new Response(JSON.stringify({ error: "Missing hub name." }), { status: 400, headers: cors });
+        const rows = await env.DB.prepare(
+          `SELECT u.id, u.username, u.name, u.degree, u.grad_year,
+                  (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers
+           FROM users u
+           WHERE u.affiliation = ?
+           ORDER BY followers DESC, u.name ASC
+           LIMIT 100`
+        ).bind(name).all();
+        const researchers = (rows.results || []).map((r) => ({
+          id: r.id, username: r.username, name: r.name || r.username || "Researcher",
+          degree: r.degree || null, gradYear: r.grad_year || null, followers: r.followers || 0,
+        }));
+        return new Response(JSON.stringify({ name, researchers }), { status: 200, headers: cors });
       }
       if (resource === "history") {
         const rows = await env.DB.prepare(
@@ -407,6 +451,16 @@ export async function onRequest(context) {
       let username = typeof body.username === "string" ? body.username.trim().replace(/^@+/, "").slice(0, MAX_USERNAME_LEN) : undefined;
       if (username === "") username = null;
       const affiliation = typeof body.affiliation === "string" ? body.affiliation.trim().slice(0, MAX_AFFILIATION_LEN) : undefined;
+      // Academic CV fields — free text, not validated against a controlled
+      // vocabulary (a real degree/institution list would need its own
+      // reference data this pass doesn't add), same trust level as name/
+      // affiliation above. An empty string clears the field, same
+      // convention as username above but via NULL directly since neither
+      // column carries a uniqueness constraint.
+      let degree = typeof body.degree === "string" ? body.degree.trim().slice(0, MAX_DEGREE_LEN) : undefined;
+      if (degree === "") degree = null;
+      let gradYear = typeof body.grad_year === "string" ? body.grad_year.trim().slice(0, MAX_GRAD_YEAR_LEN) : undefined;
+      if (gradYear === "") gradYear = null;
       // `null` (explicit removal) is a valid value here too, so this can't
       // use the same `typeof === "string" ? … : undefined` shape as the
       // text fields above — `undefined` still means "leave it alone."
@@ -427,6 +481,8 @@ export async function onRequest(context) {
       if (name !== undefined) { sets.push("name = ?"); binds.push(name); }
       if (username !== undefined) { sets.push("username = ?"); binds.push(username); }
       if (affiliation !== undefined) { sets.push("affiliation = ?"); binds.push(affiliation); }
+      if (degree !== undefined) { sets.push("degree = ?"); binds.push(degree); }
+      if (gradYear !== undefined) { sets.push("grad_year = ?"); binds.push(gradYear); }
       if (avatarBase64 !== undefined) { sets.push("avatar_base64 = ?"); binds.push(avatarBase64); }
       if (!sets.length) return new Response(JSON.stringify({ error: "Nothing to update." }), { status: 400, headers: cors });
       binds.push(user.id);
