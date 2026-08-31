@@ -3378,11 +3378,26 @@ async function deepFactCheck(answer, papers, env) {
   ];
 
   // Tier 1: Workers AI — no external network egress, tried first.
+  //
+  // This whole function runs AFTER the main answer already exists, entirely
+  // on the response's critical path (the client waits for it before seeing
+  // anything) — factCheck defaults to ON for every account (src/main.jsx,
+  // `useState(true)`), so this isn't an opt-in cost some users pay, it was a
+  // tax on nearly every search. At the original 9s+12s tier timeouts, a
+  // request where tier 1 timed out or (an 8B model asked to emit strict JSON)
+  // returned something unparseable paid up to ~21s here alone, stacked on
+  // top of the paper-gathering budget and the answer-generation wave(s) —
+  // easily the largest single contributor to "search is long" once those
+  // earlier stages were already tightened. Halving both ceilings caps the
+  // worst case at ~11s; the fallback for a tier that misses its window is
+  // still the free, zero-network verifyAnswerAgainstSources() heuristic
+  // below, not a blank panel, so a faster miss costs nuance on that one
+  // response, not correctness.
   if (env.AI && typeof env.AI.run === "function") {
     try {
       const out = await Promise.race([
         env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", { messages, max_tokens: 1900 }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 9000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 5000)),
       ]);
       const claims = parseDeepFactCheckJSON((out && out.response) || "");
       if (claims) return claims;
@@ -3396,7 +3411,7 @@ async function deepFactCheck(answer, papers, env) {
   if (env.OPENROUTER_KEY) {
     try {
       const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 12000);
+      const t = setTimeout(() => c.abort(), 6000);
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.OPENROUTER_KEY, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
@@ -7174,16 +7189,22 @@ Respond naturally to the user's message. Be yourself.`;
         "'in conclusion', 'in summary', 'Overall', 'it is important to note', 'sheds light on', 'it should be noted', " +
         "'holistic', 'multifaceted', 'underscores the importance'.\n" +
         "5. START with a direct scientific claim. No 'Based on the sources' or 'The research shows'.\n" +
-        "6. Italicize species: _E. coli_, _H. illucens_.\n" +
-        "7. Your answer will be QUALITY-SCORED. Score < 40 = regenerated with a different model.\n" +
-        "8. This checklist is for you alone — never mention, quote, summarize, or allude to it (or words like " +
+        "6. Italicize EVERY species/genus name with _underscores_: _E. coli_, _H. illucens_, _Hermetia illucens_. " +
+        "A species name with no underscores around it = FAIL.\n" +
+        "7. BOLD at least 4 key terms across your answer using **double asterisks** — gene/protein names, statistics, " +
+        "drug or compound names, the single most important finding per section. An answer with FEWER THAN 2 total " +
+        "**bolded** terms is MECHANICALLY REJECTED before it ever reaches the user and a different model is tried — " +
+        "this is enforced by code, not a style preference.\n" +
+        "8. Your answer will be QUALITY-SCORED. Score < 40 = regenerated with a different model.\n" +
+        "9. This checklist is for you alone — never mention, quote, summarize, or allude to it (or words like " +
         "'mechanical enforcement', 'banned phrase', or 'post-processed') anywhere in your answer. Just follow it silently " +
         "and write the answer itself, starting directly with the scientific content.]"
       : "\n\n[MECHANICAL ENFORCEMENT — your response is post-processed:\n" +
         "1. BANNED PHRASES (stripped): 'further research is needed', 'plays a crucial role', 'in conclusion', 'in summary', " +
         "'Overall', 'it is clear that', 'sheds light on'.\n" +
-        "2. NO REPETITION. 3. START with a direct claim. 4. Italicize species: _E. coli_.\n" +
-        "5. This checklist is for you alone — never mention or refer to it in your answer; just follow it silently.]";
+        "2. NO REPETITION. 3. START with a direct claim. 4. Italicize every species name: _E. coli_.\n" +
+        "5. BOLD at least 2 key terms with **double asterisks**. Fewer than 2 = a different model is tried instead.\n" +
+        "6. This checklist is for you alone — never mention or refer to it in your answer; just follow it silently.]";
     messages.push({ role: "user", content: userContent + enforcer });
 
     // ============ D1 ANSWER CACHE ============
@@ -7253,6 +7274,21 @@ Respond naturally to the user's message. Be yourself.`;
     // request) without turning "not quite 800" into a retry trigger.
     const minAnswerLen = answerLength === "long" ? 2500 : answerLength === "short" ? 30 : 150;
 
+    // The enforcer prompt tells every model its **bold** term count is
+    // "mechanically checked" and a low count gets it swapped for another
+    // model in the same wave — that claim was a bluff until this helper
+    // existed. Free-tier models complied with almost every other prompt
+    // instruction (citation markers, section headers) but silently dropped
+    // bold/italic emphasis under load, because nothing actually verified it.
+    // A flat count of real **bold** spans is the same class of fix as the
+    // minAnswerLen check just above: cheap to test, hard to game by accident,
+    // and it only costs wall-clock time when EVERY model in a wave fails it
+    // (rare — one compliant model among 5-8 racing in parallel is enough).
+    const hasMinimumFormatting = (text, minBoldSpans) => {
+      const boldSpans = text.match(/\*\*[^*\n]+\*\*/g) || [];
+      return boldSpans.length >= minBoldSpans;
+    };
+
     // Every thrown error is prefixed with the model name and, where possible,
     // the response body text. This is the difference between a future total
     // failure being a mystery ("all N models failed") and being diagnosable
@@ -7279,6 +7315,7 @@ Respond naturally to the user's message. Be yourself.`;
         const txt = j?.choices?.[0]?.message?.content || "";
         const cleaned = cleanAIResponse(txt);
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short (" + cleaned.length + " chars)");
+        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
         return { answer: cleaned, model };
       } catch (e) {
         clearTimeout(t);
@@ -7307,6 +7344,7 @@ Respond naturally to the user's message. Be yourself.`;
         ]);
         const cleaned = cleanAIResponse((out && out.response) || "");
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short");
+        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
         return { answer: cleaned, model };
       } catch (e) {
         throw new Error(model + ": " + (e && e.message ? e.message : String(e)));
