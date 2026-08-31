@@ -6755,6 +6755,23 @@ Respond naturally to the user's message. Be yourself.`;
       })
     );
 
+    // Bug: abstracts went into the prompt at their full ingestion length
+    // (up to 1200-1500 chars each, uncapped here) no matter how many papers
+    // were being sent. A routine 12-source query could assemble 15,000+
+    // characters of abstract text alone, stacked on top of an already-large
+    // ~15,000-character fixed instruction block (VOICE + CONTEXT + STRUCTURE
+    // + CITE_RULES + the evidence protocol) — north of 9,000 input tokens
+    // before the model has written a single word back. That's enough to
+    // exceed the context window OpenRouter enforces on ":free" models and
+    // the frequently much smaller (2K-4K token) context windows several
+    // Workers AI models ship with, so a dense, many-source query could get
+    // rejected by every provider in a wave at once — not because of a rate
+    // limit, but because the prompt itself didn't fit. Scaling the abstract
+    // budget down as paper count goes up keeps the model well-informed on
+    // typical 3-6 source queries while giving heavy 10-20 source queries a
+    // realistic chance of actually fitting in a free-tier context window.
+    const abstractCharCap =
+      evidencePapers.length > 8 ? 500 : evidencePapers.length > 4 ? 800 : 1200;
     const evidence = useEvidence
       ? evidencePapers
           .map((p, i) => {
@@ -6814,12 +6831,17 @@ Respond naturally to the user's message. Be yourself.`;
             const studyTag = p.studyType ? " [" + p.studyType + "]" : "";
             const tierTag = p.journalTier ? " [established venue]" : "";
             const flagTag = p.flaggedPublisher ? " [⚠ venue matches a known low-integrity publishing pattern — weight this source cautiously]" : "";
+            const fullAbstract = p.abstract || "(no abstract available)";
+            const cappedAbstract =
+              fullAbstract.length > abstractCharCap
+                ? fullAbstract.slice(0, abstractCharCap) + "…"
+                : fullAbstract;
             return (
               "[" + (i + 1) + "] " + p.title +
               " (Authors: " + (p.authors || "n/a") + ", " +
               p.journal + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag + preTag + citCount + studyTag + tierTag + flagTag +
               tldrLine +
-              "\nAbstract: " + (p.abstract || "(no abstract available)")
+              "\nAbstract: " + cappedAbstract
             );
           })
           .join("\n\n")
@@ -7676,9 +7698,32 @@ Respond naturally to the user's message. Be yourself.`;
         "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass — be direct and skip elaboration.\n\n" +
         STRUCTURE +
         (useEvidence ? "Cite sources inline as [1], [2], etc., matching the numbered list below. Only cite a source if it actually supports the claim." : "");
+      // Bug: this reused `userContent` verbatim — the SAME full evidence
+      // block (all 12-20 papers, their full abstracts) that waves 1 and 2
+      // just failed to get any model through with. Shrinking only the
+      // system prompt while leaving the far larger user-content payload
+      // untouched meant this "bulletproof" tier couldn't actually rescue a
+      // failure caused by prompt size rather than a rate limit — the exact
+      // scenario a dense, many-source query runs into. Building a genuinely
+      // small payload here (top few papers, short abstracts) gives this
+      // last-resort tier a real chance of fitting inside a free-tier
+      // model's context window when the richer attempts didn't.
+      const bulletproofUserContent = (() => {
+        if (!useEvidence && !useWeb) return query;
+        const pool = useEvidence ? evidencePapers : webRefs;
+        const compact = pool
+          .slice(0, 5)
+          .map(
+            (p, i) =>
+              "[" + (i + 1) + "] " + p.title + " (" + (p.journal || "n/a") + ", " + (p.year || "n/a") + ")\n" +
+              "Abstract: " + (p.abstract || "").slice(0, 280)
+          )
+          .join("\n\n");
+        return "Sources:\n\n" + compact + "\n\n---\nQuestion: " + query;
+      })();
       const bulletproofMessages = [
         { role: "system", content: bulletproofSystem },
-        { role: "user", content: userContent },
+        { role: "user", content: bulletproofUserContent },
       ];
       const bulletproofMaxTok = Math.min(maxTokens, 900);
 
