@@ -421,24 +421,25 @@ const Audio = (() => {
    ════════════════════════════════════════════════════════════════ */
 
 const PALETTES = {
-  // `faint` is deliberately kept well clear of the 4.5:1 WCAG AA floor
-  // against its own `bg` (a real bug fixed in an earlier round — see this
-  // file's commit history) even at pitch black: #8a8a8a against #000 is
-  // ~6.3:1, comfortably past normal-text minimum.
-  // Shadows are hard-edged and close-in on purpose — a 1px hairline "ring"
-  // plus a short, tight drop, no diffuse halo. Neon glow is reserved for
-  // active/selected states via accent-colored box-shadow, applied inline
-  // where those states render, not baked into the base elevation token.
-  Dark:  { dark: true,  bg: "#000000", surface: "#0a0a0a", raised: "#111111", ink: "#ffffff", ink2: "#888888", faint: "#666666", line: "#222222", line2: "#333333", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #0a0a0a 25%, #111111 50%, #0a0a0a 75%)" },
-  Mid:   { dark: true,  bg: "#050505", surface: "#0e0e0e", raised: "#171717", ink: "#f0f0f0", ink2: "#888888", faint: "#666666", line: "#252525", line2: "#363636", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #0e0e0e 25%, #171717 50%, #0e0e0e 75%)" },
+  // Lifted off pure black per explicit direction (Strike 5): near-black
+  // surfaces with stark white text read as "cyberpunk terminal," not
+  // "premium research software." These now sit at the lightness real
+  // dark-mode design systems ship at — Apple's own system dark surfaces,
+  // Linear, Notion — dark enough to still be a dark theme, light enough
+  // that panel edges, borders, and secondary text don't crush together
+  // into a single black mass.
+  Dark:  { dark: true,  bg: "#1c1c1e", surface: "#2c2c2e", raised: "#3a3a3c", ink: "#ececec", ink2: "#a1a1aa", faint: "#828288", line: "rgba(255,255,255,0.1)", line2: "rgba(255,255,255,0.16)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2c2c2e 25%, #3a3a3c 50%, #2c2c2e 75%)" },
+  // Slate: a cooler, blue-leaning dark surface (the Discord/Linear
+  // register) for anyone who wants dark without Dark's neutral-grey cast.
+  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#ececec", ink2: "#a1a1aa", faint: "#82858c", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
   Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#5c6b80", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.06)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
-  // Warmer alternative to the obsidian "Darknode" default: soft charcoal
-  // instead of pitch black, cream instead of stark white, meant to read as
-  // an editorial reading room rather than a command console. Added as a
-  // fourth selectable option rather than replacing Dark — the obsidian
-  // look above is the deliberate, many-rounds-tuned default identity, so
-  // this sits alongside it in Settings > Appearance instead of overwriting it.
-  Sage:  { dark: true, bg: "#121315", surface: "#1a1c1e", raised: "#212328", ink: "#f4f4f0", ink2: "#a8a8a2", faint: "#7a7a74", line: "#28292c", line2: "#35363a", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #1a1c1e 25%, #212328 50%, #1a1c1e 75%)" },
+  // Sage — "Modern Organic," and now the default palette a fresh browser
+  // lands on (see App()'s paletteName useState below): warm stone instead
+  // of neutral charcoal, linen instead of stark white, paired by default
+  // with the muted sage-green accent (ACCENTS.Sage) instead of a neon hue.
+  // Also lifted off its earlier near-black #121315 for the same reason as
+  // Dark/Mid above.
+  Sage:  { dark: true, bg: "#242420", surface: "#2e2e29", raised: "#3a3a33", ink: "#f0ead9", ink2: "#b8b2a0", faint: "#948e7c", line: "rgba(240,234,217,0.10)", line2: "rgba(240,234,217,0.16)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2e2e29 25%, #3a3a33 50%, #2e2e29 75%)" },
 };
 // Cyberpunk-leaning neon set — the two hues the blueprint calls out by name
 // (Matrix Green, Cyberpunk Cyan) moved to the front and pushed slightly
@@ -579,6 +580,7 @@ function Icon({ name, size = 17, className, style }) {
     case "volumeOff": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M22 9l-6 6M16 9l6 6" /></svg>;
     case "search": return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.2-4.2" /></svg>;
     case "close": return <svg {...common}><path d="M18 6L6 18M6 6l12 12" /></svg>;
+    case "menu": return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
     case "arrowRight": return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
     case "mic": return <svg {...common}><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" /><path d="M5 12a7 7 0 0014 0M12 19v3" /></svg>;
     case "check": return <svg {...common}><path d="M20 6L9 17l-5-5" /></svg>;
@@ -1896,8 +1898,8 @@ function looksLikeFollowupText(q) {
 // not global scroll again.
 
 function InfoPage({ page }) {
-  const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
-  const P = PALETTES[paletteName] || PALETTES.Dark;
+  const paletteName = (() => { try { return getCookie("cb_palette") || "Sage"; } catch { return "Sage"; } })();
+  const P = PALETTES[paletteName] || PALETTES.Sage;
   // ACCENTS was collapsed to a single { Mono } entry when the app moved to
   // its current monochrome accent direction (App()'s own accentName state,
   // a few thousand lines down, already defaults to "Mono" to match) — this
@@ -3540,61 +3542,56 @@ function IllustrationModal({ P, accent, at, query, close }) {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   TRENDING IN SCIENCE — a live digest, honestly labeled as a preview.
-   Every card is a real paper from functions/api/trending.js (recent,
-   highly-cited, pulled live from OpenAlex) with a real excerpt from that
-   paper's own abstract — never an invented headline. Deliberately carries
-   no "Fact-Checked" badge: unlike a single search answer, nothing here has
-   gone through Cerebrum's fact-check pass, and a green shield here would
-   claim a verification step that didn't happen. "Preview" is the accurate
-   word for what this is.
+   TRENDING IN SCIENCE — a live, full-page editorial feed, honestly
+   labeled as a preview. functions/api/trending.js fetches real, live
+   articles (title, summary, real photo, real outlet, real link) from the
+   Spaceflight News API — a free, keyless, publicly documented science-
+   journalism feed — never an invented headline or an AI-generated stand-in
+   image. Deliberately carries no "Fact-Checked" badge: unlike a single
+   search answer, nothing here has gone through Cerebrum's fact-check pass,
+   and a green shield here would claim a verification step that didn't
+   happen. "Preview" is the accurate word for what this is. Used to be a
+   centered modal (TrendingModal); now a real full-page view, matched to
+   the rest of the App Shell migration.
    ════════════════════════════════════════════════════════════════ */
-function buildTrendingImagePrompt(item) {
-  const subject = (item.topic || item.title || "science").replace(/[?!]+/g, "").trim().slice(0, 160);
-  return `${subject}. Cinematic abstract scientific 3D render, microscopic macro photography, glowing ethereal structures, deep depth of field, high-end editorial illustration. NO TEXT, NO WORDS, NO DIAGRAMS, pure abstract visual art.`;
-}
-
-function TrendingCard({ P, accent, at, item }) {
-  const [imgStatus, setImgStatus] = useState("loading"); // "loading" | "ready" | "error"
-  const seed = useMemo(() => hashSeed(item.title || ""), [item.title]);
-  const imgUrl = useMemo(
-    () => `https://image.pollinations.ai/prompt/${encodeURIComponent(buildTrendingImagePrompt(item))}?width=640&height=420&nologo=true&seed=${seed}`,
-    [item, seed]
-  );
+function TrendingCard({ P, accent, at, item, featured }) {
+  const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
   return (
-    <div style={{ borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden", background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, display: "flex", flexDirection: "column" }}>
-      <div style={{ position: "relative", aspectRatio: "16/10", background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)", flexShrink: 0 }}>
+    <a
+      href={safeHref(item.url)} target="_blank" rel="noreferrer"
+      style={{
+        borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden",
+        background: P.surface, display: "flex", flexDirection: featured ? "column" : "column",
+        textDecoration: "none", color: "inherit", gridColumn: featured ? "span 2" : undefined,
+      }}
+      className="cb-trend-card"
+    >
+      <div style={{ position: "relative", aspectRatio: featured ? "21/9" : "16/10", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0 }}>
         {imgStatus !== "error" && (
-          <img src={imgUrl} alt="" aria-hidden="true" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
+          <img src={item.image_url} alt="" aria-hidden="true" loading="lazy" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
             style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }} />
         )}
         {imgStatus !== "ready" && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint }}>
-            <Icon name={imgStatus === "error" ? "image" : "sparkle"} size={20} style={{ opacity: 0.5 }} />
+            <Icon name="image" size={featured ? 30 : 20} style={{ opacity: 0.4 }} />
           </div>
         )}
-        <span style={{ position: "absolute", top: 8, left: 8, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: P.ink2, background: P.dark ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.85)", padding: "3px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>AI illustration</span>
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />
+        {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>{item.source}</span>}
       </div>
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-        {item.topic && <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)" }}>{item.topic}</div>}
-        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4 }}>{item.title}</div>
-        <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55, flex: 1 }}>{item.summary}</div>
-        <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
-          {[item.venue, item.publicationDate, typeof item.citedByCount === "number" && `${item.citedByCount.toLocaleString()} citations`].filter(Boolean).join(" · ")}
+      <div style={{ padding: featured ? "20px 22px" : 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+        <div style={{ fontSize: featured ? FONT_SIZES.heading : FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{item.title}</div>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55, flex: 1 }}>{item.summary}</div>
+        <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+          {item.publishedAt ? new Date(item.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""}
+          <span style={{ color: accent, marginLeft: "auto", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Read <Icon name="external" size={11} /></span>
         </div>
-        {item.link && (
-          <a href={safeHref(item.link)} target="_blank" rel="noreferrer" style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-            Read the paper <Icon name="external" size={11} />
-          </a>
-        )}
       </div>
-    </div>
+    </a>
   );
 }
 
-function TrendingModal({ P, accent, at, close }) {
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
-  const trapRef = useFocusTrap();
+function TrendingView({ P, accent, at, isMobile }) {
   const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
   const [items, setItems] = useState([]);
 
@@ -3606,7 +3603,7 @@ function TrendingModal({ P, accent, at, close }) {
       .then(({ ok, data }) => {
         if (cancelled) return;
         if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) { setStatus("error"); return; }
-        setItems(data.items.slice(0, 4));
+        setItems(data.items);
         setStatus("ready");
       })
       .catch(() => { if (!cancelled) setStatus("error"); });
@@ -3614,47 +3611,42 @@ function TrendingModal({ P, accent, at, close }) {
   }, []);
 
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="Trending in Science" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 920, width: "100%", maxHeight: "86vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
-        <div style={{ padding: "18px 24px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, position: "sticky", top: 0, background: P.bg, zIndex: 1 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Trending in Science</div>
-              <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.12), padding: "2px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>Preview</span>
-            </div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 520, lineHeight: 1.5 }}>
-              Real, recently published papers ranked by citation count — not editorially curated, and not run through Cerebrum's fact-check pass the way a single search answer is. Read the source before citing anything here.
-            </div>
+    <div style={{ flex: 1, minHeight: 0 }}>
+      <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "44px 32px 90px" }}>
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Trending in Science</div>
+            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>Preview</span>
           </div>
-          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}><Icon name="close" size={18} /></button>
+          <div style={{ fontSize: FONT_SIZES.body, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
+            Real, live science journalism — not editorially curated by Cerebrum, and not run through Cerebrum's fact-check pass the way a single search answer is. Read the source before citing anything here.
+          </div>
         </div>
-        <div style={{ padding: 24 }}>
-          {status === "loading" && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} style={{ borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden" }}>
-                  <div style={{ aspectRatio: "16/10", background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                  <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ height: 12, width: "80%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                    <div style={{ height: 10, width: "100%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                    <div style={{ height: 10, width: "60%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                  </div>
+        {status === "loading" && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} style={{ borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden", gridColumn: i === 0 ? "span 2" : undefined }}>
+                <div style={{ aspectRatio: i === 0 ? "21/9" : "16/10", background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ height: 14, width: "80%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                  <div style={{ height: 10, width: "100%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                  <div style={{ height: 10, width: "60%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
                 </div>
-              ))}
-            </div>
-          )}
-          {status === "error" && (
-            <div style={{ textAlign: "center", color: P.faint, padding: "32px 16px" }}>
-              <Icon name="warning" size={22} style={{ opacity: 0.6 }} />
-              <div style={{ fontSize: FONT_SIZES.small, marginTop: 10 }}>Couldn't load the trending digest right now — the source database may be busy. Try again in a moment.</div>
-            </div>
-          )}
-          {status === "ready" && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
-              {items.map((item, i) => <TrendingCard key={item.link || i} P={P} accent={accent} at={at} item={item} />)}
-            </div>
-          )}
-        </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {status === "error" && (
+          <div style={{ textAlign: "center", color: P.faint, padding: "60px 16px" }}>
+            <Icon name="warning" size={26} style={{ opacity: 0.6 }} />
+            <div style={{ fontSize: FONT_SIZES.body, marginTop: 12 }}>Couldn't load the trending feed right now — the source may be busy. Try again in a moment.</div>
+          </div>
+        )}
+        {status === "ready" && (
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
+            {items.map((item, i) => <TrendingCard key={item.url || i} P={P} accent={accent} at={at} item={item} featured={i === 0 && !isMobile} />)}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4214,9 +4206,14 @@ const BADGE_DISPLAY = {
 // changes — it's a faster way to fill in the same field.
 const MOCK_AFFILIATIONS = ["University of Tennessee", "MIT", "Stanford", "Harvard"];
 
-function UserProfileModal({ P, accent, at, close, user, profile, setProfile, profileMeta, onManageAccount }) {
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
-  const trapRef = useFocusTrap();
+// The Academic CV — a full page now (ProfileView), not a centered ID-card
+// modal. Same real, live data as before (name/username/affiliation/degree/
+// grad_year edit in place, avatar upload, real follower count and badges);
+// laid out the way LinkedIn or Google Scholar lay out a profile instead of
+// how a wallet ID card does — a wide cover banner, a large overlapping
+// avatar, and a two-column body once there's real content to put in a
+// second column.
+function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, collections, onOpenHistory, onManageAccount }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
   // A signed-in account always has a real username by the time this modal
@@ -4303,48 +4300,43 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
     (u) => u.toLowerCase().includes(affiliationQuery) && u.toLowerCase() !== affiliationQuery
   );
 
-  const inputStyle = { width: "100%", padding: "10px 13px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", marginTop: 6 };
+  const inputStyle = { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)" };
+  const cardStyle = { background: P.surface, border: `1px solid ${P.line}`, borderRadius: 14, padding: 20 };
+  const cardLabel = { fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 14 };
+  const recentHistory = (history || []).slice(0, 6);
+  const collectionCounts = (collections || []).map((c) => ({ ...c, count: (saved || []).filter((s) => s.collectionId === c.id).length }));
 
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="Your profile" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 216, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
-        background: P.dark ? "rgba(15, 17, 26, 0.82)" : "rgba(255, 255, 255, 0.9)",
-        backdropFilter: "blur(40px) saturate(180%)", WebkitBackdropFilter: "blur(40px) saturate(180%)",
-        border: P.dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 20, maxWidth: 420, width: "100%",
-        boxShadow: `0 24px 80px rgba(0,0,0,0.5), inset 0 1px 0 ${P.dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.6)"}`,
-        outline: "none", overflow: "hidden", position: "relative",
-      }} className="cb-modal">
-        {/* The ID-card's top "stripe" — a thin accent-colored band behind
-            everything else, purely decorative, echoing a physical badge. */}
-        <div aria-hidden="true" style={{ position: "absolute", top: 0, left: 0, right: 0, height: 88, background: `linear-gradient(180deg, ${withAlpha(accent, 0.22)}, transparent)`, pointerEvents: "none" }} />
-        <div style={{ padding: "28px 28px 0", display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative" }}>
-          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: withAlpha(accent, 0.85), fontFamily: "var(--cb-mono)" }}>Cerebrum ID</span>
-          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
-        </div>
-        <div style={{ padding: "8px 28px 28px", textAlign: "center", position: "relative" }}>
-          {/* Split header: your avatar on the left, your institution's mark
-              on the right — an initials badge generated from the
-              affiliation text itself (no logo database exists or is being
-              invented here), so it only appears once an affiliation is
-              actually set. Everything below stays centered on the ID-card
-              layout this modal already had; this is additive, not a full
-              re-layout, to avoid regressing a card that already works. */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginBottom: 4 }}>
-          <div style={{ position: "relative", width: 84, height: 84 }}>
+    <div role="region" aria-label="Your profile" style={{ flex: 1, minHeight: 0 }}>
+      {/* Cover banner — a wide textured header block instead of the old
+          ID-card's flat accent stripe, per the LinkedIn/Scholar-style
+          layout this page is modeled on. No stock photo is faked in here:
+          it's the same accent-tinted gradient wash the rest of the app
+          already uses for depth, just at full page width. */}
+      <div aria-hidden="true" style={{
+        height: isMobile ? 130 : 200, width: "100%",
+        background: `linear-gradient(135deg, ${withAlpha(accent, 0.35)}, ${P.raised} 70%)`,
+        position: "relative", overflow: "hidden",
+      }}>
+        <div style={{ position: "absolute", inset: 0, opacity: 0.5, backgroundImage: `radial-gradient(circle at 20% 30%, ${withAlpha(accent, 0.4)}, transparent 45%), radial-gradient(circle at 80% 70%, ${withAlpha(accent, 0.25)}, transparent 40%)` }} />
+      </div>
+
+      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: isMobile ? "0 18px 60px" : "0 32px 80px" }}>
+        {/* Roster info: overlapping avatar + identity + institution crest */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 20, marginTop: isMobile ? -46 : -64, marginBottom: 28 }}>
+          <div style={{ position: "relative", width: isMobile ? 92 : 120, height: isMobile ? 92 : 120, flexShrink: 0 }}>
             {avatarFailed && !profile.avatar_base64 ? (
               <div style={{
-                width: 84, height: 84, borderRadius: "50%",
-                background: withAlpha(accent, 0.15), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 30, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `1px solid ${withAlpha(accent, 0.4)}`,
-                boxShadow: `0 0 0 4px ${withAlpha(accent, 0.08)}`,
+                width: "100%", height: "100%", borderRadius: "50%",
+                background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 38, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `4px solid ${P.bg}`,
               }}>{displayInitial}</div>
             ) : (
               <img
                 src={profile.avatar_base64 || `https://api.dicebear.com/7.x/shapes/svg?seed=${avatarSeed}&backgroundColor=0a0a0a`}
                 alt={`${displayName}'s avatar`}
                 onError={() => setAvatarFailed(true)}
-                style={{ width: 84, height: 84, borderRadius: "50%", display: "block", border: `1px solid ${withAlpha(accent, 0.4)}`, boxShadow: `0 0 0 4px ${withAlpha(accent, 0.08)}`, objectFit: "cover" }}
+                style={{ width: "100%", height: "100%", borderRadius: "50%", display: "block", border: `4px solid ${P.bg}`, objectFit: "cover", background: P.surface }}
               />
             )}
             <button
@@ -4354,9 +4346,9 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
               aria-label="Change photo"
               title="Change photo"
               style={{
-                position: "absolute", bottom: -2, right: -2, width: 30, height: 30, borderRadius: "50%",
+                position: "absolute", bottom: 2, right: 2, width: 32, height: 32, borderRadius: "50%",
                 display: "flex", alignItems: "center", justifyContent: "center", cursor: avatarSaving ? "default" : "pointer",
-                background: accent, color: "#0a0a0a", border: `2px solid ${P.dark ? "#0f111a" : "#fff"}`,
+                background: accent, color: at, border: `2px solid ${P.bg}`,
                 opacity: avatarSaving ? 0.6 : 1,
               }}
             >
@@ -4364,119 +4356,155 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
           </div>
+
+          <div style={{ flex: 1, minWidth: 220, paddingBottom: 4 }}>
+            <input
+              value={profile.name || ""}
+              onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
+              placeholder={displayName}
+              aria-label="Your name"
+              style={{ display: "block", width: "100%", background: "transparent", border: "none", padding: 0, fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}
+            />
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 6, fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-mono)" }}>
+              <span>{displayUsername}</span>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span>{user?.email}</span>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span>{followers} {followers === 1 ? "follower" : "followers"}</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+              <input
+                value={profile.degree || ""}
+                onChange={(e) => setProfile((p) => ({ ...p, degree: e.target.value }))}
+                placeholder="Degree, e.g. Ph.D. Microbiology"
+                aria-label="Degree"
+                style={{ ...inputStyle, width: "auto", flex: "1 1 200px", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
+              />
+              <input
+                value={profile.grad_year || ""}
+                onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
+                placeholder="Grad. year"
+                aria-label="Graduating year"
+                style={{ ...inputStyle, width: 100, flex: "0 0 100px", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
+              />
+            </div>
+          </div>
+
+          {/* Institution crest — an initials badge generated from the
+              affiliation text itself (no real logo database exists or is
+              being invented here), so it only ever appears once an
+              affiliation is actually set. */}
           {profile.affiliation && profile.affiliation.trim() && (
             <img
               src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(profile.affiliation.trim())}&backgroundColor=${accent.replace("#", "")}`}
               alt={`${profile.affiliation} logo`}
               title={profile.affiliation}
-              style={{ width: 52, height: 52, borderRadius: 10, border: `1px solid ${P.line}`, flexShrink: 0 }}
+              style={{ width: 64, height: 64, borderRadius: 12, border: `1px solid ${P.line}`, flexShrink: 0 }}
             />
           )}
-          </div>
-          {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 8 }}>{avatarError}</div>}
+        </div>
 
+        {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginBottom: 16 }}>{avatarError}</div>}
+
+        <div style={{ position: "relative", marginBottom: 28 }}>
           <input
-            value={profile.name || ""}
-            onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
-            placeholder={displayName}
-            aria-label="Your name"
-            style={{ ...inputStyle, marginTop: 0, textAlign: "center", fontSize: FONT_SIZES.body, fontWeight: 700 }}
+            value={profile.affiliation || ""}
+            onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
+            onFocus={() => setAffiliationOpen(true)}
+            onBlur={() => setAffiliationOpen(false)}
+            placeholder="Affiliation, e.g. University of Tennessee"
+            aria-label="Affiliation"
+            autoComplete="off"
+            style={{ ...inputStyle, maxWidth: 420 }}
           />
-          <input
-            value={profile.username || ""}
-            onChange={(e) => setProfile((p) => ({ ...p, username: e.target.value }))}
-            placeholder={displayUsername}
-            aria-label="Username"
-            style={{ ...inputStyle, textAlign: "center", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, border: "none", background: "transparent", padding: "0 13px" }}
-          />
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, fontFamily: "var(--cb-mono)" }}>{user?.email}</div>
-
-          {/* This is always your own profile — there's no "browse other
-              people's profiles" screen anywhere in the app yet, so a
-              Follow button here would only ever be able to follow
-              yourself (functions/api/data.js's toggle-follow rejects
-              exactly that). Real follower count, no toggle. */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 14 }}>
-            <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{followers} {followers === 1 ? "follower" : "followers"}</span>
-          </div>
-
-          <div style={{ position: "relative", marginTop: 14 }}>
-            <input
-              value={profile.affiliation || ""}
-              onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
-              onFocus={() => setAffiliationOpen(true)}
-              onBlur={() => setAffiliationOpen(false)}
-              placeholder="Affiliation, e.g. University of Tennessee"
-              aria-label="Affiliation"
-              autoComplete="off"
-              style={{ ...inputStyle, textAlign: "center" }}
-            />
-            {affiliationOpen && affiliationMatches.length > 0 && (
-              <div style={{
-                position: "absolute", left: 0, right: 0, top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
-                background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
-                overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
-              }}>
-                {affiliationMatches.map((u) => (
-                  <div
-                    key={u}
-                    // onMouseDown (not onClick) fires before the input's onBlur,
-                    // so the dropdown can still commit the pick even though
-                    // clicking it also blurs the field it's anchored to.
-                    onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, affiliation: u })); setAffiliationOpen(false); }}
-                    style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                  >{u}</div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Degree + graduating year — displayed in the app's mono face,
-              directly under the identity fields above, matching how the
-              affiliation/username lines already read as "metadata" rather
-              than prose. Free text (see the backend comment on this same
-              pair in functions/api/data.js for why no controlled
-              vocabulary), synced by the same debounced profile-sync effect
-              that already handles name/username/affiliation in App(). */}
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <input
-              value={profile.degree || ""}
-              onChange={(e) => setProfile((p) => ({ ...p, degree: e.target.value }))}
-              placeholder="Degree, e.g. Ph.D. Microbiology"
-              aria-label="Degree"
-              style={{ ...inputStyle, marginTop: 0, textAlign: "center", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, flex: 2 }}
-            />
-            <input
-              value={profile.grad_year || ""}
-              onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
-              placeholder="Grad. year"
-              aria-label="Graduating year"
-              style={{ ...inputStyle, marginTop: 0, textAlign: "center", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, flex: 1 }}
-            />
-          </div>
-
-          <div style={{ marginTop: 22, textAlign: "left" }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Accolades</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {badges.map((b) => (
-                <span key={b.label} style={{
-                  display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
-                  padding: "6px 12px", borderRadius: 100,
-                  color: b.real ? accent : (b.tint || P.ink2),
-                  background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
-                  border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
-                }}>
-                  <Icon name={b.icon} size={13} style={b.tint ? { filter: `drop-shadow(0 0 3px ${withAlpha(b.tint, 0.7)})` } : undefined} />
-                  {b.label}
-                </span>
+          {affiliationOpen && affiliationMatches.length > 0 && (
+            <div style={{
+              position: "absolute", left: 0, width: "100%", maxWidth: 420, top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
+              background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
+              overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+            }}>
+              {affiliationMatches.map((u) => (
+                <div
+                  key={u}
+                  onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, affiliation: u })); setAffiliationOpen(false); }}
+                  style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >{u}</div>
               ))}
             </div>
-          </div>
-
-          <button onClick={onManageAccount} style={{ width: "100%", marginTop: 24, padding: "10px", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Manage account &amp; security</button>
+          )}
         </div>
+
+        {/* Two-column body: Accolades/Affiliations on the left, Recent
+            Investigations/Saved Collections — real data, not placeholder
+            copy — on the right. */}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0,1fr) minmax(0,1.4fr)", gap: 20, alignItems: "start" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div style={cardStyle}>
+              <div style={cardLabel}>Accolades</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {badges.map((b) => (
+                  <span key={b.label} style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
+                    padding: "6px 12px", borderRadius: 100,
+                    color: b.real ? accent : (b.tint || P.ink2),
+                    background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                    border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
+                  }}>
+                    <Icon name={b.icon} size={13} style={b.tint ? { filter: `drop-shadow(0 0 3px ${withAlpha(b.tint, 0.7)})` } : undefined} />
+                    {b.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div style={cardStyle}>
+              <div style={cardLabel}>Affiliations</div>
+              {profile.affiliation && profile.affiliation.trim() ? (
+                <div style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>{profile.affiliation}</div>
+              ) : (
+                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>No affiliation set yet — add one above. Cerebrum only tracks one affiliation per profile right now, not a full institutional history.</div>
+              )}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div style={cardStyle}>
+              <div style={cardLabel}>Recent Investigations</div>
+              {recentHistory.length === 0 ? (
+                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>Nothing here yet — questions you ask get saved to History and show up here.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {recentHistory.map((h, i) => (
+                    <button key={h.id} onClick={() => onOpenHistory(h)} style={{
+                      textAlign: "left", background: "transparent", border: "none", cursor: "pointer",
+                      padding: "10px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
+                    }}>
+                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{h.title}</div>
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{(h.turns || []).length} exchange{(h.turns || []).length === 1 ? "" : "s"} · {new Date(h.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={cardStyle}>
+              <div style={cardLabel}>Saved Collections</div>
+              {collectionCounts.length === 0 ? (
+                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>No collections yet — create one from any saved article to start organizing your library.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {collectionCounts.map((c, i) => (
+                    <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon name="folder" size={14} style={{ color: P.faint }} />{c.name}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{c.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <button onClick={onManageAccount} style={{ marginTop: 28, padding: "10px 18px", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Manage account &amp; security</button>
       </div>
     </div>
   );
@@ -5112,7 +5140,7 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
    Proper alignment, accessibility, real settings (no orphaned
    controls — every piece of state below is reachable from here).
    ════════════════════════════════════════════════════════════════ */
-function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns }) {
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "general");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -5213,19 +5241,15 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
   );
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Settings" style={{ position: "fixed", inset: 0, background: P.dark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 }} onClick={close} className="cb-backdrop">
-      <div onClick={(e) => e.stopPropagation()} className="cb-modal" style={{ background: P.dark ? withAlpha(P.bg, 0.96) : withAlpha("#ffffff", 0.97), backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)", border: glassBorderS, borderRadius: 3, width: 520, maxWidth: "100%", maxHeight: isMobile ? "92dvh" : "85vh", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)", boxShadow: "0 2px 6px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04)", overflow: "hidden" }}>
+    <div role="region" aria-label="Settings" style={{ flex: 1, minHeight: "100%", background: P.bg, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+      <div style={{ width: "100%", maxWidth: 760, margin: "0 auto", padding: isMobile ? "22px 18px 60px" : "44px 32px 90px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)" }}>
 
-        {/* Header */}
-        <div style={{ padding: "20px 22px 0", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div style={{ fontSize: FONT_SIZES.sectionHead, fontWeight: 600, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>Settings</div>
-            {/* v7.0 redesign: this was the one modal with a filled circular
-                close button — every other dialog in the file uses a flat,
-                borderless icon (see CollectionsModal/CompareModal/etc.
-                below). Matched to that consistent, less "bubble button"
-                pattern. */}
-            <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+        {/* Header — a page title now, not a dialog: no backdrop, no close
+            button. Leaving this screen means picking another Sidebar
+            destination, not dismissing an overlay. */}
+        <div style={{ flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>Settings</div>
           </div>
 
           {/* Tab bar — a sliding underline indicator instead of the filled
@@ -5469,7 +5493,7 @@ function Settings({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPalette
 
             <Section title="Keyboard shortcuts">
               <div style={{ padding: "4px 0" }}>
-                {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], [kbdLabel("D"), "Toggle light / dark"], ["Esc", "Close panel"]].map(([key, desc], i, arr) => (
+                {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], [kbdLabel("D"), "Toggle light / dark"], ["Esc", "Back to search"]].map(([key, desc], i, arr) => (
                   <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${divider}` : "none" }}>
                     <span style={{ fontSize: FONT_SIZES.body, color: P.ink, fontWeight: 500, fontFamily: "var(--cb-body)" }}>{desc}</span>
                     <kbd style={{ fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 3, fontWeight: 500 }}>{key}</kbd>
@@ -5529,11 +5553,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // overflowX: "clip" lives here now instead of on html/body — see the
     // matching comment on the `html, body` CSS rule near the bottom of this
     // file for why (v25 wheel-scroll hotfix).
-    // v31: flat, literal obsidian/white per the "Next-Gen Editorial
-    // Intelligence" spec — not P.bg (a themed near-black/near-white that could
-    // drift with palette changes), a fixed hex so the page reads as pure
-    // premium black or pure white no matter what accent is active.
-    page: { minHeight: "100dvh", background: P.dark ? "#040508" : "#ffffff", color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
+    // v31 pinned this to a fixed obsidian/white hex regardless of palette,
+    // so switching palettes never actually changed the page's own base
+    // color underneath everything else. Reversed per explicit direction
+    // (Strike 5): the whole point of Sage/Dark/Mid/Light now is that the
+    // page itself is warm stone, cool slate, or paper-white depending on
+    // what's selected — P.bg is that selection, so this reads it directly.
+    page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
     // v32: SoftAurora (see its own comment block) is a deliberately loud,
     // saturated, constantly-moving field — nothing like the 0.04-opacity
     // dot-grid it replaced. Sitting reading text directly on top of it would
@@ -5636,6 +5662,53 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 3, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-body)", position: "relative" },
     iconBtnLabel: { lineHeight: 1 },
     countPill: { fontSize: FONT_SIZES.micro, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 3, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
+
+    /* ── App shell: fixed Sidebar + everything else shifted right of it ──
+       The header used to carry every destination (New, Document, Trending,
+       History, Saved, Collections, Find People, Settings) as its own icon
+       button — a dozen controls fighting for one 56px-tall row. Those all
+       live in the Sidebar now; the header keeps only the brand, the search
+       command bar, and account/inbox. Desktop: sidebar is always visible
+       and `appMain` is permanently offset by its width. Mobile: sidebar
+       becomes a slide-in drawer (see `sidebarMobile*` below) and `appMain`
+       stays full-width, opened with a hamburger button in the header. */
+    sidebarWidth: 260,
+    sidebar: {
+      position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 30,
+      background: P.surface, borderRight: `1px solid ${P.line}`,
+      display: "flex", flexDirection: "column",
+      transform: isMobile ? "translateX(-100%)" : "none",
+      transition: "transform 240ms cubic-bezier(0.4, 0, 0.2, 1)",
+    },
+    sidebarMobileOpen: { transform: "translateX(0)", boxShadow: "0 0 40px rgba(0,0,0,0.4)" },
+    sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "18px 18px 14px", cursor: "pointer", flexShrink: 0 },
+    sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
+    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", padding: "14px 10px 6px" },
+    sidebarItem: {
+      display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
+      padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent",
+      color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500,
+      fontFamily: "var(--cb-body)", transition: "background 150ms ease, color 150ms ease",
+    },
+    sidebarItemActive: { background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600 },
+    sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" },
+    sidebarFooter: { flexShrink: 0, padding: "10px 12px 14px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
+    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 260 },
+
+    /* ── Full-page views (Profile / Settings / Trending) ──
+       Replace what used to be centered modal dialogs — no backdrop, no
+       fixed positioning, no close button. Each fills `appMain` below the
+       header and scrolls the normal document way, same as the search
+       results thread does. */
+    // Opaque on purpose: LivingBackground's animated canvas sits fixed
+    // behind the whole app shell so it can show through the search hero's
+    // deliberately translucent panels. Profile/Settings/Trending replace
+    // that hero entirely and are meant to read as solid pages, not another
+    // translucent layer over a paused-but-still-painted canvas frame — so
+    // unlike the hero, these get a flat P.bg fill of their own.
+    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100%" },
+    pageViewInner: { maxWidth: 920, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "40px 32px 80px" },
+    pageViewTitle: { fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" },
 
     /* ── Scroll area ── */
     // No longer a scroll container itself (see `page` note above) — the
@@ -6050,6 +6123,80 @@ function ToastHost({ P, accent }) {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════
+   SIDEBAR — the App Shell's left-hand navigation.
+   Replaces the old header's icon-button row (New, Document, Trending,
+   History, Saved, Collections, Find People, Settings all fighting for
+   space in one 56px bar). Four of these entries — Search, Trending,
+   Settings, Profile — switch which full-page `view` fills the shell;
+   the rest open their existing dialog exactly as the header buttons
+   used to, just relocated here so the header itself can stay down to
+   the brand, the search bar, and account/inbox.
+   ════════════════════════════════════════════════════════════════ */
+function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, muted, onToggleMute, onLogoClick }) {
+  const NAV = [
+    ["new", "New investigation", "plus", null],
+    ["search", "Search", "search", null],
+    ["document", "Document Mode", "bookOpen", null],
+    ["trending", "Trending", "chart", null],
+    ["history", "History", "history", history.length || null],
+    ["saved", "Saved", "bookmark", saved.length || null],
+  ];
+  const hoverIn = (e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); };
+  const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
+  const itemStyle = (key) => ({ ...S.sidebarItem, ...(view === key ? S.sidebarItemActive : {}) });
+
+  const body = (
+    <nav aria-label="Main" style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}) }}>
+      <div style={S.sidebarBrand} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
+        <Mark size={18} accent={accent} glow={P.dark} />
+        <span style={{ fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-display)" }}>Cerebrum</span>
+      </div>
+      <div style={S.sidebarNav}>
+        {NAV.map(([key, label, icon, badge]) => (
+          <button key={key} onClick={() => onNavigate(key)} style={itemStyle(key)} aria-current={view === key ? "page" : undefined}
+            onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
+            <Icon name={icon} size={17} />
+            <span>{label}</span>
+            {!!badge && <span style={S.sidebarItemBadge}>{badge}</span>}
+          </button>
+        ))}
+        {user && (
+          <button onClick={() => onNavigate("collections")} style={itemStyle("collections")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("collections")}>
+            <Icon name="folder" size={17} /><span>Collections</span>
+          </button>
+        )}
+        {user && (
+          <button onClick={() => onNavigate("findPeople")} style={itemStyle("findPeople")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("findPeople")}>
+            <Icon name="network" size={17} /><span>Find People</span>
+          </button>
+        )}
+        <button onClick={() => onNavigate("settings")} style={itemStyle("settings")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("settings")}>
+          <Icon name="settings" size={17} /><span>Settings</span>
+        </button>
+      </div>
+      <div style={S.sidebarFooter}>
+        <button onClick={onToggleMute} style={S.sidebarItem} title={muted ? "Unmute" : "Mute"} onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}>
+          <Icon name={muted ? "volumeOff" : "volumeOn"} size={17} />
+          <span>{muted ? "Unmute" : "Mute"}</span>
+        </button>
+        <button onClick={() => onNavigate("profile")} style={itemStyle("profile")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}>
+          {user ? <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{(user.email || "?")[0].toUpperCase()}</span> : <Icon name="user" size={17} />}
+          <span>{user ? "Profile" : "Sign in"}</span>
+        </button>
+      </div>
+    </nav>
+  );
+
+  if (!isMobile) return body;
+  return (
+    <>
+      {mobileOpen && <div onClick={onCloseMobile} className="cb-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 29 }} />}
+      {body}
+    </>
+  );
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
@@ -6083,14 +6230,21 @@ function App() {
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [hubOpen, setHubOpen] = useState(false);
   const [activeHubName, setActiveHubName] = useState("");
-  const [trendingOpen, setTrendingOpen] = useState(false);
+  // Which full-page view fills the app shell to the right of the Sidebar.
+  // Profile, Settings, and Trending used to be centered modal dialogs
+  // (UserProfileModal/Settings/TrendingModal) — each is now a real page
+  // (ProfileView/SettingsView/TrendingView) swapped in here instead of
+  // stacked on a backdrop. Everything else that used to live in the header
+  // (Document Mode, History, Saved, Collections, Find People) stayed as
+  // its existing dialog; only its trigger moved into the Sidebar.
+  const [view, setView] = useState("search"); // "search" | "profile" | "settings" | "trending"
+  const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   // Set by NetworkSearchModal's "Message" button right before it opens the
   // Inbox, so the Inbox lands on that conversation instead of whatever was
   // most recently active. InboxModal seeds its own activeId from this once,
   // then calls back to clear it — see the comment on that effect in
   // InboxModal for why the hand-back matters.
   const [pendingThreadId, setPendingThreadId] = useState(null);
-  const [profileOpen, setProfileOpen] = useState(false);
   // Profile — name/username/affiliation live in the `users` table now (see
   // functions/api/data.js's get-profile/update-profile), pulled down on
   // sign-in and pushed back up on every edit by the debounced sync effect
@@ -6249,7 +6403,6 @@ function App() {
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
   const chipsPausedRef = useRef(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState("general");
   const [drawerSource, setDrawerSource] = useState(null);
   const [focusedSourceIdx, setFocusedSourceIdx] = useState(-1);
@@ -6350,8 +6503,8 @@ function App() {
   const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
   const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
-  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Dark");
-  const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Mono");
+  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Sage");
+  const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Sage");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
   const [hover, setHover] = useState("");
   const [hoverCite, setHoverCite] = useState(0);
@@ -6368,7 +6521,7 @@ function App() {
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
-  const P = PALETTES[paletteName] || PALETTES.Dark;
+  const P = PALETTES[paletteName] || PALETTES.Sage;
   // "Mono" isn't a real color swatch — it means "match the current palette's
   // own ink," which is why it's derived from P.dark rather than read out of
   // ACCENTS. Any other named accent (Sage, or a future addition) is a real
@@ -6465,7 +6618,7 @@ function App() {
     const onNav = (e) => {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (settingsOpen || cmdOpen || savedOpen || historyOpen || authOpen || collectionsOpen || inboxOpen || profileOpen) return;
+      if (view !== "search" || cmdOpen || savedOpen || historyOpen || authOpen || collectionsOpen || inboxOpen) return;
       const srcCount = allSources.length;
       if (e.key === "j" || e.key === "J") {
         e.preventDefault();
@@ -6485,7 +6638,7 @@ function App() {
     };
     window.addEventListener("keydown", onNav);
     return () => window.removeEventListener("keydown", onNav);
-  }, [allSources, focusedSourceIdx, drawerSource, settingsOpen, cmdOpen, savedOpen, historyOpen, authOpen, collectionsOpen, inboxOpen, profileOpen]);
+  }, [allSources, focusedSourceIdx, drawerSource, view, cmdOpen, savedOpen, historyOpen, authOpen, collectionsOpen, inboxOpen]);
 
   // Auto-attribution clipboard: when text containing citation brackets
   // [N] is copied from an answer card, append full references to the
@@ -6589,8 +6742,8 @@ function App() {
   // (the standard robust scroll-lock pattern) and restore that exact
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
-    const anyOverlayOpen = cmdOpen || savedOpen || settingsOpen || howItWorksOpen || mobilePanel || historyOpen
-      || authOpen || collectionsOpen || compareOpen || inboxOpen || profileOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
+    const anyOverlayOpen = cmdOpen || savedOpen || howItWorksOpen || mobilePanel || historyOpen
+      || authOpen || collectionsOpen || compareOpen || inboxOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -6610,7 +6763,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [cmdOpen, savedOpen, settingsOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, inboxOpen, profileOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
+  }, [cmdOpen, savedOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, inboxOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -6648,8 +6801,8 @@ function App() {
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
-      else if (e.key === "Escape") { setCmdOpen(false); setSettingsOpen(false); setMobilePanel(false); setSavedOpen(false); setHistoryOpen(false); setConfirmClearSaved(false); setHistoryConfirmId(null); }
-      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsOpen((v) => !v); }
+      else if (e.key === "Escape") { setCmdOpen(false); setMobilePanel(false); setSavedOpen(false); setHistoryOpen(false); setConfirmClearSaved(false); setHistoryConfirmId(null); setView((v) => (v === "search" ? v : "search")); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setView((v) => (v === "settings" ? "search" : "settings")); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "d") { e.preventDefault(); setPaletteName(P.dark ? "Light" : "Dark"); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
@@ -6733,6 +6886,27 @@ function App() {
     setHistoryOpen(false);
     setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, left: 0, behavior: "instant" }), 60);
   }
+  // Single dispatch point for every Sidebar item. Four destinations (search,
+  // trending, settings, profile) swap the full-page `view`; the rest open
+  // their existing dialog exactly as the old header buttons did — moving
+  // here only relocated the trigger, not the underlying feature.
+  function handleSidebarNavigate(key) {
+    sfx();
+    if (isMobile) setSidebarMobileOpen(false);
+    switch (key) {
+      case "new": newSession(); setView("search"); break;
+      case "search": setView("search"); break;
+      case "document": setNotebookOpen(true); break;
+      case "trending": setView("trending"); break;
+      case "history": setHistoryOpen(true); break;
+      case "saved": setSavedOpen(true); break;
+      case "collections": if (user) setCollectionsOpen(true); break;
+      case "settings": setSettingsInitialTab("general"); setView("settings"); break;
+      case "findPeople": if (user) setNetworkSearchOpen(true); break;
+      case "profile": if (user) setView("profile"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
+      default: break;
+    }
+  }
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
   function isPinned(s) { const k = sourceKey(s); return pinnedSources.some((x) => sourceKey(x) === k); }
   function togglePin(s) { sfx(); setPinnedSources((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
@@ -6766,7 +6940,7 @@ function App() {
     // the mobile header), but this palette is available on every viewport —
     // it's a signed-in-only feature, hence gated on `user` here.
     ...(user ? [{ label: "Open collections", run: () => { setCmdOpen(false); setCollectionsOpen(true); } }] : []),
-    { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setSettingsOpen(true); } },
+    { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setView("settings"); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Toggle light / dark", hint: kbdLabel("D"), run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
     { label: factCheck ? "Turn off fact-check" : "Turn on fact-check", run: () => { setFactCheck(!factCheck); setCmdOpen(false); } },
@@ -6935,16 +7109,33 @@ function App() {
   return (
     <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
-      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} speed={animSpeed} paused={settingsOpen} variant="main" />}
+      {animationMode !== "off" && <LivingBackground accent={accent} P={P} intensity={animationMode} speed={animSpeed} paused={view !== "search"} variant="main" />}
       <div style={S.grain} />
       <GuidedTour P={P} accent={accent} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: FONT_SIZES.subhead }}>↑</button>}
+      <Sidebar
+        P={P} accent={accent} at={at} S={S}
+        view={view} onNavigate={handleSidebarNavigate}
+        isMobile={isMobile} mobileOpen={sidebarMobileOpen} onCloseMobile={() => setSidebarMobileOpen(false)}
+        user={user} history={history} saved={saved} muted={muted}
+        onToggleMute={() => setMuted(!muted)}
+        onLogoClick={() => { sfx(); setEntered(false); setView("search"); }}
+      />
+      <div style={S.appMain}>
       <header style={S.header}>
         <div style={S.headerGlass} aria-hidden="true" />
         <div style={S.headInner}>
           <div style={{ ...S.brandRow, position: "relative" }}>
-            
+            {/* The Sidebar carries every destination now — this hamburger is
+                purely how a small viewport reaches it, since a permanently
+                docked 260px rail doesn't fit next to search results on a
+                phone screen the way it does on desktop. */}
+            {isMobile && (
+              <button className="cb-hbtn" style={{ ...S.iconBtn, minWidth: 34, padding: "0 6px" }} onClick={() => { sfx(); setSidebarMobileOpen(true); }} aria-label="Open menu" title="Menu">
+                <Icon name="menu" size={18} />
+              </button>
+            )}
               {/* v5: this used to clear the cookie and hard-reload the whole
                   page — a jarring flash-to-white on every other transition in
                   the app being a smooth fade/blur. Flipping `entered` back to
@@ -6986,25 +7177,22 @@ function App() {
                 style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 3, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}
               >V5</button>
           </div>
+          {/* Everything that used to crowd this row (New, Document, Trending,
+              History, Saved, Collections, Find People, Settings — a dozen
+              controls fighting for one 56px bar) now lives in the Sidebar.
+              The header keeps exactly three things: the search command bar,
+              Inbox, and the account/Profile control. */}
           <div style={S.headActions}>
-            {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button>
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setNotebookOpen(true); }} title="Document Mode — deep summarization and Q&A over one document" aria-label="Document Mode"><Icon name="bookOpen" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Document</span>}</button>
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setTrendingOpen(true); }} title="Trending in Science — a live preview digest, not a fact-checked feed" aria-label="Trending in Science"><Icon name="chart" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Trending</span>}</button>
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setHistoryOpen(true); }} title="Previous conversations" aria-label={`Previous conversations${history.length ? `, ${history.length}` : ""}`}><Icon name="history" size={16} />{!isMobile && <span style={S.iconBtnLabel}>History</span>}</button>
-            <button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button>
-            {user && !isMobile && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setCollectionsOpen(true); }} title="Collections" aria-label="Collections"><Icon name="folder" size={16} /><span style={S.iconBtnLabel}>Collections</span></button>)}
-            {user && !isMobile && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setNetworkSearchOpen(true); }} title="Find people" aria-label="Find researchers"><Icon name="network" size={16} /><span style={S.iconBtnLabel}>Find People</span></button>)}
+            <button className="cb-hbtn" style={isMobile ? { ...S.cmdHint, padding: "0 10px", justifyContent: "center", height: 38 } : S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={isMobile ? 16 : 13} />{!isMobile && <span>Search</span>}{!isMobile && <kbd style={S.kbd}>{kbdLabel("K")}</kbd>}</button>
             {user && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setInboxOpen(true); }} title="Inbox" aria-label="Inbox"><Icon name="mail" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Inbox</span>}</button>)}
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => setMuted(!muted)} title={muted ? "Unmute" : "Mute"} aria-label={muted ? "Unmute" : "Mute"}><Icon name={muted ? "volumeOff" : "volumeOn"} size={16} /></button>
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setSettingsInitialTab("general"); setSettingsOpen(true); }} title="Settings" aria-label="Settings"><Icon name="settings" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Settings</span>}</button>
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); if (user) { setProfileOpen(true); } else { setAuthInitialTab("login"); setAuthOpen(true); } }} title={user ? user.email : "Sign in"} aria-label={user ? `Signed in as ${user.email} — open your profile` : "Sign in or create an account"}>
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); if (user) { setView("profile"); } else { setAuthInitialTab("login"); setAuthOpen(true); } }} title={user ? user.email : "Sign in"} aria-label={user ? `Signed in as ${user.email} — open your profile` : "Sign in or create an account"}>
               {user ? <span aria-hidden="true" style={{ width: 19, height: 19, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)" }}>{(profile.name || user.email)[0].toUpperCase()}</span> : <Icon name="user" size={16} />}
               {!isMobile && <span style={S.iconBtnLabel}>{user ? "Profile" : "Sign in"}</span>}
             </button>
           </div>
         </div>
       </header>
+      {view === "search" && (
       <div style={S.scroll} ref={threadRef} onDoubleClick={(e) => {
         const sel = window.getSelection()?.toString()?.trim();
         if (sel && sel.length > 3 && sel.length < 80 && !sel.includes("\n")) {
@@ -7126,6 +7314,25 @@ function App() {
           </div>
         </div>
       </div>
+      )}
+      {view === "profile" && (
+        <div style={S.pageView}>
+          <ProfileView
+            P={P} accent={accent} at={at} isMobile={isMobile}
+            user={user} profile={profile} setProfile={setProfile} profileMeta={profileMeta}
+            history={history} saved={saved} collections={collections}
+            onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
+            onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
+          />
+        </div>
+      )}
+      {view === "settings" && (
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, turns }} />
+      )}
+      {view === "trending" && (
+        <div style={S.pageView}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} /></div>
+      )}
+      </div>
       {started && isMobile && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 3, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
       {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside role="dialog" aria-modal="true" aria-label="Sources" style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div role="dialog" aria-modal="true" aria-label="Command palette" style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={onCmdKeyDown} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s, i) => (<button key={s} style={{ ...S.cmdItem, background: cmdActive === i ? withAlpha(accent, 0.1) : "transparent" }} onClick={() => ask(s)} onMouseEnter={() => setCmdActive(i)}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c, i) => { const flatIdx = cmdSuggest.length + i; return (<button key={c.label} style={{ ...S.cmdItem, background: cmdActive === flatIdx ? withAlpha(accent, 0.1) : "transparent" }} onClick={c.run} onMouseEnter={() => setCmdActive(flatIdx)}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>); })}</div></div></div>)}
@@ -7206,12 +7413,10 @@ function App() {
           </div>
         </div>
       )}
-      {settingsOpen && <Settings {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setSettingsOpen(false); setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setSettingsOpen(false), dataDensity, setDataDensity, collections, turns }} />}
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
       {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
-      {trendingOpen && <TrendingModal P={P} accent={accent} at={at} close={() => setTrendingOpen(false)} />}
       {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} threads={threads} setThreads={setThreads} initialThreadId={pendingThreadId} onConsumeInitialThread={() => setPendingThreadId(null)} />}
       {networkSearchOpen && (
         <NetworkSearchModal
@@ -7241,7 +7446,6 @@ function App() {
           }}
         />
       )}
-      {profileOpen && <UserProfileModal P={P} accent={accent} at={at} user={user} profile={profile} setProfile={setProfile} profileMeta={profileMeta} close={() => setProfileOpen(false)} onManageAccount={() => { setProfileOpen(false); setSettingsInitialTab("account"); setSettingsOpen(true); }} />}
       {importPrompt && (
         <ImportLocalDataPrompt
           P={P} accent={accent} at={at}
