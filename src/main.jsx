@@ -1891,9 +1891,22 @@ function looksLikeFollowupText(q) {
 function InfoPage({ page }) {
   const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
   const P = PALETTES[paletteName] || PALETTES.Dark;
-  const accentName = (() => { try { return getCookie("cb_accent") || "Emerald"; } catch { return "Emerald"; } })();
+  // ACCENTS was collapsed to a single { Mono } entry when the app moved to
+  // its current monochrome accent direction (App()'s own accentName state,
+  // a few thousand lines down, already defaults to "Mono" to match) — this
+  // page kept the old pre-redesign default of "Emerald", a key that no
+  // longer exists on ACCENTS. ACCENTS["Emerald"] came back undefined, and
+  // so did the "|| ACCENTS.Emerald" fallback right after it, so `accent`
+  // itself was undefined for every visitor who'd never explicitly set a
+  // cb_accent cookie — which then crashed withAlpha() (called straight
+  // below, and again in typeColor() elsewhere) the instant it tried
+  // `undefined.slice(...)`, taking the whole page to a blank white screen
+  // with no error boundary to catch it. This is what was actually behind
+  // "the about and contact pages are just white" — a real render crash,
+  // not only the separate _redirects/routing issue fixed alongside this.
+  const accentName = (() => { try { return getCookie("cb_accent") || "Mono"; } catch { return "Mono"; } })();
   const customAccent = (() => { try { return getCookie("cb_accentCustom") || ""; } catch { return ""; } })();
-  const accent = customAccent || ACCENTS[accentName] || ACCENTS.Emerald;
+  const accent = customAccent || ACCENTS[accentName] || ACCENTS.Mono;
   const at = accentText(accent);
   const isMobile = useIsMobile();
   // v6.8: this page runs as its own standalone route, outside App()'s tree,
@@ -1941,10 +1954,15 @@ function InfoPage({ page }) {
       `}</style>
       <div aria-hidden="true" className="cb-ambient" style={{
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
+        // Was three different named ACCENTS colors (Emerald/Violet/Teal) —
+        // none of those keys exist anymore (see the comment on `accent`
+        // above), so this repeats the one real accent color at three
+        // descending opacities instead of reintroducing a multi-color
+        // palette the rest of the app has already moved away from.
         background: [
           `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.2 : 0.17)}, transparent 60%)`,
-          `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(ACCENTS.Violet, P.dark ? 0.16 : 0.13)}, transparent 55%)`,
-          `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(ACCENTS.Teal, P.dark ? 0.14 : 0.11)}, transparent 60%)`,
+          `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(accent, P.dark ? 0.14 : 0.11)}, transparent 55%)`,
+          `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(accent, P.dark ? 0.1 : 0.08)}, transparent 60%)`,
         ].join(", "),
       }} />
       {animationMode !== "off" && (
@@ -3824,7 +3842,7 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
 // this person" button on a profile — so a brand-new account's inbox is
 // correctly empty rather than seeded with anything illustrative, and stays
 // that way until a thread-creation path exists somewhere.
-function InboxModal({ P, accent, at, close, threads, setThreads }) {
+function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId, onConsumeInitialThread }) {
   const [activeId, setActiveId] = useState(null);
   const [activeThread, setActiveThread] = useState(null);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -3841,7 +3859,22 @@ function InboxModal({ P, accent, at, close, threads, setThreads }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { if (!activeId && threads.length > 0) setActiveId(threads[0].id); }, [threads, activeId]);
+  // A thread just created by "Message" in Find People arrives here as
+  // initialThreadId — seeded once, then immediately reported back as
+  // consumed so App can clear it. Without that hand-back, the SAME stale
+  // thread id would win this race again the next time someone opens the
+  // Inbox normally (this component unmounts/remounts each open, but
+  // initialThreadId is App state that outlives that), silently overriding
+  // "default to my most recent conversation" below with an old one.
+  useEffect(() => {
+    if (initialThreadId) {
+      setActiveId(initialThreadId);
+      onConsumeInitialThread && onConsumeInitialThread();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialThreadId]);
+
+  useEffect(() => { if (!activeId && !initialThreadId && threads.length > 0) setActiveId(threads[0].id); }, [threads, activeId, initialThreadId]);
 
   useEffect(() => {
     setDraft("");
@@ -4242,33 +4275,66 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
 // this stays explicitly labeled as a preview: Follow toggles local-only
 // state that resets next time the modal opens, and Message is honest about
 // not being a real conversation before it hands off to the (real) Inbox.
-const MOCK_RESEARCHERS = [
-  { id: "r1", name: "Dr. Amara Osei", affiliation: "Stanford University", field: "Computational Neuroscience", seed: "amara-osei" },
-  { id: "r2", name: "Dr. Wei Lin", affiliation: "MIT", field: "Genomic Medicine", seed: "wei-lin" },
-  { id: "r3", name: "Dr. Fatima Al-Sayed", affiliation: "Imperial College London", field: "Climate Systems Modeling", seed: "fatima-alsayed" },
-  { id: "r4", name: "Dr. Marcus Reyes", affiliation: "University of Toronto", field: "Immunotherapy", seed: "marcus-reyes" },
-];
-
 function NetworkSearchModal({ P, accent, at, close, onMessage }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
   const [query, setQuery] = useState("");
-  const [following, setFollowing] = useState(() => new Set());
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [followBusy, setFollowBusy] = useState(() => new Set());
+  const [messageBusy, setMessageBusy] = useState(() => new Set());
+  const searchTimer = useRef(null);
 
-  const results = MOCK_RESEARCHERS.filter((r) => {
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return r.name.toLowerCase().includes(q) || r.affiliation.toLowerCase().includes(q) || r.field.toLowerCase().includes(q);
-  });
+  // Real accounts, searched live via functions/api/data.js's search-users —
+  // this used to be a hardcoded 4-name MOCK_RESEARCHERS array labeled
+  // "Preview — sample results". Debounced the same 300ms most other
+  // as-you-type lookups in this file use; the 2-character floor mirrors the
+  // one the backend itself enforces, so a single keystroke never fires a
+  // request that would just come back empty anyway.
+  useEffect(() => {
+    clearTimeout(searchTimer.current);
+    const q = query.trim();
+    if (q.length < 2) { setLoading(false); setResults([]); return; }
+    setLoading(true);
+    searchTimer.current = setTimeout(async () => {
+      const data = await apiDataGet("search-users", { q });
+      setLoading(false);
+      setResults(data && Array.isArray(data.items) ? data.items : []);
+    }, 300);
+    return () => clearTimeout(searchTimer.current);
+  }, [query]);
 
-  const toggleFollow = (id) => {
-    setFollowing((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  const toggleFollow = async (r) => {
+    if (followBusy.has(r.id)) return;
+    setFollowBusy((prev) => new Set(prev).add(r.id));
+    try {
+      const res = await apiDataAction("toggle-follow", { target_id: r.id });
+      setResults((prev) => prev.map((x) => (x.id === r.id ? { ...x, following: res.following, followers: res.followers } : x)));
+    } catch (e) {
+      toast(e.message || "Couldn't update that follow.", { tone: "error" });
+    } finally {
+      setFollowBusy((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+    }
   };
 
+  // Find-or-create a real DM thread (start-thread in functions/api/data.js)
+  // before ever touching the Inbox — no more "isn't a real account yet"
+  // disclosure toast, because now it is one.
+  const messageResearcher = async (r) => {
+    if (messageBusy.has(r.id)) return;
+    setMessageBusy((prev) => new Set(prev).add(r.id));
+    try {
+      const res = await apiDataAction("start-thread", { target_id: r.id });
+      onMessage(r, res.thread_id);
+    } catch (e) {
+      toast(e.message || "Couldn't start that conversation.", { tone: "error" });
+      setMessageBusy((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+    }
+    // No `finally` clearing messageBusy on success — onMessage closes this
+    // modal immediately after, so there's nothing left to un-disable.
+  };
+
+  const trimmed = query.trim();
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Find researchers" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 214, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
@@ -4281,7 +4347,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage }) {
         <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)" }}>
           <div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Find people</div>
-            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-mono)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Preview — sample results</div>
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-mono)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Search Cerebrum researchers</div>
           </div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
@@ -4293,7 +4359,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage }) {
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name, institution, or field"
+              placeholder="Search by name, username, or institution"
               aria-label="Search researchers"
               style={{ width: "100%", padding: "10px 13px 10px 34px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)" }}
             />
@@ -4301,41 +4367,249 @@ function NetworkSearchModal({ P, accent, at, close, onMessage }) {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
-          {results.length === 0 && (
+          {trimmed.length < 2 && (
+            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Search by name, username, or institution to find people on Cerebrum.</div>
+          )}
+          {trimmed.length >= 2 && loading && results.length === 0 && (
+            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>
+          )}
+          {trimmed.length >= 2 && !loading && results.length === 0 && (
             <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>No one matches that search.</div>
           )}
           {results.map((r) => {
-            const isFollowing = following.has(r.id);
+            const isFollowing = !!r.following;
+            const isFollowBusy = followBusy.has(r.id);
+            const isMessageBusy = messageBusy.has(r.id);
+            const subtitle = [r.affiliation, r.followers ? `${r.followers} follower${r.followers === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
             return (
               <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 10 }}>
                 <img
-                  src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.seed)}&backgroundColor=0a0a0a`}
+                  src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.username || r.id)}&backgroundColor=0a0a0a`}
                   alt=""
                   aria-hidden="true"
                   style={{ width: 40, height: 40, borderRadius: "50%", flexShrink: 0, border: `1px solid ${P.line}`, objectFit: "cover" }}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.field} · {r.affiliation}</div>
+                  {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
                 </div>
                 <button
-                  onClick={() => toggleFollow(r.id)}
+                  onClick={() => toggleFollow(r)}
+                  disabled={isFollowBusy}
                   style={{
-                    fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "6px 12px", borderRadius: 100, cursor: "pointer", flexShrink: 0,
+                    fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "6px 12px", borderRadius: 100, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
+                    opacity: isFollowBusy ? 0.6 : 1,
                     color: isFollowing ? P.ink2 : accent,
                     background: isFollowing ? (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)") : withAlpha(accent, 0.1),
                     border: isFollowing ? `1px solid ${P.line}` : `1px solid ${withAlpha(accent, 0.3)}`,
                   }}
                 >{isFollowing ? "Following" : "Follow"}</button>
                 <button
-                  onClick={() => onMessage(r)}
+                  onClick={() => messageResearcher(r)}
+                  disabled={isMessageBusy}
                   aria-label={`Message ${r.name}`}
                   title={`Message ${r.name}`}
-                  style={{ width: 32, height: 32, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer" }}
+                  style={{ width: 32, height: 32, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: isMessageBusy ? "default" : "pointer", opacity: isMessageBusy ? 0.6 : 1 }}
                 ><Icon name="mail" size={14} /></button>
               </div>
             );
           })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   NOTEBOOK MODE — deep summarization + Q&A over one full document the user
+   brings themselves (paste or drop), independent of Cerebrum's own
+   multi-database retrieval. See functions/api/document.js for the backend
+   half. Rendered as a full-screen overlay toggled from the header rather
+   than a layout swap inside App()'s own scroll tree — that tree is large
+   and already stateful enough that grafting a second mode into the middle
+   of it would risk the existing search view for no real benefit; an
+   overlay gets the same "switch modes" experience with zero touch on
+   anything already working there.
+   ============================================================ */
+function NotebookMode({ P, accent, at, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const isMobile = useIsMobile();
+  const [documentText, setDocumentText] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [summary, setSummary] = useState(null); // { raw, model, mode: "summary" }
+  const [error, setError] = useState("");
+  const [qaQuery, setQaQuery] = useState("");
+  const [qaBusy, setQaBusy] = useState(false);
+  const [qaHistory, setQaHistory] = useState([]); // [{ query, answer, errorMsg }]
+  const [hoverCite, setHoverCite] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Plain text / Markdown only — reading actual text out of a PDF client-
+  // side needs a real parsing library (PDF.js or similar), which is a
+  // separate, heavier addition than this pass covers. Dropping a PDF here
+  // reads its raw bytes as text and produces garbage, so the dropzone is
+  // scoped (accept + copy) to what it actually handles correctly; the
+  // textarea paste path already covers "copy the text out of your PDF
+  // reader and paste it in," which is the common case this ships for.
+  const readFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setDocumentText(String(reader.result || ""));
+    reader.onerror = () => setError("Couldn't read that file. Try pasting the text directly instead.");
+    reader.readAsText(file);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragActive(false);
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) readFile(file);
+  };
+
+  const analyze = async () => {
+    const text = documentText.trim();
+    if (!text || analyzing) return;
+    setAnalyzing(true);
+    setError("");
+    setSummary(null);
+    setQaHistory([]);
+    try {
+      const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't analyze that document. Please try again.");
+      setSummary(data);
+    } catch (e) {
+      setError(e.message || "Couldn't analyze that document. Please try again.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  // Each follow-up is answered fresh against the full document text rather
+  // than folded into a running conversation history — the backend's whole
+  // guarantee ("answer ONLY from this text, say so if it's not there") is
+  // simplest to keep honest one grounded question at a time, matching what
+  // functions/api/document.js's QA_SYSTEM_PROMPT actually promises.
+  const askFollowUp = async () => {
+    const q = qaQuery.trim();
+    if (!q || qaBusy || !summary) return;
+    setQaBusy(true);
+    setQaQuery("");
+    setQaHistory((prev) => [...prev, { query: q, answer: "" }]);
+    try {
+      const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: documentText.trim(), query: q }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't answer that.");
+      setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, answer: data.answer } : h)));
+    } catch (e) {
+      setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, errorMsg: e.message || "Couldn't answer that." } : h)));
+    } finally {
+      setQaBusy(false);
+    }
+  };
+
+  const paneBase = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
+  const inputBg = P.dark ? "rgba(255,255,255,0.03)" : "#fff";
+  const dimBtnBg = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Document Mode" style={{ position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "14px 16px" : "16px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Icon name="bookOpen" size={18} style={{ color: accent }} />
+          <div>
+            <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)" }}>Document Mode</div>
+            {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Deep summarization and Q&A over one document</div>}
+          </div>
+        </div>
+        <button onClick={close} aria-label="Close Document Mode" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="close" size={20} /></button>
+      </div>
+
+      <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        {/* LEFT PANE — the source */}
+        <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={onDrop}
+            onClick={() => fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            aria-label="Drop a document file or click to browse"
+            style={{
+              border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "18px 16px", textAlign: "center", cursor: "pointer",
+              background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "all 150ms ease", marginBottom: 12, flexShrink: 0,
+            }}
+          >
+            <input ref={fileInputRef} type="file" accept=".txt,.md,text/plain" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a text file here, or click to browse</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>Plain text or Markdown — or just paste the full text below</div>
+          </div>
+          <textarea
+            value={documentText}
+            onChange={(e) => setDocumentText(e.target.value)}
+            placeholder="Paste the full text of a paper, report, or document here…"
+            style={{
+              flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 10, border: `1px solid ${P.line}`,
+              background: inputBg, color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, lineHeight: 1.6, minHeight: isMobile ? 140 : 240,
+            }}
+          />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexShrink: 0, gap: 12 }}>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{documentText.trim().length.toLocaleString()} characters</div>
+            <button
+              onClick={analyze}
+              disabled={!documentText.trim() || analyzing}
+              style={{
+                padding: "10px 20px", borderRadius: 100, border: "none", cursor: (!documentText.trim() || analyzing) ? "default" : "pointer",
+                background: (!documentText.trim() || analyzing) ? dimBtnBg : accent,
+                color: (!documentText.trim() || analyzing) ? P.faint : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
+              }}
+            >{analyzing ? "Analyzing…" : "Analyze Document"}</button>
+          </div>
+          {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
+        </div>
+
+        {/* RIGHT PANE — the analysis */}
+        <div style={{ ...paneBase, padding: 20 }}>
+          {!summary && !analyzing && (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint }}>
+              <Icon name="bookOpen" size={28} style={{ opacity: 0.4 }} />
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink2 }}>Awaiting Document</div>
+              <div style={{ fontSize: FONT_SIZES.caption, maxWidth: 280, textAlign: "center" }}>Paste or drop a document on the left, then analyze it to get a structured summary here.</div>
+            </div>
+          )}
+          {analyzing && (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint }}>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600 }}>Reading the document…</div>
+            </div>
+          )}
+          {summary && (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Notebook Summary</div>
+                {renderAnswer(summary.raw || "", [], P, accent, hoverCite, setHoverCite)}
+                {qaHistory.map((h, i) => (
+                  <div key={i} style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${P.line}` }}>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
+                    {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Thinking…</div>}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, paddingTop: 14, borderTop: `1px solid ${P.line}`, flexShrink: 0 }}>
+                <input
+                  value={qaQuery}
+                  onChange={(e) => setQaQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
+                  placeholder="Ask a question about this document…"
+                  aria-label="Ask a question about this document"
+                  disabled={qaBusy}
+                  style={{ flex: 1, padding: "10px 13px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-body)" }}
+                />
+                <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask" style={{ width: 38, height: 38, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0 }}><Icon name="send" size={15} /></button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -5325,6 +5599,13 @@ function App() {
   const [compareOpen, setCompareOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [networkSearchOpen, setNetworkSearchOpen] = useState(false);
+  const [notebookOpen, setNotebookOpen] = useState(false);
+  // Set by NetworkSearchModal's "Message" button right before it opens the
+  // Inbox, so the Inbox lands on that conversation instead of whatever was
+  // most recently active. InboxModal seeds its own activeId from this once,
+  // then calls back to clear it — see the comment on that effect in
+  // InboxModal for why the hand-back matters.
+  const [pendingThreadId, setPendingThreadId] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   // Profile — name/username/affiliation live in the `users` table now (see
   // functions/api/data.js's get-profile/update-profile), pulled down on
@@ -6056,7 +6337,17 @@ function App() {
   const exportList = saved.length ? saved : allSources;
   const relColor = (r) => r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint;
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
-  const typeColor = (t) => t === "Preprint" ? ACCENTS.Amber : t === "Reference" ? ACCENTS.Violet : t === "Dataset" ? ACCENTS.Sky : accent;
+  // Used to color-code Preprint/Reference/Dataset badges differently from
+  // a plain Journal source — ACCENTS.Amber/Violet/Sky don't exist anymore
+  // (ACCENTS is just { Mono } now; see the comment on InfoPage's own
+  // `accent` derivation for the same regression). Every one of those three
+  // resolved to undefined, and this feeds straight into withAlpha() below
+  // wherever s.type is Preprint/Reference/Dataset — precisely the types
+  // gatherPapers() assigns to bioRxiv/medRxiv/arXiv and Zenodo/Figshare
+  // results, not edge cases — so a completely ordinary search result would
+  // crash the source badge it renders in. Falling through to the one real
+  // accent color for every type, same as InfoPage's fix.
+  const typeColor = () => accent;
 
   const SourceCard = (s, i) => (
     <div key={i} className="cb-fade" style={{
@@ -6199,6 +6490,7 @@ function App() {
           <div style={S.headActions}>
             {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button>
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setNotebookOpen(true); }} title="Document Mode — deep summarization and Q&A over one document" aria-label="Document Mode"><Icon name="bookOpen" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Document</span>}</button>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setHistoryOpen(true); }} title="Previous conversations" aria-label={`Previous conversations${history.length ? `, ${history.length}` : ""}`}><Icon name="history" size={16} />{!isMobile && <span style={S.iconBtnLabel}>History</span>}</button>
             <button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button>
             {user && !isMobile && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setCollectionsOpen(true); }} title="Collections" aria-label="Collections"><Icon name="folder" size={16} /><span style={S.iconBtnLabel}>Collections</span></button>)}
@@ -6418,14 +6710,15 @@ function App() {
       {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
-      {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} threads={threads} setThreads={setThreads} />}
+      {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
+      {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} threads={threads} setThreads={setThreads} initialThreadId={pendingThreadId} onConsumeInitialThread={() => setPendingThreadId(null)} />}
       {networkSearchOpen && (
         <NetworkSearchModal
           P={P} accent={accent} at={at}
           close={() => setNetworkSearchOpen(false)}
-          onMessage={(researcher) => {
+          onMessage={(researcher, threadId) => {
             setNetworkSearchOpen(false);
-            toast(`${researcher.name} isn't a real Cerebrum account yet — this is a preview. Opening your Inbox.`);
+            setPendingThreadId(threadId);
             setInboxOpen(true);
           }}
         />
