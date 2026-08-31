@@ -1,0 +1,46 @@
+# Hourly "clock" for the Trending in Science feed.
+#
+# Cloudflare Pages Functions can't schedule themselves — Cron Triggers are
+# a Workers-only feature, not something a Pages project can attach on its
+# own. Rather than stand up and maintain a second Cloudflare project just
+# to fetch a news feed once an hour, this workflow is the clock instead:
+# it does nothing but call functions/api/trending-refresh.js once an hour,
+# and that endpoint does the actual work (fetch real articles, refresh the
+# D1 cache that functions/api/trending.js serves to visitors).
+#
+# Requires one repo secret: TRENDING_REFRESH_SECRET. Set it to the exact
+# same value in two places:
+#   1. GitHub: this repo's Settings -> Secrets and variables -> Actions ->
+#      New repository secret -> name it TRENDING_REFRESH_SECRET.
+#   2. Cloudflare Pages: this project's Settings -> Environment variables ->
+#      add TRENDING_REFRESH_SECRET (as a secret, for the Production
+#      environment) with that same value.
+# Without both sides matching, the refresh call gets a 401 and the feed
+# just keeps serving whatever it last had cached — it fails safe, never
+# fails loud in a way a visitor would notice.
+
+name: Refresh trending feed
+
+on:
+  schedule:
+    # Standard 5-field cron, UTC only — GitHub does not support any other
+    # timezone for scheduled workflows. Runs at the top of every hour.
+    # GitHub explicitly documents that scheduled workflows can be delayed
+    # by a few minutes during periods of high load on their end; this
+    # endpoint's own cache-staleness check (90 minutes) gives that plenty
+    # of headroom.
+    - cron: "0 * * * *"
+  # Lets anyone with write access trigger a refresh on demand from the
+  # Actions tab, without waiting for the next hour — handy right after
+  # first setting the secret, or after changing the source feed logic.
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call trending-refresh endpoint
+        run: |
+          curl --fail --silent --show-error \
+            -X POST "https://askcerebrum.org/api/trending-refresh" \
+            -H "Authorization: Bearer ${{ secrets.TRENDING_REFRESH_SECRET }}"
