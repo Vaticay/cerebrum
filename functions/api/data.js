@@ -44,6 +44,15 @@ function toEpochMs(v) {
   return Number.isNaN(t) ? 0 : t;
 }
 
+// D1's LIKE treats %, _, and \ as syntax, not literal characters — a search
+// for "50_gene" or "100%" would otherwise silently turn into a wildcard
+// match instead of the literal substring the user typed. Escaping before
+// wrapping in %...% (search-users, below) keeps the query itself the only
+// place wildcards get introduced.
+function escapeLikeWildcards(s) {
+  return s.replace(/[\\%_]/g, (c) => "\\" + c);
+}
+
 const ALLOWED_ORIGINS = [
   "https://askcerebrum.org",
   "https://www.askcerebrum.org",
@@ -246,6 +255,38 @@ export async function onRequest(context) {
           otherAffiliation,
           messages,
         }), { status: 200, headers: cors });
+      }
+      // Find People / the network directory. This used to be a hardcoded
+      // MOCK_RESEARCHERS array in the frontend labeled "Preview — sample
+      // results" — this is what makes it search real accounts. Same
+      // public/private column split as `profile` above: username, name,
+      // affiliation, and a computed follower count are fair game; email
+      // never leaves a user's own profile fetch. `q` needs 2+ characters so
+      // an empty or single-character box doesn't scan every account on each
+      // keystroke.
+      if (resource === "search-users") {
+        const q = (url.searchParams.get("q") || "").trim();
+        if (q.length < 2) return new Response(JSON.stringify({ items: [] }), { status: 200, headers: cors });
+        const like = "%" + escapeLikeWildcards(q) + "%";
+        const rows = await env.DB.prepare(
+          `SELECT u.id, u.username, u.name, u.affiliation,
+                  (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
+                  EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
+           FROM users u
+           WHERE u.id != ?
+             AND (u.username LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.affiliation LIKE ? ESCAPE '\\')
+           ORDER BY followers DESC, u.name ASC
+           LIMIT 20`
+        ).bind(user.id, user.id, like, like, like).all();
+        const items = (rows.results || []).map((r) => ({
+          id: r.id,
+          username: r.username,
+          name: r.name || r.username || "Researcher",
+          affiliation: r.affiliation || "",
+          followers: r.followers || 0,
+          following: !!r.is_following,
+        }));
+        return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
       }
       if (resource === "history") {
         const rows = await env.DB.prepare(
@@ -458,6 +499,43 @@ export async function onRequest(context) {
         ok: true,
         message: { text, attachmentTitle: attachmentTitle || null, senderId: user.id, createdAt: now, mine: true },
       }), { status: 200, headers: cors });
+    }
+
+    // The "Message" button in Find People used to just open the Inbox with
+    // a disclosure toast ("isn't a real account yet") because there was
+    // nowhere real to send it. This is the find-or-create half of making
+    // that real: reuse an existing DM with this person if one's already
+    // there, otherwise create one, and hand back a thread_id the frontend
+    // can open straight into and send-message against.
+    if (action === "start-thread") {
+      const targetId = (body.target_id || "").toString();
+      if (!targetId) return new Response(JSON.stringify({ error: "Missing target_id." }), { status: 400, headers: cors });
+      if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't message yourself." }), { status: 400, headers: cors });
+      const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(targetId).first();
+      if (!target) return new Response(JSON.stringify({ error: "That account doesn't exist." }), { status: 404, headers: cors });
+      // A DM thread has exactly two participants, so "a thread both of us
+      // are in, that's a DM" is unambiguous — no need to also check that
+      // membership is exclusive to just the two of us.
+      const existing = await env.DB.prepare(
+        `SELECT t.id FROM threads t
+         JOIN thread_participants tp1 ON tp1.thread_id = t.id AND tp1.user_id = ?
+         JOIN thread_participants tp2 ON tp2.thread_id = t.id AND tp2.user_id = ?
+         WHERE t.kind = 'dm'
+         LIMIT 1`
+      ).bind(user.id, targetId).first();
+      if (existing) {
+        return new Response(JSON.stringify({ thread_id: existing.id, created: false }), { status: 200, headers: cors });
+      }
+      // Note: back-to-back double-clicks could theoretically race past this
+      // check and create two separate DM threads for the same pair — low-
+      // stakes (cosmetic duplicate conversation, not a security issue) and
+      // not worth a locking scheme for a find-or-create this infrequent.
+      const threadId = newId("thr");
+      const now = Date.now();
+      await env.DB.prepare("INSERT INTO threads (id, kind, name, created_at) VALUES (?, 'dm', NULL, ?)").bind(threadId, now).run();
+      await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, user.id, now).run();
+      await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, targetId, now).run();
+      return new Response(JSON.stringify({ thread_id: threadId, created: true }), { status: 200, headers: cors });
     }
 
     return new Response(JSON.stringify({ error: "Unknown resource/action." }), { status: 400, headers: cors });
