@@ -428,11 +428,27 @@ const PALETTES = {
   // Linear, Notion — dark enough to still be a dark theme, light enough
   // that panel edges, borders, and secondary text don't crush together
   // into a single black mass.
-  Dark:  { dark: true,  bg: "#1c1c1e", surface: "#2c2c2e", raised: "#3a3a3c", ink: "#ececec", ink2: "#a1a1aa", faint: "#828288", line: "rgba(255,255,255,0.1)", line2: "rgba(255,255,255,0.16)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2c2c2e 25%, #3a3a3c 50%, #2c2c2e 75%)" },
+  // v39: both Dark and Light were tuned in isolation from each other —
+  // Dark a neutral charcoal, Light a cool blue-white ("#f8f9fc"/"#0f172a"
+  // navy ink) — which reads fine as two separate palettes but clashes the
+  // moment either one sits behind/beside LivingBackground's warm-toned
+  // ambient wash: a cold, clinical-admin-panel foreground next to an
+  // organic, painterly background is exactly the "two different design
+  // systems glued together" impression that reads as unpolished rather
+  // than considered. Nudged Dark a touch lighter (it was tuned off pure
+  // black once already; this is a smaller second pass, not a reversal) and
+  // softened its ink off pure neutral white; rebuilt Light on a warm paper
+  // base instead of blue-white, matching the same undertone Sage already
+  // uses. Not merged into Sage's own hue — Sage stays the more saturated
+  // olive/linen option; these two are the calmer neutral pair.
+  Dark:  { dark: true,  bg: "#201f1d", surface: "#2b2a27", raised: "#38362f", ink: "#e6e3de", ink2: "#a19d96", faint: "#827e77", line: "rgba(230,227,222,0.09)", line2: "rgba(230,227,222,0.15)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2b2a27 25%, #38362f 50%, #2b2a27 75%)" },
   // Slate: a cooler, blue-leaning dark surface (the Discord/Linear
-  // register) for anyone who wants dark without Dark's neutral-grey cast.
-  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#ececec", ink2: "#a1a1aa", faint: "#82858c", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
-  Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#5c6b80", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.06)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
+  // register) for anyone who wants dark without Dark's neutral-grey cast —
+  // kept deliberately cool rather than folded into the warm pair above, so
+  // it stays a real alternative and not a fourth near-duplicate. Ink
+  // softened off pure white to match the other three's restraint.
+  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#82858c", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
+  Light: { dark: false, bg: "#f5f4f1", surface: "#fbfaf8", raised: "#ffffff", ink: "#29261f", ink2: "#5a5548", faint: "#7a7568", line: "rgba(41,38,31,0.07)", line2: "rgba(41,38,31,0.12)", shadow: "0 1px 2px rgba(41,38,31,0.05), 0 6px 18px rgba(41,38,31,0.07)", shadowSm: "0 1px 2px rgba(41,38,31,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #efeeea 25%, #f6f5f2 50%, #efeeea 75%)" },
   // Sage — "Modern Organic," and now the default palette a fresh browser
   // lands on (see App()'s paletteName useState below): warm stone instead
   // of neutral charcoal, linen instead of stark white, paired by default
@@ -5241,7 +5257,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   );
 
   return (
-    <div role="region" aria-label="Settings" style={{ flex: 1, minHeight: "100%", background: P.bg, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+    // position/zIndex here are load-bearing — see pageView's own comment
+    // (makeStyles) for why a plain static box never wins a stacking fight
+    // against LivingBackground's absolutely-positioned canvas, opaque
+    // background or not, past the first screenful of scroll.
+    <div role="region" aria-label="Settings" style={{ flex: 1, minHeight: "100%", background: P.bg, display: "flex", flexDirection: "column", overflowY: "auto", position: "relative", zIndex: 1 }}>
       <div style={{ width: "100%", maxWidth: 760, margin: "0 auto", padding: isMobile ? "22px 18px 60px" : "44px 32px 90px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)" }}>
 
         {/* Header — a page title now, not a dialog: no backdrop, no close
@@ -5706,7 +5726,20 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // that hero entirely and are meant to read as solid pages, not another
     // translucent layer over a paused-but-still-painted canvas frame — so
     // unlike the hero, these get a flat P.bg fill of their own.
-    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100%" },
+    //
+    // `position: relative` + `zIndex: 1` are load-bearing, not decoration:
+    // LivingBackground's own wrapper is `position: absolute; z-index: 0`
+    // (see `ambient` above), and a plain static box — which this was —
+    // never wins a stacking fight against ANY positioned element, even one
+    // sitting at z-index 0, no matter how opaque its background is or how
+    // tall it grows to cover the content. That let the canvas paint on TOP
+    // of this fill the moment the page had enough content to scroll (the
+    // gap only showed up scrolled past the first screenful, which is why
+    // the original opaque-background fix looked complete on an unscrolled
+    // check but wasn't). Giving this box its own stacking position at a
+    // z-index above the canvas's is the actual fix; the header above uses
+    // the same trick at zIndex 20 for the same reason.
+    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100%", position: "relative", zIndex: 1 },
     pageViewInner: { maxWidth: 920, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "40px 32px 80px" },
     pageViewTitle: { fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" },
 
