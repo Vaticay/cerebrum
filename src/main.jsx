@@ -432,6 +432,13 @@ const PALETTES = {
   Dark:  { dark: true,  bg: "#000000", surface: "#0a0a0a", raised: "#111111", ink: "#ffffff", ink2: "#888888", faint: "#666666", line: "#222222", line2: "#333333", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #0a0a0a 25%, #111111 50%, #0a0a0a 75%)" },
   Mid:   { dark: true,  bg: "#050505", surface: "#0e0e0e", raised: "#171717", ink: "#f0f0f0", ink2: "#888888", faint: "#666666", line: "#252525", line2: "#363636", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #0e0e0e 25%, #171717 50%, #0e0e0e 75%)" },
   Light: { dark: false, bg: "#f8f9fc", surface: "#ffffff", raised: "#ffffff", ink: "#0f172a", ink2: "#475569", faint: "#5c6b80", line: "rgba(15,23,42,0.06)", line2: "rgba(15,23,42,0.10)", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.06)", shadowSm: "0 1px 2px rgba(0,0,0,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%)" },
+  // Warmer alternative to the obsidian "Darknode" default: soft charcoal
+  // instead of pitch black, cream instead of stark white, meant to read as
+  // an editorial reading room rather than a command console. Added as a
+  // fourth selectable option rather than replacing Dark — the obsidian
+  // look above is the deliberate, many-rounds-tuned default identity, so
+  // this sits alongside it in Settings > Appearance instead of overwriting it.
+  Sage:  { dark: true, bg: "#121315", surface: "#1a1c1e", raised: "#212328", ink: "#f4f4f0", ink2: "#a8a8a2", faint: "#7a7a74", line: "#28292c", line2: "#35363a", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #1a1c1e 25%, #212328 50%, #1a1c1e 75%)" },
 };
 // Cyberpunk-leaning neon set — the two hues the blueprint calls out by name
 // (Matrix Green, Cyberpunk Cyan) moved to the front and pushed slightly
@@ -439,7 +446,7 @@ const PALETTES = {
 // Amber, Rose) kept for real per-user customization but tuned a shade
 // cooler/harder so none of them reads as a pastel accent next to the new
 // obsidian base.
-const ACCENTS = { Mono: "#ffffff" };
+const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888" };
 
 // v6.9: type sizing used to be ~228 separately hand-typed pixel literals —
 // 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5 all meaning "small metadata text" to
@@ -3533,6 +3540,127 @@ function IllustrationModal({ P, accent, at, query, close }) {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   TRENDING IN SCIENCE — a live digest, honestly labeled as a preview.
+   Every card is a real paper from functions/api/trending.js (recent,
+   highly-cited, pulled live from OpenAlex) with a real excerpt from that
+   paper's own abstract — never an invented headline. Deliberately carries
+   no "Fact-Checked" badge: unlike a single search answer, nothing here has
+   gone through Cerebrum's fact-check pass, and a green shield here would
+   claim a verification step that didn't happen. "Preview" is the accurate
+   word for what this is.
+   ════════════════════════════════════════════════════════════════ */
+function buildTrendingImagePrompt(item) {
+  const subject = (item.topic || item.title || "science").replace(/[?!]+/g, "").trim().slice(0, 160);
+  return `${subject}. Cinematic abstract scientific 3D render, microscopic macro photography, glowing ethereal structures, deep depth of field, high-end editorial illustration. NO TEXT, NO WORDS, NO DIAGRAMS, pure abstract visual art.`;
+}
+
+function TrendingCard({ P, accent, at, item }) {
+  const [imgStatus, setImgStatus] = useState("loading"); // "loading" | "ready" | "error"
+  const seed = useMemo(() => hashSeed(item.title || ""), [item.title]);
+  const imgUrl = useMemo(
+    () => `https://image.pollinations.ai/prompt/${encodeURIComponent(buildTrendingImagePrompt(item))}?width=640&height=420&nologo=true&seed=${seed}`,
+    [item, seed]
+  );
+  return (
+    <div style={{ borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden", background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "relative", aspectRatio: "16/10", background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)", flexShrink: 0 }}>
+        {imgStatus !== "error" && (
+          <img src={imgUrl} alt="" aria-hidden="true" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }} />
+        )}
+        {imgStatus !== "ready" && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint }}>
+            <Icon name={imgStatus === "error" ? "image" : "sparkle"} size={20} style={{ opacity: 0.5 }} />
+          </div>
+        )}
+        <span style={{ position: "absolute", top: 8, left: 8, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: P.ink2, background: P.dark ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.85)", padding: "3px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>AI illustration</span>
+      </div>
+      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+        {item.topic && <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)" }}>{item.topic}</div>}
+        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4 }}>{item.title}</div>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55, flex: 1 }}>{item.summary}</div>
+        <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+          {[item.venue, item.publicationDate, typeof item.citedByCount === "number" && `${item.citedByCount.toLocaleString()} citations`].filter(Boolean).join(" · ")}
+        </div>
+        {item.link && (
+          <a href={safeHref(item.link)} target="_blank" rel="noreferrer" style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+            Read the paper <Icon name="external" size={11} />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TrendingModal({ P, accent, at, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    fetch("/api/trending")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (cancelled) return;
+        if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) { setStatus("error"); return; }
+        setItems(data.items.slice(0, 4));
+        setStatus("ready");
+      })
+      .catch(() => { if (!cancelled) setStatus("error"); });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="Trending in Science" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 920, width: "100%", maxHeight: "86vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
+        <div style={{ padding: "18px 24px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, position: "sticky", top: 0, background: P.bg, zIndex: 1 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Trending in Science</div>
+              <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.12), padding: "2px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>Preview</span>
+            </div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 520, lineHeight: 1.5 }}>
+              Real, recently published papers ranked by citation count — not editorially curated, and not run through Cerebrum's fact-check pass the way a single search answer is. Read the source before citing anything here.
+            </div>
+          </div>
+          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}><Icon name="close" size={18} /></button>
+        </div>
+        <div style={{ padding: 24 }}>
+          {status === "loading" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} style={{ borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden" }}>
+                  <div style={{ aspectRatio: "16/10", background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                  <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ height: 12, width: "80%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                    <div style={{ height: 10, width: "100%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                    <div style={{ height: 10, width: "60%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {status === "error" && (
+            <div style={{ textAlign: "center", color: P.faint, padding: "32px 16px" }}>
+              <Icon name="warning" size={22} style={{ opacity: 0.6 }} />
+              <div style={{ fontSize: FONT_SIZES.small, marginTop: 10 }}>Couldn't load the trending digest right now — the source database may be busy. Try again in a moment.</div>
+            </div>
+          )}
+          {status === "ready" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
+              {items.map((item, i) => <TrendingCard key={item.link || i} P={P} accent={accent} at={at} item={item} />)}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
    LITERATURE TIMELINE
    Plots the current answer's sources across publication year — purely
    client-side, reusing data already fetched for the answer itself, so
@@ -3833,6 +3961,42 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
   );
 }
 
+// A UI stub, not a feature — there is no signaling server, no peer
+// connection, no camera/microphone capture anywhere in this codebase. This
+// renders what a huddle screen would look like and is honestly labeled as
+// a preview so nobody mistakes the pulsing avatar for an actual incoming
+// call. Wiring real WebRTC (signaling through the existing D1-backed
+// message channel or a separate service, ICE/STUN config, device
+// permission prompts) is a genuinely separate build from a UI pass.
+function VideoHuddle({ P, accent, at, name, onClose }) {
+  const initials = (name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, padding: 24 }}>
+      <div style={{
+        width: "100%", maxWidth: 480, aspectRatio: "16 / 9", borderRadius: 14, position: "relative", overflow: "hidden",
+        background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+        border: `1px solid ${P.line}`, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <span aria-hidden="true" style={{
+          position: "absolute", width: 92, height: 92, borderRadius: "50%", background: withAlpha(accent, 0.25),
+          animation: "cbHuddlePulse 2.4s ease-in-out infinite",
+        }} />
+        <span style={{
+          position: "relative", width: 64, height: 64, borderRadius: "50%", background: withAlpha(accent, 0.2), color: accent,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.subhead, fontWeight: 700, fontFamily: "var(--cb-mono)",
+        }}>{initials}</span>
+        <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, background: P.dark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>Preview — not yet connected</span>
+      </div>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2 }}>Waiting for peers to join…</div>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 320 }}>Video Huddle is a preview of the interface Cerebrum will use for live calls. Nobody can actually hear or see you here yet — there's no call to join.</div>
+      </div>
+      <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 100, border: `1px solid ${P.line}`, background: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Back to chat</button>
+    </div>
+  );
+}
+
 // Inbox — get-inbox (functions/api/data.js) supplies the thread list with
 // just each thread's most recent message, since that's all a list needs;
 // opening a thread fetches its full history from the separate get-thread
@@ -3848,7 +4012,9 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
   const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [huddleOpen, setHuddleOpen] = useState(false);
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  useEffect(() => { setHuddleOpen(false); }, [activeId]);
   const trapRef = useFocusTrap();
 
   // The sign-in-time snapshot in handleAuthed only ever reflects that one
@@ -3963,8 +4129,14 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
                 <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{activeThread.name}</div>
                 {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{subtitle}</div>}
               </div>
-              <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <button onClick={() => setHuddleOpen((v) => !v)} aria-label={huddleOpen ? "End video huddle preview" : "Start video huddle preview"} aria-pressed={huddleOpen} title="Video Huddle (preview — not yet connected)" style={{ background: huddleOpen ? withAlpha(accent, 0.14) : "none", border: "none", borderRadius: 8, color: huddleOpen ? accent : P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="camera" size={18} /></button>
+                <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+              </div>
             </div>
+            {huddleOpen ? (
+              <VideoHuddle P={P} accent={accent} at={at} name={activeThread.name} onClose={() => setHuddleOpen(false)} />
+            ) : (<>
             <div style={{ flex: 1, overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
               {activeThread.messages.length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet — say hello.</div>
@@ -3977,9 +4149,9 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
                   {m.text && (
                     <div style={{
                       padding: "12px 16px", fontSize: FONT_SIZES.small, lineHeight: 1.6,
-                      borderRadius: m.mine ? "14px 4px 14px 14px" : "4px 14px 14px 14px",
+                      borderRadius: m.mine ? "16px 16px 2px 16px" : "16px 16px 16px 2px",
                       color: m.mine ? at : P.ink,
-                      background: m.mine ? accent : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                      background: m.mine ? accent : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
                       border: m.mine ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
                     }}>{m.text}</div>
                   )}
@@ -4011,6 +4183,7 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
                 </button>
               </div>
             </div>
+            </>)}
           </>) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small, textAlign: "center", padding: 24 }}>
               {loadingThread ? "Loading…" : threads.length === 0 ? "Nothing here yet." : "Select a conversation"}
@@ -4150,7 +4323,15 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
         <div style={{ padding: "8px 28px 28px", textAlign: "center", position: "relative" }}>
-          <div style={{ position: "relative", width: 84, height: 84, margin: "0 auto 4px" }}>
+          {/* Split header: your avatar on the left, your institution's mark
+              on the right — an initials badge generated from the
+              affiliation text itself (no logo database exists or is being
+              invented here), so it only appears once an affiliation is
+              actually set. Everything below stays centered on the ID-card
+              layout this modal already had; this is additive, not a full
+              re-layout, to avoid regressing a card that already works. */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginBottom: 4 }}>
+          <div style={{ position: "relative", width: 84, height: 84 }}>
             {avatarFailed && !profile.avatar_base64 ? (
               <div style={{
                 width: 84, height: 84, borderRadius: "50%",
@@ -4182,6 +4363,15 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
               {avatarSaving ? <Icon name="refresh" size={14} className="cb-spin" /> : <Icon name="camera" size={14} />}
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
+          </div>
+          {profile.affiliation && profile.affiliation.trim() && (
+            <img
+              src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(profile.affiliation.trim())}&backgroundColor=${accent.replace("#", "")}`}
+              alt={`${profile.affiliation} logo`}
+              title={profile.affiliation}
+              style={{ width: 52, height: 52, borderRadius: 10, border: `1px solid ${P.line}`, flexShrink: 0 }}
+            />
+          )}
           </div>
           {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 8 }}>{avatarError}</div>}
 
@@ -4243,6 +4433,30 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
             )}
           </div>
 
+          {/* Degree + graduating year — displayed in the app's mono face,
+              directly under the identity fields above, matching how the
+              affiliation/username lines already read as "metadata" rather
+              than prose. Free text (see the backend comment on this same
+              pair in functions/api/data.js for why no controlled
+              vocabulary), synced by the same debounced profile-sync effect
+              that already handles name/username/affiliation in App(). */}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <input
+              value={profile.degree || ""}
+              onChange={(e) => setProfile((p) => ({ ...p, degree: e.target.value }))}
+              placeholder="Degree, e.g. Ph.D. Microbiology"
+              aria-label="Degree"
+              style={{ ...inputStyle, marginTop: 0, textAlign: "center", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, flex: 2 }}
+            />
+            <input
+              value={profile.grad_year || ""}
+              onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
+              placeholder="Grad. year"
+              aria-label="Graduating year"
+              style={{ ...inputStyle, marginTop: 0, textAlign: "center", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, flex: 1 }}
+            />
+          </div>
+
           <div style={{ marginTop: 22, textAlign: "left" }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Accolades</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -4275,11 +4489,12 @@ function UserProfileModal({ P, accent, at, close, user, profile, setProfile, pro
 // this stays explicitly labeled as a preview: Follow toggles local-only
 // state that resets next time the modal opens, and Message is honest about
 // not being a real conversation before it hands off to the (real) Inbox.
-function NetworkSearchModal({ P, accent, at, close, onMessage }) {
+function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [hubs, setHubs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [followBusy, setFollowBusy] = useState(() => new Set());
   const [messageBusy, setMessageBusy] = useState(() => new Set());
@@ -4290,16 +4505,20 @@ function NetworkSearchModal({ P, accent, at, close, onMessage }) {
   // "Preview — sample results". Debounced the same 300ms most other
   // as-you-type lookups in this file use; the 2-character floor mirrors the
   // one the backend itself enforces, so a single keystroke never fires a
-  // request that would just come back empty anyway.
+  // request that would just come back empty anyway. `hubs` rides along in
+  // the same response — a Hub is just a distinct affiliation string at
+  // least one real account has set (see the backend comment on this
+  // endpoint), never an invented institution roster.
   useEffect(() => {
     clearTimeout(searchTimer.current);
     const q = query.trim();
-    if (q.length < 2) { setLoading(false); setResults([]); return; }
+    if (q.length < 2) { setLoading(false); setResults([]); setHubs([]); return; }
     setLoading(true);
     searchTimer.current = setTimeout(async () => {
       const data = await apiDataGet("search-users", { q });
       setLoading(false);
       setResults(data && Array.isArray(data.items) ? data.items : []);
+      setHubs(data && Array.isArray(data.hubs) ? data.hubs : []);
     }, 300);
     return () => clearTimeout(searchTimer.current);
   }, [query]);
@@ -4368,13 +4587,44 @@ function NetworkSearchModal({ P, accent, at, close, onMessage }) {
 
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
           {trimmed.length < 2 && (
-            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Search by name, username, or institution to find people on Cerebrum.</div>
+            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Search by name, username, or institution to find people and hubs on Cerebrum.</div>
           )}
-          {trimmed.length >= 2 && loading && results.length === 0 && (
+          {trimmed.length >= 2 && loading && results.length === 0 && hubs.length === 0 && (
             <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>
           )}
-          {trimmed.length >= 2 && !loading && results.length === 0 && (
-            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>No one matches that search.</div>
+          {trimmed.length >= 2 && !loading && results.length === 0 && hubs.length === 0 && (
+            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Nothing matches that search.</div>
+          )}
+          {hubs.length > 0 && (
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", padding: "4px 8px" }}>Institutions</div>
+              {hubs.map((h) => (
+                <div
+                  key={h.name}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpenHub(h.name)}
+                  onKeyDown={(e) => { if (e.key === "Enter") onOpenHub(h.name); }}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 10, cursor: "pointer" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  <img
+                    src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(h.name)}&backgroundColor=${accent.replace("#", "")}`}
+                    alt="" aria-hidden="true"
+                    style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, border: `1px solid ${P.line}` }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>{h.researcherCount} researcher{h.researcherCount === 1 ? "" : "s"} on Cerebrum</div>
+                  </div>
+                  <Icon name="arrowRight" size={14} style={{ color: P.faint, flexShrink: 0 }} />
+                </div>
+              ))}
+              {results.length > 0 && (
+                <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", padding: "10px 8px 4px" }}>People</div>
+              )}
+            </div>
           )}
           {results.map((r) => {
             const isFollowing = !!r.following;
@@ -4421,6 +4671,143 @@ function NetworkSearchModal({ P, accent, at, close, onMessage }) {
 }
 
 /* ============================================================
+   INSTITUTION HUB — a University/Lab's page on Cerebrum. Not backed by a
+   separate "institutions" table: a Hub IS the set of real accounts sharing
+   one affiliation string (see the `hub` resource in functions/api/data.js).
+   That means Top Researchers is always real, but Departments and Recent
+   Papers — which would need data this schema doesn't track (no department
+   field on a user, no link between a researcher and "papers they authored
+   that Cerebrum has indexed") — show an honest empty state instead of
+   invented rosters. Filling those in for real is a bigger addition
+   (department taxonomy, and joining a researcher's name against gatherPapers'
+   own author-search path) than this pass covers.
+   ============================================================ */
+function InstitutionModal({ P, accent, at, close, hubName, onMessage }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const isMobile = useIsMobile();
+  const [tab, setTab] = useState("researchers");
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null); // { name, researchers }
+  const [messageBusy, setMessageBusy] = useState(() => new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    apiDataGet("hub", { name: hubName }).then((res) => {
+      if (cancelled) return;
+      setData(res && !res.error ? res : { name: hubName, researchers: [] });
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [hubName]);
+
+  const messageResearcher = async (r) => {
+    if (messageBusy.has(r.id)) return;
+    setMessageBusy((prev) => new Set(prev).add(r.id));
+    try {
+      const res = await apiDataAction("start-thread", { target_id: r.id });
+      onMessage(r, res.thread_id);
+    } catch (e) {
+      toast(e.message || "Couldn't start that conversation.", { tone: "error" });
+      setMessageBusy((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+    }
+  };
+
+  const researchers = (data && data.researchers) || [];
+  const TABS = [["researchers", "Top Researchers"], ["departments", "Departments"], ["papers", "Recent Papers"]];
+
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="Institution Hub" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.94)" : "rgba(255, 255, 255, 0.97)",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
+      }} className="cb-modal">
+        {/* Cinematic full-bleed header: an accent wash behind the mark + name. */}
+        <div style={{
+          position: "relative", padding: isMobile ? "28px 20px 20px" : "36px 28px 24px", overflow: "hidden",
+          background: `linear-gradient(160deg, ${withAlpha(accent, 0.22)}, transparent 70%)`,
+          borderBottom: `1px solid ${P.line}`,
+        }}>
+          <button onClick={close} aria-label="Close" style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <img
+              src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(hubName)}&backgroundColor=${accent.replace("#", "")}`}
+              alt="" aria-hidden="true"
+              style={{ width: 64, height: 64, borderRadius: 12, border: `1px solid ${P.line}`, flexShrink: 0, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}
+            />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: withAlpha(accent, 0.9), fontFamily: "var(--cb-mono)" }}>Institution Hub</div>
+              <div style={{ fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", marginTop: 2 }}>{hubName}</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{researchers.length} researcher{researchers.length === 1 ? "" : "s"} on Cerebrum</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 4, padding: "10px 20px 0", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+          {TABS.map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)} style={{
+              padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "none", border: "none", cursor: "pointer",
+              color: tab === key ? P.ink : P.faint, borderBottom: tab === key ? `2px solid ${accent}` : "2px solid transparent", marginBottom: -1,
+            }}>{label}</button>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+          {tab === "researchers" && (
+            loading ? (
+              <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Loading…</div>
+            ) : researchers.length === 0 ? (
+              <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>No researchers from {hubName} on Cerebrum yet.</div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                {researchers.map((r) => {
+                  const isMessageBusy = messageBusy.has(r.id);
+                  const meta = [r.degree, r.gradYear].filter(Boolean).join(" · ");
+                  return (
+                    <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, borderRadius: 10, border: `1px solid ${P.line}` }}>
+                      <img
+                        src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.username || r.id)}&backgroundColor=0a0a0a`}
+                        alt="" aria-hidden="true"
+                        style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0, border: `1px solid ${P.line}`, objectFit: "cover" }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                        {meta && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta}</div>}
+                      </div>
+                      <button
+                        onClick={() => messageResearcher(r)}
+                        disabled={isMessageBusy}
+                        aria-label={`Message ${r.name}`}
+                        title={`Message ${r.name}`}
+                        style={{ width: 30, height: 30, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: isMessageBusy ? "default" : "pointer", opacity: isMessageBusy ? 0.6 : 1 }}
+                      ><Icon name="mail" size={13} /></button>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+          {tab === "departments" && (
+            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, maxWidth: 340, margin: "0 auto" }}>
+              Department listings aren't built yet — Cerebrum profiles don't currently carry a department field. Top Researchers above is the real, live roster for this institution.
+            </div>
+          )}
+          {tab === "papers" && (
+            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, maxWidth: 340, margin: "0 auto" }}>
+              Recent Papers isn't wired up yet — it would need to match this institution's researchers against Cerebrum's own literature search, which is a separate build. Try searching a researcher's name directly from the home screen in the meantime.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    NOTEBOOK MODE — deep summarization + Q&A over one full document the user
    brings themselves (paste or drop), independent of Cerebrum's own
    multi-database retrieval. See functions/api/document.js for the backend
@@ -4431,13 +4818,30 @@ function NetworkSearchModal({ P, accent, at, close, onMessage }) {
    overlay gets the same "switch modes" experience with zero touch on
    anything already working there.
    ============================================================ */
+// Right-pane analysis tabs. "findings" folds together the backend's
+// keyFindings + limitations fields — the source prompt asked for a tab
+// per {Executive Summary, Methodology, Follow-up Q&A}, but
+// functions/api/document.js already splits out Key Findings and
+// Limitations as their own real sections (see splitSummarySections there),
+// and dropping either on the floor to match a flatter 3-tab shape would
+// throw away content the model actually generated. One extra tab keeps all
+// four sections reachable without inventing a fifth.
+const NOTEBOOK_TABS = [
+  ["summary", "Executive Summary", "executiveSummary"],
+  ["methodology", "Methodology", "methodology"],
+  ["findings", "Findings & Limitations", null],
+  ["qa", "Follow-up Q&A", null],
+];
+
 function NotebookMode({ P, accent, at, close }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const isMobile = useIsMobile();
+  const [leftTab, setLeftTab] = useState("paste"); // "paste" | "upload"
+  const [rightTab, setRightTab] = useState("summary");
   const [documentText, setDocumentText] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [summary, setSummary] = useState(null); // { raw, model, mode: "summary" }
+  const [summary, setSummary] = useState(null); // { raw, model, mode: "summary", executiveSummary, methodology, keyFindings, limitations }
   const [error, setError] = useState("");
   const [qaQuery, setQaQuery] = useState("");
   const [qaBusy, setQaBusy] = useState(false);
@@ -4451,11 +4855,13 @@ function NotebookMode({ P, accent, at, close }) {
   // reads its raw bytes as text and produces garbage, so the dropzone is
   // scoped (accept + copy) to what it actually handles correctly; the
   // textarea paste path already covers "copy the text out of your PDF
-  // reader and paste it in," which is the common case this ships for.
+  // reader and paste it in," which is the common case this ships for. This
+  // is also why the left-pane tab below reads "Upload File," not "Upload
+  // PDF" — that label would promise parsing this doesn't do.
   const readFile = (file) => {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setDocumentText(String(reader.result || ""));
+    reader.onload = () => { setDocumentText(String(reader.result || "")); setLeftTab("paste"); };
     reader.onerror = () => setError("Couldn't read that file. Try pasting the text directly instead.");
     reader.readAsText(file);
   };
@@ -4474,6 +4880,7 @@ function NotebookMode({ P, accent, at, close }) {
     setError("");
     setSummary(null);
     setQaHistory([]);
+    setRightTab("summary");
     try {
       const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text }) });
       const data = await res.json().catch(() => ({}));
@@ -4496,6 +4903,7 @@ function NotebookMode({ P, accent, at, close }) {
     if (!q || qaBusy || !summary) return;
     setQaBusy(true);
     setQaQuery("");
+    setRightTab("qa");
     setQaHistory((prev) => [...prev, { query: q, answer: "" }]);
     try {
       const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: documentText.trim(), query: q }) });
@@ -4527,34 +4935,55 @@ function NotebookMode({ P, accent, at, close }) {
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
-        {/* LEFT PANE — the source */}
+        {/* LEFT PANE — the source, tabbed between pasting text directly and
+            loading it from a file. Only one sub-view renders at a time now
+            instead of stacking the dropzone above the textarea always. */}
         <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={onDrop}
-            onClick={() => fileInputRef.current?.click()}
-            role="button"
-            tabIndex={0}
-            aria-label="Drop a document file or click to browse"
-            style={{
-              border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "18px 16px", textAlign: "center", cursor: "pointer",
-              background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "all 150ms ease", marginBottom: 12, flexShrink: 0,
-            }}
-          >
-            <input ref={fileInputRef} type="file" accept=".txt,.md,text/plain" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
-            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a text file here, or click to browse</div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>Plain text or Markdown — or just paste the full text below</div>
+          <div role="tablist" aria-label="Document source" style={{ display: "flex", gap: 4, marginBottom: 14, flexShrink: 0, background: dimBtnBg, borderRadius: 8, padding: 3 }}>
+            {[["paste", "Source Text"], ["upload", "Upload File"]].map(([key, label]) => (
+              <button key={key} role="tab" aria-selected={leftTab === key} onClick={() => setLeftTab(key)}
+                style={{
+                  flex: 1, padding: "7px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+                  background: leftTab === key ? accent : "transparent", color: leftTab === key ? at : P.ink2,
+                  fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-mono)", transition: "all 150ms ease",
+                }}
+              >{label}</button>
+            ))}
           </div>
-          <textarea
-            value={documentText}
-            onChange={(e) => setDocumentText(e.target.value)}
-            placeholder="Paste the full text of a paper, report, or document here…"
-            style={{
-              flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 10, border: `1px solid ${P.line}`,
-              background: inputBg, color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, lineHeight: 1.6, minHeight: isMobile ? 140 : 240,
-            }}
-          />
+
+          {leftTab === "upload" ? (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              aria-label="Drop a document file or click to browse"
+              style={{
+                flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
+                border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "18px 16px", textAlign: "center", cursor: "pointer",
+                background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "all 150ms ease", minHeight: isMobile ? 140 : 240,
+              }}
+            >
+              <input ref={fileInputRef} type="file" accept=".txt,.md,text/plain" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
+              <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
+              <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a text file here, or click to browse</div>
+              {/* Honest about what this actually parses — see readFile's own
+                  comment for why a literal "Upload PDF" tab would overpromise. */}
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 260 }}>Plain text or Markdown files. For a PDF, copy its text and paste it into the Source Text tab instead — Cerebrum doesn't extract text from PDF bytes yet.</div>
+            </div>
+          ) : (
+            <textarea
+              value={documentText}
+              onChange={(e) => setDocumentText(e.target.value)}
+              placeholder="Paste the full text of a paper, report, or document here…"
+              style={{
+                flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 10, border: `1px solid ${P.line}`,
+                background: inputBg, color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, lineHeight: 1.6, minHeight: isMobile ? 140 : 240,
+              }}
+            />
+          )}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexShrink: 0, gap: 12 }}>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{documentText.trim().length.toLocaleString()} characters</div>
             <button
@@ -4570,7 +4999,10 @@ function NotebookMode({ P, accent, at, close }) {
           {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
         </div>
 
-        {/* RIGHT PANE — the analysis */}
+        {/* RIGHT PANE — the analysis, tabbed across the sections the backend
+            actually returns (see NOTEBOOK_TABS above) plus a dedicated
+            Follow-up Q&A tab so a running conversation doesn't crowd out
+            the summary itself. */}
         <div style={{ ...paneBase, padding: 20 }}>
           {!summary && !analyzing && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint }}>
@@ -4580,21 +5012,64 @@ function NotebookMode({ P, accent, at, close }) {
             </div>
           )}
           {analyzing && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint }}>
-              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600 }}>Reading the document…</div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink2 }}>Reading the document…</div>
+              <Skeleton P={P} accent={accent} />
             </div>
           )}
           {summary && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Notebook Summary</div>
-                {renderAnswer(summary.raw || "", [], P, accent, hoverCite, setHoverCite)}
-                {qaHistory.map((h, i) => (
-                  <div key={i} style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${P.line}` }}>
-                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
-                    {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Thinking…</div>}
-                  </div>
+              <div role="tablist" aria-label="Analysis section" style={{ display: "flex", gap: 4, marginBottom: 14, flexShrink: 0, overflowX: "auto" }}>
+                {NOTEBOOK_TABS.map(([key, label]) => (
+                  <button key={key} role="tab" aria-selected={rightTab === key} onClick={() => setRightTab(key)}
+                    style={{
+                      padding: "7px 12px", borderRadius: 100, border: `1px solid ${rightTab === key ? accent : P.line}`, cursor: "pointer",
+                      background: rightTab === key ? withAlpha(accent, 0.12) : "transparent", color: rightTab === key ? accent : P.ink2,
+                      fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-mono)", whiteSpace: "nowrap", flexShrink: 0,
+                    }}
+                  >{label}</button>
                 ))}
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
+                {rightTab !== "qa" && (() => {
+                  const tabDef = NOTEBOOK_TABS.find((t) => t[0] === rightTab);
+                  if (rightTab === "findings") {
+                    const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
+                    const hasLimitations = !!(summary.limitations && summary.limitations.trim());
+                    if (!hasFindings && !hasLimitations) {
+                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out Key Findings or Limitations as distinct sections — see Executive Summary for the full analysis.</div>;
+                    }
+                    return (
+                      <>
+                        {hasFindings && (<>
+                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Key Findings</div>
+                          {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
+                        </>)}
+                        {hasLimitations && (<>
+                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
+                          {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
+                        </>)}
+                      </>
+                    );
+                  }
+                  const field = tabDef && tabDef[2];
+                  const content = field && summary[field] && summary[field].trim();
+                  if (!content) {
+                    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? tabDef[1] : "section"} — see Executive Summary for the full analysis.</div>;
+                  }
+                  return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
+                })()}
+                {rightTab === "qa" && (
+                  <>
+                    {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Ask a question below and Cerebrum will answer strictly from this document's text.</div>}
+                    {qaHistory.map((h, i) => (
+                      <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
+                        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
+                        {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Thinking…</div>}
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
               <div style={{ display: "flex", gap: 8, paddingTop: 14, borderTop: `1px solid ${P.line}`, flexShrink: 0 }}>
                 <input
@@ -5141,7 +5616,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // padding keeps it from crowding the search pill immediately next to it.
     brandRow: { display: "flex", alignItems: "center", gap: 12, paddingRight: 8, cursor: "pointer" },
     brand: { fontWeight: 700, fontSize: FONT_SIZES.heading, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-display)" },
-    headActions: { display: "flex", alignItems: "center", gap: isMobile ? 3 : 7, paddingLeft: isMobile ? 4 : 10 },
+    // Nudged from 7 toward more breathing room, but not all the way to a flat
+    // 24px: the header now carries eight icon buttons (Document Mode joined
+    // this row too), and 24px of gap between each would push the row past
+    // brandRow's own width on anything narrower than a wide desktop window,
+    // wrapping or clipping the rightmost buttons. 10 keeps the "toolbar, not
+    // a squeeze" goal without reopening that overflow.
+    headActions: { display: "flex", alignItems: "center", gap: isMobile ? 3 : 10, paddingLeft: isMobile ? 4 : 10 },
     // v6.6: this whole pill — including the plain word "Search" — was set in
     // --cb-mono (a JetBrains-Mono-first stack), which reads as a dev-tool/
     // terminal typeface for what's actually the single most-used control in
@@ -5600,6 +6081,9 @@ function App() {
   const [inboxOpen, setInboxOpen] = useState(false);
   const [networkSearchOpen, setNetworkSearchOpen] = useState(false);
   const [notebookOpen, setNotebookOpen] = useState(false);
+  const [hubOpen, setHubOpen] = useState(false);
+  const [activeHubName, setActiveHubName] = useState("");
+  const [trendingOpen, setTrendingOpen] = useState(false);
   // Set by NetworkSearchModal's "Message" button right before it opens the
   // Inbox, so the Inbox lands on that conversation instead of whatever was
   // most recently active. InboxModal seeds its own activeId from this once,
@@ -5652,6 +6136,8 @@ function App() {
         name: profileRes.user.name || "",
         username: profileRes.user.username || "",
         affiliation: profileRes.user.affiliation || "",
+        degree: profileRes.user.degree || "",
+        grad_year: profileRes.user.grad_year || "",
         avatar_base64: profileRes.user.avatar_base64 || "",
       }));
       setProfileMeta({ followers: profileRes.followers || 0, badges: profileRes.badges || [] });
@@ -5883,7 +6369,18 @@ function App() {
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
   const P = PALETTES[paletteName] || PALETTES.Dark;
-  const accent = customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent) ? customAccent : (P.dark ? "#ffffff" : "#000000");
+  // "Mono" isn't a real color swatch — it means "match the current palette's
+  // own ink," which is why it's derived from P.dark rather than read out of
+  // ACCENTS. Any other named accent (Sage, or a future addition) is a real
+  // fixed hex and should render as itself regardless of palette darkness —
+  // this used to hardcode the Mono branch unconditionally, silently ignoring
+  // accentName for every non-Mono swatch (invisible while Mono was the only
+  // entry in ACCENTS; became a real bug the moment a second one was added).
+  const accent = (customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent))
+    ? customAccent
+    : accentName === "Mono"
+      ? (P.dark ? "#ffffff" : "#000000")
+      : (ACCENTS[accentName] || (P.dark ? "#ffffff" : "#000000"));
   const at = accentText(accent);
   // v6.4 perf: makeStyles() builds a large tree of inline-style objects —
   // previously rebuilt from scratch on every single render (every keystroke
@@ -6189,11 +6686,13 @@ function App() {
         name: profile.name || "",
         username: profile.username || "",
         affiliation: profile.affiliation || "",
+        degree: profile.degree || "",
+        grad_year: profile.grad_year || "",
       }).catch((e) => toast(e.message || "Couldn't save your profile changes.", { tone: "error" }));
     }, 900);
     return () => clearTimeout(profileSyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile.name, profile.username, profile.affiliation, user, syncReady]);
+  }, [profile.name, profile.username, profile.affiliation, profile.degree, profile.grad_year, user, syncReady]);
 
   // Collections CRUD — thin wrappers around /api/data's "collections"
   // actions, plus the local `saved` array update so the Collections modal
@@ -6491,6 +6990,7 @@ function App() {
             {!isMobile && (<button className="cb-hbtn" style={S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={13} /><span>Search</span><kbd style={S.kbd}>{kbdLabel("K")}</kbd></button>)}
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); newSession(); }} title="New investigation" aria-label="New investigation"><Icon name="plus" size={16} />{!isMobile && <span style={S.iconBtnLabel}>New</span>}</button>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setNotebookOpen(true); }} title="Document Mode — deep summarization and Q&A over one document" aria-label="Document Mode"><Icon name="bookOpen" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Document</span>}</button>
+            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setTrendingOpen(true); }} title="Trending in Science — a live preview digest, not a fact-checked feed" aria-label="Trending in Science"><Icon name="chart" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Trending</span>}</button>
             <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setHistoryOpen(true); }} title="Previous conversations" aria-label={`Previous conversations${history.length ? `, ${history.length}` : ""}`}><Icon name="history" size={16} />{!isMobile && <span style={S.iconBtnLabel}>History</span>}</button>
             <button className="cb-hbtn" style={{ ...S.iconBtn, ...(saved.length > 0 ? { color: accent } : {}) }} onClick={() => { sfx(); setSavedOpen(true); }} title={`Saved articles${saved.length ? ` (${saved.length})` : ""}`} aria-label={`Saved articles${saved.length ? `, ${saved.length}` : ""}`}><Icon name={saved.length > 0 ? "bookmarkFilled" : "bookmark"} size={16} />{!isMobile && <span style={S.iconBtnLabel}>Saved</span>}{saved.length > 0 && <span style={S.countPill}>{saved.length}</span>}</button>
             {user && !isMobile && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setCollectionsOpen(true); }} title="Collections" aria-label="Collections"><Icon name="folder" size={16} /><span style={S.iconBtnLabel}>Collections</span></button>)}
@@ -6711,6 +7211,7 @@ function App() {
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
       {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
+      {trendingOpen && <TrendingModal P={P} accent={accent} at={at} close={() => setTrendingOpen(false)} />}
       {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} threads={threads} setThreads={setThreads} initialThreadId={pendingThreadId} onConsumeInitialThread={() => setPendingThreadId(null)} />}
       {networkSearchOpen && (
         <NetworkSearchModal
@@ -6718,6 +7219,23 @@ function App() {
           close={() => setNetworkSearchOpen(false)}
           onMessage={(researcher, threadId) => {
             setNetworkSearchOpen(false);
+            setPendingThreadId(threadId);
+            setInboxOpen(true);
+          }}
+          onOpenHub={(name) => {
+            setNetworkSearchOpen(false);
+            setActiveHubName(name);
+            setHubOpen(true);
+          }}
+        />
+      )}
+      {hubOpen && (
+        <InstitutionModal
+          P={P} accent={accent} at={at}
+          close={() => setHubOpen(false)}
+          hubName={activeHubName}
+          onMessage={(researcher, threadId) => {
+            setHubOpen(false);
             setPendingThreadId(threadId);
             setInboxOpen(true);
           }}
@@ -6815,6 +7333,7 @@ summary::-webkit-details-marker { display: none; }
 @keyframes cbspin { to { transform: rotate(360deg); } }
 .cb-spin { animation: cbspin 0.9s linear infinite; display: inline-flex; }
 @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes cbHuddlePulse { 0%, 100% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 0.35; } }
 @keyframes cbpulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(255,255,255,0.1); } 50% { box-shadow: 0 0 0 8px rgba(255,255,255,0.2); } }
 
 /* v6.6: this used to drift via a continuous 34s transform animation. Given
@@ -7240,7 +7759,7 @@ html { scroll-behavior: smooth; }
   .cb-paper-ref { font-size: 9.5pt; line-height: 1.5; text-indent: -0.25in; padding-left: 0.25in; margin: 0 0 6pt; text-align: left; }
   .cb-paper-watermark {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
-    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.06) !important; z-index: 0;
+    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.1) !important; z-index: 0;
     white-space: nowrap; font-family: "Helvetica Neue", Arial, sans-serif; pointer-events: none;
   }
 }
