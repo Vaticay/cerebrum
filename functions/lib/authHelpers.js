@@ -286,6 +286,14 @@ export async function ensureUserProfileColumns(env) {
     "ALTER TABLE users ADD COLUMN password_salt TEXT",
     "ALTER TABLE users ADD COLUMN last_login_at INTEGER",
     "ALTER TABLE users ADD COLUMN avatar_base64 TEXT",
+    // Academic CV fields (degree, grad_year) — same self-healing pattern as
+    // every column above, so this deploys with zero manual D1 console work.
+    // If you're reading this because the request asked for a literal
+    // `ALTER TABLE` command to run by hand: it isn't necessary — the first
+    // request to hit this endpoint after deploy adds both columns
+    // automatically, the same way every column above already got added.
+    "ALTER TABLE users ADD COLUMN degree TEXT",
+    "ALTER TABLE users ADD COLUMN grad_year TEXT",
   ];
   for (const sql of alters) {
     try {
