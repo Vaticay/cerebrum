@@ -7427,7 +7427,17 @@ Respond naturally to the user's message. Be yourself.`;
     // failure being a mystery ("all N models failed") and being diagnosable
     // in one glance ("23 of 26 said HTTP 429: rate limit exceeded for
     // free-tier requests" — an ACCOUNT-level throttle, not a model problem).
-    const callOR = async (model, msgs, maxTok, timeoutMs = 12000) => {
+    //
+    // Commit 41: this used to time out at a flat 12s regardless of how much
+    // was being asked for. A medium-length answer (maxTokens 1800) or a long
+    // one (4200) against a free, shared, often CPU-bound model can easily run
+    // 15-25s once you count prefill on a several-thousand-token evidence
+    // block plus generation — on a busy moment that's every model in the wave
+    // hitting the same wall together, which looks identical to "everything is
+    // rate-limited" from the outside but is really just an unrealistic clock.
+    // Loosened to give real generation a fair chance before Promise.any gives
+    // up on the whole wave.
+    const callOR = async (model, msgs, maxTok, timeoutMs = 18000) => {
       if (!token) throw new Error(model + ": no OPENROUTER_KEY configured");
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), timeoutMs);
@@ -7457,7 +7467,7 @@ Respond naturally to the user's message. Be yourself.`;
       }
     };
 
-    const callCF = async (model, msgs, maxTok, timeoutMs = 12000) => {
+    const callCF = async (model, msgs, maxTok, timeoutMs = 18000) => {
       if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding (env.AI missing)");
       try {
         // callOR and pollinationsCall both bound their fetch to a 12s
@@ -7497,7 +7507,7 @@ Respond naturally to the user's message. Be yourself.`;
     // the same real `messages`/`maxTok` every other provider call gets.
     const pollinationsCall = async (modelParam, msgs, maxTok) => {
       const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 12000);
+      const t = setTimeout(() => c.abort(), 18000); // see Commit 41 note on callOR above
       const tag = "pollinations:" + modelParam;
       try {
         const pRes = await fetch("https://text.pollinations.ai/", {
@@ -7624,7 +7634,18 @@ Respond naturally to the user's message. Be yourself.`;
       "@cf/qwen/qwen1.5-14b-chat-awq",
       "@cf/microsoft/phi-2",
     ];
-    const POLLINATIONS_WAVE1 = ["openai"];
+    // Commit 41: wave 1 previously staked its entire non-OpenRouter,
+    // non-Workers-AI coverage on a SINGLE Pollinations model. Since OpenRouter's
+    // ":free" models all draw from one account-level rate-limit bucket (so
+    // "4 different model names" is really "1 shot, 4 labels" the moment that
+    // bucket is throttled), and Workers AI is only in the race at all if
+    // env.AI is actually bound in this Pages project's dashboard settings
+    // (unconfirmed — see the `workersAIBound` flag Wave 3 logs below), a wave
+    // that looks like "3 independent providers" can collapse to "OpenRouter
+    // (throttled) + one flaky public model" far more often than its size
+    // suggests. A second, independent Pollinations model costs nothing and
+    // gives wave 1 a real second chance outside the OpenRouter bucket.
+    const POLLINATIONS_WAVE1 = ["openai", "mistral"];
     const POLLINATIONS_WAVE2 = ["mistral", "llama", "qwen-coder"];
 
     const cfBound = !!(env.AI && typeof env.AI.run === "function");
@@ -7686,7 +7707,7 @@ Respond naturally to the user's message. Be yourself.`;
     //      minimal one (still wrapped in STRUCTURE, so the answer still
     //      comes out as the same four Markdown sections the frontend
     //      expects) — less to generate means less that can time out.
-    //   3. Gives it a longer runway (20s vs. the usual 12s) since this is
+    //   3. Gives it a longer runway (24s vs. the usual 18s) since this is
     //      the last attempt before the honest structured fallback below,
     //      and a single sequential OpenRouter call as a last try if Workers
     //      AI isn't bound or also comes back empty — in case the throttle
@@ -7731,7 +7752,7 @@ Respond naturally to the user's message. Be yourself.`;
         try {
           const winner = await Promise.any(
             ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"]
-              .map((m) => callCF(m, bulletproofMessages, bulletproofMaxTok, 20000))
+              .map((m) => callCF(m, bulletproofMessages, bulletproofMaxTok, 24000))
           );
           answer = winner.answer; aiOK = true;
           aiAttempts.push({ wave: 3, model: winner.model, ok: true, bulletproof: true });
@@ -7743,7 +7764,7 @@ Respond naturally to the user's message. Be yourself.`;
 
       if (!aiOK && token) {
         try {
-          const r = await callOR("meta-llama/llama-3.2-3b-instruct:free", bulletproofMessages, bulletproofMaxTok, 15000);
+          const r = await callOR("meta-llama/llama-3.2-3b-instruct:free", bulletproofMessages, bulletproofMaxTok, 18000);
           answer = r.answer; aiOK = true;
           aiAttempts.push({ wave: 3, model: r.model, ok: true, bulletproof: true });
           recordWin(r.model);
