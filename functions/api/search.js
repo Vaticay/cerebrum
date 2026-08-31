@@ -169,7 +169,15 @@ function versionedCacheKey(rawQuery) {
 const POLITE_UA =
   "Cerebrum/1.0 (askcerebrum.org; a free scientific literature search; mailto:contact@askcerebrum.org)";
 
-async function getJSON(url, headers = {}, timeoutMs = 6500, retries = 1) {
+// v37: default lowered from 6500ms — with `retries = 1`, a single slow
+// source could cost up to 2x this before giving up (one attempt, one
+// retry), and every rung in gatherPapers()'s ladder waits on the SLOWEST
+// source in that rung via Promise.allSettled. 4000ms still gives a normal
+// scholarly API response plenty of room; it just stops one sluggish source
+// from setting the pace for an entire rung. Call sites that already pass
+// their own explicit timeout (a few sources needed more headroom, tuned in
+// an earlier round) are untouched — this only changes the shared default.
+async function getJSON(url, headers = {}, timeoutMs = 4000, retries = 1) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), timeoutMs);
@@ -200,7 +208,7 @@ async function getJSON(url, headers = {}, timeoutMs = 6500, retries = 1) {
   }
 }
 
-async function getText(url, headers = {}, timeoutMs = 6500, retries = 1) {
+async function getText(url, headers = {}, timeoutMs = 4000, retries = 1) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), timeoutMs);
@@ -5548,7 +5556,7 @@ const MAX_QUERY_LEN = 2000;      // reject absurdly long queries (abuse / cost)
 const MAX_HISTORY_TURNS = 20;    // cap conversation history size
 
 export async function onRequest(context) {
-  const { request, env } = context;
+  const { request, env, waitUntil } = context;
 
   // Lock CORS to our own origins instead of the wildcard "*".
   const reqOrigin = request.headers.get("Origin") || "";
@@ -7604,6 +7612,17 @@ Respond naturally to the user's message. Be yourself.`;
     if (!aiOK) {
       aiAttempts.push({ diagnostics: { hasOpenRouterKey: !!token, workersAIBound: cfBound } });
       try { console.log("Cerebrum: ALL AI PROVIDERS FAILED", JSON.stringify(aiAttempts)); } catch {}
+      // Every wave above (including the "bulletproof" wave 3) failed, and
+      // nothing downstream ever sets `answer` in that case — it was left as
+      // the empty string it started as, so the response shipped a real
+      // bibliography with a blank space where the synthesis should be. The
+      // retrieval pipeline already did its job by this point (sourceList is
+      // populated independent of AI generation succeeding), so there's
+      // something real to hand back — just say so plainly instead of
+      // silently omitting the section entirely.
+      answer = sourceList.length > 0
+        ? "Cerebrum's AI synthesis didn't complete for this question, but the sources below were found and are ready to read directly."
+        : "Cerebrum's AI synthesis didn't complete for this question, and no sources were found either. Please try again in a moment.";
     }
 
     // ============ v6.0: ANSWER QUALITY ENGINE ============
@@ -7841,24 +7860,37 @@ Respond naturally to the user's message. Be yourself.`;
     // Only cache answers that have real sources — unsourced general-knowledge
     // answers are the ones most likely to contain errors.
     const answerId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    if (env.DB && sourceList.length > 0 && answer.length > 50) {
-      try {
-        await env.DB.prepare(
-          "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
-        ).bind(
-          cacheKey,
-          answerId,
-          answer,
-          JSON.stringify(sourceList.slice(0, 10)),
-          // Bug: this wrote an ISO-8601 string into a column declared
-          // INTEGER (see schema.sql), while paper_cache's write a few lines
-          // away correctly uses Date.now(). SQLite's flexible typing stored
-          // it silently, so it worked by luck (ISO strings happen to sort
-          // correctly against each other) but would sort wrong the moment
-          // any row got a genuine numeric timestamp. Match paper_cache.
-          Date.now()
-        ).run();
-      } catch {} // Cache write failure is not critical — don't block the response
+    // `&& aiOK` guard added alongside the !aiOK fallback message above —
+    // that message is real prose over 50 characters, and without this guard
+    // it would otherwise satisfy every condition here and get cached as if
+    // it were a genuine answer, serving "AI synthesis didn't complete" to
+    // every future repeat of this query even after providers recover.
+    if (env.DB && aiOK && sourceList.length > 0 && answer.length > 50) {
+      // v37: this was a plain `await` — meaning every single non-cached
+      // response paid for a full D1 round-trip AFTER the answer was already
+      // computed, purely to help future requests, before the current one
+      // could return. `waitUntil` (available on every Pages Function's
+      // context, same as a Worker's) tells the runtime to keep the isolate
+      // alive to finish this write in the background instead, while the
+      // response goes out immediately. A write failure still can't take the
+      // response down (own try/catch), it just no longer taxes the person
+      // who's waiting on THIS answer for the benefit of a future one.
+      const cacheWrite = env.DB.prepare(
+        "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
+      ).bind(
+        cacheKey,
+        answerId,
+        answer,
+        JSON.stringify(sourceList.slice(0, 10)),
+        // Bug: this wrote an ISO-8601 string into a column declared
+        // INTEGER (see schema.sql), while paper_cache's write a few lines
+        // away correctly uses Date.now(). SQLite's flexible typing stored
+        // it silently, so it worked by luck (ISO strings happen to sort
+        // correctly against each other) but would sort wrong the moment
+        // any row got a genuine numeric timestamp. Match paper_cache.
+        Date.now()
+      ).run().catch(() => {}); // Cache write failure is not critical — don't block the response
+      if (typeof waitUntil === "function") waitUntil(cacheWrite); else await cacheWrite;
     }
 
     // ════════════════════════════════════════════════════════════════
