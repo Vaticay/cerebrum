@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import gsap from "gsap";
 
 /* ════════════════════════════════════════════════════════════════
@@ -650,6 +651,13 @@ function Icon({ name, size = 17, className, style }) {
     case "badge": return <svg {...common}><circle cx="12" cy="9" r="5.5" /><path d="M8.5 13.5L7 21l5-2.6L17 21l-1.5-7.5" /></svg>;
     case "send": return <svg {...common}><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>;
     case "flag": return <svg {...common}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></svg>;
+    // Commit 48: standard "no entry" glyph (circle + diagonal bar) for
+    // Block/Unblock controls — same off-slash language this file already
+    // uses for micOff/cameraOff, applied to a plain circle instead of a
+    // base glyph since "block" has no unblocked counterpart to slash.
+    case "block": return <svg {...common}><circle cx="12" cy="12" r="9" /><line x1="5.5" y1="5.5" x2="18.5" y2="18.5" /></svg>;
+    // Overflow "more actions" trigger — three dots, standard convention.
+    case "moreVertical": return <svg {...common} fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>;
     case "award": return <svg {...common}><circle cx="12" cy="8" r="6" /><path d="M15.5 12.9L17 22l-5-3-5 3 1.5-9.1" /></svg>;
     case "bookOpen": return <svg {...common}><path d="M12 7v14" /><path d="M3 18a1 1 0 01-1-1V4a1 1 0 011-1h5a4 4 0 014 4 4 4 0 014-4h5a1 1 0 011 1v13a1 1 0 01-1 1h-6a3 3 0 00-3 3 3 3 0 00-3-3z" /></svg>;
     case "zap": return <svg {...common}><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" /></svg>;
@@ -2780,8 +2788,26 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
           base ".cb-print-paper-doc { display: none }" rule) and only ever
           mounted once this specific Turn's "Generate paper" button has
           fired (see paperReady above), so it's never the wrong turn's
-          content that a multi-turn conversation's print stylesheet finds. */}
-      {paperReady && (
+          content that a multi-turn conversation's print stylesheet finds.
+
+          Rendered through a portal straight onto <body>, NOT in place here.
+          It used to render right where this comment sits — several flex/grid
+          levels deep inside the app shell — and get lifted out visually with
+          position:absolute/fixed plus a "make everything else invisibility:
+          hidden" trick. That out-of-flow overlay approach is what caused the
+          real bug: Chromium's print-to-PDF pagination computes an
+          out-of-flow box's per-page available width completely wrong once
+          its content spans more than one printed page (title/abstract
+          wrapping one word per line), and it never contributes to the
+          document's flowed height, so the page count printed was whatever
+          the (still-in-flow-but-hidden) chat happened to be, not the paper's
+          real length — hence trailing blank pages too. A portal makes this
+          node a plain static, in-flow, first-class page of its own with
+          body as its only ancestor, so Chromium's ordinary (well-exercised)
+          multi-page article pagination lays it out the same way it would
+          any other printable page — see the plain ".cb-print-paper-doc"
+          rules in the @media print block below. */}
+      {paperReady && document.body && createPortal(
         <div className="cb-print-paper-doc" aria-hidden="true">
           <div className="cb-paper-watermark">Cerebrum™</div>
           <div className="cb-paper-page">
@@ -2818,7 +2844,8 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
               </>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -4310,6 +4337,11 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
   const [minimized, setMinimized] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
   const [dataSaver, setDataSaver] = useState(false);
+  // Commit 48: report this call — kind: "call" against content_reports,
+  // scoped by thread_id (roomSeed IS the DM's thread id, see onStartHuddle
+  // in InboxView) rather than a specific user, since a call has no single
+  // message to point at the way the Inbox's per-message report does.
+  const [reportOpen, setReportOpen] = useState(false);
   const roomName = useMemo(
     () => `cerebrum-huddle-${hashSeed(String(roomSeed != null ? roomSeed : (name || "room"))).toString(36)}`,
     [roomSeed, name]
@@ -4524,12 +4556,25 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
           {!isMobile && controlBtn(screenSharing, toggleScreenShare, "screenShare", "screenShare", screenSharing ? "Stop sharing screen" : "Share screen")}
           {controlBtn(tileView, toggleView, "grid", "grid", "Switch view")}
           {controlBtn(dataSaver, toggleDataSaver, "zap", "zap", dataSaver ? "Turn off data saver" : "Turn on data saver (lower video quality)")}
+          <button onClick={() => setReportOpen(true)} aria-label="Report this call" title="Report this call" style={{
+            width: 48, height: 48, borderRadius: "50%", border: "none", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(255,255,255,0.14)", color: "#fff",
+          }}>
+            <Icon name="flag" size={18} />
+          </button>
           <button onClick={endCall} aria-label="End call" title="End call" style={{ width: 54, height: 48, borderRadius: 100, border: "none", cursor: "pointer", background: STATUS.bad, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="phoneOff" size={20} />
           </button>
         </div>
       )}
       </>)}
+      {reportOpen && (
+        <ReportConductModal
+          P={P} accent={accent} at={at} kind="call" targetLabel={name}
+          threadId={roomSeed} onClose={() => setReportOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -4552,6 +4597,109 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
 // transient overlay. Mobile gets a real two-step flow (conversation list,
 // then the open thread with a back button) instead of squeezing both
 // panes into one narrow column the modal never had to solve for.
+// Commit 48 — one report dialog for all three conduct-report surfaces
+// (a person, from the Inbox thread header; a single message, from its hover
+// actions; a call, from the Video Huddle controls) instead of three near-
+// identical modals, same "one table + a kind discriminator" reasoning as
+// content_reports itself in schema.sql. Posts straight to file-report in
+// functions/api/data.js — see the comment there for validation/scoping.
+const REPORT_REASONS = [
+  { id: "harassment", label: "Harassment or abuse" },
+  { id: "spam", label: "Spam or scam" },
+  { id: "inappropriate", label: "Inappropriate content" },
+  { id: "impersonation", label: "Impersonation" },
+  { id: "other", label: "Other" },
+];
+
+function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, reportedUserId, messageId, onClose }) {
+  const [reason, setReason] = useState("harassment");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const trapRef = useRef(null);
+
+  useEffect(() => { if (trapRef.current) trapRef.current.focus(); }, []);
+
+  const title = kind === "message" ? "Report message" : kind === "call" ? "Report this call" : `Report ${targetLabel || "this person"}`;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await apiDataAction("file-report", {
+        kind, reason, note: note.trim(),
+        reported_user_id: reportedUserId || null,
+        thread_id: threadId || null,
+        message_id: messageId || null,
+      });
+      setSubmitted(true);
+      setTimeout(() => onClose(), 1600);
+    } catch (err) {
+      toast(err.message || "Couldn't send that report.", { tone: "error" });
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} role="dialog" aria-modal="true" aria-label={title} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 310, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 3, maxWidth: 420, width: "100%", padding: "26px", outline: "none",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
+      }} className="cb-modal">
+        {submitted ? (
+          <div style={{ textAlign: "center", padding: "16px 0" }}>
+            <div style={{ width: 40, height: 40, borderRadius: "50%", background: withAlpha(STATUS.good, 0.12), color: STATUS.good, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+              <Icon name="check" size={18} />
+            </div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Report received</div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 6 }}>Thanks for flagging this.</div>
+          </div>
+        ) : (
+          <form onSubmit={submit}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>{title}</div>
+              <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 8 }}>Reason</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {REPORT_REASONS.map((r) => (
+                  <button key={r.id} type="button" onClick={() => setReason(r.id)} style={{
+                    fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 3, cursor: "pointer",
+                    fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.15s ease",
+                    background: reason === r.id ? withAlpha(accent, 0.16) : "transparent",
+                    color: reason === r.id ? accent : P.ink2,
+                    border: `1px solid ${reason === r.id ? withAlpha(accent, 0.3) : P.line}`,
+                  }}>{r.label}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Anything else? (optional)</div>
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Add context for the review team" style={{
+                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 3,
+                border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
+                color: P.ink, fontFamily: "var(--cb-body)", resize: "vertical", outline: "none",
+              }} />
+            </div>
+            <button type="submit" disabled={submitting} style={{
+              width: "100%", padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600,
+              background: accent, color: at, border: "none", borderRadius: 3,
+              cursor: submitting ? "default" : "pointer",
+              opacity: submitting ? 0.6 : 1,
+              fontFamily: "var(--cb-body)",
+            }}>{submitting ? "Sending…" : "Submit report"}</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThreadId, onConsumeInitialThread, onStartHuddle, activeHuddleRoomSeed, onCompose }) {
   const [activeId, setActiveId] = useState(null);
   const [activeThread, setActiveThread] = useState(null);
@@ -4563,6 +4711,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // person at most (same reasoning as the inbox N+1 query comment below),
   // so filtering client-side is both simpler and instant.
   const [threadQuery, setThreadQuery] = useState("");
+  // Commit 48: block/report — a small overflow menu on the open thread's
+  // header (Block/Unblock, Report this person), plus per-message hover
+  // report actions. `reportModal` carries the target: { kind, messageId? } —
+  // `kind: "user"` reports activeThread.otherId, `kind: "message"` also
+  // carries which message.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [reportModal, setReportModal] = useState(null);
+  const [hoverMsgId, setHoverMsgId] = useState(null);
 
   // Refreshed every time this view mounts (navigating here from the
   // Sidebar), in case something arrived since the last visit.
@@ -4624,6 +4781,26 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }
   };
 
+  // Commit 48: flips the block for activeThread.otherId and mirrors the
+  // result into both activeThread (so the composer/Huddle gate below reacts
+  // immediately) and the thread list (so re-opening this conversation from
+  // the sidebar doesn't need a fresh fetch to know it's blocked).
+  const toggleBlock = async () => {
+    if (!activeThread?.otherId || blockBusy) return;
+    setBlockBusy(true);
+    setMenuOpen(false);
+    try {
+      const res = await apiDataAction("toggle-block", { target_id: activeThread.otherId });
+      setActiveThread((t) => (t ? { ...t, blocked: res.blocked } : t));
+      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, blocked: res.blocked } : t)));
+      toast(res.blocked ? "Blocked. They can no longer message or call you." : "Unblocked.");
+    } catch (e) {
+      toast(e.message || "Couldn't update that block.", { tone: "error" });
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
   const subtitle = activeThread
     ? (activeThread.kind === "group"
       ? `${activeThread.memberCount} member${activeThread.memberCount === 1 ? "" : "s"}`
@@ -4640,6 +4817,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     : threads;
 
   return (
+    <>
     <div style={{ height: "100%", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
       {showList && (
         <div style={{ width: isMobile ? "100%" : 300, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`, display: "flex", flexDirection: "column", height: "100%" }}>
@@ -4718,60 +4896,131 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{subtitle}</div>}
                 </div>
               </div>
-              <button
-                onClick={() => onStartHuddle(activeThread.name, activeId)}
-                aria-label={activeHuddleRoomSeed === activeId ? "Return to video huddle" : "Start video huddle"}
-                title={activeHuddleRoomSeed === activeId ? "Return to call" : "Video Huddle"}
-                style={{ background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: 8, color: accent, cursor: "pointer", padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)", flexShrink: 0 }}
-              >
-                <Icon name="camera" size={16} /> {!isMobile && (activeHuddleRoomSeed === activeId ? "In call" : "Huddle")}
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <button
+                  onClick={() => { if (!activeThread.blocked) onStartHuddle(activeThread.name, activeId); }}
+                  disabled={activeThread.blocked}
+                  aria-label={activeThread.blocked ? "You've blocked this person — huddle unavailable" : activeHuddleRoomSeed === activeId ? "Return to video huddle" : "Start video huddle"}
+                  title={activeThread.blocked ? "You've blocked this person" : activeHuddleRoomSeed === activeId ? "Return to call" : "Video Huddle"}
+                  style={{
+                    background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: 8, color: accent,
+                    cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
+                    padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)", flexShrink: 0,
+                  }}
+                >
+                  <Icon name="camera" size={16} /> {!isMobile && (activeHuddleRoomSeed === activeId ? "In call" : "Huddle")}
+                </button>
+                {/* Commit 48: block/report menu — DM-only (see user_blocks'
+                    scope note in schema.sql: groups have no membership-
+                    removal flow to pair blocking with yet), and only once
+                    the thread fetch has actually resolved who "the other
+                    person" is. */}
+                {activeThread.kind === "dm" && activeThread.otherId && (
+                  <div style={{ position: "relative" }}>
+                    <button onClick={() => setMenuOpen((v) => !v)} aria-label="Conversation options" aria-haspopup="true" aria-expanded={menuOpen} style={{ width: 34, height: 34, borderRadius: 8, border: "none", background: menuOpen ? withAlpha(accent, 0.12) : "transparent", color: P.ink2, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="moreVertical" size={17} />
+                    </button>
+                    {menuOpen && (<>
+                      <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 30 }} />
+                      <div style={{
+                        position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 31, minWidth: 200,
+                        background: P.dark ? "rgba(22,24,34,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
+                        boxShadow: "0 12px 32px rgba(0,0,0,0.22)", padding: 6, display: "flex", flexDirection: "column",
+                      }}>
+                        <button onClick={toggleBlock} disabled={blockBusy} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 6, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
+                          <Icon name="block" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
+                        </button>
+                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 6, border: "none", background: "transparent", color: STATUS.bad, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                          <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
+                        </button>
+                      </div>
+                    </>)}
+                  </div>
+                )}
+              </div>
             </div>
+            {activeThread.blocked && (
+              <div style={{ padding: "10px 24px", background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8 }}>
+                <Icon name="block" size={14} style={{ color: STATUS.bad, flexShrink: 0 }} />
+                You've blocked {activeThread.name}. Neither of you can message or huddle here until you unblock.
+              </div>
+            )}
             <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
               {activeThread.messages.length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet — say hello.</div>
               )}
-              {activeThread.messages.map((m, i) => (
-                <div key={m.id || i} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}>
+              {activeThread.messages.map((m, i) => {
+                const key = m.id || i;
+                return (
+                <div key={key} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
+                  onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
+                >
                   {!m.mine && activeThread.kind === "group" && m.who && (
                     <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, marginBottom: 3, marginLeft: 4 }}>{m.who}</div>
                   )}
-                  {m.text && (
-                    <div style={{
-                      padding: "12px 16px", fontSize: FONT_SIZES.small, lineHeight: 1.6,
-                      borderRadius: m.mine ? "16px 16px 2px 16px" : "16px 16px 16px 2px",
-                      color: m.mine ? at : P.ink,
-                      background: m.mine ? accent : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
-                      border: m.mine ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
-                    }}>{m.text}</div>
-                  )}
-                  {m.attachmentTitle && (
-                    <div style={{
-                      marginTop: 8, padding: "10px 14px", borderRadius: 8, display: "flex", alignItems: "center", gap: 10,
-                      background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.2)}`,
-                    }}>
-                      <Icon name="external" size={15} style={{ color: accent, flexShrink: 0 }} />
-                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>Attached: {m.attachmentTitle}</span>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
+                    <div style={{ minWidth: 0 }}>
+                      {m.text && (
+                        <div style={{
+                          padding: "12px 16px", fontSize: FONT_SIZES.small, lineHeight: 1.6,
+                          borderRadius: m.mine ? "16px 16px 2px 16px" : "16px 16px 16px 2px",
+                          color: m.mine ? at : P.ink,
+                          background: m.mine ? accent : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
+                          border: m.mine ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
+                        }}>{m.text}</div>
+                      )}
+                      {m.attachmentTitle && (
+                        <div style={{
+                          marginTop: 8, padding: "10px 14px", borderRadius: 8, display: "flex", alignItems: "center", gap: 10,
+                          background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.2)}`,
+                        }}>
+                          <Icon name="external" size={15} style={{ color: accent, flexShrink: 0 }} />
+                          <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>Attached: {m.attachmentTitle}</span>
+                        </div>
+                      )}
                     </div>
-                  )}
+                    {/* Commit 48: per-message report — someone else's message
+                        only (m.id is always set for a real row; the || i
+                        fallback key above never has one), faded in on hover
+                        rather than a permanent extra icon on every bubble. */}
+                    {!m.mine && m.id && (
+                      <button
+                        onClick={() => setReportModal({ kind: "message", messageId: m.id })}
+                        aria-label="Report this message" title="Report this message"
+                        style={{
+                          opacity: hoverMsgId === key ? 1 : 0, transition: "opacity 0.15s ease",
+                          background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, flexShrink: 0,
+                        }}
+                      >
+                        <Icon name="flag" size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <div style={{ padding: "14px 24px 18px", borderTop: `1px solid ${P.line}` }}>
-              <div style={{ display: "flex", gap: 10 }}>
-                <input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder={`Message ${activeThread.name}…`}
-                  aria-label="Reply"
-                  disabled={sending}
-                  style={{ flex: 1, padding: "10px 14px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small }}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } }}
-                />
-                <button onClick={sendMessage} disabled={!draft.trim() || sending} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() && !sending ? "pointer" : "default", opacity: draft.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Icon name="send" size={16} />
-                </button>
-              </div>
+              {activeThread.blocked ? (
+                <div style={{ textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, padding: "8px 0" }}>
+                  You've blocked {activeThread.name} — unblock above to send a message.
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 10 }}>
+                  <input
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder={`Message ${activeThread.name}…`}
+                    aria-label="Reply"
+                    disabled={sending}
+                    style={{ flex: 1, padding: "10px 14px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } }}
+                  />
+                  <button onClick={sendMessage} disabled={!draft.trim() || sending} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() && !sending ? "pointer" : "default", opacity: draft.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Icon name="send" size={16} />
+                  </button>
+                </div>
+              )}
             </div>
           </>) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small, textAlign: "center", padding: 24 }}>
@@ -4781,6 +5030,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         </div>
       )}
     </div>
+    {reportModal && activeThread && (
+      <ReportConductModal
+        P={P} accent={accent} at={at}
+        kind={reportModal.kind}
+        targetLabel={activeThread.name}
+        threadId={activeId}
+        reportedUserId={activeThread.otherId}
+        messageId={reportModal.messageId}
+        onClose={() => setReportModal(null)}
+      />
+    )}
+    </>
   );
 }
 
@@ -8986,23 +9247,33 @@ html { scroll-behavior: smooth; }
    (this rule applies outside @media print too, so the node sitting in the
    DOM never affects normal layout); the @media print block below overrides
    it back to visible ONLY while body carries .cb-printing-paper, which
-   Turn's paperReady effect adds for exactly the duration of window.print(). */
+   Turn's paperReady effect adds for exactly the duration of window.print().
+
+   v6: this used to render deep inside the app tree and get lifted out with
+   position:absolute + "visibility:hidden everything else" + a huge z-index,
+   so it could visually overlay the (still in-flow) app underneath. That
+   out-of-flow trick is what caused two real, user-visible bugs, confirmed
+   by comparing a plain print-media style inspection (correct 7in width)
+   against an actual paginated page.pdf() export (word-per-line columns):
+   Chromium's print pagination computes an out-of-flow box's available
+   width per page fragment wrong once its content spans more than one
+   printed page, and an out-of-flow box never contributes to the document's
+   flowed height, so the exported page count tracked the hidden chat
+   underneath instead of the paper's real length (hence trailing blank
+   pages too). Fixed at the root: the JSX now renders this node through a
+   portal onto <body> (see Turn's return), so here it's a plain static,
+   in-flow block with body as its only ancestor — ordinary multi-page
+   article pagination, the kind every printable web page already relies
+   on, lays it out correctly. */
 .cb-print-paper-doc { display: none; }
 @media print {
-  body.cb-printing-paper * { visibility: hidden !important; }
-  /* Belt-and-suspenders alongside the keyframe fix above: any lingering
-     filter or transform on an ancestor (an entrance animation's finished
-     state, a hover transform a mouse handler forgot to clear, etc.) makes
-     that ancestor a containing block for the print doc's own fixed/absolute
-     boxes, so the exported page sizes and centers itself against that
-     ancestor's box instead of the printed page. Stripping both for every
-     (invisible) element for the duration of the print closes that off
-     entirely rather than relying on having found every source of it. */
-  body.cb-printing-paper * { filter: none !important; transform: none !important; }
-  body.cb-printing-paper .cb-print-paper-doc,
-  body.cb-printing-paper .cb-print-paper-doc * { visibility: visible !important; }
+  /* The portal makes .cb-print-paper-doc a direct sibling of #root, so
+     hiding #root (rather than "every element, then unhide one subtree")
+     is both simpler and correct: nothing under #root can be this node's
+     containing block or bleed a stray width/position into it anymore. */
+  body.cb-printing-paper #root { display: none !important; }
   body.cb-printing-paper .cb-print-paper-doc {
-    display: block !important; position: absolute; left: 0; top: 0; width: 100%; background: #fff !important; z-index: 999999;
+    display: block !important; background: #fff !important;
   }
   .cb-paper-page {
     position: relative; z-index: 1; max-width: 7in; margin: 0 auto; padding: 0.6in 0 1in;
@@ -9014,9 +9285,18 @@ html { scroll-behavior: smooth; }
   .cb-paper-heading { font-size: 12pt; font-weight: 700; margin: 16pt 0 6pt; }
   .cb-paper-para { font-size: 11pt; line-height: 1.7; text-align: justify; text-indent: 0.3in; margin: 0 0 10pt; }
   .cb-paper-ref { font-size: 9.5pt; line-height: 1.5; text-indent: -0.25in; padding-left: 0.25in; margin: 0 0 6pt; text-align: left; }
+  /* z-index: 2 — deliberately ABOVE .cb-paper-page's z-index:1. This node
+     repeats correctly on every printed page via position:fixed (verified);
+     what was actually hiding it on any page after the first was paint
+     order, not positioning: .cb-paper-page picks up an opaque white
+     background from the "body, div { background: white }" print rule
+     above, and with a higher z-index than the watermark it simply painted
+     over it on every page whose content filled the full page (a short,
+     single-page paper left blank space below the text for the watermark
+     to show through undisturbed, which is why this was so easy to miss). */
   .cb-paper-watermark {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
-    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.1) !important; z-index: 0;
+    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.1) !important; z-index: 2;
     white-space: nowrap; font-family: "Helvetica Neue", Arial, sans-serif; pointer-events: none;
   }
 }
