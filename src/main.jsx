@@ -436,27 +436,22 @@ const Audio = (() => {
    ════════════════════════════════════════════════════════════════ */
 
 const PALETTES = {
-  // Lifted off pure black per explicit direction (Strike 5): near-black
-  // surfaces with stark white text read as "cyberpunk terminal," not
-  // "premium research software." These now sit at the lightness real
-  // dark-mode design systems ship at — Apple's own system dark surfaces,
-  // Linear, Notion — dark enough to still be a dark theme, light enough
-  // that panel edges, borders, and secondary text don't crush together
-  // into a single black mass.
-  // v39: both Dark and Light were tuned in isolation from each other —
-  // Dark a neutral charcoal, Light a cool blue-white ("#f8f9fc"/"#0f172a"
-  // navy ink) — which reads fine as two separate palettes but clashes the
-  // moment either one sits behind/beside LivingBackground's warm-toned
-  // ambient wash: a cold, clinical-admin-panel foreground next to an
-  // organic, painterly background is exactly the "two different design
-  // systems glued together" impression that reads as unpolished rather
-  // than considered. Nudged Dark a touch lighter (it was tuned off pure
-  // black once already; this is a smaller second pass, not a reversal) and
-  // softened its ink off pure neutral white; rebuilt Light on a warm paper
-  // base instead of blue-white, matching the same undertone Sage already
-  // uses. Not merged into Sage's own hue — Sage stays the more saturated
-  // olive/linen option; these two are the calmer neutral pair.
-  Dark:  { dark: true,  bg: "#201f1d", surface: "#2b2a27", raised: "#38362f", ink: "#e6e3de", ink2: "#a19d96", faint: "#95918b", line: "rgba(230,227,222,0.09)", line2: "rgba(230,227,222,0.15)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2b2a27 25%, #38362f 50%, #2b2a27 75%)" },
+  // Commit 46: REVERSED the "lift off pure black" direction from the two
+  // rounds above, for Dark and Sage specifically — explicit follow-up
+  // request for "razor-sharp, readable contrast" after the warm-charcoal
+  // versions still read as low-contrast / muddy in practice, on top of
+  // being the direct cause of the Commit 45 fog bug (a scrim tinted from
+  // an accidentally-light `bg`). Back to a true near-black surface with
+  // pure/near-pure white ink — Mid and Light are unaffected, this was
+  // reported against Dark and Sage specifically.
+  //
+  // Older reasoning, kept for context now that it's been reversed: this
+  // used to be lifted off pure black per explicit direction (Strike 5) on
+  // the theory that near-black surfaces with stark white text read as
+  // "cyberpunk terminal" rather than "premium research software," tuned to
+  // sit at the lightness Apple/Linear/Notion's own dark surfaces use. That
+  // reasoning didn't survive contact with actual use — hence this reversal.
+  Dark:  { dark: true,  bg: "#09090b", surface: "#131316", raised: "#1c1c21", ink: "#ffffff", ink2: "#d4d4d8", faint: "#a1a1aa", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.15)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #131316 25%, #1c1c21 50%, #131316 75%)" },
   // Slate: a cooler, blue-leaning dark surface (the Discord/Linear
   // register) for anyone who wants dark without Dark's neutral-grey cast —
   // kept deliberately cool rather than folded into the warm pair above, so
@@ -465,12 +460,15 @@ const PALETTES = {
   Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#9a9ca2", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
   Light: { dark: false, bg: "#f5f4f1", surface: "#fbfaf8", raised: "#ffffff", ink: "#29261f", ink2: "#5a5548", faint: "#736e62", line: "rgba(41,38,31,0.07)", line2: "rgba(41,38,31,0.12)", shadow: "0 1px 2px rgba(41,38,31,0.05), 0 6px 18px rgba(41,38,31,0.07)", shadowSm: "0 1px 2px rgba(41,38,31,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #efeeea 25%, #f6f5f2 50%, #efeeea 75%)" },
   // Sage — "Modern Organic," and now the default palette a fresh browser
-  // lands on (see App()'s paletteName useState below): warm stone instead
-  // of neutral charcoal, linen instead of stark white, paired by default
-  // with the muted sage-green accent (ACCENTS.Sage) instead of a neon hue.
-  // Also lifted off its earlier near-black #121315 for the same reason as
-  // Dark/Mid above.
-  Sage:  { dark: true, bg: "#242420", surface: "#2e2e29", raised: "#3a3a33", ink: "#f0ead9", ink2: "#b8b2a0", faint: "#9d9786", line: "rgba(240,234,217,0.10)", line2: "rgba(240,234,217,0.16)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #2e2e29 25%, #3a3a33 50%, #2e2e29 75%)" },
+  // lands on (see App()'s paletteName useState below): near-black stone
+  // instead of neutral charcoal, paired by default with the muted
+  // sage-green accent (ACCENTS.Sage) instead of a neon hue.
+  // Commit 46: lifted back toward near-black alongside Dark, same
+  // "razor-sharp contrast" request and same fog-bug root cause — see the
+  // comment on Dark above. `ink`/`line` keep Sage's own warm-green
+  // undertone rather than going fully neutral, so it stays visibly a
+  // different palette from Dark, not a re-skinned duplicate.
+  Sage:  { dark: true, bg: "#0d0f0e", surface: "#151816", raised: "#1e221f", ink: "#f4f7f4", ink2: "#cbd5cd", faint: "#94a397", line: "rgba(139,168,136,0.12)", line2: "rgba(139,168,136,0.2)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #151816 25%, #1e221f 50%, #151816 75%)" },
 };
 // Cyberpunk-leaning neon set — the two hues the blueprint calls out by name
 // (Matrix Green, Cyberpunk Cyan) moved to the front and pushed slightly
@@ -656,6 +654,19 @@ function Icon({ name, size = 17, className, style }) {
     case "bookOpen": return <svg {...common}><path d="M12 7v14" /><path d="M3 18a1 1 0 01-1-1V4a1 1 0 011-1h5a4 4 0 014 4 4 4 0 014-4h5a1 1 0 011 1v13a1 1 0 01-1 1h-6a3 3 0 00-3 3 3 3 0 00-3-3z" /></svg>;
     case "zap": return <svg {...common}><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" /></svg>;
     case "camera": return <svg {...common}><path d="M4 8.5A1.5 1.5 0 015.5 7h2.2l1-1.6A1.5 1.5 0 0110 4.7h4a1.5 1.5 0 011.3.7l1 1.6h2.2A1.5 1.5 0 0120 8.5v10A1.5 1.5 0 0118.5 20h-13A1.5 1.5 0 014 18.5z" /><circle cx="12" cy="13" r="3.6" /></svg>;
+    // Commit 46: added for VideoHuddle's FaceTime-style control island —
+    // "off" variants follow this file's existing convention (see volumeOff
+    // above) of the base glyph plus a diagonal slash, rather than a wholly
+    // different symbol, so mic/camera on-vs-off reads as one pair at a
+    // glance instead of two unrelated icons.
+    case "micOff": return <svg {...common}><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" /><path d="M5 12a7 7 0 0014 0M12 19v3" /><path d="M3 3l18 18" /></svg>;
+    case "cameraOff": return <svg {...common}><path d="M4 8.5A1.5 1.5 0 015.5 7h2.2l1-1.6A1.5 1.5 0 0110 4.7h4a1.5 1.5 0 011.3.7l1 1.6h2.2A1.5 1.5 0 0120 8.5v10A1.5 1.5 0 0118.5 20h-13A1.5 1.5 0 014 18.5z" /><circle cx="12" cy="13" r="3.6" /><path d="M3 3l18 18" /></svg>;
+    // Tile/grid view toggle for the huddle's "switch view" control.
+    case "grid": return <svg {...common}><rect x="3" y="3" width="8" height="8" rx="1.5" /><rect x="13" y="3" width="8" height="8" rx="1.5" /><rect x="3" y="13" width="8" height="8" rx="1.5" /><rect x="13" y="13" width="8" height="8" rx="1.5" /></svg>;
+    // End-call glyph: the standard rotated-handset silhouette (same shape
+    // most icon sets use for "phone"), plus the same off-slash convention
+    // as micOff/cameraOff above, for the red End Call button.
+    case "phoneOff": return <svg {...common}><path d="M22 16.9v3a2 2 0 01-2.18 2 19.8 19.8 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.34 1.85.57 2.81.7a2 2 0 011.72 2.03z" /><path d="M2 2l20 20" /></svg>;
     default: return null;
   }
 }
@@ -4246,13 +4257,40 @@ function loadJitsiScript() {
 // room, and no other conversation collides into it. meet.jit.si rooms have
 // no access control of their own beyond the room name being unguessable, the
 // same trust model as sharing any meet.jit.si/xyz link.
-function VideoHuddle({ P, accent, at, name, roomSeed, onClose }) {
+//
+// Commit 46: rebuilt as a dedicated full-screen overlay (FaceTime-style)
+// instead of an inline panel confined to the Inbox's right pane. Three
+// pieces, each a real implementation rather than a decorative shell:
+// - Main stage: the same Jitsi iframe as before, now sized off the
+//   viewport (`position: fixed`, inset-based) instead of a nested flex
+//   column, so it can't collapse to 0 height the way an ancestor flex box
+//   theoretically could — the specific "cropped/blacked out" failure mode
+//   this round asked to rule out.
+// - Self-view PiP: a genuinely separate local camera preview via this
+//   component's own `getUserMedia` call — not a restyle of anything
+//   inside Jitsi's iframe, which is cross-origin content this app has no
+//   DOM/CSS access into. Real cost of that honesty: the browser's camera
+//   permission prompt can fire twice (once for this preview, once inside
+//   Jitsi's iframe for the actual call).
+// - Floating control island: real buttons wired to Jitsi's IFrame API
+//   (`executeCommand`), not decorative — mic/camera reflect and drive
+//   Jitsi's own mute state via its change events, "switch view" toggles
+//   Jitsi's tile/speaker view, and the red button hangs up the Jitsi call
+//   and closes this overlay together. Jitsi's own built-in toolbar is
+//   hidden (`toolbarButtons: []`) so there's one set of call controls on
+//   screen, not two competing for the same space.
+function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
   const containerRef = useRef(null);
+  const selfVideoRef = useRef(null);
   const apiRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const [status, setStatus] = useState("loading"); // loading | ready | error
   const [retryTick, setRetryTick] = useState(0);
+  const [micMuted, setMicMuted] = useState(false);
+  const [camMuted, setCamMuted] = useState(false);
+  const [tileView, setTileView] = useState(false);
+  const [selfPreviewError, setSelfPreviewError] = useState(false);
   const roomName = useMemo(
     () => `cerebrum-huddle-${hashSeed(String(roomSeed != null ? roomSeed : (name || "room"))).toString(36)}`,
     [roomSeed, name]
@@ -4263,12 +4301,10 @@ function VideoHuddle({ P, accent, at, name, roomSeed, onClose }) {
     setStatus("loading");
     loadJitsiScript().then(() => {
       if (cancelled || !containerRef.current) return;
-      // The public embed has no notion of this app's warm-stone palette —
-      // only a background color for the pre-video/connecting state actually
-      // takes without fighting the rest of Jitsi's own chrome, so that's all
-      // that's set here, matching Dark vs. light palettes rather than
-      // introducing color of our own.
-      const bg = P.dark ? "#12141c" : "#f2efe9";
+      // The call screen is always dark chrome regardless of the app's own
+      // light/dark palette — same convention FaceTime/Zoom/Meet all use,
+      // a call surface doesn't follow the host app's theme.
+      const bg = "#0b0b0d";
       const api = new window.JitsiMeetExternalAPI("meet.jit.si", {
         roomName,
         parentNode: containerRef.current,
@@ -4279,6 +4315,7 @@ function VideoHuddle({ P, accent, at, name, roomSeed, onClose }) {
           prejoinPageEnabled: true,
           disableDeepLinking: true,
           defaultBackground: bg,
+          toolbarButtons: [],
         },
         interfaceConfigOverwrite: {
           DEFAULT_BACKGROUND: bg,
@@ -4286,11 +4323,16 @@ function VideoHuddle({ P, accent, at, name, roomSeed, onClose }) {
           SHOW_WATERMARK_FOR_GUESTS: false,
           MOBILE_APP_PROMO: false,
           HIDE_INVITE_MORE_HEADER: true,
+          TOOLBAR_BUTTONS: [],
         },
       });
       apiRef.current = api;
       api.addEventListener("videoConferenceLeft", () => onCloseRef.current && onCloseRef.current());
       api.addEventListener("readyToClose", () => onCloseRef.current && onCloseRef.current());
+      api.addEventListener("audioMuteStatusChanged", ({ muted }) => setMicMuted(!!muted));
+      api.addEventListener("videoMuteStatusChanged", ({ muted }) => setCamMuted(!!muted));
+      Promise.resolve(api.isAudioMuted()).then((m) => setMicMuted(!!m)).catch(() => {});
+      Promise.resolve(api.isVideoMuted()).then((m) => setCamMuted(!!m)).catch(() => {});
       setStatus("ready");
     }).catch(() => { if (!cancelled) setStatus("error"); });
     return () => {
@@ -4299,28 +4341,107 @@ function VideoHuddle({ P, accent, at, name, roomSeed, onClose }) {
     };
   }, [roomName, name, retryTick]);
 
+  // Self-view PiP: a real, separate local camera preview, independent of
+  // whatever Jitsi is doing inside its own iframe — see the block comment
+  // above this component for why it can't just borrow Jitsi's own feed.
+  useEffect(() => {
+    let cancelled = false;
+    let stream = null;
+    if (navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then((s) => {
+        if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
+        stream = s;
+        if (selfVideoRef.current) selfVideoRef.current.srcObject = s;
+      }).catch(() => { if (!cancelled) setSelfPreviewError(true); });
+    } else {
+      setSelfPreviewError(true);
+    }
+    return () => { cancelled = true; stream?.getTracks().forEach((t) => t.stop()); };
+  }, []);
+
+  const toggleMic = () => apiRef.current?.executeCommand("toggleAudio");
+  const toggleCam = () => apiRef.current?.executeCommand("toggleVideo");
+  const toggleView = () => { apiRef.current?.executeCommand("toggleTileView"); setTileView((v) => !v); };
+  const endCall = () => { apiRef.current?.executeCommand("hangup"); onClose(); };
+
+  const controlBtn = (active, onClick, iconOn, iconOff, label) => (
+    <button key={label} onClick={onClick} aria-label={label} aria-pressed={active} title={label} style={{
+      width: 48, height: 48, borderRadius: "50%", border: "none", cursor: "pointer",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: active ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.14)",
+      color: active ? "#0b0b0d" : "#fff",
+      transition: "background 0.15s ease, color 0.15s ease",
+    }}>
+      <Icon name={active ? iconOff : iconOn} size={19} />
+    </button>
+  );
+
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: P.bg }}>
-      <div style={{ flex: 1, minHeight: 0, position: "relative", background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }}>
+    <div role="dialog" aria-modal="true" aria-label={`Video huddle with ${name}`} style={{ position: "fixed", inset: 0, zIndex: 300, background: "#0b0b0d" }}>
+      {/* Main stage */}
+      <div style={{
+        position: "absolute", inset: isMobile ? 0 : 16,
+        borderRadius: isMobile ? 0 : 20, overflow: "hidden", background: "#000",
+      }}>
         <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
         {status !== "ready" && (
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center" }}>
             {status === "loading" ? (<>
-              <div style={{ width: 28, height: 28, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-              <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Connecting call…</div>
+              <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+              <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Connecting call…</div>
             </>) : (<>
-              <Icon name="warning" size={20} style={{ color: P.faint }} />
-              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2 }}>Couldn't reach the video call service.</div>
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, maxWidth: 280 }}>Check your connection and try again.</div>
-              <button onClick={() => { jitsiScriptPromise = null; setRetryTick((n) => n + 1); }} style={{ padding: "7px 16px", borderRadius: 100, border: `1px solid ${P.line}`, background: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Retry</button>
+              <Icon name="warning" size={22} style={{ color: "rgba(255,255,255,0.6)" }} />
+              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff" }}>Couldn't reach the video call service.</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(255,255,255,0.6)", maxWidth: 280 }}>Check your connection and try again.</div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => { jitsiScriptPromise = null; setRetryTick((n) => n + 1); }} style={{ padding: "8px 18px", borderRadius: 100, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Retry</button>
+                <button onClick={onClose} style={{ padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Back to chat</button>
+              </div>
             </>)}
           </div>
         )}
       </div>
-      <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderTop: `1px solid ${P.line}` }}>
-        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Video Huddle · {name}</span>
-        <button onClick={onClose} style={{ flexShrink: 0, padding: "7px 16px", borderRadius: 100, border: `1px solid ${P.line}`, background: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Leave &amp; back to chat</button>
+
+      {/* Top bar: who you're calling, reachable even before the call connects */}
+      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 100, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
+        <span style={{ width: 26, height: 26, borderRadius: "50%", background: withAlpha(accent, 0.35), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>{(name || "?")[0]?.toUpperCase()}</span>
+        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
       </div>
+
+      {/* Picture-in-picture self view */}
+      {status === "ready" && (
+        <div style={{
+          position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: isMobile ? 96 : 140, height: isMobile ? 128 : 104,
+          borderRadius: 16, overflow: "hidden", background: "#18181c",
+          border: "1px solid rgba(255,255,255,0.22)", boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+        }}>
+          {!selfPreviewError ? (
+            <video ref={selfVideoRef} autoPlay muted playsInline style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scaleX(-1)", opacity: camMuted ? 0.12 : 1, transition: "opacity 0.2s ease" }} />
+          ) : (
+            <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="cameraOff" size={18} style={{ color: "rgba(255,255,255,0.4)" }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Floating control island */}
+      {status === "ready" && (
+        <div style={{
+          position: "absolute", bottom: isMobile ? 20 : 32, left: "50%", transform: "translateX(-50%)",
+          display: "flex", alignItems: "center", gap: 14, padding: 10, borderRadius: 100,
+          background: "rgba(28,28,32,0.55)",
+          backdropFilter: "blur(24px) saturate(180%)", WebkitBackdropFilter: "blur(24px) saturate(180%)",
+          border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 14px 40px rgba(0,0,0,0.45)",
+        }}>
+          {controlBtn(micMuted, toggleMic, "mic", "micOff", micMuted ? "Unmute microphone" : "Mute microphone")}
+          {controlBtn(camMuted, toggleCam, "camera", "cameraOff", camMuted ? "Turn camera on" : "Turn camera off")}
+          {controlBtn(tileView, toggleView, "grid", "grid", "Switch view")}
+          <button onClick={endCall} aria-label="End call" title="End call" style={{ width: 54, height: 48, borderRadius: 100, border: "none", cursor: "pointer", background: STATUS.bad, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name="phoneOff" size={20} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -4334,32 +4455,36 @@ function VideoHuddle({ P, accent, at, name, roomSeed, onClose }) {
 // this person" button on a profile — so a brand-new account's inbox is
 // correctly empty rather than seeded with anything illustrative, and stays
 // that way until a thread-creation path exists somewhere.
-function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId, onConsumeInitialThread }) {
+//
+// Commit 46: promoted from a centered InboxModal to a real full-page view
+// (InboxView), the same treatment ProfileView/SettingsView/TrendingView
+// already got — see the "inbox" case in App's handleSidebarNavigate and
+// the Sidebar NAV entry. No more dialog role, backdrop, focus trap, or
+// Escape-to-close: it's a page you navigate to and away from, not a
+// transient overlay. Mobile gets a real two-step flow (conversation list,
+// then the open thread with a back button) instead of squeezing both
+// panes into one narrow column the modal never had to solve for.
+function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThreadId, onConsumeInitialThread }) {
   const [activeId, setActiveId] = useState(null);
   const [activeThread, setActiveThread] = useState(null);
   const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [huddleOpen, setHuddleOpen] = useState(false);
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   useEffect(() => { setHuddleOpen(false); }, [activeId]);
-  const trapRef = useFocusTrap();
 
-  // The sign-in-time snapshot in handleAuthed only ever reflects that one
-  // moment — refresh the list itself on open in case something arrived
-  // since then.
+  // Refreshed every time this view mounts (navigating here from the
+  // Sidebar), in case something arrived since the last visit.
   useEffect(() => {
     apiDataGet("inbox").then((data) => { if (data?.items) setThreads(data.items); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A thread just created by "Message" in Find People arrives here as
-  // initialThreadId — seeded once, then immediately reported back as
-  // consumed so App can clear it. Without that hand-back, the SAME stale
-  // thread id would win this race again the next time someone opens the
-  // Inbox normally (this component unmounts/remounts each open, but
-  // initialThreadId is App state that outlives that), silently overriding
-  // "default to my most recent conversation" below with an old one.
+  // A thread just created by "Message" in Find People / an institution hub
+  // arrives here as initialThreadId — seeded once, then immediately
+  // reported back as consumed so App can clear it. Without that hand-back,
+  // the same stale thread id would win this race again next visit,
+  // silently overriding "default to my most recent conversation" below.
   useEffect(() => {
     if (initialThreadId) {
       setActiveId(initialThreadId);
@@ -4406,21 +4531,19 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
       : [activeThread.otherEmail, activeThread.otherAffiliation].filter(Boolean).join(" · "))
     : "";
 
+  // Mobile: show one pane at a time (list, or the open thread with a way
+  // back) instead of squeezing both into one narrow column.
+  const showList = !isMobile || !activeId;
+  const showThread = !isMobile || !!activeId;
+
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="Inbox" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
-        background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
-        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
-        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 12, maxWidth: 820, width: "100%", maxHeight: "80vh", display: "flex",
-        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
-      }} className="cb-modal">
-        {/* Left pane — conversations */}
-        <div style={{ width: 240, flexShrink: 0, borderRight: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "18px 18px 12px" }}>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Inbox</div>
+    <div style={{ height: "100%", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
+      {showList && (
+        <div style={{ width: isMobile ? "100%" : 300, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`, display: "flex", flexDirection: "column", height: "100%" }}>
+          <div style={{ padding: "22px 22px 14px" }}>
+            <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)" }}>Inbox</div>
           </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 12px" }}>
             {threads.length === 0 && (
               <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No conversations yet.</div>
             )}
@@ -4431,11 +4554,11 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
                 : "No messages yet";
               return (
                 <button key={t.id} onClick={() => setActiveId(t.id)} style={{
-                  width: "100%", textAlign: "left", padding: "10px 10px", borderRadius: 8, border: "none", cursor: "pointer",
+                  width: "100%", textAlign: "left", padding: "12px 10px", borderRadius: 8, border: "none", cursor: "pointer",
                   background: activeId === t.id ? withAlpha(accent, 0.1) : "transparent",
                   display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-body)",
                 }}>
-                  <span style={{ width: 30, height: 30, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{initials}</span>
+                  <span style={{ width: 34, height: 34, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{initials}</span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
                       <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
@@ -4448,24 +4571,28 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
             })}
           </div>
         </div>
+      )}
 
-        {/* Right pane — active thread */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      {showThread && (
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%" }}>
           {activeThread ? (<>
-            <div style={{ padding: "16px 22px", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{activeThread.name}</div>
-                {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{subtitle}</div>}
+            <div style={{ padding: "18px 24px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                {isMobile && (
+                  <button onClick={() => setActiveId(null)} aria-label="Back to conversations" style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}>
+                    <Icon name="arrowRight" size={16} style={{ transform: "rotate(180deg)" }} />
+                  </button>
+                )}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeThread.name}</div>
+                  {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{subtitle}</div>}
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <button onClick={() => setHuddleOpen((v) => !v)} aria-label={huddleOpen ? "End video huddle" : "Start video huddle"} aria-pressed={huddleOpen} title="Video Huddle" style={{ background: huddleOpen ? withAlpha(accent, 0.14) : "none", border: "none", borderRadius: 8, color: huddleOpen ? accent : P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="camera" size={18} /></button>
-                <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
-              </div>
+              <button onClick={() => setHuddleOpen(true)} aria-label="Start video huddle" title="Video Huddle" style={{ background: withAlpha(accent, 0.1), border: "none", borderRadius: 8, color: accent, cursor: "pointer", padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)", flexShrink: 0 }}>
+                <Icon name="camera" size={16} /> {!isMobile && "Huddle"}
+              </button>
             </div>
-            {huddleOpen ? (
-              <VideoHuddle P={P} accent={accent} at={at} name={activeThread.name} roomSeed={activeId} onClose={() => setHuddleOpen(false)} />
-            ) : (<>
-            <div style={{ flex: 1, overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
               {activeThread.messages.length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet — say hello.</div>
               )}
@@ -4495,7 +4622,7 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
                 </div>
               ))}
             </div>
-            <div style={{ padding: "14px 22px 12px", borderTop: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)" }}>
+            <div style={{ padding: "14px 24px 18px", borderTop: `1px solid ${P.line}` }}>
               <div style={{ display: "flex", gap: 10 }}>
                 <input
                   value={draft}
@@ -4511,14 +4638,17 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
                 </button>
               </div>
             </div>
-            </>)}
           </>) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small, textAlign: "center", padding: 24 }}>
               {loadingThread ? "Loading…" : threads.length === 0 ? "Nothing here yet." : "Select a conversation"}
             </div>
           )}
         </div>
-      </div>
+      )}
+
+      {huddleOpen && activeThread && (
+        <VideoHuddle P={P} accent={accent} at={at} isMobile={isMobile} name={activeThread.name} roomSeed={activeId} onClose={() => setHuddleOpen(false)} />
+      )}
     </div>
   );
 }
@@ -6361,7 +6491,27 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarItemActive: { background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600 },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" },
     sidebarFooter: { flexShrink: 0, padding: "10px 12px 14px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
-    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 260 },
+    // `position: relative` + `zIndex: 1` are load-bearing, not decoration:
+    // without them this is a plain static box, which CSS paints in the
+    // in-flow layer — strictly below ANY positioned element in the same
+    // stacking context, even one at zIndex: 0/1, regardless of DOM order.
+    // `.cb-ambient` (S.ambient, a few hundred lines up) is exactly such an
+    // element: position:fixed, zIndex:1, a 72%-black scrim meant only to
+    // dim the WebGL aurora behind it (LivingBackground, zIndex:0). With
+    // appMain unpositioned, that scrim was painting over EVERYTHING inside
+    // it too — the whole "search" hero (title, subhead, search bar, evidence
+    // chips, trust row, footer) rendered through a 72%-black wash, which is
+    // why "Cerebrum" sampled as flat rgb(71,71,71) instead of the white
+    // P.ink the inline style plainly set: 255*(1-0.72) = 71, exactly. The
+    // Sidebar was never affected because it already carries its own
+    // zIndex:30. Other full-page views (Settings/Trending/etc.) already
+    // dodge this independently — they're wrapped in S.pageView, which sets
+    // this same {position:relative, zIndex:1} and, being later in the DOM
+    // than .cb-ambient, wins document-order tiebreaking at the tied
+    // zIndex:1. Giving appMain the identical treatment covers every view it
+    // wraps (the search hero included) with the same one fix, rather than
+    // relying on each view to separately remember to opt in.
+    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 260, position: "relative", zIndex: 1 },
 
     /* ── Full-page views (Profile / Settings / Trending) ──
        Replace what used to be centered modal dialogs — no backdrop, no
@@ -6479,7 +6629,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        the label is now just the question, nothing prefixed onto it. */
     chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 700 },
     chip: {
-      fontSize: FONT_SIZES.small, color: P.ink2,
+      // Commit 46: was P.ink2 (secondary) at rest — explicit direction that
+      // chips are one of the surfaces that must never render as dark grey
+      // on black, so this is P.ink like the hover state already was,
+      // rather than only brightening on interaction.
+      fontSize: FONT_SIZES.small, color: P.ink,
       background: "transparent",
       border: "1px solid " + P.line,
       borderRadius: 100, padding: "10px 18px",
@@ -6824,7 +6978,7 @@ function ToastHost({ P, accent }) {
 // recreates) re-rendered on every App state change, including something as
 // frequent as a keystroke in the search box, even though almost none of
 // those actually change anything Sidebar shows.
-const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, muted, onToggleMute, onLogoClick }) {
+const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, threads, muted, onToggleMute, onLogoClick }) {
   const NAV = [
     ["new", "New investigation", "plus", null],
     ["search", "Search", "search", null],
@@ -6832,6 +6986,13 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ["trending", "Trending", "chart", null],
     ["history", "History", "history", history.length || null],
     ["saved", "Saved", "bookmark", saved.length || null],
+    // Commit 46: promoted from a header icon button (opening a centered
+    // InboxModal) to a first-class nav destination — see InboxView and the
+    // "inbox" case in App's handleSidebarNavigate. Badge count is unread
+    // "you have conversations" signal same as History/Saved above, not an
+    // unread-message count (get-inbox doesn't return per-thread read state
+    // yet) — good enough to show the Inbox isn't empty at a glance.
+    ["inbox", "Inbox", "mail", threads.length || null],
   ];
   const hoverIn = (e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); };
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
@@ -6916,7 +7077,10 @@ function App() {
   const [collections, setCollections] = useState([]);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
-  const [inboxOpen, setInboxOpen] = useState(false);
+  // Commit 46: Inbox is now a real full-page `view` (like profile/settings/
+  // trending) instead of a centered modal — see InboxView and the "inbox"
+  // case in handleSidebarNavigate below. The old `inboxOpen` boolean is
+  // gone; `view === "inbox"` is the single source of truth now.
   const [networkSearchOpen, setNetworkSearchOpen] = useState(false);
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [hubOpen, setHubOpen] = useState(false);
@@ -6928,13 +7092,14 @@ function App() {
   // stacked on a backdrop. Everything else that used to live in the header
   // (Document Mode, History, Saved, Collections, Find People) stayed as
   // its existing dialog; only its trigger moved into the Sidebar.
-  const [view, setView] = useState("search"); // "search" | "profile" | "settings" | "trending"
+  const [view, setView] = useState("search"); // "search" | "profile" | "settings" | "trending" | "inbox"
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
-  // Set by NetworkSearchModal's "Message" button right before it opens the
-  // Inbox, so the Inbox lands on that conversation instead of whatever was
-  // most recently active. InboxModal seeds its own activeId from this once,
-  // then calls back to clear it — see the comment on that effect in
-  // InboxModal for why the hand-back matters.
+  // Set by NetworkSearchModal's/InstitutionModal's "Message" button right
+  // before switching to the Inbox view, so the Inbox lands on that
+  // conversation instead of whatever was most recently active. InboxView
+  // seeds its own activeId from this once, then calls back to clear it —
+  // see the comment on that effect in InboxView for why the hand-back
+  // matters.
   const [pendingThreadId, setPendingThreadId] = useState(null);
   // Profile — name/username/affiliation live in the `users` table now (see
   // functions/api/data.js's get-profile/update-profile), pulled down on
@@ -7316,7 +7481,7 @@ function App() {
     const onNav = (e) => {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (view !== "search" || cmdOpen || savedOpen || historyOpen || authOpen || collectionsOpen || inboxOpen) return;
+      if (view !== "search" || cmdOpen || savedOpen || historyOpen || authOpen || collectionsOpen) return;
       const srcCount = allSources.length;
       if (e.key === "j" || e.key === "J") {
         e.preventDefault();
@@ -7336,7 +7501,7 @@ function App() {
     };
     window.addEventListener("keydown", onNav);
     return () => window.removeEventListener("keydown", onNav);
-  }, [allSources, focusedSourceIdx, drawerSource, view, cmdOpen, savedOpen, historyOpen, authOpen, collectionsOpen, inboxOpen]);
+  }, [allSources, focusedSourceIdx, drawerSource, view, cmdOpen, savedOpen, historyOpen, authOpen, collectionsOpen]);
 
   // Auto-attribution clipboard: when text containing citation brackets
   // [N] is copied from an answer card, append full references to the
@@ -7441,7 +7606,7 @@ function App() {
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
     const anyOverlayOpen = cmdOpen || savedOpen || howItWorksOpen || mobilePanel || historyOpen
-      || authOpen || collectionsOpen || compareOpen || inboxOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
+      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -7461,7 +7626,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [cmdOpen, savedOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, inboxOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
+  }, [cmdOpen, savedOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -7601,6 +7766,7 @@ function App() {
       case "collections": if (user) setCollectionsOpen(true); break;
       case "settings": setSettingsInitialTab("general"); setView("settings"); break;
       case "findPeople": if (user) setNetworkSearchOpen(true); break;
+      case "inbox": if (user) setView("inbox"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "profile": if (user) setView("profile"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       default: break;
     }
@@ -7834,80 +8000,48 @@ function App() {
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
         isMobile={isMobile} mobileOpen={sidebarMobileOpen} onCloseMobile={handleSidebarCloseMobile}
-        user={user} history={history} saved={saved} muted={muted}
+        user={user} history={history} saved={saved} threads={threads} muted={muted}
         onToggleMute={handleToggleMute}
         onLogoClick={handleLogoClick}
       />
       <div style={S.appMain}>
-      <header style={S.header}>
-        <div style={S.headerGlass} aria-hidden="true" />
-        <div style={S.headInner}>
-          <div style={{ ...S.brandRow, position: "relative" }}>
-            {/* The Sidebar carries every destination now — this hamburger is
-                purely how a small viewport reaches it, since a permanently
-                docked 260px rail doesn't fit next to search results on a
-                phone screen the way it does on desktop. */}
-            {isMobile && (
-              <button className="cb-hbtn" style={{ ...S.iconBtn, minWidth: 34, padding: "0 6px" }} onClick={() => { sfx(); setSidebarMobileOpen(true); }} aria-label="Open menu" title="Menu">
-                <Icon name="menu" size={18} />
-              </button>
-            )}
-              {/* v5: this used to clear the cookie and hard-reload the whole
-                  page — a jarring flash-to-white on every other transition in
-                  the app being a smooth fade/blur. Flipping `entered` back to
-                  false replays the exact same Intro the cookie-clear was
-                  trying to reach, without throwing away the JS runtime. */}
-              <div onClick={(e) => { e.stopPropagation(); sfx(); setEntered(false); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setEntered(false); } }} role="button" tabIndex={0} aria-label="Back to landing page" style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                <span style={{ display: "inline-flex" }}><Mark size={20} accent={accent} glow={P.dark} /></span>
-                <span style={S.brand} className="cb-gradient-text">Cerebrum<sup style={{ fontSize: "0.55em", fontWeight: 400, marginLeft: 2, opacity: 0.5, letterSpacing: "0.02em", WebkitTextFillColor: "currentColor", background: "none" }}>™</sup></span>
-              </div>
-              {/* Reopens the "what's new" modal on demand — otherwise it's a
-                  one-time popup nobody could get back to once dismissed. */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // A "5 rapid clicks" version of this used to live here —
-                  // real bug: the very first click opens a full-viewport
-                  // modal on top of this exact button, so clicks 2-5 never
-                  // actually land on the badge again, they land on the
-                  // modal's backdrop instead (closing it). Nearly
-                  // impossible to trigger for real, which is exactly what
-                  // happened. A press-and-hold doesn't have that problem —
-                  // it's one continuous pointer interaction, nothing else
-                  // can steal it mid-way through.
-                  if (dpEggRef.current.longPressed) { dpEggRef.current.longPressed = false; return; }
-                  sfx(); setV5Open(true);
-                }}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  dpEggRef.current.longPressed = false;
-                  dpEggRef.current.timer = setTimeout(() => {
-                    dpEggRef.current.longPressed = true;
-                    toast("Science loved Dolly 🦋", { tone: "success" });
-                  }, 850);
-                }}
-                onPointerUp={() => clearTimeout(dpEggRef.current.timer)}
-                onPointerLeave={() => clearTimeout(dpEggRef.current.timer)}
-                title="What's new in V5 (press and hold for a surprise)"
-                aria-label="What's new in Cerebrum V5"
-                style={{ border: `1px solid ${withAlpha(accent, 0.35)}`, background: withAlpha(accent, 0.1), color: accent, borderRadius: 3, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 7px", cursor: "pointer", fontFamily: "var(--cb-mono)", lineHeight: 1.6 }}
-              >V5</button>
-          </div>
-          {/* Everything that used to crowd this row (New, Document, Trending,
-              History, Saved, Collections, Find People, Settings — a dozen
-              controls fighting for one 56px bar) now lives in the Sidebar.
-              The header keeps exactly three things: the search command bar,
-              Inbox, and the account/Profile control. */}
-          <div style={S.headActions}>
-            <button className="cb-hbtn" style={isMobile ? { ...S.cmdHint, padding: "0 10px", justifyContent: "center", height: 38 } : S.cmdHint} onClick={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }} aria-label="Open search palette"><Icon name="search" size={isMobile ? 16 : 13} />{!isMobile && <span>Search</span>}{!isMobile && <kbd style={S.kbd}>{kbdLabel("K")}</kbd>}</button>
-            {user && (<button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); setInboxOpen(true); }} title="Inbox" aria-label="Inbox"><Icon name="mail" size={16} />{!isMobile && <span style={S.iconBtnLabel}>Inbox</span>}</button>)}
-            <button className="cb-hbtn" style={S.iconBtn} onClick={() => { sfx(); if (user) { setView("profile"); } else { setAuthInitialTab("login"); setAuthOpen(true); } }} title={user ? user.email : "Sign in"} aria-label={user ? `Signed in as ${user.email} — open your profile` : "Sign in or create an account"}>
-              {user ? <span aria-hidden="true" style={{ width: 19, height: 19, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)" }}>{(profile.name || user.email)[0].toUpperCase()}</span> : <Icon name="user" size={16} />}
-              {!isMobile && <span style={S.iconBtnLabel}>{user ? "Profile" : "Sign in"}</span>}
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* Commit 46: the top header is gone for good — every destination it
+          used to hold (search command bar, Inbox, Profile/Sign-in, the
+          brand/back-to-landing mark) already lives in the Sidebar too (see
+          sidebarBrand and the Profile/Sign-in footer item below), so nothing
+          here was actually navigation-only. Two real, non-navigational
+          casualties, deliberately not replaced:
+          - The manual "V5" reopen button for the what's-new announcement.
+            It still shows itself once automatically on first visit (see the
+            v5Open effect above); there's just no way to deliberately
+            re-open it afterward anymore.
+          - The header's own visible "Search ⌘K" button. The keyboard
+            shortcut itself is unaffected (still a global keydown listener,
+            not wired to this button), and Sidebar's "Search" item already
+            reaches the same search page by another route.
+          The one genuinely load-bearing thing the header carried — opening
+          the Sidebar on mobile, since a permanently-docked 260px rail
+          doesn't fit next to search results on a phone screen — gets its
+          own minimal floating trigger just below instead of a full bar. */}
+      {isMobile && (
+        <button
+          className="cb-hbtn"
+          onClick={() => { sfx(); setSidebarMobileOpen(true); }}
+          aria-label="Open menu"
+          title="Menu"
+          style={{
+            position: "fixed", top: 14, left: 14, zIndex: 21,
+            width: 38, height: 38, borderRadius: "50%",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85),
+            border: `1px solid ${P.line}`,
+            backdropFilter: "blur(14px) saturate(1.3)", WebkitBackdropFilter: "blur(14px) saturate(1.3)",
+            color: P.ink, cursor: "pointer",
+          }}
+        >
+          <Icon name="menu" size={18} />
+        </button>
+      )}
       {view === "search" && (
       <div style={S.scroll} ref={threadRef} onDoubleClick={(e) => {
         const sel = window.getSelection()?.toString()?.trim();
@@ -8048,6 +8182,16 @@ function App() {
       {view === "trending" && (
         <div style={S.pageView}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} /></div>
       )}
+      {view === "inbox" && (
+        <div style={S.pageView}>
+          <InboxView
+            P={P} accent={accent} at={at} isMobile={isMobile}
+            threads={threads} setThreads={setThreads}
+            initialThreadId={pendingThreadId}
+            onConsumeInitialThread={() => setPendingThreadId(null)}
+          />
+        </div>
+      )}
       </div>
       {started && isMobile && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 3, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
       {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside role="dialog" aria-modal="true" aria-label="Sources" style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}</aside></>)}
@@ -8133,7 +8277,6 @@ function App() {
       {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
       {authOpen && <AuthModal P={P} accent={accent} at={at} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
       {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
-      {inboxOpen && <InboxModal P={P} accent={accent} at={at} close={() => setInboxOpen(false)} threads={threads} setThreads={setThreads} initialThreadId={pendingThreadId} onConsumeInitialThread={() => setPendingThreadId(null)} />}
       {networkSearchOpen && (
         <NetworkSearchModal
           P={P} accent={accent} at={at}
@@ -8141,7 +8284,7 @@ function App() {
           onMessage={(researcher, threadId) => {
             setNetworkSearchOpen(false);
             setPendingThreadId(threadId);
-            setInboxOpen(true);
+            setView("inbox");
           }}
           onOpenHub={(name) => {
             setNetworkSearchOpen(false);
@@ -8158,7 +8301,7 @@ function App() {
           onMessage={(researcher, threadId) => {
             setHubOpen(false);
             setPendingThreadId(threadId);
-            setInboxOpen(true);
+            setView("inbox");
           }}
         />
       )}
