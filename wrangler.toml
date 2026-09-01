@@ -42,3 +42,8 @@ database_id = "dde9ab43-bb34-4c27-afc8-b79a53adbaaf"
 # [[kv_namespaces]]
 # binding = "RATE_LIMIT_KV"
 # id = "PASTE_THE_REAL_ID_FROM_STEP_1_HERE"
+
+# Automated Reports Queue Producer
+[[queues.producers]]
+queue = "cerebrum-reports"
+binding = "REPORTS_QUEUE"
