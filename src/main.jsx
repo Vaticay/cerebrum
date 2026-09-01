@@ -6257,9 +6257,25 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // every non-WebGL surface in the app stays exactly as gray/neutral as
     // it already was — only the WebGL layer keeps any color, and even that
     // reads calmer instead of removed.
+    //
+    // Commit 44: the Commit 43 pass above still shipped this scrim BEHIND
+    // LivingBackground in paint order (this div sits earlier in the JSX,
+    // and both are `position:fixed` at the same z-index, so ties resolve by
+    // document order — later wins). A layer painted behind a WebGL canvas
+    // can only ever show through where that canvas is transparent — i.e.
+    // wherever the aurora shader is already dim — so it did nothing at all
+    // to the bright, saturated core of the aurora band, which is exactly
+    // the part that actually reads as "foggy." That's the real reason the
+    // haze was still there after that fix shipped: the scrim was rendering,
+    // it just never had a chance to dim the one thing it needed to. Moving
+    // it to zIndex: 1 — one level above LivingBackground's own zIndex: 0,
+    // and still nowhere near Sidebar's zIndex: 30 or the real content above
+    // it — puts it on top instead, where it actually composites over every
+    // pixel of the aurora, bright bands included. Opacity nudged up
+    // alongside the reorder for real margin now that it's doing its job.
     ambient: {
-      position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
-      background: withAlpha(P.bg, P.dark ? 0.55 : 0.35),
+      position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", overflow: "hidden",
+      background: withAlpha(P.bg, P.dark ? 0.72 : 0.45),
     },
 
     /* ── Header: dark glass bar, minimal ──
