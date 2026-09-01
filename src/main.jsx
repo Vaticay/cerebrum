@@ -667,6 +667,14 @@ function Icon({ name, size = 17, className, style }) {
     // most icon sets use for "phone"), plus the same off-slash convention
     // as micOff/cameraOff above, for the red End Call button.
     case "phoneOff": return <svg {...common}><path d="M22 16.9v3a2 2 0 01-2.18 2 19.8 19.8 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.34 1.85.57 2.81.7a2 2 0 011.72 2.03z" /><path d="M2 2l20 20" /></svg>;
+    // Huddle minimize/expand — four arrowheads pointing inward (shrink to a
+    // bubble) or outward (back to full screen), the standard convention.
+    case "minimize2": return <svg {...common}><path d="M8 3v4a1 1 0 01-1 1H3M16 3v4a1 1 0 001 1h4M8 21v-4a1 1 0 00-1-1H3M16 21v-4a1 1 0 011-1h4" /></svg>;
+    case "maximize2": return <svg {...common}><path d="M3 8V5a2 2 0 012-2h3M21 8V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3M21 16v3a2 2 0 01-2 2h-3" /></svg>;
+    // Screen-share control: a monitor with an upload arrow — this project's
+    // existing convention (see "external") uses a rectangle+arrow language
+    // for "send this out," reused here for the same reason.
+    case "screenShare": return <svg {...common}><rect x="2" y="4" width="20" height="14" rx="2" /><path d="M12 15V8M9 11l3-3 3 3" /><path d="M8 21h8" /></svg>;
     default: return null;
   }
 }
@@ -4291,6 +4299,17 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
   const [camMuted, setCamMuted] = useState(false);
   const [tileView, setTileView] = useState(false);
   const [selfPreviewError, setSelfPreviewError] = useState(false);
+  // Commit 47 — "amazing video call optimization":
+  // - `minimized`: the call keeps running (same mounted Jitsi iframe, same
+  //   WebRTC session — nothing is torn down or recreated) while shrinking to
+  //   a small floating bubble, so navigating to another tab doesn't hang up.
+  // - `screenSharing`/`dataSaver`: both drive real, documented Jitsi IFrame
+  //   API primitives (`toggleShareScreen` / `setVideoQuality`), the same
+  //   `executeCommand` family the existing mic/camera/tile-view controls
+  //   already use — not new/speculative surface area.
+  const [minimized, setMinimized] = useState(false);
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [dataSaver, setDataSaver] = useState(false);
   const roomName = useMemo(
     () => `cerebrum-huddle-${hashSeed(String(roomSeed != null ? roomSeed : (name || "room"))).toString(36)}`,
     [roomSeed, name]
@@ -4331,6 +4350,12 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
       api.addEventListener("readyToClose", () => onCloseRef.current && onCloseRef.current());
       api.addEventListener("audioMuteStatusChanged", ({ muted }) => setMicMuted(!!muted));
       api.addEventListener("videoMuteStatusChanged", ({ muted }) => setCamMuted(!!muted));
+      // Real event, not polled/guessed — fires whenever screen-share starts
+      // or stops, whether triggered from our own button below or from the
+      // native browser "Stop sharing" bar Chrome/Firefox show during a
+      // share, so this stays correct even when the share ends a way our own
+      // button never sees.
+      api.addEventListener("screenSharingStatusChanged", ({ on }) => setScreenSharing(!!on));
       Promise.resolve(api.isAudioMuted()).then((m) => setMicMuted(!!m)).catch(() => {});
       Promise.resolve(api.isVideoMuted()).then((m) => setCamMuted(!!m)).catch(() => {});
       setStatus("ready");
@@ -4363,6 +4388,16 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
   const toggleCam = () => apiRef.current?.executeCommand("toggleVideo");
   const toggleView = () => { apiRef.current?.executeCommand("toggleTileView"); setTileView((v) => !v); };
   const endCall = () => { apiRef.current?.executeCommand("hangup"); onClose(); };
+  const toggleScreenShare = () => apiRef.current?.executeCommand("toggleShareScreen");
+  // 720p normally, 180p in Data saver — real quality tiers Jitsi's own
+  // encoder actually renders at (documented setVideoQuality levels), not a
+  // cosmetic label. Local state flips immediately since the command doesn't
+  // itself emit a confirmation event to listen for.
+  const toggleDataSaver = () => {
+    const next = !dataSaver;
+    setDataSaver(next);
+    apiRef.current?.executeCommand("setVideoQuality", next ? 180 : 720);
+  };
 
   const controlBtn = (active, onClick, iconOn, iconOff, label) => (
     <button key={label} onClick={onClick} aria-label={label} aria-pressed={active} title={label} style={{
@@ -4376,15 +4411,33 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
     </button>
   );
 
+  // Commit 47: minimized is a pure CSS/layout mode change, not a remount —
+  // `containerRef`'s div (and the live Jitsi iframe inside it) stays exactly
+  // where it is in the tree the whole time; only the wrapping box's size and
+  // position change, and the chrome around it (top bar, self-view PiP, full
+  // control island) is swapped for a compact bubble overlay. That's what
+  // lets the call keep running while minimized instead of dropping and
+  // reconnecting.
+  const bubbleSize = isMobile ? { width: 148, height: 108 } : { width: 220, height: 150 };
+  const wrapStyle = minimized
+    ? {
+        position: "fixed", zIndex: 300, cursor: "pointer",
+        bottom: isMobile ? 96 : 24, right: 20,
+        width: bubbleSize.width, height: bubbleSize.height,
+        borderRadius: 16, overflow: "hidden", background: "#0b0b0d",
+        border: "1px solid rgba(255,255,255,0.16)", boxShadow: "0 14px 40px rgba(0,0,0,0.5)",
+      }
+    : { position: "fixed", inset: 0, zIndex: 300, background: "#0b0b0d" };
+
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Video huddle with ${name}`} style={{ position: "fixed", inset: 0, zIndex: 300, background: "#0b0b0d" }}>
+    <div role="dialog" aria-modal="true" aria-label={`Video huddle with ${name}`} style={wrapStyle} onClick={minimized ? () => setMinimized(false) : undefined}>
       {/* Main stage */}
       <div style={{
-        position: "absolute", inset: isMobile ? 0 : 16,
-        borderRadius: isMobile ? 0 : 20, overflow: "hidden", background: "#000",
+        position: "absolute", inset: minimized ? 0 : (isMobile ? 0 : 16),
+        borderRadius: minimized ? 0 : (isMobile ? 0 : 20), overflow: "hidden", background: "#000",
       }}>
         <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-        {status !== "ready" && (
+        {status !== "ready" && !minimized && (
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center" }}>
             {status === "loading" ? (<>
               <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
@@ -4394,24 +4447,56 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff" }}>Couldn't reach the video call service.</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(255,255,255,0.6)", maxWidth: 280 }}>Check your connection and try again.</div>
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={() => { jitsiScriptPromise = null; setRetryTick((n) => n + 1); }} style={{ padding: "8px 18px", borderRadius: 100, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Retry</button>
-                <button onClick={onClose} style={{ padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Back to chat</button>
+                <button onClick={(e) => { e.stopPropagation(); jitsiScriptPromise = null; setRetryTick((n) => n + 1); }} style={{ padding: "8px 18px", borderRadius: 100, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Retry</button>
+                <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Back to chat</button>
               </div>
             </>)}
           </div>
         )}
       </div>
 
+      {minimized ? (
+        // Compact bubble chrome: name + a tiny mute/hangup/expand row. The
+        // whole bubble is click-to-expand (see the wrapper's onClick above);
+        // these three buttons stop propagation so they act on the call
+        // directly instead of also re-expanding it.
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 8, pointerEvents: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, pointerEvents: "none" }}>
+            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: "#fff", background: "rgba(0,0,0,0.5)", padding: "3px 8px", borderRadius: 100, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, pointerEvents: "auto" }}>
+            <button onClick={(e) => { e.stopPropagation(); toggleMic(); }} aria-label={micMuted ? "Unmute microphone" : "Mute microphone"} style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name={micMuted ? "micOff" : "mic"} size={14} />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setMinimized(false); }} aria-label="Expand call" title="Expand" style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="maximize2" size={14} />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); endCall(); }} aria-label="End call" title="End call" style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: STATUS.bad, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="phoneOff" size={14} />
+            </button>
+          </div>
+        </div>
+      ) : (<>
       {/* Top bar: who you're calling, reachable even before the call connects */}
       <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 100, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
         <span style={{ width: 26, height: 26, borderRadius: "50%", background: withAlpha(accent, 0.35), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>{(name || "?")[0]?.toUpperCase()}</span>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+        {dataSaver && <span title="Data saver is on — video quality lowered" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="zap" size={11} />Saver</span>}
       </div>
+
+      {/* Minimize — keeps the call connected, shrinks to a floating bubble
+          so the rest of the app is usable mid-call (see the block comment
+          above this component for the FaceTime/Messenger-style rationale). */}
+      {status === "ready" && (
+        <button onClick={() => setMinimized(true)} aria-label="Minimize call" title="Minimize" style={{ position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
+          <Icon name="minimize2" size={16} />
+        </button>
+      )}
 
       {/* Picture-in-picture self view */}
       {status === "ready" && (
         <div style={{
-          position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: isMobile ? 96 : 140, height: isMobile ? 128 : 104,
+          position: "absolute", top: isMobile ? 60 : 76, right: isMobile ? 14 : 28, width: isMobile ? 96 : 140, height: isMobile ? 128 : 104,
           borderRadius: 16, overflow: "hidden", background: "#18181c",
           border: "1px solid rgba(255,255,255,0.22)", boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
         }}>
@@ -4436,12 +4521,15 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
         }}>
           {controlBtn(micMuted, toggleMic, "mic", "micOff", micMuted ? "Unmute microphone" : "Mute microphone")}
           {controlBtn(camMuted, toggleCam, "camera", "cameraOff", camMuted ? "Turn camera on" : "Turn camera off")}
+          {!isMobile && controlBtn(screenSharing, toggleScreenShare, "screenShare", "screenShare", screenSharing ? "Stop sharing screen" : "Share screen")}
           {controlBtn(tileView, toggleView, "grid", "grid", "Switch view")}
+          {controlBtn(dataSaver, toggleDataSaver, "zap", "zap", dataSaver ? "Turn off data saver" : "Turn on data saver (lower video quality)")}
           <button onClick={endCall} aria-label="End call" title="End call" style={{ width: 54, height: 48, borderRadius: 100, border: "none", cursor: "pointer", background: STATUS.bad, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="phoneOff" size={20} />
           </button>
         </div>
       )}
+      </>)}
     </div>
   );
 }
@@ -4464,14 +4552,17 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
 // transient overlay. Mobile gets a real two-step flow (conversation list,
 // then the open thread with a back button) instead of squeezing both
 // panes into one narrow column the modal never had to solve for.
-function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThreadId, onConsumeInitialThread }) {
+function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThreadId, onConsumeInitialThread, onStartHuddle, activeHuddleRoomSeed, onCompose }) {
   const [activeId, setActiveId] = useState(null);
   const [activeThread, setActiveThread] = useState(null);
   const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [huddleOpen, setHuddleOpen] = useState(false);
-  useEffect(() => { setHuddleOpen(false); }, [activeId]);
+  // Commit 47: search-as-you-type filter over the already-loaded thread
+  // list — no API round trip, this app has a handful of conversations per
+  // person at most (same reasoning as the inbox N+1 query comment below),
+  // so filtering client-side is both simpler and instant.
+  const [threadQuery, setThreadQuery] = useState("");
 
   // Refreshed every time this view mounts (navigating here from the
   // Sidebar), in case something arrived since the last visit.
@@ -4504,6 +4595,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       if (cancelled) return;
       setActiveThread(data && !data.error ? data : null);
       setLoadingThread(false);
+      // The backend marks this thread read as part of that same GET (see
+      // the "thread" resource handler in functions/api/data.js) — mirror it
+      // here optimistically so the list's bold/dot treatment and the
+      // Sidebar's unread-count badge clear immediately instead of waiting
+      // for this view's next full inbox refetch.
+      if (data && !data.error) {
+        setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: false } : t)));
+      }
     });
     return () => { cancelled = true; };
   }, [activeId]);
@@ -4536,35 +4635,66 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const showList = !isMobile || !activeId;
   const showThread = !isMobile || !!activeId;
 
+  const filteredThreads = threadQuery.trim()
+    ? threads.filter((t) => (t.name || "").toLowerCase().includes(threadQuery.trim().toLowerCase()))
+    : threads;
+
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
       {showList && (
         <div style={{ width: isMobile ? "100%" : 300, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`, display: "flex", flexDirection: "column", height: "100%" }}>
-          <div style={{ padding: "22px 22px 14px" }}>
+          <div style={{ padding: "22px 22px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)" }}>Inbox</div>
+            <button onClick={onCompose} aria-label="New message" title="New message" style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Icon name="edit" size={15} />
+            </button>
           </div>
+          {threads.length > 0 && (
+            <div style={{ padding: "0 22px 12px" }}>
+              <input
+                value={threadQuery}
+                onChange={(e) => setThreadQuery(e.target.value)}
+                placeholder="Search conversations"
+                aria-label="Search conversations"
+                style={{ width: "100%", padding: "8px 12px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption }}
+              />
+            </div>
+          )}
           <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 12px" }}>
             {threads.length === 0 && (
-              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No conversations yet.</div>
+              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+                No conversations yet.<br />
+                <button onClick={onCompose} style={{ marginTop: 8, background: "none", border: "none", color: accent, cursor: "pointer", padding: 0, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", fontWeight: 600 }}>Start one →</button>
+              </div>
             )}
-            {threads.map((t) => {
+            {threads.length > 0 && filteredThreads.length === 0 && (
+              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint }}>No conversations match "{threadQuery}".</div>
+            )}
+            {filteredThreads.map((t) => {
               const initials = (t.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
               const preview = t.lastMessage
                 ? (t.lastMessage.mine ? "You: " : "") + (t.lastMessage.text || (t.lastMessage.attachmentTitle ? `Attached: ${t.lastMessage.attachmentTitle}` : ""))
                 : "No messages yet";
+              // Commit 47: bold name/preview + an accent dot for a genuinely
+              // unread thread (t.unread, backed by the real last_read_at
+              // column now — see functions/api/data.js) instead of every
+              // row rendering identically regardless of read state.
               return (
                 <button key={t.id} onClick={() => setActiveId(t.id)} style={{
                   width: "100%", textAlign: "left", padding: "12px 10px", borderRadius: 8, border: "none", cursor: "pointer",
                   background: activeId === t.id ? withAlpha(accent, 0.1) : "transparent",
                   display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-body)",
                 }}>
-                  <span style={{ width: 34, height: 34, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{initials}</span>
+                  <span style={{ width: 38, height: 38, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{initials}</span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        {t.unread && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} />}
+                        <span style={{ fontSize: FONT_SIZES.small, fontWeight: t.unread ? 800 : 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+                      </span>
                       <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0 }}>{relativeTime(t.lastMessage?.createdAt)}</span>
                     </span>
-                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</span>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: t.unread ? P.ink2 : P.faint, fontWeight: t.unread ? 600 : 400, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</span>
                   </span>
                 </button>
               );
@@ -4588,8 +4718,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{subtitle}</div>}
                 </div>
               </div>
-              <button onClick={() => setHuddleOpen(true)} aria-label="Start video huddle" title="Video Huddle" style={{ background: withAlpha(accent, 0.1), border: "none", borderRadius: 8, color: accent, cursor: "pointer", padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)", flexShrink: 0 }}>
-                <Icon name="camera" size={16} /> {!isMobile && "Huddle"}
+              <button
+                onClick={() => onStartHuddle(activeThread.name, activeId)}
+                aria-label={activeHuddleRoomSeed === activeId ? "Return to video huddle" : "Start video huddle"}
+                title={activeHuddleRoomSeed === activeId ? "Return to call" : "Video Huddle"}
+                style={{ background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: 8, color: accent, cursor: "pointer", padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)", flexShrink: 0 }}
+              >
+                <Icon name="camera" size={16} /> {!isMobile && (activeHuddleRoomSeed === activeId ? "In call" : "Huddle")}
               </button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -4644,10 +4779,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           )}
         </div>
-      )}
-
-      {huddleOpen && activeThread && (
-        <VideoHuddle P={P} accent={accent} at={at} isMobile={isMobile} name={activeThread.name} roomSeed={activeId} onClose={() => setHuddleOpen(false)} />
       )}
     </div>
   );
@@ -6988,11 +7119,12 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ["saved", "Saved", "bookmark", saved.length || null],
     // Commit 46: promoted from a header icon button (opening a centered
     // InboxModal) to a first-class nav destination — see InboxView and the
-    // "inbox" case in App's handleSidebarNavigate. Badge count is unread
-    // "you have conversations" signal same as History/Saved above, not an
-    // unread-message count (get-inbox doesn't return per-thread read state
-    // yet) — good enough to show the Inbox isn't empty at a glance.
-    ["inbox", "Inbox", "mail", threads.length || null],
+    // "inbox" case in App's handleSidebarNavigate.
+    // Commit 47: badge is now a real unread-thread count, not just "you have
+    // conversations" — get-inbox returns a genuine per-thread `unread` flag
+    // backed by thread_participants.last_read_at (see functions/api/data.js
+    // and the ALTER TABLE self-heal in authHelpers.js's ensureSocialTables).
+    ["inbox", "Inbox", "mail", threads.filter((t) => t.unread).length || null],
   ];
   const hoverIn = (e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); };
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
@@ -7101,6 +7233,14 @@ function App() {
   // see the comment on that effect in InboxView for why the hand-back
   // matters.
   const [pendingThreadId, setPendingThreadId] = useState(null);
+  // Commit 47: a huddle used to be InboxView-local state, which meant
+  // navigating to any other tab unmounted InboxView and killed the call —
+  // there was no way to keep talking while checking Settings or starting a
+  // new search. Lifted to App level and rendered once at the app root (see
+  // the bottom of this return) so the same mounted VideoHuddle survives a
+  // `view` change; it minimizes to a small floating bubble instead of
+  // disappearing. `null` = no call. `{ name, roomSeed }` = active.
+  const [activeHuddle, setActiveHuddle] = useState(null);
   // Profile — name/username/affiliation live in the `users` table now (see
   // functions/api/data.js's get-profile/update-profile), pulled down on
   // sign-in and pushed back up on every edit by the debounced sync effect
@@ -8189,6 +8329,9 @@ function App() {
             threads={threads} setThreads={setThreads}
             initialThreadId={pendingThreadId}
             onConsumeInitialThread={() => setPendingThreadId(null)}
+            onStartHuddle={(name, roomSeed) => setActiveHuddle({ name, roomSeed })}
+            activeHuddleRoomSeed={activeHuddle?.roomSeed ?? null}
+            onCompose={() => setNetworkSearchOpen(true)}
           />
         </div>
       )}
@@ -8325,6 +8468,20 @@ function App() {
       {timelineSources && <LiteratureTimeline P={P} accent={accent} at={at} sources={timelineSources} close={() => setTimelineSources(null)} />}
       {illustrateQuery && <IllustrationModal P={P} accent={accent} at={at} query={illustrateQuery} close={() => setIllustrateQuery(null)} />}
       {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />}
+      {/* Commit 47: rendered here, at the app root, specifically so it's not
+          a child of the "inbox" view branch above — a component instance
+          only exists in the DOM while its parent renders it, so nesting this
+          inside `view === "inbox"` would tear down (and disconnect) the
+          Jitsi call the instant the sidebar navigated anywhere else. Being a
+          sibling of every view instead means switching tabs mid-call can
+          never unmount it; only `onClose`/hangup does. */}
+      {activeHuddle && (
+        <VideoHuddle
+          P={P} accent={accent} at={at} isMobile={isMobile}
+          name={activeHuddle.name} roomSeed={activeHuddle.roomSeed}
+          onClose={() => setActiveHuddle(null)}
+        />
+      )}
       <ToastHost P={P} accent={accent} />
     </div>
   );
