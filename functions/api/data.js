@@ -165,8 +165,13 @@ export async function onRequest(context) {
       // query that's harder to verify against the actual schema. Worth
       // revisiting with a real join if thread counts ever grow.
       if (resource === "inbox") {
+        // Commit 47: tp.last_read_at rides along so each thread's `unread`
+        // flag (below) is real, not the "just means non-empty" placeholder
+        // the badge used to fall back to — see the ALTER TABLE self-heal in
+        // authHelpers.js's ensureSocialTables for where this column comes
+        // from on a pre-existing live table.
         const threadRows = await env.DB.prepare(
-          `SELECT t.id, t.kind, t.name FROM threads t
+          `SELECT t.id, t.kind, t.name, tp.last_read_at FROM threads t
            JOIN thread_participants tp ON tp.thread_id = t.id
            WHERE tp.user_id = ?`
         ).bind(user.id).all();
@@ -184,15 +189,23 @@ export async function onRequest(context) {
             ).bind(t.id, user.id).first();
             displayName = other ? (other.name || other.username || other.email) : "Conversation";
           }
+          const lastCreatedAt = last ? toEpochMs(last.created_at) : 0;
+          // Unread means: the most recent message exists, isn't mine, and
+          // landed after the last time I opened this thread (or I've never
+          // opened it at all — last_read_at is NULL, toEpochMs(null) => 0,
+          // so any real message counts as unread, which is the right
+          // default for a thread you've never looked at).
+          const unread = !!(last && last.sender_id !== user.id && lastCreatedAt > toEpochMs(t.last_read_at));
           items.push({
             id: t.id,
             kind: t.kind,
             name: displayName || "Conversation",
+            unread,
             lastMessage: last ? {
               text: last.text,
               attachmentTitle: last.attachment_title || null,
               senderId: last.sender_id,
-              createdAt: toEpochMs(last.created_at),
+              createdAt: lastCreatedAt,
               mine: last.sender_id === user.id,
             } : null,
           });
@@ -213,6 +226,18 @@ export async function onRequest(context) {
           "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
         ).bind(threadId, user.id).first();
         if (!membership) return new Response(JSON.stringify({ error: "You're not part of that conversation." }), { status: 403, headers: cors });
+        // Commit 47: opening a thread is what "read" means here — no
+        // separate mark-as-read action, matching how every real DM inbox
+        // (Instagram, iMessage, etc.) actually behaves. Awaited rather than
+        // fire-and-forget: a Workers/Pages Function's execution can be torn
+        // down right after its Response is returned unless the extra work is
+        // wrapped in waitUntil(), so an un-awaited write here could silently
+        // never land. A non-fatal try/catch — a failed mark-as-read should
+        // never take down the actual thread fetch underneath it.
+        try {
+          await env.DB.prepare("UPDATE thread_participants SET last_read_at = ? WHERE thread_id = ? AND user_id = ?")
+            .bind(Date.now(), threadId, user.id).run();
+        } catch (e) { console.error("Couldn't mark thread read:", e); }
         const threadRow = await env.DB.prepare("SELECT id, kind, name FROM threads WHERE id = ?").bind(threadId).first();
         if (!threadRow) return new Response(JSON.stringify({ error: "That conversation no longer exists." }), { status: 404, headers: cors });
         const participantRows = await env.DB.prepare(
