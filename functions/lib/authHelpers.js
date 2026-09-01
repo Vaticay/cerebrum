@@ -360,6 +360,20 @@ export async function ensureSocialTables(env) {
     "CREATE TABLE IF NOT EXISTS thread_participants (thread_id TEXT NOT NULL, user_id TEXT NOT NULL, joined_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (thread_id, user_id))"
   );
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_thread_participants_user ON thread_participants(user_id)");
+  // Commit 47: real unread-message tracking for the Inbox — added after
+  // `thread_participants` was already live without it (see the "Badge count
+  // is unread... not an unread-message count" honesty note this replaces in
+  // main.jsx). Same idempotent self-heal pattern as ensureUserProfileColumns
+  // above: SQLite's ALTER TABLE has no "IF NOT EXISTS", so this is an
+  // attempt-and-swallow-the-duplicate-column-error no-op on every call after
+  // the first real one. Nullable and epoch-ms (not DATETIME) so it can be
+  // compared directly against toEpochMs(message.created_at) in data.js
+  // without a second normalization step.
+  try {
+    await env.DB.exec("ALTER TABLE thread_participants ADD COLUMN last_read_at INTEGER");
+  } catch (e) {
+    if (!/duplicate column name/i.test(String(e && e.message))) throw e;
+  }
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, sender_id TEXT NOT NULL, text TEXT, attachment_title TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
   );
