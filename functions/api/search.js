@@ -4590,7 +4590,20 @@ async function gatherPapers(rawQuery, opts) {
         // fetchers' own upstream filters alone.
         if (isNonLiterature(p)) continue;
         seenTitles.add(titleKey);
-        merged.push({ ...p, authorMatch: effectiveName });
+        // Every per-source fetcher above already runs its abstract text
+        // through stripTags(), but never its title — a gap invisible for the
+        // overwhelming majority of papers, whose titles are plain text, but
+        // Crossref (and anything that mirrors Crossref metadata) genuinely
+        // returns raw embedded JATS/MathML markup for titles containing
+        // mathematical notation, e.g. a real title arriving as literal
+        // `Proximity effect and <mml:math xmlns:mml="...">...</mml:math>-wave
+        // superconductivity`. Left unstripped, that XML rendered verbatim in
+        // the bibliography AND was fed straight into the AI evidence block —
+        // needless bloat at best, and a plausible reason a model produces a
+        // malformed/garbled response (failing the format checks below and
+        // registering as just another "failed" attempt) at worst. One choke
+        // point here covers every source instead of patching each fetcher.
+        merged.push({ ...p, authorMatch: effectiveName, title: stripTags(p.title || "") || "Untitled", journal: stripTags(p.journal || "") || p.journal || "" });
       }
     }
 
@@ -5135,7 +5148,10 @@ async function gatherPapers(rawQuery, opts) {
         const key = paperDedupeKey(p);
         if (key && !seen.has(key)) {
           seen.add(key);
-          merged.push(p);
+          // Same title-sanitization gap as the author-query branch above —
+          // see the comment there. Applied once here so every one of the
+          // 15+ source fetchers is covered without touching each of them.
+          merged.push({ ...p, title: stripTags(p.title || "") || "Untitled", journal: stripTags(p.journal || "") || p.journal || "" });
         }
       }
     }
@@ -7594,6 +7610,33 @@ Respond naturally to the user's message. Be yourself.`;
     };
     const errMsgs = (agg) => (agg && agg.errors ? agg.errors.map((e) => String((e && e.message) || e)) : [String((agg && agg.message) || agg)]);
 
+    // Root-cause instrumentation: `aiAttempts` above only ever recorded the
+    // WINNER of a wave, plus (via errMsgs/AggregateError) the losers ONLY on
+    // a wave that failed completely. That made a request that "succeeded but
+    // barely" indistinguishable from one where every other provider was
+    // healthy and just lost a fair race — from live production sampling, a
+    // handful of concurrent requests ALL won wave 1 on the exact same
+    // Workers AI model, every single time, which is consistent with either
+    // "OpenRouter is genuinely slower every time" or "OpenRouter is failing
+    // fast (rate limit / bad key) and never even in the real race" — and
+    // there was no way to tell those apart without re-running curl probes
+    // by hand. `raceEntry` wraps every leg of every wave (win or lose) with
+    // its own settle time and outcome, independent of whether Promise.any
+    // overall succeeds, and every entry is pushed into `aiAttempts` — so
+    // `_aiAttempts` on an ORDINARY successful response now shows exactly how
+    // every provider in that race actually performed, not just who won.
+    // Sampling a few live responses' `_aiAttempts` going forward tells you
+    // definitively whether OpenRouter is rate-limited (fast 429s) or just
+    // slow (long times before losing), without needing to force a total
+    // failure to see anything at all.
+    const raceEntry = (wave, label, p) => {
+      const t0 = Date.now();
+      return p.then(
+        (r) => { aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 }); return r; },
+        (e) => { aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: String((e && e.message) || e) }); throw e; }
+      );
+    };
+
     const OR_WAVE1 = [
       "deepseek/deepseek-chat-v3-0324:free",
       "google/gemini-2.0-flash-exp:free",
@@ -7656,17 +7699,16 @@ Respond naturally to the user's message. Be yourself.`;
     // the very first attempt, not after two OpenRouter tiers exhaust.
     if (!aiOK) {
       const wave1Calls = [
-        ...(token ? OR_WAVE1.map((m) => callOR(m, messages, maxTokens)) : []),
-        ...(cfBound ? CF_WAVE1.map((m) => callCF(m, messages, maxTokens)) : []),
-        ...POLLINATIONS_WAVE1.map((m) => pollinationsCall(m, messages, maxTokens)),
+        ...(token ? OR_WAVE1.map((m) => raceEntry(1, m, callOR(m, messages, maxTokens))) : []),
+        ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, messages, maxTokens))) : []),
+        ...POLLINATIONS_WAVE1.map((m) => raceEntry(1, "pollinations:" + m, pollinationsCall(m, messages, maxTokens))),
       ];
       try {
         const winner = await Promise.any(wave1Calls);
         answer = winner.answer; aiOK = true;
-        aiAttempts.push({ wave: 1, model: winner.model, ok: true });
         recordWin(winner.model);
       } catch (agg) {
-        aiAttempts.push({ wave: 1, ok: false, attempted: wave1Calls.length, errors: errMsgs(agg) });
+        aiAttempts.push({ wave: 1, ok: false, attempted: wave1Calls.length, summary: errMsgs(agg) });
       }
     }
 
@@ -7674,18 +7716,17 @@ Respond naturally to the user's message. Be yourself.`;
     // wave 1 fully failed across ALL providers simultaneously.
     if (!aiOK) {
       const wave2Calls = [
-        ...(token ? OR_WAVE2.map((m) => callOR(m, messages, maxTokens)) : []),
-        ...(cfBound ? CF_WAVE2.map((m) => callCF(m, messages, maxTokens)) : []),
-        ...POLLINATIONS_WAVE2.map((m) => pollinationsCall(m, messages, maxTokens)),
+        ...(token ? OR_WAVE2.map((m) => raceEntry(2, m, callOR(m, messages, maxTokens))) : []),
+        ...(cfBound ? CF_WAVE2.map((m) => raceEntry(2, m, callCF(m, messages, maxTokens))) : []),
+        ...POLLINATIONS_WAVE2.map((m) => raceEntry(2, "pollinations:" + m, pollinationsCall(m, messages, maxTokens))),
       ];
       if (wave2Calls.length > 0) {
         try {
           const winner = await Promise.any(wave2Calls);
           answer = winner.answer; aiOK = true;
-          aiAttempts.push({ wave: 2, model: winner.model, ok: true });
           recordWin(winner.model);
         } catch (agg) {
-          aiAttempts.push({ wave: 2, ok: false, attempted: wave2Calls.length, errors: errMsgs(agg) });
+          aiAttempts.push({ wave: 2, ok: false, attempted: wave2Calls.length, summary: errMsgs(agg) });
         }
       }
     }
@@ -7748,29 +7789,31 @@ Respond naturally to the user's message. Be yourself.`;
       ];
       const bulletproofMaxTok = Math.min(maxTokens, 900);
 
-      if (cfBound) {
-        try {
-          const winner = await Promise.any(
-            ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"]
-              .map((m) => callCF(m, bulletproofMessages, bulletproofMaxTok, 24000))
-          );
-          answer = winner.answer; aiOK = true;
-          aiAttempts.push({ wave: 3, model: winner.model, ok: true, bulletproof: true });
-          recordWin(winner.model);
-        } catch (agg) {
-          aiAttempts.push({ wave: 3, ok: false, bulletproof: true, provider: "workers-ai", errors: errMsgs(agg) });
-        }
-      }
-
-      if (!aiOK && token) {
-        try {
-          const r = await callOR("meta-llama/llama-3.2-3b-instruct:free", bulletproofMessages, bulletproofMaxTok, 18000);
-          answer = r.answer; aiOK = true;
-          aiAttempts.push({ wave: 3, model: r.model, ok: true, bulletproof: true });
-          recordWin(r.model);
-        } catch (e) {
-          aiAttempts.push({ wave: 3, ok: false, bulletproof: true, provider: "openrouter", errors: [String((e && e.message) || e)] });
-        }
+      // Commit 47: raced together in ONE Promise.any instead of Workers AI,
+      // then (only on total failure) one sequential OpenRouter call. The old
+      // sequential shape meant this tier's actual resilience was capped by
+      // whichever single leg happened to run — and if Workers AI wasn't
+      // bound (cfBound false; still an open, unconfirmed item — see the
+      // audit-status doc), the ENTIRE last-resort tier came down to exactly
+      // one OpenRouter model, on the exact same account-level key already
+      // suspected of being throttled by waves 1-2's failure. Pollinations
+      // needs no token or binding and shares neither OpenRouter's key-bucket
+      // nor Workers AI's account limits — it was completely absent from
+      // this tier before, despite being this app's one truly independent
+      // provider, and having already proven itself in waves 1-2 above.
+      // Racing all three together means the fastest surviving provider wins
+      // instead of waiting out a provider that's already known to be down.
+      const bulletproofLegs = [
+        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, 24000))) : []),
+        ...["openai", "mistral"].map((m) => raceEntry(3, "pollinations:" + m, pollinationsCall(m, bulletproofMessages, bulletproofMaxTok))),
+        ...(token ? ["meta-llama/llama-3.2-3b-instruct:free", "google/gemma-2-9b-it:free"].map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, 18000))) : []),
+      ];
+      try {
+        const winner = await Promise.any(bulletproofLegs);
+        answer = winner.answer; aiOK = true;
+        recordWin(winner.model);
+      } catch (agg) {
+        aiAttempts.push({ wave: 3, ok: false, bulletproof: true, summary: errMsgs(agg) });
       }
     }
 
