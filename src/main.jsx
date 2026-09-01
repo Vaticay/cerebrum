@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createRoot } from "react-dom/client";
+import gsap from "gsap";
 
 /* ════════════════════════════════════════════════════════════════
    CEREBRUM — design philosophy
@@ -1478,8 +1479,6 @@ function SoftAurora({
    INTRO background
    ════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
-  const [revealed, setRevealed] = useState(false);
-  const [ready, setReady] = useState(false);
   const isMobile = useIsMobile();
 
   // This screen's surface is unconditionally black (see `background:
@@ -1496,22 +1495,49 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   // visitor picked in Settings that happens to be too dark to read here.
   const introAccent = relLuminance(accent) < 0.15 ? "#5be8b0" : accent;
 
-  useEffect(() => {
-    if (animationMode === "off") { setRevealed(true); setReady(true); return; }
-  }, [animationMode]);
+  // GSAP-driven reveal (replaces the old per-element CSS-transition
+  // fade/blur choreography): a real staggered timeline that fires once on
+  // mount, plus a matching reverse timeline on exit so leaving the intro
+  // feels like one continuous motion instead of a hard cut. `animationMode
+  // === "off"` skips both entirely — every ref'd element gets full opacity
+  // immediately via its own inline style below, same "opt out of motion
+  // gets a flat, static screen" contract every other animated surface in
+  // this file follows.
+  const navRef = useRef(null);
+  const logoRef = useRef(null);
+  const head1Ref = useRef(null);
+  const head2Ref = useRef(null);
+  const descRef = useRef(null);
+  const tagsRef = useRef(null);
+  const btnsRef = useRef(null);
+  const EASE = "power3.inOut";
 
   useEffect(() => {
-    const t1 = setTimeout(() => setRevealed(true), 400);
-    const t2 = setTimeout(() => setReady(true), 900);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, []);
+    if (animationMode === "off") return;
+    const tl = gsap.timeline();
+    tl.fromTo(navRef.current, { y: -15, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.33, ease: EASE }, 0)
+      .fromTo(logoRef.current, { scale: 0.4, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 1.33, ease: EASE }, 0)
+      .fromTo(head1Ref.current, { y: -25, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.66, ease: EASE }, 0.2)
+      .fromTo(head2Ref.current, { y: -25, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.66, ease: EASE }, 0.3)
+      .fromTo(descRef.current, { y: -15, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.33, ease: EASE }, 0.5)
+      .fromTo(tagsRef.current, { y: -10, autoAlpha: 0 }, { y: 0, autoAlpha: 0.85, duration: 1.33, ease: EASE }, 0.6)
+      .fromTo(btnsRef.current, { y: -10, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.33, ease: EASE }, 0.7);
+    return () => tl.kill();
+  }, [animationMode]);
 
   const go = () => {
     if (animationMode === "off") { onEnter(); return; }
-    const el = document.getElementById("cb-intro-wrap");
-    if (el) { el.style.transition = "opacity 0.6s ease, filter 0.6s ease"; el.style.opacity = "0"; el.style.filter = "blur(8px)"; }
-    setTimeout(() => onEnter(), 650);
+    const tl = gsap.timeline({ onComplete: onEnter });
+    tl.to(btnsRef.current, { y: 15, autoAlpha: 0, duration: 0.6, ease: EASE }, 0)
+      .to(tagsRef.current, { y: 15, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.05)
+      .to(descRef.current, { y: 20, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.1)
+      .to(head2Ref.current, { y: 25, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.2)
+      .to(head1Ref.current, { y: 25, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.25)
+      .to(logoRef.current, { scale: 0.8, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.3)
+      .to(navRef.current, { y: -15, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.4);
   };
+
+  const FEATURE_TAGS = ["Cited answers", "Compare investigations", "Source network", "Literature timeline", "AI illustrations"];
 
   return (
     <div id="cb-intro-wrap" style={{
@@ -1519,155 +1545,102 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       background: "#000000", position: "relative", overflow: "hidden",
       fontFamily: "var(--cb-body)",
     }}>
-      {/* The animated ConstellationField background (see its own comment
-          block above) — gated on animationMode exactly like the main app
-          and InfoPage, so a visitor who has opted out of animation gets a
-          flat, static screen here too. */}
+      {/* The animated LivingBackground field — gated on animationMode
+          exactly like the main app and InfoPage, so a visitor who has
+          opted out of animation gets a flat, static screen here too. */}
       {animationMode !== "off" && (
         <div style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }}>
           <LivingBackground accent={accent} P={P} intensity="cinematic" speed={1} paused={false} variant="intro" />
         </div>
       )}
 
-      {/* v30 tried a flat, gradient-free surface here on the theory the
-          WebGL field alone could "carry the visual weight." Reverted: the
-          Orb fills the entire viewport behind the copy (LivingBackground's
-          host is position:fixed, inset:0 — full-bleed, not confined to some
-          corner), so every line of hero text sits directly over a bright,
-          saturated, constantly-shifting shader with nothing behind it to
-          guarantee contrast. That's the actual "can't read the text" bug —
-          the earlier z-index fix corrected stacking order (text really is
-          painted above the canvas now), but stacking order was never what
-          made it unreadable. This scrim sits between the two: darkest where
-          the hero copy actually lives (left-of-center, full height, so nav
-          and the database strip get the same floor of contrast), fading out
-          toward the right and center so the Orb still reads as a visible,
-          colorful presence rather than being smothered. */}
-      <div aria-hidden="true" className="cb-ambient" style={{
-        position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none", overflow: "hidden",
-        background: isMobile
-          ? "linear-gradient(180deg, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0.68) 100%)"
-          : "linear-gradient(115deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0.46) 58%, rgba(0,0,0,0.32) 100%), linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.24) 18%, rgba(0,0,0,0.24) 80%, rgba(0,0,0,0.55) 100%)",
-      }} />
+      {/* NO MUDDY FOG .cb-ambient LAYER ALLOWED HERE. This screen is meant
+          to read as a real landing-page hero shot with the WebGL field
+          full-bleed and undimmed behind it — a scrim over the whole
+          viewport defeats that. Legibility over the brightest parts of the
+          field is instead handled per-element with a tight text-shadow
+          below, which costs nothing when animation is off and the
+          background is flat black anyway. */}
 
-      {/* Nav */}
-      <nav style={{
+      <nav ref={navRef} style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: isMobile ? "16px 20px" : "20px 40px",
         position: "relative", zIndex: 3,
+        opacity: animationMode === "off" ? 1 : 0,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Mark size={20} accent={introAccent} glow />
-          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#e8edf5", letterSpacing: "-0.02em" }}>Cerebrum</span>
+          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#ffffff", letterSpacing: "0.04em", textTransform: "uppercase", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>Cerebrum</span>
         </div>
         <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
           {["About", "Privacy", "Contact"].map((item) => (
-            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: FONT_SIZES.small, color: "#a3b0c2", textDecoration: "none", fontWeight: 500, transition: "color 0.2s", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}
+            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: FONT_SIZES.caption, color: "#a3b0c2", textDecoration: "none", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", transition: "color 0.2s", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}
               onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#a3b0c2"}>{item}</a>
           ))}
         </div>
       </nav>
 
-      {/* Hero content */}
       <main style={{
         flex: 1, display: "flex", flexDirection: "column", justifyContent: "center",
         padding: isMobile ? "0 24px 60px" : "0 clamp(48px, 8vw, 140px) 80px",
         position: "relative", zIndex: 10, pointerEvents: "auto", maxWidth: 820,
       }}>
-        <div style={{
-          marginBottom: 32,
-          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(12px)",
-          filter: revealed ? "blur(0)" : "blur(6px)",
-          transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
-        }}>
+        <div ref={logoRef} style={{ marginBottom: 32, opacity: animationMode === "off" ? 1 : 0 }}>
           <Mark size={36} accent={introAccent} glow />
         </div>
 
         <h1 style={{
-          fontSize: isMobile ? 38 : "clamp(52px, 6.5vw, 76px)",
-          fontWeight: 300, letterSpacing: "-0.04em", lineHeight: 1.08,
-          color: "#f4f7fb", margin: "0 0 28px",
-          fontFamily: "var(--cb-display)",
-          textShadow: "0 4px 32px rgba(0,0,0,0.65)",
-          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(24px)",
-          filter: revealed ? "blur(0)" : "blur(10px)",
-          transition: "all 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s",
+          fontSize: isMobile ? 48 : "clamp(64px, 8vw, 96px)",
+          fontWeight: 800, letterSpacing: "-0.05em", lineHeight: 1.0,
+          color: "#ffffff", margin: "0 0 28px",
+          fontFamily: "var(--cb-display)", textTransform: "uppercase",
         }}>
-          Ask anything.<br />
-          <span style={{ fontWeight: 700, color: introAccent }}>We'll find the paper.</span>
+          <div ref={head1Ref} style={{ opacity: animationMode === "off" ? 1 : 0, textShadow: "0 4px 32px rgba(0,0,0,0.65)" }}>Ask anything.</div>
+          <div ref={head2Ref} style={{ color: introAccent, opacity: animationMode === "off" ? 1 : 0, textShadow: "0 4px 32px rgba(0,0,0,0.65)" }}>We'll find the paper.</div>
         </h1>
 
-        <p style={{
-          fontSize: isMobile ? FONT_SIZES.body : FONT_SIZES.subhead, color: "#b0bacb", lineHeight: 1.65,
-          margin: "0 0 44px", maxWidth: 460, fontWeight: 400,
-          textShadow: "0 2px 16px rgba(0,0,0,0.6)",
-          opacity: revealed ? 1 : 0, transform: revealed ? "none" : "translateY(16px)",
-          filter: revealed ? "blur(0)" : "blur(6px)",
-          transition: "all 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.35s",
+        <p ref={descRef} style={{
+          fontSize: isMobile ? FONT_SIZES.body : FONT_SIZES.subhead, color: "#c3cbd9", lineHeight: 1.65,
+          margin: "0 0 32px", maxWidth: 520, fontWeight: 400,
+          textShadow: "0 2px 16px rgba(0,0,0,0.7)",
+          opacity: animationMode === "off" ? 1 : 0,
         }}>
           Cerebrum searches 14 scholarly databases in parallel and writes you
-          an answer where every claim traces back to a real, citable source —
-          then lets you compare investigations, map how sources relate,
-          trace a literature across time, and see a concept illustrated.
+          an answer where every claim traces back to a real, citable source.
           One research instrument, not just a chatbot.
         </p>
 
-        <div style={{
+        {/* Feature-discovery row: `tagsRef` is already choreographed into
+            both the entrance and exit timelines above, so this needs to
+            exist in the DOM for those tweens to have anything to animate —
+            also doubles as the "not just a chatbot" positioning line this
+            app has carried since it added Compare/Source-network/Timeline/
+            Illustration as real features. */}
+        <div ref={tagsRef} style={{
           display: "flex", flexWrap: "wrap", gap: "7px 18px", marginBottom: 32,
-          opacity: revealed ? 0.85 : 0, transition: "opacity 1s cubic-bezier(0.16, 1, 0.3, 1) 0.5s",
+          opacity: animationMode === "off" ? 0.85 : 0,
         }}>
-          {["Cited answers", "Compare investigations", "Source network", "Literature timeline", "AI illustrations"].map((f) => (
-            <span key={f} style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: "#a3b0c2", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>{f}</span>
+          {FEATURE_TAGS.map((f) => (
+            <span key={f} style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: "#a3b0c2", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>{f}</span>
           ))}
         </div>
 
-        <div style={{
-          display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-          opacity: ready ? 1 : 0, transform: ready ? "none" : "translateY(12px)",
-          filter: ready ? "blur(0)" : "blur(4px)",
-          transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s",
-        }}>
+        <div ref={btnsRef} style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", opacity: animationMode === "off" ? 1 : 0 }}>
           <button onClick={go} style={{
             display: "inline-flex", alignItems: "center", gap: 8,
-            padding: "15px 32px", fontSize: FONT_SIZES.body, fontWeight: 600,
-            background: P.ink, color: P.bg,
-            border: "none", borderRadius: 4, cursor: "pointer",
-            fontFamily: "var(--cb-body)",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+            padding: "16px 36px", fontSize: FONT_SIZES.body, fontWeight: 700,
+            textTransform: "uppercase", letterSpacing: "0.05em",
+            background: "#ffffff", color: "#000000", border: "none", borderRadius: 0,
+            cursor: "pointer", fontFamily: "var(--cb-display)",
             transition: "opacity 0.2s ease",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}>
             Start exploring
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
-          </button>
-
-          <button onClick={() => window.location.href = "/about"} style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "15px 20px", fontSize: FONT_SIZES.body, fontWeight: 500,
-            background: "transparent", color: "#a3b0c2", border: "none",
-            cursor: "pointer", fontFamily: "var(--cb-body)", textShadow: "0 1px 8px rgba(0,0,0,0.7)",
-          }} onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#a3b0c2"}>
-            How it works →
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" strokeLinejoin="miter"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
           </button>
         </div>
       </main>
-
-      {/* Bottom database strip */}
-      <div style={{
-        padding: isMobile ? "0 24px 24px" : "0 48px 36px",
-        position: "relative", zIndex: 3,
-        display: "flex", flexWrap: "wrap", gap: isMobile ? "6px 16px" : "6px 28px",
-        opacity: ready ? 0.35 : 0, transition: "opacity 1.5s ease 0.6s",
-      }}>
-        {["PubMed", "Europe PMC", "OpenAlex", "Semantic Scholar", "CORE", "arXiv"].map((d) => (
-          <span key={d} style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: "#8b98ab", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "var(--cb-mono)", textShadow: "0 1px 6px rgba(0,0,0,0.7)" }}>{d}</span>
-        ))}
-        {/* Bug: said "+10" after 6 named databases (implying 16 total) —
-            the real backend fanout queries 14. See matching fix in the
-            trustRow strip elsewhere in this file. */}
-        <span style={{ fontSize: FONT_SIZES.micro, color: "#5a6678", fontFamily: "var(--cb-mono)", letterSpacing: "0.1em", textShadow: "0 1px 6px rgba(0,0,0,0.7)" }}>+8</span>
-      </div>
     </div>
   );
 }
@@ -6252,11 +6225,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // meant to produce. Restoring a real scrim here — the same role the
     // Intro screen's own `.cb-ambient` layer already plays for Orb, just
     // lighter — knocks the aurora back down to a quiet, controlled accent
-    // in open space instead of a fog filling the whole viewport. Built from
-    // P.bg itself (this palette's own neutral tone, not a new color) so
-    // every non-WebGL surface in the app stays exactly as gray/neutral as
-    // it already was — only the WebGL layer keeps any color, and even that
-    // reads calmer instead of removed.
+    // in open space instead of a fog filling the whole viewport.
     //
     // Commit 44: the Commit 43 pass above still shipped this scrim BEHIND
     // LivingBackground in paint order (this div sits earlier in the JSX,
@@ -6273,9 +6242,25 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // it — puts it on top instead, where it actually composites over every
     // pixel of the aurora, bright bands included. Opacity nudged up
     // alongside the reorder for real margin now that it's doing its job.
+    //
+    // Commit 45: STILL read as foggy after the z-index fix, and the actual
+    // cause was this comment's own prior claim — "built from P.bg itself...
+    // not a new color" was true back when the dark palettes' `bg` was
+    // near-black. It no longer is: the user separately asked for dark mode
+    // to be "not so dark," and PALETTES.Dark/Mid/Sage were deliberately
+    // lifted off pure black to a warm/cool charcoal (`#201f1d`/`#25262b`/
+    // `#242420` — see PALETTES itself). Tinting a dimming scrim with that
+    // *lighter* charcoal, at 72% opacity, over a bright saturated WebGL
+    // shader doesn't dim it the way a near-black overlay does — it blends
+    // into exactly the warm-gray haze being reported. The scrim's job is to
+    // darken the animated layer, not to color-match the theme's own (now
+    // deliberately lighter) surface tone, so those two now need to be
+    // decoupled: dark themes' scrim is a fixed near-black regardless of how
+    // light `P.bg` gets, while light theme's scrim (never reported as
+    // foggy, and already close to white) still derives from its own P.bg.
     ambient: {
       position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", overflow: "hidden",
-      background: withAlpha(P.bg, P.dark ? 0.72 : 0.45),
+      background: P.dark ? "rgba(0,0,0,0.72)" : withAlpha(P.bg, 0.45),
     },
 
     /* ── Header: dark glass bar, minimal ──
