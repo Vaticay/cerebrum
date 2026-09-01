@@ -287,6 +287,20 @@ function safeHref(url) {
   return /^https?:\/\//i.test(u) ? u : "#";
 }
 
+// Every video object search.js/videos.js hands back already carries a
+// pre-validated 11-character id (see videos.js's YT_ID_RE check on the
+// piped/invidious path) — prefer that directly and only fall back to
+// parsing it out of the stored watch/shorts/youtu.be URL for anything
+// older or from a path that didn't set `id`. Returns null rather than a
+// guess when nothing usable is found, so a caller never embeds garbage.
+const YT_ID_RE = /^[\w-]{11}$/;
+function getYouTubeId(v) {
+  if (v && v.id && YT_ID_RE.test(v.id)) return v.id;
+  const url = (v && v.url) || "";
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|shorts\/|embed\/))([\w-]{11})/);
+  return m ? m[1] : null;
+}
+
 function formatCitation(source, style, index) {
   const s = source || {};
   const authors = s.authors || "";
@@ -476,11 +490,17 @@ const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888" };
 // hero wordmark's responsive clamp()) are left as literals on purpose: they
 // answer to their own unique layout, not to a shared metadata/heading scale.
 const FONT_SIZES = {
-  micro: 10.5,      // footnotes, superscripts, smallest badges
-  caption: 11.5,    // metadata labels, timestamps, byline text
-  small: 12.5,      // secondary text, form inputs, chips, tab labels
-  body: 14,         // primary body copy
-  subhead: 16.5,    // card titles, list items, modal subheads
+  // Second readability pass (Commit 43) — the first pass (Commit 40) nudged
+  // the smallest sizes up by half a point and lifted secondary-text
+  // contrast; still reported as too small/hard to read in real use, so this
+  // round moves every size in the scale up a full step rather than another
+  // half-point nudge, on the theory that half a point was simply too
+  // conservative a correction the first time.
+  micro: 11,        // footnotes, superscripts, smallest badges
+  caption: 12,      // metadata labels, timestamps, byline text
+  small: 13,        // secondary text, form inputs, chips, tab labels
+  body: 15,         // primary body copy
+  subhead: 17,      // card titles, list items, modal subheads
   heading: 18,      // component/section headings
   sectionHead: 20,  // markdown-rendered answer section headers
   display: 24,      // headline callouts, mobile hero titles
@@ -1676,7 +1696,22 @@ function LivingBackground({ accent, P, intensity = "cinematic", speed = 1, pause
       transition: "opacity 0.5s ease",
     }} aria-hidden="true">
       {variant === "intro"
-        ? <Orb hoverIntensity={2.58} rotateOnHover hue={117} forceHoverState={false} backgroundColor="#000000" />
+        ? (
+          // hoverIntensity was previously 2.58 here — over 12x Orb's own
+          // documented default (0.2). Orb's `hover` uniform doesn't rest at
+          // 0 when nothing is actively hovering it: it's seeded at 1 and
+          // reset to 1 on mouseleave, and never gets a touch handler at
+          // all, so on mobile (no mouse events ever fire) it just sits at
+          // ~1 permanently. That means this was never a "kicks in on
+          // hover" accent — it was a constant, maxed-out UV-distortion
+          // term applied to the orb's noise field at all times, which reads
+          // as a soft, hazy smear rather than the crisp ring/orb shape the
+          // shader actually draws. Turned down to a level where the same
+          // gentle shimmer is still there without swamping the shape
+          // underneath it — Orb's own code, its shader, and every other
+          // prop are untouched.
+          <Orb hoverIntensity={0.4} rotateOnHover hue={117} forceHoverState={false} backgroundColor="#000000" />
+        )
         : <SoftAurora speed={0.6 * speed} scale={1.5} brightness={1} color1="#3B82F6" color2="#1dae7c" noiseFrequency={1.5} noiseAmplitude={1} bandHeight={0.5} bandSpread={1} octaveDecay={0.1} layerOffset={0} colorSpeed={1.1} enableMouseInteraction mouseInfluence={1.5} />}
     </div>
   );
@@ -2508,6 +2543,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
   const [showReport, setShowReport] = useState(false);
   const [generatingPaper, setGeneratingPaper] = useState(false);
   const [paperReady, setPaperReady] = useState(false);
+  const [openVideo, setOpenVideo] = useState(null);
   const paper = useMemo(() => buildAcademicPaperBlocks(t.answer), [t.answer]);
 
   // A running conversation mounts one <Turn> per exchange (see turns.map in
@@ -2714,7 +2750,7 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }} className="cb-stagger">
             {t.videos.slice(0, 6).map((v, i) => (
-              <a key={v.id || i} href={safeHref(v.url)} target="_blank" rel="noreferrer" className="cb-fade cb-card" style={{ display: "block", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 3, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
+              <button key={v.id || i} type="button" onClick={() => setOpenVideo(v)} className="cb-fade cb-card" style={{ display: "block", width: "100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 3, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, padding: 0, font: "inherit", textAlign: "left", cursor: "pointer", transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 0 0 1px ${withAlpha(accent, 0.4)}, 0 8px 24px ${withAlpha(accent, 0.12)}`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
                 <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
@@ -2729,11 +2765,12 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
                   <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", marginBottom: 4 }}>{v.title}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{v.author}</div>
                 </div>
-              </a>
+              </button>
             ))}
           </div>
         </div>
       )}
+      {openVideo && <VideoPlayerModal P={P} accent={accent} at={at} video={openVideo} close={() => setOpenVideo(null)} />}
       {/* Related questions */}
       {interactive && done && t.related && t.related.length > 0 && (
         <div style={S.relatedWrap} className="cb-fade">
@@ -3741,6 +3778,53 @@ function TrendingArticleModal({ P, accent, at, item, close }) {
   );
 }
 
+// Related-video playback — same dialog pattern as TrendingArticleModal
+// (backdrop click + Escape both close, focus trapped inside) but hosting a
+// real YouTube <iframe> instead of a text summary, so a related video plays
+// inline instead of just linking out to youtube.com in a new tab. autoplay
+// only fires once the iframe itself is actually mounted inside the open
+// dialog, never in the results grid, so nothing plays until someone
+// actually asks for it.
+function VideoPlayerModal({ P, accent, at, video, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const ytId = getYouTubeId(video);
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label={video.title || "Video"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 217, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 16, maxWidth: 860, width: "100%", display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
+      }} className="cb-modal">
+        <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: "#000", flexShrink: 0 }}>
+          {ytId ? (
+            <iframe
+              src={`https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`}
+              title={video.title || "Video"}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small }}>Couldn't identify this video.</div>
+          )}
+          <button onClick={close} aria-label="Close" style={{ position: "absolute", top: 14, right: 14, width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", cursor: "pointer" }}><Icon name="close" size={16} /></button>
+        </div>
+        <div style={{ padding: "18px 22px 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.35 }}>{video.title}</div>
+            {video.author && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", marginTop: 6 }}>{video.author}</div>}
+          </div>
+          <a href={safeHref(video.url)} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 600, color: accent, textDecoration: "none", whiteSpace: "nowrap" }}>
+            Watch on YouTube <Icon name="external" size={13} />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // How often an open Trending tab re-polls its own endpoint. The feed
 // itself only actually changes once an hour (trending-refresh.js's own
 // job) — this isn't trying to beat that clock, it's just making sure
@@ -4149,38 +4233,121 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
   );
 }
 
-// A UI stub, not a feature — there is no signaling server, no peer
-// connection, no camera/microphone capture anywhere in this codebase. This
-// renders what a huddle screen would look like and is honestly labeled as
-// a preview so nobody mistakes the pulsing avatar for an actual incoming
-// call. Wiring real WebRTC (signaling through the existing D1-backed
-// message channel or a separate service, ICE/STUN config, device
-// permission prompts) is a genuinely separate build from a UI pass.
-function VideoHuddle({ P, accent, at, name, onClose }) {
-  const initials = (name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+// Loads Jitsi Meet's external API script at most once per session (shared
+// across every VideoHuddle mount — closing one huddle and opening another
+// reuses the already-loaded script instead of re-fetching it). Not bundled:
+// meet.jit.si serves this itself and expects to be loaded fresh from there,
+// not vendored, since it's what wires the embed to their own signaling.
+let jitsiScriptPromise = null;
+function loadJitsiScript() {
+  if (typeof window !== "undefined" && window.JitsiMeetExternalAPI) return Promise.resolve();
+  if (!jitsiScriptPromise) {
+    // Always a fresh <script> element for a fresh attempt (jitsiScriptPromise
+    // is only ever null on the very first call, or right after the retry
+    // button below explicitly clears it): reusing a script tag left over
+    // from a failed attempt would mean listening for "load"/"error" events
+    // that already fired once and, having already resolved to failure,
+    // never fire again — the retry would just hang forever instead of
+    // actually retrying. A stale failed tag (if any) is removed first so it
+    // can't linger and confuse a future lookup.
+    document.querySelectorAll('script[src="https://meet.jit.si/external_api.js"]').forEach((el) => el.remove());
+    jitsiScriptPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://meet.jit.si/external_api.js";
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("script failed to load"));
+      document.head.appendChild(s);
+    });
+  }
+  return jitsiScriptPromise;
+}
+
+// Genuinely live now — a real embedded call via Jitsi Meet's free public
+// server (meet.jit.si), through their external_api.js embed. No signaling
+// server, account, or API key of ours involved: the iframe Jitsi's script
+// creates talks straight to their infrastructure. `roomSeed` (the thread id)
+// is hashed into the room name rather than used raw, so the room isn't just
+// our internal id in plain sight, but it's still fully deterministic —
+// everyone opening the huddle from the same conversation lands in the same
+// room, and no other conversation collides into it. meet.jit.si rooms have
+// no access control of their own beyond the room name being unguessable, the
+// same trust model as sharing any meet.jit.si/xyz link.
+function VideoHuddle({ P, accent, at, name, roomSeed, onClose }) {
+  const containerRef = useRef(null);
+  const apiRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const [status, setStatus] = useState("loading"); // loading | ready | error
+  const [retryTick, setRetryTick] = useState(0);
+  const roomName = useMemo(
+    () => `cerebrum-huddle-${hashSeed(String(roomSeed != null ? roomSeed : (name || "room"))).toString(36)}`,
+    [roomSeed, name]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    loadJitsiScript().then(() => {
+      if (cancelled || !containerRef.current) return;
+      // The public embed has no notion of this app's warm-stone palette —
+      // only a background color for the pre-video/connecting state actually
+      // takes without fighting the rest of Jitsi's own chrome, so that's all
+      // that's set here, matching Dark vs. light palettes rather than
+      // introducing color of our own.
+      const bg = P.dark ? "#12141c" : "#f2efe9";
+      const api = new window.JitsiMeetExternalAPI("meet.jit.si", {
+        roomName,
+        parentNode: containerRef.current,
+        width: "100%",
+        height: "100%",
+        userInfo: name ? { displayName: name } : undefined,
+        configOverwrite: {
+          prejoinPageEnabled: true,
+          disableDeepLinking: true,
+          defaultBackground: bg,
+        },
+        interfaceConfigOverwrite: {
+          DEFAULT_BACKGROUND: bg,
+          SHOW_JITSI_WATERMARK: false,
+          SHOW_WATERMARK_FOR_GUESTS: false,
+          MOBILE_APP_PROMO: false,
+          HIDE_INVITE_MORE_HEADER: true,
+        },
+      });
+      apiRef.current = api;
+      api.addEventListener("videoConferenceLeft", () => onCloseRef.current && onCloseRef.current());
+      api.addEventListener("readyToClose", () => onCloseRef.current && onCloseRef.current());
+      setStatus("ready");
+    }).catch(() => { if (!cancelled) setStatus("error"); });
+    return () => {
+      cancelled = true;
+      if (apiRef.current) { apiRef.current.dispose(); apiRef.current = null; }
+    };
+  }, [roomName, name, retryTick]);
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, padding: 24 }}>
-      <div style={{
-        width: "100%", maxWidth: 480, aspectRatio: "16 / 9", borderRadius: 14, position: "relative", overflow: "hidden",
-        background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-        border: `1px solid ${P.line}`, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        <span aria-hidden="true" style={{
-          position: "absolute", width: 92, height: 92, borderRadius: "50%", background: withAlpha(accent, 0.25),
-          animation: "cbHuddlePulse 2.4s ease-in-out infinite",
-        }} />
-        <span style={{
-          position: "relative", width: 64, height: 64, borderRadius: "50%", background: withAlpha(accent, 0.2), color: accent,
-          display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.subhead, fontWeight: 700, fontFamily: "var(--cb-mono)",
-        }}>{initials}</span>
-        <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, background: P.dark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>Preview — not yet connected</span>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: P.bg }}>
+      <div style={{ flex: 1, minHeight: 0, position: "relative", background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }}>
+        <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+        {status !== "ready" && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center" }}>
+            {status === "loading" ? (<>
+              <div style={{ width: 28, height: 28, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+              <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Connecting call…</div>
+            </>) : (<>
+              <Icon name="warning" size={20} style={{ color: P.faint }} />
+              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2 }}>Couldn't reach the video call service.</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, maxWidth: 280 }}>Check your connection and try again.</div>
+              <button onClick={() => { jitsiScriptPromise = null; setRetryTick((n) => n + 1); }} style={{ padding: "7px 16px", borderRadius: 100, border: `1px solid ${P.line}`, background: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Retry</button>
+            </>)}
+          </div>
+        )}
       </div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2 }}>Waiting for peers to join…</div>
-        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 320 }}>Video Huddle is a preview of the interface Cerebrum will use for live calls. Nobody can actually hear or see you here yet — there's no call to join.</div>
+      <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderTop: `1px solid ${P.line}` }}>
+        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Video Huddle · {name}</span>
+        <button onClick={onClose} style={{ flexShrink: 0, padding: "7px 16px", borderRadius: 100, border: `1px solid ${P.line}`, background: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Leave &amp; back to chat</button>
       </div>
-      <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 100, border: `1px solid ${P.line}`, background: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Back to chat</button>
     </div>
   );
 }
@@ -4318,12 +4485,12 @@ function InboxModal({ P, accent, at, close, threads, setThreads, initialThreadId
                 {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{subtitle}</div>}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <button onClick={() => setHuddleOpen((v) => !v)} aria-label={huddleOpen ? "End video huddle preview" : "Start video huddle preview"} aria-pressed={huddleOpen} title="Video Huddle (preview — not yet connected)" style={{ background: huddleOpen ? withAlpha(accent, 0.14) : "none", border: "none", borderRadius: 8, color: huddleOpen ? accent : P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="camera" size={18} /></button>
+                <button onClick={() => setHuddleOpen((v) => !v)} aria-label={huddleOpen ? "End video huddle" : "Start video huddle"} aria-pressed={huddleOpen} title="Video Huddle" style={{ background: huddleOpen ? withAlpha(accent, 0.14) : "none", border: "none", borderRadius: 8, color: huddleOpen ? accent : P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="camera" size={18} /></button>
                 <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
               </div>
             </div>
             {huddleOpen ? (
-              <VideoHuddle P={P} accent={accent} at={at} name={activeThread.name} onClose={() => setHuddleOpen(false)} />
+              <VideoHuddle P={P} accent={accent} at={at} name={activeThread.name} roomSeed={activeId} onClose={() => setHuddleOpen(false)} />
             ) : (<>
             <div style={{ flex: 1, overflowY: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
               {activeThread.messages.length === 0 && (
@@ -5045,7 +5212,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
                 >
                   <img
                     src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(h.name)}&backgroundColor=${accent.replace("#", "")}`}
-                    alt="" aria-hidden="true"
+                    alt="" aria-hidden="true" loading="lazy"
                     style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, border: `1px solid ${P.line}` }}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -5071,6 +5238,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
                   src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.username || r.id)}&backgroundColor=0a0a0a`}
                   alt=""
                   aria-hidden="true"
+                  loading="lazy"
                   style={{ width: 40, height: 40, borderRadius: "50%", flexShrink: 0, border: `1px solid ${P.line}`, objectFit: "cover" }}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -5205,7 +5373,7 @@ function InstitutionModal({ P, accent, at, close, hubName, onMessage }) {
                     <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, borderRadius: 10, border: `1px solid ${P.line}` }}>
                       <img
                         src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.username || r.id)}&backgroundColor=0a0a0a`}
-                        alt="" aria-hidden="true"
+                        alt="" aria-hidden="true" loading="lazy"
                         style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0, border: `1px solid ${P.line}`, objectFit: "cover" }}
                       />
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -5252,6 +5420,50 @@ function InstitutionModal({ P, accent, at, close, hubName, onMessage }) {
    overlay gets the same "switch modes" experience with zero touch on
    anything already working there.
    ============================================================ */
+// pdfjs-dist is only ever needed by the one person in a given session who
+// actually drops a PDF into Document Mode — a static top-level import would
+// put its parser in every visitor's main bundle for a feature most people
+// never touch. Loaded lazily, once, on first real use instead. Pin here
+// tracks the exact version in package.json's dependency — the worker file
+// pdf.js loads into its own thread has to match the main library's version
+// exactly, and since the worker is fetched from a CDN rather than bundled
+// (see the standard Vite-compatible pattern for this library), there's
+// nothing tying the two together automatically the way a bundled import
+// would.
+const PDFJS_VERSION = "4.10.38";
+let pdfjsLibPromise = null;
+function loadPdfJs() {
+  if (!pdfjsLibPromise) {
+    pdfjsLibPromise = import("pdfjs-dist").then((mod) => {
+      mod.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+      return mod;
+    });
+  }
+  return pdfjsLibPromise;
+}
+
+// Page-by-page text extraction via getTextContent() — the standard pdf.js
+// approach for a text-layer PDF (anything produced by Word/LaTeX/a real
+// export pipeline, which covers the overwhelming majority of papers and
+// reports someone would drop in here). A scanned/image-only PDF has no text
+// layer at all, so every page comes back with zero items and the joined
+// result is empty or whitespace-only; that's detected by the caller rather
+// than here; this doesn't fail for that case, it just legitimately returns
+// nothing. Actual OCR (reading text out of a raster image) is real, separate
+// work this doesn't attempt.
+async function extractPdfText(file) {
+  const pdfjsLib = await loadPdfJs();
+  const data = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const pages = [];
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    pages.push(content.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ").trim());
+  }
+  return pages.join("\n\n").trim();
+}
+
 // Right-pane analysis tabs. "findings" folds together the backend's
 // keyFindings + limitations fields — the source prompt asked for a tab
 // per {Executive Summary, Methodology, Follow-up Q&A}, but
@@ -5281,19 +5493,39 @@ function NotebookMode({ P, accent, at, close }) {
   const [qaBusy, setQaBusy] = useState(false);
   const [qaHistory, setQaHistory] = useState([]); // [{ query, answer, errorMsg }]
   const [hoverCite, setHoverCite] = useState(null);
+  const [extractingPdf, setExtractingPdf] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Plain text / Markdown only — reading actual text out of a PDF client-
-  // side needs a real parsing library (PDF.js or similar), which is a
-  // separate, heavier addition than this pass covers. Dropping a PDF here
-  // reads its raw bytes as text and produces garbage, so the dropzone is
-  // scoped (accept + copy) to what it actually handles correctly; the
-  // textarea paste path already covers "copy the text out of your PDF
-  // reader and paste it in," which is the common case this ships for. This
-  // is also why the left-pane tab below reads "Upload File," not "Upload
-  // PDF" — that label would promise parsing this doesn't do.
+  // Plain text/Markdown is read directly; a .pdf goes through pdf.js
+  // (extractPdfText, above) instead — entirely in the browser, nothing sent
+  // anywhere just to get text out of it. A scanned/image-only PDF has no
+  // extractable text layer at all (see extractPdfText's own comment) rather
+  // than failing outright, so that's called out explicitly rather than
+  // silently handing the summarizer an empty document; a genuinely corrupt
+  // or non-PDF file rejected by pdf.js itself gets its own distinct message
+  // rather than both collapsing into one generic "couldn't read this."
   const readFile = (file) => {
     if (!file) return;
+    setError("");
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+    if (isPdf) {
+      setExtractingPdf(true);
+      extractPdfText(file)
+        .then((text) => {
+          if (!text || text.length < 20) {
+            setError("Couldn't find any text in that PDF — it may be a scanned or image-only document. Try a different file, or paste the text directly if you have it.");
+            return;
+          }
+          setDocumentText(text);
+          setLeftTab("paste");
+        })
+        .catch((e) => {
+          console.error("PDF extraction failed:", e);
+          setError("Couldn't read that PDF — it may be corrupted or password-protected. Try a different file, or paste the text directly instead.");
+        })
+        .finally(() => setExtractingPdf(false));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => { setDocumentText(String(reader.result || "")); setLeftTab("paste"); };
     reader.onerror = () => setError("Couldn't read that file. Try pasting the text directly instead.");
@@ -5327,20 +5559,26 @@ function NotebookMode({ P, accent, at, close }) {
     }
   };
 
-  // Each follow-up is answered fresh against the full document text rather
-  // than folded into a running conversation history — the backend's whole
-  // guarantee ("answer ONLY from this text, say so if it's not there") is
-  // simplest to keep honest one grounded question at a time, matching what
-  // functions/api/document.js's QA_SYSTEM_PROMPT actually promises.
+  // Every factual claim in the answer still has to come from the document
+  // text alone (see QA_SYSTEM_PROMPT in functions/api/document.js) — but a
+  // real conversation needs a follow-up like "and the second one?" or "why
+  // is that?" to resolve against what was actually just asked, so the prior
+  // turns of THIS document's own thread are sent along as plain context.
+  // The backend treats that history as disambiguation only, never as a
+  // source of facts, so grounding stays strict while the exchange stops
+  // resetting to a blank slate every single question.
   const askFollowUp = async () => {
     const q = qaQuery.trim();
     if (!q || qaBusy || !summary) return;
+    const historyForRequest = qaHistory
+      .filter((h) => h.answer)
+      .flatMap((h) => [{ role: "user", text: h.query }, { role: "assistant", text: h.answer }]);
     setQaBusy(true);
     setQaQuery("");
     setRightTab("qa");
     setQaHistory((prev) => [...prev, { query: q, answer: "" }]);
     try {
-      const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: documentText.trim(), query: q }) });
+      const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: documentText.trim(), query: q, history: historyForRequest }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Couldn't answer that.");
       setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, answer: data.answer } : h)));
@@ -5400,12 +5638,15 @@ function NotebookMode({ P, accent, at, close }) {
                 background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "all 150ms ease", minHeight: isMobile ? 140 : 240,
               }}
             >
-              <input ref={fileInputRef} type="file" accept=".txt,.md,text/plain" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
-              <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
-              <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a text file here, or click to browse</div>
-              {/* Honest about what this actually parses — see readFile's own
-                  comment for why a literal "Upload PDF" tab would overpromise. */}
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 260 }}>Plain text or Markdown files. For a PDF, copy its text and paste it into the Source Text tab instead — Cerebrum doesn't extract text from PDF bytes yet.</div>
+              <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,text/plain,application/pdf" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
+              {extractingPdf ? (<>
+                <div style={{ width: 24, height: 24, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600, marginTop: 6 }}>Extracting text from PDF…</div>
+              </>) : (<>
+                <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
+                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a file here, or click to browse</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 260 }}>PDF, plain text, or Markdown. PDF text is extracted right in your browser — nothing is uploaded just to read it. Scanned/image-only PDFs have no text to extract; paste the text directly for those.</div>
+              </>)}
             </div>
           ) : (
             <textarea
@@ -5994,15 +6235,31 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // v30: retiring the "Darknode terminal" concept entirely per direction —
     // this was a vignette left over from that round (already pared down
     // from three colored blobs to one dark edge fade last round). The new
-    // target is "Next-Gen Editorial Intelligence": a flawless, solid,
-    // premium surface, not a vignette or a haze of any kind. P.bg is
-    // literally #000000 in the Dark palette and the light palette's own
-    // near-white — so a fully transparent ambient layer already gives
-    // exactly the flat premium obsidian/white surface asked for, with zero
-    // gradient math left to fight the page's WebGL layer for the same pixels.
+    // target was "Next-Gen Editorial Intelligence": a flawless, solid,
+    // premium surface, not a vignette or a haze of any kind — reasoning
+    // that P.bg's own solid color would carry the surface and a fully
+    // transparent ambient layer would leave "zero gradient math left to
+    // fight the page's WebGL layer for the same pixels."
+    // Commit 43: that reasoning didn't hold. `page`'s solid `background:
+    // P.bg` paints at the very back of the page element's own box, but
+    // LivingBackground (SoftAurora) is a later sibling in the DOM with the
+    // same z-index, so it paints ON TOP of that solid color, full-bleed,
+    // completely undimmed, everywhere the app's actual content — cards,
+    // panels, text — doesn't happen to sit directly over it. In practice
+    // that's every gap, margin, and stretch of negative space in the
+    // layout, which is exactly what reads as a hazy, foggy wash across the
+    // dark palettes rather than the flat, considered surface this was
+    // meant to produce. Restoring a real scrim here — the same role the
+    // Intro screen's own `.cb-ambient` layer already plays for Orb, just
+    // lighter — knocks the aurora back down to a quiet, controlled accent
+    // in open space instead of a fog filling the whole viewport. Built from
+    // P.bg itself (this palette's own neutral tone, not a new color) so
+    // every non-WebGL surface in the app stays exactly as gray/neutral as
+    // it already was — only the WebGL layer keeps any color, and even that
+    // reads calmer instead of removed.
     ambient: {
       position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
-      background: "transparent",
+      background: withAlpha(P.bg, P.dark ? 0.55 : 0.35),
     },
 
     /* ── Header: dark glass bar, minimal ──
@@ -6556,7 +6813,17 @@ function ToastHost({ P, accent }) {
    used to, just relocated here so the header itself can stay down to
    the brand, the search bar, and account/inbox.
    ════════════════════════════════════════════════════════════════ */
-function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, muted, onToggleMute, onLogoClick }) {
+// Wrapped in React.memo: this nav rail's own props are all cheap primitives
+// or already-stable references (P/accent/at are effectively stable per
+// palette/accent choice, S is memoized, history/saved/user only change
+// when their own data actually changes) once the callback props passed to
+// it are also stabilized at the call site (see stableSidebarNavigate,
+// handleSidebarCloseMobile, handleToggleMute, handleLogoClick in App) —
+// without memo, this whole rail (and the nav-item hover handlers it
+// recreates) re-rendered on every App state change, including something as
+// frequent as a keystroke in the search box, even though almost none of
+// those actually change anything Sidebar shows.
+const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, muted, onToggleMute, onLogoClick }) {
   const NAV = [
     ["new", "New investigation", "plus", null],
     ["search", "Search", "search", null],
@@ -6618,7 +6885,7 @@ function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onC
       {body}
     </>
   );
-}
+});
 
 function App() {
   const isMobile = useIsMobile();
@@ -6964,7 +7231,14 @@ function App() {
   // typewriter animation). Memoizing it means that work only happens when
   // something it actually depends on changes.
   const S = useMemo(() => makeStyles(P, accent, at, isMobile, dataDensity), [P, accent, at, isMobile, dataDensity]);
-  const sfx = () => { if (!mutedRef.current) Audio.click(); };
+  // Stable identity (reads mutedRef, a ref, so it never needs to change) —
+  // matters beyond just avoiding one function allocation per render: it's
+  // what lets the Sidebar-facing callbacks built from it below (see
+  // handleLogoClick) stay stable in turn, which is what actually lets
+  // React.memo(Sidebar) skip re-rendering the nav rail on unrelated App
+  // state changes (typing in the search box, hover states, etc.) instead
+  // of bailing out on a "new function every render" prop every time.
+  const sfx = useCallback(() => { if (!mutedRef.current) Audio.click(); }, []);
 
   // Scroll progress bar
   // v6.4: reads window/document scroll now instead of a dedicated inner
@@ -7330,6 +7604,24 @@ function App() {
       default: break;
     }
   }
+  // handleSidebarNavigate itself reads turns/input/allSources indirectly
+  // through newSession, so it (correctly) gets a new identity every render
+  // those change — which is most keystrokes. Sidebar is wrapped in
+  // React.memo below specifically so it stops re-rendering on the rest of
+  // App's state churn, but a memo only pays off if EVERY prop it receives
+  // is reference-stable; handing it handleSidebarNavigate directly would
+  // hand it a "changed" onNavigate prop on exactly the renders memo is
+  // trying to skip, defeating it entirely. The standard fix for "stable
+  // callback identity, always-current behavior" is a ref that's kept
+  // pointed at the latest closure (same pattern as mutedRef above, updated
+  // in an effect rather than during render) behind one callback whose own
+  // identity never changes.
+  const handleSidebarNavigateRef = useRef(handleSidebarNavigate);
+  useEffect(() => { handleSidebarNavigateRef.current = handleSidebarNavigate; });
+  const stableSidebarNavigate = useCallback((key) => handleSidebarNavigateRef.current(key), []);
+  const handleSidebarCloseMobile = useCallback(() => setSidebarMobileOpen(false), []);
+  const handleToggleMute = useCallback(() => setMuted((m) => !m), []);
+  const handleLogoClick = useCallback(() => { sfx(); setEntered(false); setView("search"); }, [sfx]);
   function toggleSave(s) { sfx(); setSaved((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
   function isPinned(s) { const k = sourceKey(s); return pinnedSources.some((x) => sourceKey(x) === k); }
   function togglePin(s) { sfx(); setPinnedSources((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
@@ -7539,11 +7831,11 @@ function App() {
       {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: FONT_SIZES.subhead }}>↑</button>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
-        view={view} onNavigate={handleSidebarNavigate}
-        isMobile={isMobile} mobileOpen={sidebarMobileOpen} onCloseMobile={() => setSidebarMobileOpen(false)}
+        view={view} onNavigate={stableSidebarNavigate}
+        isMobile={isMobile} mobileOpen={sidebarMobileOpen} onCloseMobile={handleSidebarCloseMobile}
         user={user} history={history} saved={saved} muted={muted}
-        onToggleMute={() => setMuted(!muted)}
-        onLogoClick={() => { sfx(); setEntered(false); setView("search"); }}
+        onToggleMute={handleToggleMute}
+        onLogoClick={handleLogoClick}
       />
       <div style={S.appMain}>
       <header style={S.header}>
@@ -7933,6 +8225,16 @@ const CSS = `
    own, which is exactly the kind of nested scrolling context this fix is
    trying to get rid of; \`clip\` suppresses the paint without doing that. */
 html, body { margin: 0; }
+/* Commit 43: iOS/macOS Safari runs its own automatic text-inflation
+   algorithm on top of every font-size this app already sets — it silently
+   scales body text up or down (independent of pinch-zoom) based on column
+   width heuristics that this single-column app shell was never designed
+   around, and it can re-trigger on rotation, making the same screen render
+   at a different effective text size a moment later with no code change in
+   between. Every size in FONT_SIZES is already deliberate; this switches
+   Safari's own adjustment off so what's actually shipped is what renders,
+   the same way it does in Chrome/Firefox. Has no effect outside WebKit. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 /* Belt-and-suspenders guarantee that the decorative ConstellationField
    canvas (see LivingBackground) can never sit in the hit-test path for
@@ -7980,38 +8282,56 @@ summary::-webkit-details-marker { display: none; }
 .cb-scroll-x { scrollbar-width: none; -ms-overflow-style: none; }
 .cb-scroll-x::-webkit-scrollbar { display: none; height: 0; }
 
+/* v43: every "to" frame below used to land on the value "filter: blur(0)"
+   instead of the keyword "filter: none". Visually identical (zero-radius
+   blur draws nothing) — but not the same value to the CSS engine: a filter
+   of anything other than the literal keyword "none" makes the element a
+   containing block for its fixed/absolute-positioned descendants, and with
+   animation-fill-mode "both" that "to" state is what the element is left
+   holding forever once the 200-700ms entrance animation finishes, not just
+   while it's mid-flight. Every one of these classes sits on some ancestor
+   of ordinary page content, so this was a standing landmine for any fixed
+   or absolutely positioned element mounted underneath one — including
+   Turn's own print/export overlay (see .cb-print-paper-doc and its fixed
+   watermark, sitting under Turn's own "cb-rise" wrapper): once the entrance
+   animation settled, that wrapper silently became the watermark's
+   containing block instead of the viewport, and the export doc's own
+   width:100% resolved against that narrow flex column instead of the full
+   page — the reported "exports as one squeezed column" bug. Swapping the
+   endpoint to the real "none" keyword removes the stray containing block
+   with no visual change. */
 @keyframes cbEnter {
   from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
+  to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbFade {
   from { opacity: 0; filter: blur(4px); }
-  to   { opacity: 1; filter: blur(0); }
+  to   { opacity: 1; filter: none; }
 }
 @keyframes cbRise {
   from { opacity: 0; transform: translateY(12px); filter: blur(6px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
+  to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbPop {
   from { opacity: 0; transform: scale(0.97); filter: blur(4px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
+  to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbHero {
   from { opacity: 0; transform: translateY(20px); filter: blur(10px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
+  to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbGate {
   from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
+  to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbModal {
   from { opacity: 0; transform: translateY(16px) scale(0.98); filter: blur(6px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
+  to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
 @keyframes cbSlideUp {
   from { opacity: 0; transform: translateY(24px); filter: blur(6px); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
+  to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbMicPulse {
   0%, 100% { opacity: 0.5; transform: scale(1); }
@@ -8145,7 +8465,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 @keyframes cbPageEnter {
   from { opacity: 0; transform: translateY(30px); filter: blur(12px); }
-  to { opacity: 1; transform: none; filter: blur(0); }
+  to { opacity: 1; transform: none; filter: none; }
 }
 
 /* Suggestion chip hover ripple */
@@ -8175,7 +8495,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 @keyframes cbTextReveal {
   from { opacity: 0; transform: translateY(20px); filter: blur(8px); letter-spacing: 0.05em; }
-  to { opacity: 1; transform: none; filter: blur(0); letter-spacing: inherit; }
+  to { opacity: 1; transform: none; filter: none; letter-spacing: inherit; }
 }
 
 /* Floating action button pulse */
@@ -8369,6 +8689,15 @@ html { scroll-behavior: smooth; }
 .cb-print-paper-doc { display: none; }
 @media print {
   body.cb-printing-paper * { visibility: hidden !important; }
+  /* Belt-and-suspenders alongside the keyframe fix above: any lingering
+     filter or transform on an ancestor (an entrance animation's finished
+     state, a hover transform a mouse handler forgot to clear, etc.) makes
+     that ancestor a containing block for the print doc's own fixed/absolute
+     boxes, so the exported page sizes and centers itself against that
+     ancestor's box instead of the printed page. Stripping both for every
+     (invisible) element for the duration of the print closes that off
+     entirely rather than relying on having found every source of it. */
+  body.cb-printing-paper * { filter: none !important; transform: none !important; }
   body.cb-printing-paper .cb-print-paper-doc,
   body.cb-printing-paper .cb-print-paper-doc * { visibility: visible !important; }
   body.cb-printing-paper .cb-print-paper-doc {
