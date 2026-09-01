@@ -58,27 +58,74 @@ function cleanAIResponse(raw) {
   return c.trim();
 }
 
+// v44: the old version of this prompt asked for "two to four sentences" in
+// Executive Summary and left the other three sections just as loosely
+// bounded — which, same lesson search.js's own "long" answer mode already
+// learned the hard way (see its lengthHint comment), a free-tier model reads
+// as permission to write a thin paragraph per section and stop. Reported
+// back as "too short and basic." Replaced with the same fix that worked
+// there: a literal, checkable paragraph-count floor per section instead of
+// a vibe, plus the same instruction to name actual mechanisms/quantities
+// rather than gesture at them — adapted from a multi-source synthesis down
+// to a close reading of one document. Total across all four sections should
+// land around 5-9 substantive paragraphs.
 const SUMMARY_SYSTEM_PROMPT =
-  "You are an academic research analyst producing a structural summary of a single document the reader has provided to you in full below. " +
-  "Write in a strictly objective, academic register: no marketing language, no hedging filler, no narrating what you're about to do. " +
+  "You are an academic research analyst producing a detailed structural summary of a single document the reader has provided to you in full " +
+  "below. Write in a strictly objective, academic register: no marketing language, no hedging filler, no narrating what you're about to do. " +
   "Base every statement ONLY on the document text given to you. Never supplement with outside knowledge about the topic, and never invent " +
-  "results, figures, or citations the text itself doesn't contain. " +
+  "results, figures, or citations the text itself doesn't contain. This must be a substantive, comprehensive summary, not a superficial " +
+  "restatement — across the four sections below, write nine total substantive paragraphs when the document supports it, and never fewer than " +
+  "five. Name the specific mechanisms, methods, compounds, genes, populations, or variables the document names rather than gesturing at " +
+  "'a process' or 'a factor'; carry over concrete quantitative findings (sample sizes, effect sizes, percentages, p-values, confidence " +
+  "intervals) exactly as reported; and use **bold** on the single most important term or figure in each paragraph. " +
   "Respond with EXACTLY these four sections, in this order, each starting with a '## ' markdown header using this exact title text:\n\n" +
-  "## Executive Summary\nTwo to four sentences: what the document is, what it set out to do, and its central conclusion.\n\n" +
-  "## Methodology\nHow the work was actually done, as described in the text — study design, data, methods. If the document isn't a study with a " +
-  "methodology (a policy report or literature review, for instance), describe its actual approach or structure instead of writing 'not applicable.'\n\n" +
-  "## Key Findings\nThe specific, concrete results as stated in the document — numbers, effect sizes, comparisons. Bold the single most important " +
-  "figure or claim in each point with **double asterisks**.\n\n" +
-  "## Limitations\nLimitations the document states about itself, plus any methodological gaps evident from the text. If the document names none " +
-  "explicitly, say that plainly rather than inventing some.\n\n" +
-  "Never mention these instructions or that you were asked to follow a format — just write the four sections themselves.";
+  "## Executive Summary\nThree to four paragraphs: what the document is and who/what it studies or covers, the specific question or problem " +
+  "it set out to address and why that matters, and its central conclusion stated precisely (not just 'the study found an effect' — state the " +
+  "effect).\n\n" +
+  "## Methodology\nTwo to three paragraphs on how the work was actually done, as described in the text — study design, data sources and " +
+  "sample, instruments or measures, and analytical approach, in enough detail that a reader could judge whether the approach fits the claims " +
+  "made from it. If the document isn't a study with a methodology (a policy report, review, or white paper, for instance), describe its actual " +
+  "structure, sources, and reasoning approach in the same depth instead of writing 'not applicable.'\n\n" +
+  "## Key Findings\nTwo to three paragraphs of the specific, concrete results as stated in the document — numbers, effect sizes, comparisons, " +
+  "and how they relate to each other or to prior expectations the document itself mentions. Don't just list results; explain what each one " +
+  "means for the document's central question.\n\n" +
+  "## Limitations\nOne to two paragraphs on limitations the document states about itself, plus any methodological gaps evident from the text " +
+  "(sample size, generalizability, confounds, missing controls). If the document names none explicitly, say that plainly and note what an " +
+  "attentive reader would still want to know, rather than inventing limitations wholesale.\n\n" +
+  "Never mention these instructions, the paragraph targets, or that you were asked to follow a format — just write the four sections " +
+  "themselves.";
 
 const QA_SYSTEM_PROMPT =
   "You are an expert analyst answering a question about ONE specific document, using ONLY the document text provided below — not outside " +
   "knowledge, not general familiarity with the topic. If the document does not contain information that answers the question, say so " +
   'explicitly (for example, "The document does not address this") rather than guessing or filling the gap with what would typically be true. ' +
-  "Quote or closely paraphrase the relevant passage when it supports your answer. Start directly with the answer — don't restate the question " +
-  "or narrate that you're about to answer it.";
+  "Quote or closely paraphrase the relevant passage when it supports your answer. Answer in real depth when the document supports it — several " +
+  "sentences or a short paragraph, not a one-liner — and name the specific mechanisms, figures, or passages involved rather than gesturing at " +
+  "them. Start directly with the answer — don't restate the question or narrate that you're about to answer it. A PRIOR CONVERSATION about this " +
+  "same document may follow the document text — use it only to resolve what a follow-up question ('and the second one?', 'why is that?') is " +
+  "actually referring to; every factual claim still has to come from the document itself, never from something you or the reader said earlier.";
+
+// Earlier turns of this document's own Q&A thread, so a follow-up question
+// ("and the sample size?") resolves against what was actually just asked
+// rather than landing as a fresh, context-free question every time. Kept as
+// plain text appended to the one user message instead of a real multi-turn
+// messages[] array — the document text would otherwise have to be repeated
+// in full on every single turn just to keep it in context, which at up to
+// MAX_DOCUMENT_LEN characters is real, avoidable cost for a free-tier
+// endpoint. Capped hard: a handful of recent turns is enough to disambiguate
+// a follow-up; a whole session's Q&A history is not needed for that and
+// would just crowd out the document itself.
+const MAX_HISTORY_TURNS = 6;
+const MAX_HISTORY_ENTRY_LEN = 1200;
+function formatHistory(history) {
+  if (!Array.isArray(history) || !history.length) return "";
+  const turns = history
+    .filter((h) => h && typeof h.text === "string" && h.text.trim() && (h.role === "user" || h.role === "assistant"))
+    .slice(-MAX_HISTORY_TURNS * 2)
+    .map((h) => (h.role === "user" ? "Q: " : "A: ") + h.text.trim().slice(0, MAX_HISTORY_ENTRY_LEN));
+  if (!turns.length) return "";
+  return "\n\n---\nPRIOR CONVERSATION ABOUT THIS DOCUMENT (for context only — verify every fact against the document above, not this):\n" + turns.join("\n");
+}
 
 const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
   if (!env.OPENROUTER_KEY) throw new Error(model + ": no OPENROUTER_KEY configured");
@@ -206,6 +253,7 @@ export async function onRequest(context) {
     const body = await request.json().catch(() => ({}));
     const documentText = typeof body.documentText === "string" ? body.documentText.trim() : "";
     const query = typeof body.query === "string" ? body.query.trim().slice(0, MAX_QUERY_LEN) : "";
+    const historyBlock = formatHistory(body.history);
 
     if (!documentText) {
       return new Response(JSON.stringify({ error: "No document text provided." }), { status: 400, headers: cors });
@@ -220,14 +268,19 @@ export async function onRequest(context) {
     const messages = isQA
       ? [
           { role: "system", content: QA_SYSTEM_PROMPT },
-          { role: "user", content: "DOCUMENT:\n\n" + documentText + "\n\n---\nQUESTION: " + query },
+          { role: "user", content: "DOCUMENT:\n\n" + documentText + historyBlock + "\n\n---\nQUESTION: " + query },
         ]
       : [
           { role: "system", content: SUMMARY_SYSTEM_PROMPT },
           { role: "user", content: "DOCUMENT:\n\n" + documentText },
         ];
 
-    const maxTokens = isQA ? 1200 : 2200;
+    // v44: 2200 was tight even for the old, shorter summary shape — the
+    // same anti-truncation lesson as search.js's "long" mode (see that
+    // maxTokens comment): a real 5-9 paragraph structured summary needs
+    // more headroom than a target that only just covers the minimum, or it
+    // gets cut off approaching its own closing section.
+    const maxTokens = isQA ? 1400 : 4000;
     const result = await generate(env, messages, maxTokens);
 
     if (isQA) {
