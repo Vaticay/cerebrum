@@ -8162,7 +8162,21 @@ Respond naturally to the user's message. Be yourself.`;
     // actually has the setting on, so the UI stays exactly as opt-in as the
     // toggle promises.
     let factCheckResult = null;
-    if (settings.factCheck && useEvidence && evidencePapers.length > 0) {
+    // Commit 51 — `&& aiOK` added. Without it, the moment every model is
+    // rate-limited (!aiOK), `answer` above gets overwritten with the "Unable
+    // To Synthesize — Showing Source Papers Directly" fallback: a formatted
+    // dump of paper titles, journal names, and abstract snippets, not a
+    // synthesized claim. Fact-checking ran against that dump anyway, scanning
+    // it for capitalized terms/acronyms and checking whether they appear in
+    // the source abstracts — which is how "PLOS" (the journal name, sitting
+    // right there in the fallback's own "**Journal:** PLOS Pathogens" line)
+    // got flagged as an "unsupported" term the sources don't back up, next to
+    // a "75% source alignment" score for a page that never actually
+    // synthesized anything. That's actively misleading exactly when honesty
+    // matters most — a degraded-capacity notice dressed up with a bogus
+    // confidence score. Same guard, same reasoning as the `&& aiOK` already
+    // added to the answer-cache write a few lines above.
+    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK) {
       // v34: the deep, claim-by-claim pass is tried first — see deepFactCheck()
       // above for the two-tier LLM strategy and why it can't reuse callOR/
       // callCF. It replaces the old one-line-per-entity output ("References
