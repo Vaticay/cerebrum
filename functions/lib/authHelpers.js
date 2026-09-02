@@ -378,5 +378,54 @@ export async function ensureSocialTables(env) {
     "CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, sender_id TEXT NOT NULL, text TEXT, attachment_title TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
   );
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at)");
+  // Commit 48 — message/call moderation: block + report.
+  // user_blocks is directional (blocker_id blocked blocked_id) so "who
+  // blocked whom" is always answerable, even though every enforcement check
+  // below treats it as effectively mutual (either direction blocks sending).
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS user_blocks (blocker_id TEXT NOT NULL, blocked_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (blocker_id, blocked_id))"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked ON user_blocks(blocked_id)");
+  // content_reports covers messages, whole conversations, and calls with one
+  // table + a `kind` discriminator, rather than three near-identical tables
+  // — deliberately separate from the pre-existing `reports` table, which is
+  // for bad AI answers/citations, not user-to-user conduct. No admin/review
+  // UI exists yet (same honest limitation as `reports` itself): rows land
+  // here for an operator to query directly in D1 until one is built.
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS content_reports (id TEXT PRIMARY KEY, reporter_id TEXT NOT NULL, reported_user_id TEXT, thread_id TEXT, message_id TEXT, kind TEXT NOT NULL, reason TEXT NOT NULL, note TEXT, created_at INTEGER NOT NULL)"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_content_reports_reported ON content_reports(reported_user_id)");
+  // Commit 50 — call_signals: the WebRTC signaling relay for VideoHuddle's
+  // own peer-to-peer calling (replacing the meet.jit.si embed — see the
+  // block comment above VideoHuddle in main.jsx for why). This table is
+  // deliberately tiny and short-lived: one row per SDP offer/answer/ICE
+  // candidate/hello/bye message, scoped to a thread and a per-tab client_id,
+  // read once via polling and cleaned up ~10 minutes later by
+  // functions/api/call-signal.js itself on every write to that thread. No
+  // media ever passes through here — only the handful of small messages
+  // needed to introduce two browsers' RTCPeerConnections to each other.
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS call_signals (id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL, sender_id TEXT NOT NULL, client_id TEXT NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL)"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_call_signals_thread ON call_signals(thread_id, id)");
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_call_signals_created ON call_signals(created_at)");
   _socialTablesEnsured = true;
+}
+
+// Commit 48 — shared by every moderation touchpoint that cares whether two
+// people can message/call each other: the inbox and thread's informational
+// `blocked` flag, and send-message/start-thread/call-signal's actual
+// enforcement. See user_blocks in schema.sql — storage is directional
+// (blocker_id/blocked_id) but this treats either direction as blocking,
+// which is what every caller actually wants ("can these two people
+// talk/call," not "who blocked whom"). Moved here (Commit 50) from data.js,
+// which used to be its only caller, now that call-signal.js needs the exact
+// same check for the same reason — one definition instead of two copies
+// that could quietly drift apart on a security-relevant rule.
+export async function isBlockedPair(env, aId, bId) {
+  const row = await env.DB.prepare(
+    "SELECT 1 FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)"
+  ).bind(aId, bId, bId, aId).first();
+  return !!row;
 }
