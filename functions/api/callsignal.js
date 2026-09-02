@@ -125,12 +125,17 @@ export async function onRequest(context) {
         return new Response(JSON.stringify({ error: "Not authorized for this call." }), { status: 403, headers: cors });
       }
       const rows = await env.DB.prepare(
-        "SELECT id, sender_id, type, payload, created_at FROM call_signals WHERE thread_id = ? AND id > ? AND client_id != ? ORDER BY id ASC LIMIT 200"
+        "SELECT id, sender_id, client_id, type, payload, created_at FROM call_signals WHERE thread_id = ? AND id > ? AND client_id != ? ORDER BY id ASC LIMIT 200"
       ).bind(threadId, since, clientId).all();
+      // client_id is included so the client can fall back to it as a
+      // tie-break when deciding who sends the SDP offer, for the edge case
+      // where both sides' user ids come back identical or missing (e.g.
+      // someone testing a call against their own account in two tabs) —
+      // see the role-assignment comment in VideoHuddle in src/main.jsx.
       const messages = (rows.results || []).map((r) => {
         let payload = null;
         try { payload = JSON.parse(r.payload); } catch { payload = null; }
-        return { id: r.id, sender_id: r.sender_id, type: r.type, payload };
+        return { id: r.id, sender_id: r.sender_id, client_id: r.client_id, type: r.type, payload };
       });
       return new Response(JSON.stringify({ messages }), { status: 200, headers: cors });
     }
