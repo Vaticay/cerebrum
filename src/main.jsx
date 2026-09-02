@@ -4252,183 +4252,321 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
   );
 }
 
-// Loads Jitsi Meet's external API script at most once per session (shared
-// across every VideoHuddle mount — closing one huddle and opening another
-// reuses the already-loaded script instead of re-fetching it). Not bundled:
-// meet.jit.si serves this itself and expects to be loaded fresh from there,
-// not vendored, since it's what wires the embed to their own signaling.
-let jitsiScriptPromise = null;
-function loadJitsiScript() {
-  if (typeof window !== "undefined" && window.JitsiMeetExternalAPI) return Promise.resolve();
-  if (!jitsiScriptPromise) {
-    // Always a fresh <script> element for a fresh attempt (jitsiScriptPromise
-    // is only ever null on the very first call, or right after the retry
-    // button below explicitly clears it): reusing a script tag left over
-    // from a failed attempt would mean listening for "load"/"error" events
-    // that already fired once and, having already resolved to failure,
-    // never fire again — the retry would just hang forever instead of
-    // actually retrying. A stale failed tag (if any) is removed first so it
-    // can't linger and confuse a future lookup.
-    document.querySelectorAll('script[src="https://meet.jit.si/external_api.js"]').forEach((el) => el.remove());
-    jitsiScriptPromise = new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = "https://meet.jit.si/external_api.js";
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("script failed to load"));
-      document.head.appendChild(s);
-    });
-  }
-  return jitsiScriptPromise;
-}
-
-// Genuinely live now — a real embedded call via Jitsi Meet's free public
-// server (meet.jit.si), through their external_api.js embed. No signaling
-// server, account, or API key of ours involved: the iframe Jitsi's script
-// creates talks straight to their infrastructure. `roomSeed` (the thread id)
-// is hashed into the room name rather than used raw, so the room isn't just
-// our internal id in plain sight, but it's still fully deterministic —
-// everyone opening the huddle from the same conversation lands in the same
-// room, and no other conversation collides into it. meet.jit.si rooms have
-// no access control of their own beyond the room name being unguessable, the
-// same trust model as sharing any meet.jit.si/xyz link.
+// Commit 50 — VideoHuddle rebuilt on Cerebrum's own WebRTC signaling instead
+// of embedding Jitsi's free public server (meet.jit.si).
+//
+// Root cause of the bug this replaces: on August 24, 2023, Jitsi permanently
+// ended anonymous room creation on meet.jit.si — every room's first
+// participant now has to authenticate via Google/GitHub/Facebook to become
+// "moderator" before the call starts
+// (https://jitsi.org/blog/authentication-on-meet-jit-si/,
+// https://github.com/jitsi/jitsi-meet/issues/13753). That requirement is
+// enforced on Jitsi's own server, not by anything this app's client code
+// configured, so no JitsiMeetExternalAPI option could bypass it — the
+// "please log-in" screen was Jitsi's 2023 policy showing up inside our
+// embed, not a bug in the usual sense.
+//
+// This is a genuine from-scratch replacement, not a patch: real
+// getUserMedia capture, a real RTCPeerConnection per call, and a real
+// signaling channel of our own (functions/api/call-signal.js, backed by the
+// call_signals D1 table) instead of a third party's server. No OAuth wall
+// is possible here because there is no third party in the call path at all
+// — only two browsers and Cerebrum's own backend relaying the small
+// SDP/ICE messages needed to introduce them to each other. Media itself
+// never touches Cerebrum's servers; it flows directly between the two
+// browsers (or via a STUN-negotiated path — see functions/api/
+// ice-servers.js) the same way FaceTime/Instagram's own calling does.
+//
+// Scope, stated plainly: this is peer-to-peer, built for the 1:1 calls the
+// product actually surfaces today (the single "Video Huddle" button on a DM
+// thread in InboxView) — a group call would need a media relay (SFU)
+// fanning out N streams each way, a materially bigger project. There is
+// also no TURN relay configured yet (see ice-servers.js for the env vars
+// that turn one on with zero further code changes) — STUN alone already
+// covers the large majority of home/mobile networks, but two callers both
+// behind a restrictive/symmetric NAT (some corporate/hotel Wi-Fi) may fail
+// to connect directly until TURN is added. And there is still no push
+// notification when someone starts a huddle — both people have to already
+// know to open it — pre-existing since the very first Jitsi version of this
+// feature, unrelated to today's fix, flagged here rather than left for
+// someone to rediscover.
 //
 // Commit 46: rebuilt as a dedicated full-screen overlay (FaceTime-style)
-// instead of an inline panel confined to the Inbox's right pane. Three
-// pieces, each a real implementation rather than a decorative shell:
-// - Main stage: the same Jitsi iframe as before, now sized off the
-//   viewport (`position: fixed`, inset-based) instead of a nested flex
-//   column, so it can't collapse to 0 height the way an ancestor flex box
-//   theoretically could — the specific "cropped/blacked out" failure mode
-//   this round asked to rule out.
-// - Self-view PiP: a genuinely separate local camera preview via this
-//   component's own `getUserMedia` call — not a restyle of anything
-//   inside Jitsi's iframe, which is cross-origin content this app has no
-//   DOM/CSS access into. Real cost of that honesty: the browser's camera
-//   permission prompt can fire twice (once for this preview, once inside
-//   Jitsi's iframe for the actual call).
-// - Floating control island: real buttons wired to Jitsi's IFrame API
-//   (`executeCommand`), not decorative — mic/camera reflect and drive
-//   Jitsi's own mute state via its change events, "switch view" toggles
-//   Jitsi's tile/speaker view, and the red button hangs up the Jitsi call
-//   and closes this overlay together. Jitsi's own built-in toolbar is
-//   hidden (`toolbarButtons: []`) so there's one set of call controls on
-//   screen, not two competing for the same space.
-function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
-  const containerRef = useRef(null);
-  const selfVideoRef = useRef(null);
-  const apiRef = useRef(null);
+// instead of an inline panel confined to the Inbox's right pane — kept as-is
+// below, only what's inside it changed.
+let __cbHuddleClientSeq = 0;
+function newHuddleClientId() {
+  __cbHuddleClientSeq += 1;
+  return `${Date.now().toString(36)}-${__cbHuddleClientSeq}-${Math.random().toString(36).slice(2, 8)}`;
+}
+async function postCallSignal(threadId, clientId, type, payload) {
+  try {
+    await fetch("/api/call-signal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId, clientId, type, payload }),
+    });
+  } catch {
+    // Best-effort. A dropped offer/answer/ICE post is recoverable — the
+    // sender's own retry logic or the next natural signal covers it, except
+    // `bye` on unmount, which is inherently best-effort everywhere (the tab
+    // may already be closing when it fires).
+  }
+}
+
+function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, onClose }) {
+  const threadId = roomSeed; // roomSeed has always actually been the DM's thread id — see onStartHuddle in InboxView
+  const videoARef = useRef(null); // "main stage" slot
+  const videoBRef = useRef(null); // picture-in-picture slot
+  const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
+  const pcRef = useRef(null);
+  const screenTrackRef = useRef(null);
+  const clientIdRef = useRef(null);
+  if (!clientIdRef.current) clientIdRef.current = newHuddleClientId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const [status, setStatus] = useState("loading"); // loading | ready | error
+  const [status, setStatus] = useState("loading"); // loading | waiting | connecting | ready | error
+  const [errorReason, setErrorReason] = useState("");
   const [retryTick, setRetryTick] = useState(0);
   const [micMuted, setMicMuted] = useState(false);
   const [camMuted, setCamMuted] = useState(false);
-  const [tileView, setTileView] = useState(false);
-  const [selfPreviewError, setSelfPreviewError] = useState(false);
+  const [hasCamera, setHasCamera] = useState(true);
+  // Repurposes the old Jitsi "tile view" toggle: with exactly two
+  // participants and no SFU, a tile grid doesn't apply the way it did for
+  // Jitsi's multi-party rooms — swapping which feed is the big one (the way
+  // Instagram/Messenger's own video calls let you tap the small bubble) is
+  // the equivalent that actually fits a 1:1 call.
+  const [mainIsSelf, setMainIsSelf] = useState(false);
+  const mainIsSelfRef = useRef(false);
   // Commit 47 — "amazing video call optimization":
-  // - `minimized`: the call keeps running (same mounted Jitsi iframe, same
-  //   WebRTC session — nothing is torn down or recreated) while shrinking to
-  //   a small floating bubble, so navigating to another tab doesn't hang up.
-  // - `screenSharing`/`dataSaver`: both drive real, documented Jitsi IFrame
-  //   API primitives (`toggleShareScreen` / `setVideoQuality`), the same
-  //   `executeCommand` family the existing mic/camera/tile-view controls
-  //   already use — not new/speculative surface area.
+  // - `minimized`: the call keeps running (same mounted RTCPeerConnection —
+  //   nothing is torn down or recreated) while shrinking to a small floating
+  //   bubble, so navigating to another tab doesn't hang up.
+  // - `screenSharing`/`dataSaver`: both drive real, documented WebRTC
+  //   primitives (`getDisplayMedia` + `replaceTrack` / `RTCRtpSender.
+  //   setParameters` bitrate caps) — not new/speculative surface area.
   const [minimized, setMinimized] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
   const [dataSaver, setDataSaver] = useState(false);
   // Commit 48: report this call — kind: "call" against content_reports,
-  // scoped by thread_id (roomSeed IS the DM's thread id, see onStartHuddle
-  // in InboxView) rather than a specific user, since a call has no single
-  // message to point at the way the Inbox's per-message report does.
+  // scoped by thread_id rather than a specific user, since a call has no
+  // single message to point at the way the Inbox's per-message report does.
   const [reportOpen, setReportOpen] = useState(false);
-  const roomName = useMemo(
-    () => `cerebrum-huddle-${hashSeed(String(roomSeed != null ? roomSeed : (name || "room"))).toString(36)}`,
-    [roomSeed, name]
-  );
+
+  function assignVideos(isSelfMain) {
+    const a = videoARef.current, b = videoBRef.current;
+    if (a) a.srcObject = isSelfMain ? localStreamRef.current : remoteStreamRef.current;
+    if (b) b.srcObject = isSelfMain ? remoteStreamRef.current : localStreamRef.current;
+  }
+
+  useEffect(() => { mainIsSelfRef.current = mainIsSelf; assignVideos(mainIsSelf); }, [mainIsSelf]);
 
   useEffect(() => {
     let cancelled = false;
+    let pc = null;
+    let localStream = null;
+    let pollTimer = null;
+    let lastSeenId = 0;
+    let peerId = null;
+    let role = null; // 'offerer' | 'answerer', decided once the peer's first message is seen
+    let madeOffer = false;
+    let remoteDescSet = false;
+    let connected = false;
+    const pendingRemoteCandidates = [];
+    const myClientId = clientIdRef.current;
+
     setStatus("loading");
-    loadJitsiScript().then(() => {
-      if (cancelled || !containerRef.current) return;
-      // The call screen is always dark chrome regardless of the app's own
-      // light/dark palette — same convention FaceTime/Zoom/Meet all use,
-      // a call surface doesn't follow the host app's theme.
-      const bg = "#0b0b0d";
-      const api = new window.JitsiMeetExternalAPI("meet.jit.si", {
-        roomName,
-        parentNode: containerRef.current,
-        width: "100%",
-        height: "100%",
-        userInfo: name ? { displayName: name } : undefined,
-        configOverwrite: {
-          prejoinPageEnabled: true,
-          disableDeepLinking: true,
-          defaultBackground: bg,
-          toolbarButtons: [],
-        },
-        interfaceConfigOverwrite: {
-          DEFAULT_BACKGROUND: bg,
-          SHOW_JITSI_WATERMARK: false,
-          SHOW_WATERMARK_FOR_GUESTS: false,
-          MOBILE_APP_PROMO: false,
-          HIDE_INVITE_MORE_HEADER: true,
-          TOOLBAR_BUTTONS: [],
-        },
-      });
-      apiRef.current = api;
-      api.addEventListener("videoConferenceLeft", () => onCloseRef.current && onCloseRef.current());
-      api.addEventListener("readyToClose", () => onCloseRef.current && onCloseRef.current());
-      api.addEventListener("audioMuteStatusChanged", ({ muted }) => setMicMuted(!!muted));
-      api.addEventListener("videoMuteStatusChanged", ({ muted }) => setCamMuted(!!muted));
-      // Real event, not polled/guessed — fires whenever screen-share starts
-      // or stops, whether triggered from our own button below or from the
-      // native browser "Stop sharing" bar Chrome/Firefox show during a
-      // share, so this stays correct even when the share ends a way our own
-      // button never sees.
-      api.addEventListener("screenSharingStatusChanged", ({ on }) => setScreenSharing(!!on));
-      Promise.resolve(api.isAudioMuted()).then((m) => setMicMuted(!!m)).catch(() => {});
-      Promise.resolve(api.isVideoMuted()).then((m) => setCamMuted(!!m)).catch(() => {});
-      setStatus("ready");
-    }).catch(() => { if (!cancelled) setStatus("error"); });
+    setErrorReason("");
+
+    const postSignal = (type, payload) => postCallSignal(threadId, myClientId, type, payload);
+
+    async function flushPendingCandidates() {
+      while (pendingRemoteCandidates.length) {
+        const c = pendingRemoteCandidates.shift();
+        try { await pc.addIceCandidate(c); } catch {}
+      }
+    }
+
+    async function makeOffer() {
+      if (!pc) return;
+      setStatus("connecting");
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await postSignal("offer", offer);
+      } catch {}
+    }
+
+    async function handleMessage(msg) {
+      if (peerId == null && msg.sender_id) {
+        peerId = msg.sender_id;
+        // Deterministic tie-break so exactly one side ever creates the
+        // offer, computed identically on both sides with no coordination
+        // beyond comparing two already-known, stable user ids — avoids
+        // "glare" from both peers racing to offer at once.
+        role = String(currentUserId) < String(peerId) ? "offerer" : "answerer";
+      }
+      if (msg.type === "hello") {
+        if (role === "offerer" && !madeOffer) { madeOffer = true; await makeOffer(); }
+        else setStatus((s) => (s === "loading" || s === "waiting" ? "connecting" : s));
+      } else if (msg.type === "offer") {
+        setStatus("connecting");
+        try {
+          await pc.setRemoteDescription(msg.payload);
+          remoteDescSet = true;
+          await flushPendingCandidates();
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await postSignal("answer", answer);
+        } catch {}
+      } else if (msg.type === "answer") {
+        try {
+          await pc.setRemoteDescription(msg.payload);
+          remoteDescSet = true;
+          await flushPendingCandidates();
+        } catch {}
+      } else if (msg.type === "ice") {
+        if (remoteDescSet) { try { await pc.addIceCandidate(msg.payload); } catch {} }
+        else pendingRemoteCandidates.push(msg.payload);
+      } else if (msg.type === "bye") {
+        if (!cancelled) onCloseRef.current && onCloseRef.current();
+      }
+    }
+
+    async function poll() {
+      if (cancelled) return;
+      try {
+        const qs = new URLSearchParams({ threadId: String(threadId), since: String(lastSeenId), clientId: myClientId });
+        const res = await fetch(`/api/call-signal?${qs.toString()}`);
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          const messages = (data && data.messages) || [];
+          for (const msg of messages) {
+            lastSeenId = Math.max(lastSeenId, msg.id);
+            await handleMessage(msg);
+          }
+        }
+      } catch {}
+      if (cancelled) return;
+      // Fast while establishing the call, slower once connected — from
+      // there on the only thing still worth polling for is a hangup.
+      pollTimer = setTimeout(poll, connected ? 3000 : 800);
+    }
+
+    async function start() {
+      const icePromise = fetch("/api/ice-servers").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      } catch {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          if (!cancelled) setHasCamera(false);
+        } catch {
+          if (!cancelled) {
+            setErrorReason("Camera/microphone access is required for a video huddle. Please allow access in your browser and try again.");
+            setStatus("error");
+          }
+          return;
+        }
+      }
+      if (cancelled) { localStream.getTracks().forEach((t) => t.stop()); return; }
+      localStreamRef.current = localStream;
+      assignVideos(mainIsSelfRef.current);
+
+      let iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+      const iceData = await icePromise;
+      if (iceData && Array.isArray(iceData.iceServers) && iceData.iceServers.length) iceServers = iceData.iceServers;
+      if (cancelled) return;
+
+      pc = new RTCPeerConnection({ iceServers });
+      pcRef.current = pc;
+      localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+      pc.ontrack = (e) => {
+        remoteStreamRef.current = e.streams[0];
+        assignVideos(mainIsSelfRef.current);
+      };
+      pc.onicecandidate = (e) => { if (e.candidate) postSignal("ice", e.candidate.toJSON()); };
+      pc.onconnectionstatechange = () => {
+        if (cancelled || !pc) return;
+        if (pc.connectionState === "connected") { connected = true; setStatus("ready"); }
+        else if (pc.connectionState === "failed") {
+          connected = false;
+          setErrorReason("Couldn't establish a direct connection to the other person — this can happen on some restrictive networks.");
+          setStatus("error");
+        }
+      };
+
+      setStatus("waiting");
+      await postSignal("hello", {});
+      poll();
+    }
+
+    start();
+
     return () => {
       cancelled = true;
-      if (apiRef.current) { apiRef.current.dispose(); apiRef.current = null; }
+      if (pollTimer) clearTimeout(pollTimer);
+      postSignal("bye", {});
+      if (pc) { try { pc.close(); } catch {} }
+      if (localStream) localStream.getTracks().forEach((t) => t.stop());
+      if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch {} screenTrackRef.current = null; }
+      pcRef.current = null;
+      localStreamRef.current = null;
+      remoteStreamRef.current = null;
     };
-  }, [roomName, name, retryTick]);
+  }, [threadId, currentUserId, retryTick]);
 
-  // Self-view PiP: a real, separate local camera preview, independent of
-  // whatever Jitsi is doing inside its own iframe — see the block comment
-  // above this component for why it can't just borrow Jitsi's own feed.
-  useEffect(() => {
-    let cancelled = false;
-    let stream = null;
-    if (navigator.mediaDevices?.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then((s) => {
-        if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
-        stream = s;
-        if (selfVideoRef.current) selfVideoRef.current.srcObject = s;
-      }).catch(() => { if (!cancelled) setSelfPreviewError(true); });
-    } else {
-      setSelfPreviewError(true);
-    }
-    return () => { cancelled = true; stream?.getTracks().forEach((t) => t.stop()); };
-  }, []);
-
-  const toggleMic = () => apiRef.current?.executeCommand("toggleAudio");
-  const toggleCam = () => apiRef.current?.executeCommand("toggleVideo");
-  const toggleView = () => { apiRef.current?.executeCommand("toggleTileView"); setTileView((v) => !v); };
-  const endCall = () => { apiRef.current?.executeCommand("hangup"); onClose(); };
-  const toggleScreenShare = () => apiRef.current?.executeCommand("toggleShareScreen");
-  // 720p normally, 180p in Data saver — real quality tiers Jitsi's own
-  // encoder actually renders at (documented setVideoQuality levels), not a
-  // cosmetic label. Local state flips immediately since the command doesn't
-  // itself emit a confirmation event to listen for.
-  const toggleDataSaver = () => {
+  const toggleMic = () => {
+    const track = localStreamRef.current?.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setMicMuted(!track.enabled);
+  };
+  const toggleCam = () => {
+    const track = localStreamRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setCamMuted(!track.enabled);
+  };
+  const toggleView = () => setMainIsSelf((v) => !v);
+  const endCall = () => { postCallSignal(threadId, clientIdRef.current, "bye", {}); onClose(); };
+  const stopScreenShare = () => {
+    const camTrack = localStreamRef.current?.getVideoTracks()[0];
+    const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
+    if (sender && camTrack) sender.replaceTrack(camTrack).catch(() => {});
+    if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch {} screenTrackRef.current = null; }
+    setScreenSharing(false);
+  };
+  const toggleScreenShare = async () => {
+    if (screenSharing) { stopScreenShare(); return; }
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+      const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
+      if (sender) await sender.replaceTrack(screenTrack);
+      screenTrackRef.current = screenTrack;
+      // Real event, not polled/guessed — fires when the share ends via the
+      // browser's own native "Stop sharing" bar, not just our own button.
+      screenTrack.onended = () => stopScreenShare();
+      setScreenSharing(true);
+    } catch {}
+  };
+  // ~150kbps in Data saver vs ~2.5Mbps normally — real bitrate caps WebRTC's
+  // own encoder honors (documented RTCRtpSender.setParameters), not a
+  // cosmetic label.
+  const toggleDataSaver = async () => {
     const next = !dataSaver;
     setDataSaver(next);
-    apiRef.current?.executeCommand("setVideoQuality", next ? 180 : 720);
+    const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
+    if (sender) {
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+        params.encodings[0].maxBitrate = next ? 150000 : 2500000;
+        await sender.setParameters(params);
+      } catch {}
+    }
   };
 
   const controlBtn = (active, onClick, iconOn, iconOff, label) => (
@@ -4444,12 +4582,12 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
   );
 
   // Commit 47: minimized is a pure CSS/layout mode change, not a remount —
-  // `containerRef`'s div (and the live Jitsi iframe inside it) stays exactly
-  // where it is in the tree the whole time; only the wrapping box's size and
-  // position change, and the chrome around it (top bar, self-view PiP, full
-  // control island) is swapped for a compact bubble overlay. That's what
-  // lets the call keep running while minimized instead of dropping and
-  // reconnecting.
+  // the `<video>` elements (and the RTCPeerConnection feeding them) stay
+  // exactly where they are in the tree the whole time; only the wrapping
+  // box's size and position change, and the chrome around it (top bar,
+  // self-view PiP, full control island) is swapped for a compact bubble
+  // overlay. That's what lets the call keep running while minimized instead
+  // of dropping and reconnecting.
   const bubbleSize = isMobile ? { width: 148, height: 108 } : { width: 220, height: 150 };
   const wrapStyle = minimized
     ? {
@@ -4463,23 +4601,42 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
 
   return (
     <div role="dialog" aria-modal="true" aria-label={`Video huddle with ${name}`} style={wrapStyle} onClick={minimized ? () => setMinimized(false) : undefined}>
-      {/* Main stage */}
+      {/* Main stage — a plain <video> now instead of a Jitsi iframe mount;
+          which stream (self or remote) plays here vs. in the PiP slot below
+          is decided by mainIsSelf/assignVideos, not by which JSX slot this
+          is. Muted here because the main slot can hold the self stream when
+          swapped — the PiP slot's video carries the opposite mute value. */}
       <div style={{
         position: "absolute", inset: minimized ? 0 : (isMobile ? 0 : 16),
         borderRadius: minimized ? 0 : (isMobile ? 0 : 20), overflow: "hidden", background: "#000",
       }}>
-        <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+        <video ref={videoARef} autoPlay playsInline muted={mainIsSelf} style={{
+          position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+          transform: mainIsSelf ? "scaleX(-1)" : "none",
+          opacity: mainIsSelf && (!hasCamera || camMuted) ? 0 : 1,
+        }} />
+        {mainIsSelf && (!hasCamera || camMuted) && status === "ready" && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name="cameraOff" size={28} style={{ color: "rgba(255,255,255,0.4)" }} />
+          </div>
+        )}
         {status !== "ready" && !minimized && (
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center" }}>
             {status === "loading" ? (<>
               <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-              <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Connecting call…</div>
+              <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Getting camera ready…</div>
+            </>) : status === "waiting" ? (<>
+              <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+              <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Waiting for {name} to join…</div>
+              <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Back to chat</button>
+            </>) : status === "connecting" ? (<>
+              <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+              <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Connecting…</div>
             </>) : (<>
               <Icon name="warning" size={22} style={{ color: "rgba(255,255,255,0.6)" }} />
-              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff" }}>Couldn't reach the video call service.</div>
-              <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(255,255,255,0.6)", maxWidth: 280 }}>Check your connection and try again.</div>
+              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff" }}>{errorReason || "Couldn't reach the video call service."}</div>
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={(e) => { e.stopPropagation(); jitsiScriptPromise = null; setRetryTick((n) => n + 1); }} style={{ padding: "8px 18px", borderRadius: 100, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Retry</button>
+                <button onClick={(e) => { e.stopPropagation(); setRetryTick((n) => n + 1); }} style={{ padding: "8px 18px", borderRadius: 100, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Retry</button>
                 <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Back to chat</button>
               </div>
             </>)}
@@ -4525,17 +4682,24 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
         </button>
       )}
 
-      {/* Picture-in-picture self view */}
+      {/* Picture-in-picture slot — click to swap with the main stage (same
+          gesture Instagram/Messenger's own calling uses). Whichever stream
+          (self or remote) actually plays here is decided by
+          mainIsSelf/assignVideos, matching the main-stage slot above. */}
       {status === "ready" && (
-        <div style={{
+        <div onClick={(e) => { e.stopPropagation(); toggleView(); }} title="Switch view" style={{
           position: "absolute", top: isMobile ? 60 : 76, right: isMobile ? 14 : 28, width: isMobile ? 96 : 140, height: isMobile ? 128 : 104,
-          borderRadius: 16, overflow: "hidden", background: "#18181c",
+          borderRadius: 16, overflow: "hidden", background: "#18181c", cursor: "pointer",
           border: "1px solid rgba(255,255,255,0.22)", boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
         }}>
-          {!selfPreviewError ? (
-            <video ref={selfVideoRef} autoPlay muted playsInline style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scaleX(-1)", opacity: camMuted ? 0.12 : 1, transition: "opacity 0.2s ease" }} />
-          ) : (
-            <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <video ref={videoBRef} autoPlay playsInline muted={!mainIsSelf} style={{
+            width: "100%", height: "100%", objectFit: "cover",
+            transform: !mainIsSelf ? "scaleX(-1)" : "none",
+            opacity: !mainIsSelf && (!hasCamera || camMuted) ? 0 : 1,
+            transition: "opacity 0.2s ease",
+          }} />
+          {!mainIsSelf && (!hasCamera || camMuted) && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name="cameraOff" size={18} style={{ color: "rgba(255,255,255,0.4)" }} />
             </div>
           )}
@@ -4554,7 +4718,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, onClose }) {
           {controlBtn(micMuted, toggleMic, "mic", "micOff", micMuted ? "Unmute microphone" : "Mute microphone")}
           {controlBtn(camMuted, toggleCam, "camera", "cameraOff", camMuted ? "Turn camera on" : "Turn camera off")}
           {!isMobile && controlBtn(screenSharing, toggleScreenShare, "screenShare", "screenShare", screenSharing ? "Stop sharing screen" : "Share screen")}
-          {controlBtn(tileView, toggleView, "grid", "grid", "Switch view")}
+          {controlBtn(mainIsSelf, toggleView, "grid", "grid", "Switch view")}
           {controlBtn(dataSaver, toggleDataSaver, "zap", "zap", dataSaver ? "Turn off data saver" : "Turn on data saver (lower video quality)")}
           <button onClick={() => setReportOpen(true)} aria-label="Report this call" title="Report this call" style={{
             width: 48, height: 48, borderRadius: "50%", border: "none", cursor: "pointer",
@@ -8733,13 +8897,13 @@ function App() {
           a child of the "inbox" view branch above — a component instance
           only exists in the DOM while its parent renders it, so nesting this
           inside `view === "inbox"` would tear down (and disconnect) the
-          Jitsi call the instant the sidebar navigated anywhere else. Being a
+          call the instant the sidebar navigated anywhere else. Being a
           sibling of every view instead means switching tabs mid-call can
           never unmount it; only `onClose`/hangup does. */}
       {activeHuddle && (
         <VideoHuddle
           P={P} accent={accent} at={at} isMobile={isMobile}
-          name={activeHuddle.name} roomSeed={activeHuddle.roomSeed}
+          name={activeHuddle.name} roomSeed={activeHuddle.roomSeed} currentUserId={user?.id}
           onClose={() => setActiveHuddle(null)}
         />
       )}
