@@ -12,7 +12,7 @@
 // guessing an id" path here, because every query is also scoped to
 // `user_id = ?` on top of the row id, not just the row id alone.
 
-import { getSessionUser, newId, ensureUserProfileColumns, ensureSocialTables } from "../lib/authHelpers.js";
+import { getSessionUser, newId, ensureUserProfileColumns, ensureSocialTables, isBlockedPair } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
 const MAX_MESSAGE_LEN = 4000;
@@ -21,6 +21,8 @@ const MAX_USERNAME_LEN = 40;
 const MAX_AFFILIATION_LEN = 200;
 const MAX_DEGREE_LEN = 120;
 const MAX_GRAD_YEAR_LEN = 9; // "2024" or a range like "2020-2024"
+const MAX_REPORT_REASON_LEN = 100;
+const MAX_REPORT_NOTE_LEN = 1000;
 // A 256x256 JPEG comes back from the client-side canvas compressor at
 // roughly 15-50KB before base64's ~4/3 inflation, so this leaves generous
 // headroom for a lower-quality/less-compressible image while still
@@ -54,6 +56,10 @@ function toEpochMs(v) {
 function escapeLikeWildcards(s) {
   return s.replace(/[\\%_]/g, (c) => "\\" + c);
 }
+
+// isBlockedPair now lives in functions/lib/authHelpers.js (Commit 50) — it
+// gained a second caller (call-signal.js) and a duplicated copy of a
+// security-relevant check is exactly the kind of thing that quietly drifts.
 
 const ALLOWED_ORIGINS = [
   "https://askcerebrum.org",
@@ -181,14 +187,23 @@ export async function onRequest(context) {
             "SELECT sender_id, text, attachment_title, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
           ).bind(t.id).first();
           let displayName = t.name;
-          if (!displayName && t.kind === "dm") {
+          let otherId = null;
+          if (t.kind === "dm") {
             const other = await env.DB.prepare(
-              `SELECT u.name, u.username, u.email FROM thread_participants tp
+              `SELECT u.id, u.name, u.username, u.email FROM thread_participants tp
                JOIN users u ON u.id = tp.user_id
                WHERE tp.thread_id = ? AND tp.user_id != ?`
             ).bind(t.id, user.id).first();
-            displayName = other ? (other.name || other.username || other.email) : "Conversation";
+            otherId = other ? other.id : null;
+            if (!displayName) displayName = other ? (other.name || other.username || other.email) : "Conversation";
           }
+          // Commit 48: a DM with either direction of block in place is
+          // flagged so the Inbox can disable its composer/huddle button —
+          // history stays visible (blocking doesn't erase what was already
+          // said), only sending/calling is gated. Groups aren't covered:
+          // there's no group-membership-removal flow yet, so "block" for a
+          // group would just be confusing half-measure moderation.
+          const blocked = otherId ? await isBlockedPair(env, user.id, otherId) : false;
           const lastCreatedAt = last ? toEpochMs(last.created_at) : 0;
           // Unread means: the most recent message exists, isn't mine, and
           // landed after the last time I opened this thread (or I've never
@@ -200,6 +215,8 @@ export async function onRequest(context) {
             id: t.id,
             kind: t.kind,
             name: displayName || "Conversation",
+            otherId,
+            blocked,
             unread,
             lastMessage: last ? {
               text: last.text,
@@ -249,14 +266,20 @@ export async function onRequest(context) {
         const byId = new Map(participants.map((p) => [p.id, p]));
         const displayNameFor = (p) => (p ? (p.name || p.username || p.email) : "Someone");
         let name = threadRow.name;
+        let otherId = null;
         let otherEmail = null;
         let otherAffiliation = null;
         if (!name && threadRow.kind === "dm") {
           const other = participants.find((p) => p.id !== user.id);
           name = other ? displayNameFor(other) : "Conversation";
+          otherId = other?.id || null;
           otherEmail = other?.email || null;
           otherAffiliation = other?.affiliation || null;
         }
+        // Commit 48: same "either direction blocks" flag as the inbox list
+        // (see isBlockedPair above) — this is what the Inbox composer and
+        // Huddle button gate on once a conversation is actually open.
+        const blocked = otherId ? await isBlockedPair(env, user.id, otherId) : false;
         // Every message's sender is guaranteed to be a thread participant
         // (send-message enforces that on the way in), so the participant
         // rows already fetched above double as the sender-lookup table —
@@ -278,8 +301,10 @@ export async function onRequest(context) {
           kind: threadRow.kind,
           name: name || "Conversation",
           memberCount: participants.length,
+          otherId,
           otherEmail,
           otherAffiliation,
+          blocked,
           messages,
         }), { status: 200, headers: cors });
       }
@@ -569,6 +594,20 @@ export async function onRequest(context) {
         "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
       ).bind(threadId, user.id).first();
       if (!membership) return new Response(JSON.stringify({ error: "You're not part of that conversation." }), { status: 403, headers: cors });
+      // Commit 48 enforcement: a blocked DM stops accepting new messages
+      // from either side — history stays visible (the GET above never
+      // hides it), this just closes the door on adding to it. Groups are
+      // deliberately untouched, same scope note as user_blocks in
+      // schema.sql (no group-membership-removal flow to pair it with yet).
+      const threadMeta = await env.DB.prepare("SELECT kind FROM threads WHERE id = ?").bind(threadId).first();
+      if (threadMeta?.kind === "dm") {
+        const other = await env.DB.prepare(
+          "SELECT user_id FROM thread_participants WHERE thread_id = ? AND user_id != ?"
+        ).bind(threadId, user.id).first();
+        if (other && (await isBlockedPair(env, user.id, other.user_id))) {
+          return new Response(JSON.stringify({ error: "You can't message this person." }), { status: 403, headers: cors });
+        }
+      }
       const now = Date.now();
       // messages.id is a plain TEXT primary key on the live table (no
       // autoincrement) — has to be generated here, same as accolades.id in
@@ -594,6 +633,14 @@ export async function onRequest(context) {
       if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't message yourself." }), { status: 400, headers: cors });
       const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(targetId).first();
       if (!target) return new Response(JSON.stringify({ error: "That account doesn't exist." }), { status: 404, headers: cors });
+      // Commit 48 enforcement: blocked in either direction means no new
+      // conversation gets started or reopened via this path — including
+      // finding-and-returning an existing thread just below, since that
+      // would otherwise be a quiet backdoor back into a conversation the
+      // block was meant to close.
+      if (await isBlockedPair(env, user.id, targetId)) {
+        return new Response(JSON.stringify({ error: "You can't message this person." }), { status: 403, headers: cors });
+      }
       // A DM thread has exactly two participants, so "a thread both of us
       // are in, that's a DM" is unambiguous — no need to also check that
       // membership is exclusive to just the two of us.
@@ -617,6 +664,81 @@ export async function onRequest(context) {
       await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, user.id, now).run();
       await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, targetId, now).run();
       return new Response(JSON.stringify({ thread_id: threadId, created: true }), { status: 200, headers: cors });
+    }
+
+    // Commit 48: block/unblock the other person in a DM. Storage is
+    // directional (user_blocks.blocker_id/blocked_id, see schema.sql) but
+    // this toggle always resolves from "are we currently blocked at all" —
+    // isBlockedPair checks both directions, and unblocking deletes whichever
+    // direction's row actually exists (mine, theirs, or — in a stranger
+    // double-click race — both), so it fully clears the pair regardless of
+    // who blocked whom first.
+    if (action === "toggle-block") {
+      const targetId = (body.target_id || "").toString();
+      if (!targetId) return new Response(JSON.stringify({ error: "Missing target_id." }), { status: 400, headers: cors });
+      if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't block yourself." }), { status: 400, headers: cors });
+      const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(targetId).first();
+      if (!target) return new Response(JSON.stringify({ error: "That account doesn't exist." }), { status: 404, headers: cors });
+      const wasBlocked = await isBlockedPair(env, user.id, targetId);
+      if (wasBlocked) {
+        await env.DB.prepare(
+          "DELETE FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)"
+        ).bind(user.id, targetId, targetId, user.id).run();
+      } else {
+        await env.DB.prepare(
+          "INSERT OR IGNORE INTO user_blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)"
+        ).bind(user.id, targetId, Date.now()).run();
+      }
+      return new Response(JSON.stringify({ blocked: !wasBlocked }), { status: 200, headers: cors });
+    }
+
+    // Commit 48: user/message/call conduct reports, filed from the Inbox
+    // (block/report menu on a DM's header), a single message's hover
+    // actions, or a Video Huddle's controls. Deliberately separate from
+    // functions/api/report.js's `reports` table, which is for bad AI
+    // answers/citations, not user-to-user conduct — see content_reports in
+    // schema.sql. No admin/review UI exists yet: rows land here for an
+    // operator to query directly in D1 until one is built, same honest
+    // limitation as `reports` itself.
+    if (action === "file-report") {
+      const kind = (body.kind || "").toString();
+      if (!["message", "user", "call"].includes(kind)) {
+        return new Response(JSON.stringify({ error: "Invalid report type." }), { status: 400, headers: cors });
+      }
+      const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, MAX_REPORT_REASON_LEN) : "";
+      const note = typeof body.note === "string" ? body.note.trim().slice(0, MAX_REPORT_NOTE_LEN) : "";
+      if (!reason) return new Response(JSON.stringify({ error: "Pick a reason." }), { status: 400, headers: cors });
+      const reportedUserId = body.reported_user_id ? body.reported_user_id.toString() : null;
+      const threadId = body.thread_id ? body.thread_id.toString() : null;
+      const messageId = body.message_id ? body.message_id.toString() : null;
+      if (!reportedUserId && !threadId) {
+        return new Response(JSON.stringify({ error: "Nothing to report." }), { status: 400, headers: cors });
+      }
+      if (reportedUserId === user.id) {
+        return new Response(JSON.stringify({ error: "You can't report yourself." }), { status: 400, headers: cors });
+      }
+      // Same membership guard as send-message/thread: reporting a
+      // conversation (or a message/call inside one) you're not actually
+      // part of isn't a real report.
+      if (threadId) {
+        const membership = await env.DB.prepare(
+          "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+        ).bind(threadId, user.id).first();
+        if (!membership) return new Response(JSON.stringify({ error: "You're not part of that conversation." }), { status: 403, headers: cors });
+      }
+      // A reported message has to actually belong to the reported thread —
+      // otherwise thread_id and message_id could point at two unrelated
+      // conversations and the report would misfile.
+      if (messageId) {
+        const msgRow = await env.DB.prepare("SELECT thread_id FROM messages WHERE id = ?").bind(messageId).first();
+        if (!msgRow || msgRow.thread_id !== threadId) {
+          return new Response(JSON.stringify({ error: "That message couldn't be found in that conversation." }), { status: 400, headers: cors });
+        }
+      }
+      await env.DB.prepare(
+        "INSERT INTO content_reports (id, reporter_id, reported_user_id, thread_id, message_id, kind, reason, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(newId("rpt"), user.id, reportedUserId, threadId, messageId, kind, reason, note || null, Date.now()).run();
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
     }
 
     return new Response(JSON.stringify({ error: "Unknown resource/action." }), { status: 400, headers: cors });
