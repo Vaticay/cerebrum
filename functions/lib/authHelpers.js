@@ -378,6 +378,38 @@ export async function ensureSocialTables(env) {
     "CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, sender_id TEXT NOT NULL, text TEXT, attachment_title TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
   );
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at)");
+  // Commit 51 — root cause of "the Inbox unread badge never clears": this
+  // column is DATETIME DEFAULT CURRENT_TIMESTAMP, which SQLite gives NUMERIC
+  // affinity. Any row created via that default stores created_at as a TEXT
+  // string ("2026-09-02 01:29:48"); functions/api/data.js's send-message has
+  // always instead bound an explicit epoch-ms integer (Date.now()). SQLite
+  // orders differing storage classes as NULL < INTEGER/REAL < TEXT < BLOB —
+  // by value, not by meaning — so any TEXT-stored row sorts as "later" than
+  // EVERY integer-stored row regardless of actual date. Once a thread has
+  // even one old TEXT row, the inbox's `ORDER BY created_at DESC LIMIT 1`
+  // ("last message") freezes on it forever: every genuinely new message is
+  // an integer and always sorts as older, so it's invisible to that query.
+  // The unread flag is computed from that frozen last message, so it never
+  // updates either — confirmed locally by sending a message and watching
+  // the inbox response's lastMessage stay pinned to the old row. Ascending
+  // reads (a thread's full history) have the mirror problem: every integer
+  // row sorts before every text row, so old and new messages interleave in
+  // the wrong order in the transcript itself, not just the inbox preview.
+  // This runs once (memoized like everything else in this file) and
+  // rewrites any surviving TEXT rows to the same epoch-ms integer format
+  // every current INSERT already uses, so old and new rows compare
+  // correctly against each other from here on. Sub-second precision is
+  // lost in the conversion (strftime('%s', ...) only has second
+  // resolution) — irrelevant for ordering distinct messages in a
+  // conversation, and ties break arbitrarily the same way same-second
+  // messages already could before this fix.
+  try {
+    await env.DB.exec(
+      "UPDATE messages SET created_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000 WHERE typeof(created_at) = 'text'"
+    );
+  } catch (e) {
+    console.error("Could not normalize messages.created_at:", e);
+  }
   // Commit 48 — message/call moderation: block + report.
   // user_blocks is directional (blocker_id blocked blocked_id) so "who
   // blocked whom" is always answerable, even though every enforcement check
