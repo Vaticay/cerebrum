@@ -210,6 +210,35 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at);
 
+-- Commit 48 — message/call moderation: block + report. Directional (blocker
+-- blocked blocked) so "who blocked whom" is always answerable, though every
+-- enforcement check in functions/api/data.js treats it as mutual — either
+-- direction blocks new messages/threads/calls between the two people.
+CREATE TABLE IF NOT EXISTS user_blocks (
+  blocker_id  TEXT NOT NULL,
+  blocked_id  TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (blocker_id, blocked_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked ON user_blocks(blocked_id);
+
+-- One table + a `kind` discriminator ('message' | 'user' | 'call') for all
+-- three moderation report surfaces, deliberately separate from the
+-- pre-existing `reports` table (bad AI answers/citations, not user conduct).
+-- No admin/review UI yet — same honest limitation as `reports` itself.
+CREATE TABLE IF NOT EXISTS content_reports (
+  id                TEXT PRIMARY KEY,
+  reporter_id       TEXT NOT NULL,
+  reported_user_id  TEXT,
+  thread_id         TEXT,
+  message_id        TEXT,
+  kind              TEXT NOT NULL,
+  reason            TEXT NOT NULL,
+  note              TEXT,
+  created_at        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_content_reports_reported ON content_reports(reported_user_id);
+
 -- Sessions are looked up by the SHA-256 hash of the cookie value, never
 -- the raw token — so a leaked/dumped `sessions` table (unlike a leaked
 -- cookie) is useless for impersonating anyone. Cookie itself is
@@ -318,6 +347,28 @@ CREATE TABLE IF NOT EXISTS otp_codes (
 -- self-healing even before this file is run against the live database —
 -- this definition is kept as the canonical, documented shape.
 -- ============================================================
+-- ============================================================
+-- Commit 50: WebRTC signaling relay for VideoHuddle's own peer-to-peer
+-- calling (replacing the meet.jit.si embed, which as of August 24, 2023
+-- requires an authenticated moderator to start a room — see the block
+-- comment above VideoHuddle in src/main.jsx). One row per small signaling
+-- message (hello/offer/answer/ice/bye); functions/api/call-signal.js also
+-- creates this table itself on first use (same self-healing pattern as
+-- `reports` above) and deletes rows older than 10 minutes on every write to
+-- a given thread, so it never grows unbounded.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS call_signals (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  thread_id   TEXT NOT NULL,
+  sender_id   TEXT NOT NULL,
+  client_id   TEXT NOT NULL,
+  type        TEXT NOT NULL, -- 'hello' | 'offer' | 'answer' | 'ice' | 'bye'
+  payload     TEXT NOT NULL, -- JSON
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_call_signals_thread ON call_signals(thread_id, id);
+CREATE INDEX IF NOT EXISTS idx_call_signals_created ON call_signals(created_at);
+
 CREATE TABLE IF NOT EXISTS reports (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   query       TEXT,
