@@ -2811,6 +2811,13 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         <div className="cb-print-paper-doc" aria-hidden="true">
           <div className="cb-paper-watermark">Cerebrum™</div>
           <div className="cb-paper-page">
+            {/* Commit 51: the same brain Mark used in the Sidebar/header
+                (see the Mark component) — a small letterhead-style masthead
+                above the title, not a new logo invented just for exports. */}
+            <div className="cb-paper-masthead">
+              <Mark size={16} accent="#000" glow={false} />
+              <span className="cb-paper-masthead-text">CEREBRUM</span>
+            </div>
             <div className="cb-paper-title">{t.q}</div>
             <div className="cb-paper-byline">Synthesized by Cerebrum · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
 
@@ -4373,6 +4380,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
     let madeOffer = false;
     let remoteDescSet = false;
     let connected = false;
+    let pollFailures = 0;
     const pendingRemoteCandidates = [];
     const myClientId = clientIdRef.current;
 
@@ -4403,9 +4411,21 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
         peerId = msg.sender_id;
         // Deterministic tie-break so exactly one side ever creates the
         // offer, computed identically on both sides with no coordination
-        // beyond comparing two already-known, stable user ids — avoids
-        // "glare" from both peers racing to offer at once.
-        role = String(currentUserId) < String(peerId) ? "offerer" : "answerer";
+        // beyond comparing two already-known, stable ids — avoids "glare"
+        // from both peers racing to offer at once. Normally this compares
+        // user ids, which are always distinct for two real participants in
+        // a DM. If they're ever equal or missing (e.g. testing a call
+        // against your own account from two tabs, where "currentUserId"
+        // is identical on both sides and a plain user-id compare would
+        // make BOTH sides "answerer" and neither would ever offer — the
+        // exact failure mode that leaves a call stuck at "waiting"
+        // forever), fall back to comparing the per-tab clientId instead,
+        // which is always unique.
+        const mine = (currentUserId != null && peerId != null && String(currentUserId) !== String(peerId))
+          ? String(currentUserId) : myClientId;
+        const theirs = (currentUserId != null && peerId != null && String(currentUserId) !== String(peerId))
+          ? String(peerId) : String(msg.client_id || peerId);
+        role = mine < theirs ? "offerer" : "answerer";
       }
       if (msg.type === "hello") {
         if (role === "offerer" && !madeOffer) { madeOffer = true; await makeOffer(); }
@@ -4440,15 +4460,41 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
         const qs = new URLSearchParams({ threadId: String(threadId), since: String(lastSeenId), clientId: myClientId });
         const res = await fetch(`/api/call-signal?${qs.toString()}`);
         if (res.ok) {
+          pollFailures = 0;
           const data = await res.json().catch(() => null);
           const messages = (data && data.messages) || [];
           for (const msg of messages) {
             lastSeenId = Math.max(lastSeenId, msg.id);
             await handleMessage(msg);
           }
+        } else if (res.status === 404) {
+          // The endpoint itself doesn't exist — this is a deploy problem
+          // (call-signal.js missing from the live Functions), not a
+          // networking blip. Surfacing it immediately, rather than
+          // retrying into a silent "waiting" forever, is the difference
+          // between "the call feature is broken" and "why didn't Dusty's
+          // deploy work" being knowable at all from the UI.
+          if (!cancelled) {
+            setErrorReason("Video calling isn't fully set up on the server yet (the call-signal endpoint is missing). Make sure call-signal.js and ice-servers.js were both deployed.");
+            setStatus("error");
+          }
+          return;
+        } else {
+          pollFailures += 1;
         }
-      } catch {}
+      } catch {
+        pollFailures += 1;
+      }
       if (cancelled) return;
+      if (pollFailures >= 8) {
+        // ~8 consecutive failures (a handful of seconds to over a minute,
+        // depending on phase) is well past anything a transient blip
+        // explains — surface it rather than spinning "Waiting…" forever
+        // with no way for anyone to tell the call is actually broken.
+        setErrorReason("Lost connection to the call signaling service. Check your connection and try again.");
+        setStatus("error");
+        return;
+      }
       // Fast while establishing the call, slower once connected — from
       // there on the only thing still worth polling for is a hangup.
       pollTimer = setTimeout(poll, connected ? 3000 : 800);
@@ -4912,20 +4958,32 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     if (!activeId) { setActiveThread(null); return; }
     let cancelled = false;
     setLoadingThread(true);
-    apiDataGet("thread", { thread_id: activeId }).then((data) => {
-      if (cancelled) return;
-      setActiveThread(data && !data.error ? data : null);
-      setLoadingThread(false);
-      // The backend marks this thread read as part of that same GET (see
-      // the "thread" resource handler in functions/api/data.js) — mirror it
-      // here optimistically so the list's bold/dot treatment and the
-      // Sidebar's unread-count badge clear immediately instead of waiting
-      // for this view's next full inbox refetch.
-      if (data && !data.error) {
-        setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: false } : t)));
-      }
-    });
-    return () => { cancelled = true; };
+    const refresh = (isFirst) => {
+      apiDataGet("thread", { thread_id: activeId }).then((data) => {
+        if (cancelled) return;
+        if (isFirst) setLoadingThread(false);
+        setActiveThread(data && !data.error ? data : null);
+        // The backend marks this thread read as part of that same GET (see
+        // the "thread" resource handler in functions/api/data.js) — mirror it
+        // here optimistically so the list's bold/dot treatment and the
+        // Sidebar's unread-count badge clear immediately instead of waiting
+        // for this view's next full inbox refetch.
+        if (data && !data.error) {
+          setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: false } : t)));
+        }
+      });
+    };
+    refresh(true);
+    // Commit 51 — light polling while a thread stays open. Two real gaps
+    // needed this, not just read receipts: without it, a message the other
+    // person sends while you're already looking at this conversation never
+    // shows up until you leave and come back (the fetch above used to run
+    // once per activeId and never again), and "Seen" below would only ever
+    // catch up the same way. Every poll also re-marks-as-read, which is the
+    // right behavior, not a side effect to work around — staying on an open
+    // thread should keep counting as "still reading it."
+    const pollId = setInterval(() => refresh(false), 5000);
+    return () => { cancelled = true; clearInterval(pollId); };
   }, [activeId]);
 
   const sendMessage = async () => {
@@ -4970,6 +5028,22 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       ? `${activeThread.memberCount} member${activeThread.memberCount === 1 ? "" : "s"}`
       : [activeThread.otherEmail, activeThread.otherAffiliation].filter(Boolean).join(" · "))
     : "";
+
+  // Read receipts — DMs only (see the otherLastReadAt comment in
+  // functions/api/data.js for why groups don't get this). "Seen" only ever
+  // marks the single most recent message *you* sent, the same place every
+  // real DM app (iMessage, WhatsApp) puts it — not a per-message checkmark
+  // on everything you've ever sent.
+  let lastMineMessage = null;
+  if (activeThread?.messages) {
+    for (let i = activeThread.messages.length - 1; i >= 0; i--) {
+      if (activeThread.messages[i].mine) { lastMineMessage = activeThread.messages[i]; break; }
+    }
+  }
+  const seenLastMine = !!(
+    lastMineMessage && activeThread?.kind === "dm" &&
+    activeThread.otherLastReadAt && activeThread.otherLastReadAt >= lastMineMessage.createdAt
+  );
 
   // Mobile: show one pane at a time (list, or the open thread with a way
   // back) instead of squeezing both into one narrow column.
@@ -5160,6 +5234,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       </button>
                     )}
                   </div>
+                  {m.mine && m.id && lastMineMessage?.id === m.id && (
+                    <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 3, textAlign: "right", marginRight: 4 }}>
+                      {seenLastMine ? "Seen" : "Delivered"}
+                    </div>
+                  )}
                 </div>
                 );
               })}
@@ -9442,25 +9521,46 @@ html { scroll-behavior: smooth; }
   .cb-paper-page {
     position: relative; z-index: 1; max-width: 7in; margin: 0 auto; padding: 0.6in 0 1in;
     font-family: "Times New Roman", Times, serif; color: #000 !important;
+    /* Commit 51: this is what actually put the watermark "above the text
+       and a little too visible." The blanket "body, div { background:
+       white }" rule a few lines up gives THIS div an opaque white fill it
+       never asked for; Commit 49 raised the watermark's z-index above it
+       (to fix it disappearing behind that same opaque fill on every full
+       page), which incidentally also raised it above this div's own
+       children — i.e. the actual paragraph text — painting the watermark
+       over every word instead of the page background. The real fix is
+       here, not in the z-index: an explicit transparent background (more
+       specific than the blanket div rule, so it wins) means there's no
+       opaque layer left for anything to hide behind OR paint over. Verified
+       against a real multi-page page.pdf() render: with this in place the
+       watermark can go back to sitting behind the text (see z-index below)
+       and still shows through correctly on every page, blank ones included. */
+    background: transparent !important;
   }
+  .cb-paper-masthead { display: flex; align-items: center; justify-content: center; gap: 7pt; margin: 0 0 16pt; }
+  .cb-paper-masthead-text { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11pt; font-weight: 700; letter-spacing: 0.14em; color: #000 !important; }
   .cb-paper-title { font-size: 18pt; font-weight: 700; text-align: center; margin: 0 0 6pt; line-height: 1.3; }
   .cb-paper-byline { font-size: 10pt; text-align: center; color: #444 !important; margin: 0 0 28pt; font-style: italic; }
   .cb-paper-section-label { font-size: 12pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 22pt 0 8pt; border-bottom: 1pt solid #000; padding-bottom: 2pt; }
   .cb-paper-heading { font-size: 12pt; font-weight: 700; margin: 16pt 0 6pt; }
   .cb-paper-para { font-size: 11pt; line-height: 1.7; text-align: justify; text-indent: 0.3in; margin: 0 0 10pt; }
   .cb-paper-ref { font-size: 9.5pt; line-height: 1.5; text-indent: -0.25in; padding-left: 0.25in; margin: 0 0 6pt; text-align: left; }
-  /* z-index: 2 — deliberately ABOVE .cb-paper-page's z-index:1. This node
-     repeats correctly on every printed page via position:fixed (verified);
-     what was actually hiding it on any page after the first was paint
-     order, not positioning: .cb-paper-page picks up an opaque white
-     background from the "body, div { background: white }" print rule
-     above, and with a higher z-index than the watermark it simply painted
-     over it on every page whose content filled the full page (a short,
-     single-page paper left blank space below the text for the watermark
-     to show through undisturbed, which is why this was so easy to miss). */
+  /* z-index: 0 — BELOW .cb-paper-page's z-index:1, so it sits behind the
+     actual text like a real watermark should. This node repeats correctly
+     on every printed page via position:fixed (verified). Commit 49 had put
+     this ABOVE the page (z-index: 2) because .cb-paper-page's opaque
+     "background: white" (from the blanket print rule) was painting over it
+     on every full page — that's fixed at the source now (.cb-paper-page is
+     explicitly transparent, above), so the watermark no longer needs to
+     out-rank it to be visible, and can go back to reading as a background
+     wash instead of a layer sitting on top of every word. Opacity dropped
+     0.1 → 0.06 at the same time — "a lil too visible" even before this z-index
+     issue, per Dusty's report. Verified against a real multi-page
+     page.pdf() render, including the short/blank-space-below-the-text case
+     Commit 49's comment called out. */
   .cb-paper-watermark {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
-    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.1) !important; z-index: 2;
+    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.06) !important; z-index: 0;
     white-space: nowrap; font-family: "Helvetica Neue", Arial, sans-serif; pointer-events: none;
   }
 }
