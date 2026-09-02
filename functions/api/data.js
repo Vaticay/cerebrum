@@ -257,8 +257,12 @@ export async function onRequest(context) {
         } catch (e) { console.error("Couldn't mark thread read:", e); }
         const threadRow = await env.DB.prepare("SELECT id, kind, name FROM threads WHERE id = ?").bind(threadId).first();
         if (!threadRow) return new Response(JSON.stringify({ error: "That conversation no longer exists." }), { status: 404, headers: cors });
+        // last_read_at rides along per participant so a DM can report
+        // "Seen" on the read side's own last message — see otherLastReadAt
+        // below. Not attempted for groups (kind !== "dm"): "seen by which
+        // of N people" is a genuinely different feature nobody asked for.
         const participantRows = await env.DB.prepare(
-          `SELECT u.id, u.name, u.username, u.email, u.affiliation FROM thread_participants tp
+          `SELECT u.id, u.name, u.username, u.email, u.affiliation, tp.last_read_at FROM thread_participants tp
            JOIN users u ON u.id = tp.user_id
            WHERE tp.thread_id = ?`
         ).bind(threadId).all();
@@ -269,12 +273,14 @@ export async function onRequest(context) {
         let otherId = null;
         let otherEmail = null;
         let otherAffiliation = null;
+        let otherLastReadAt = null;
         if (!name && threadRow.kind === "dm") {
           const other = participants.find((p) => p.id !== user.id);
           name = other ? displayNameFor(other) : "Conversation";
           otherId = other?.id || null;
           otherEmail = other?.email || null;
           otherAffiliation = other?.affiliation || null;
+          otherLastReadAt = other ? toEpochMs(other.last_read_at) : null;
         }
         // Commit 48: same "either direction blocks" flag as the inbox list
         // (see isBlockedPair above) — this is what the Inbox composer and
@@ -304,6 +310,7 @@ export async function onRequest(context) {
           otherId,
           otherEmail,
           otherAffiliation,
+          otherLastReadAt,
           blocked,
           messages,
         }), { status: 200, headers: cors });
