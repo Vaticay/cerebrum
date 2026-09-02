@@ -6090,6 +6090,29 @@ Respond naturally to the user's message. Be yourself.`;
     // microbiome" being routed to unrelated micro-motion papers vs. being
     // treated as a comment on the paper we just cited.
     const intent = classifyIntent(query, body.history || []);
+    // Commit 51 — catches the case Dusty reported: the user asks the exact
+    // same follow-up twice in a row and gets two near-duplicate syntheses
+    // back. CONTEXT already tells the model "NEVER REPEAT YOURSELF... go
+    // deeper, don't restart" — but that instruction assumes there's
+    // somewhere new to go. When the question AND the underlying sources
+    // are literally unchanged, there usually isn't, and the model quietly
+    // re-derives the same answer in different words instead of admitting
+    // that. Deliberately exact-match-only (after normalizing case/
+    // punctuation/whitespace), not fuzzy similarity — a fuzzy threshold
+    // risks flagging two genuinely different questions on the same topic
+    // as "the same question," which would make the model claim a repeat
+    // that didn't happen. That's a worse failure than missing a
+    // near-but-not-exact repeat.
+    const normalizeForRepeatCheck = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    const prevUserTurnForRepeatCheck = Array.isArray(body.history)
+      ? [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 0)
+      : null;
+    const normalizedCurrentQuery = normalizeForRepeatCheck(query);
+    const isRepeatOfPrevQuestion = !!(
+      prevUserTurnForRepeatCheck &&
+      normalizedCurrentQuery.length > 8 &&
+      normalizedCurrentQuery === normalizeForRepeatCheck(prevUserTurnForRepeatCheck.content)
+    );
     const prevAssistantTurn = Array.isArray(body.history)
       ? [...body.history].reverse().find((t) => t && t.role === "assistant")
       : null;
@@ -6980,7 +7003,19 @@ Respond naturally to the user's message. Be yourself.`;
       "- When multiple studies agree, say so explicitly: 'Three independent groups confirm...' — this is how researchers assess confidence.\n" +
       "- When only one study supports a claim, flag it: 'A single 2021 study (n=12) reported X, but this hasn't been independently replicated.'\n" +
       "- Use proper units: μM not uM, °C not degrees, kDa not kd.\n" +
-      "- Distinguish correlation from causation. If a study shows association, don't write it as mechanism.\n\n";
+      "- Distinguish correlation from causation. If a study shows association, don't write it as mechanism.\n\n" +
+      (isRepeatOfPrevQuestion
+        ? "═══ REPEATED QUESTION DETECTED ═══\n" +
+          "The user just asked this EXACT question in their previous turn (verbatim, ignoring case/punctuation) — check " +
+          "the conversation history above for what you already said. Do NOT silently re-run the same synthesis in " +
+          "different words; a reader comparing both answers side by side should never see the same content restated. " +
+          "Instead: briefly acknowledge you already covered this, then either (a) go genuinely deeper on the single " +
+          "most specific unanswered angle of it if the sources support one, or (b) if you already said everything the " +
+          "sources support, say that plainly and ask what specifically they want elaborated (a different mechanism, a " +
+          "different organism, a specific paper) rather than re-answering the identical question. One likely reason " +
+          "someone repeats a question verbatim is that the app itself glitched and re-sent it — a brief, non-defensive " +
+          "acknowledgment of that possibility is fine too, in place of manufacturing new content that isn't there.\n\n"
+        : "");
 
     const CITE_RULES =
       "CITATION FORMAT — mechanical compliance required:\n" +
@@ -7065,7 +7100,18 @@ Respond naturally to the user's message. Be yourself.`;
       "structure. You're allowed to find a question dull, a mechanism elegant, or a result underwhelming, and to say so in " +
       "one honest clause, as long as the science underneath stays exact. Never perform enthusiasm you don't have — a mildly " +
       "interesting incremental finding doesn't need to be dressed up as a breakthrough. The goal is a person who happens to " +
-      "have read everything, not a machine performing the ritual of scientific caution.\n\n";
+      "have read everything, not a machine performing the ritual of scientific caution.\n\n" +
+
+      "PREMISE CHECK — do this first, silently, before drafting anything: does the question itself assume something that " +
+      "isn't scientifically true? ('How did animals evolve from insects' assumes animals descend from insects — they " +
+      "don't; insects ARE animals, one arthropod lineage among many, and it's not an ancestor of vertebrates including " +
+      "humans.) If the premise is wrong, say so plainly in your opening sentences — don't bury the correction after " +
+      "answering the question as asked, and don't soften it into 'it's a bit more complicated than that.' State what's " +
+      "actually true, then continue into whatever real scientific question the person was actually reaching for (in the " +
+      "example: common ancestry between arthropods and vertebrates, or how vertebrates actually did evolve). A false " +
+      "premise silently answered around teaches the wrong thing even when every sentence after it is accurate. This cuts " +
+      "the other way too: most questions arrive with fine premises — don't manufacture a correction, hedge, or 'well, " +
+      "actually' where none is warranted; that's its own failure mode and reads as condescending.\n\n";
 
     let systemPrompt;
     if (wantsMorePapers && useEvidence) {
