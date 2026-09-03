@@ -1007,8 +1007,17 @@ function DailyScience({ P, accent, at, onAsk }) {
       if (!items.length) return;
       // Same story for everyone for a given day — a digest that reshuffles
       // on every refresh isn't a digest, it's a slot machine pull.
-      const dayIndex = Math.floor(Date.now() / 86400000) % items.length;
-      setItem(items[dayIndex]);
+      // Commit 60 — rotate the DISCIPLINE first, then pick within it. Simply
+      // indexing into the merged list meant whichever source published most
+      // got the daily slot most, which is how this ended up feeling like a
+      // space feed even after the sources were broadened. Cycling categories
+      // day to day guarantees biology, physics and the rest each get their
+      // turn rather than competing on volume.
+      const day = Math.floor(Date.now() / 86400000);
+      const cats = Array.from(new Set(items.map((x) => x.category).filter(Boolean)));
+      const pool = cats.length ? items.filter((x) => x.category === cats[day % cats.length]) : items;
+      const chosen = pool.length ? pool : items;
+      setItem(chosen[day % chosen.length]);
     }).catch(() => {});
     const onFocus = () => setStreak(readStreak());
     window.addEventListener("focus", onFocus);
@@ -4290,6 +4299,12 @@ function TrendingView({ P, accent, at, isMobile }) {
   // first thing anyone wants from a feed is the shape of the day), and the
   // existing card layout kept as a second tab for browsing.
   const [trendTab, setTrendTab] = useState("digest");
+  // Commit 60 — the feed now spans disciplines (see functions/lib/
+  // trendingSource.js), so it needs a way to narrow to one. Built from the
+  // categories actually present rather than a hardcoded list, so a source
+  // going down removes its chip instead of leaving a filter that finds
+  // nothing.
+  const [trendCat, setTrendCat] = useState("All");
 
   useEffect(() => {
     let cancelled = false;
@@ -4403,6 +4418,18 @@ function TrendingView({ P, accent, at, isMobile }) {
         )}
         {status === "ready" && (
           <>
+            <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+              {["All", ...Array.from(new Set(deduped.map((x) => x.category).filter(Boolean)))].map((cat) => (
+                <button key={cat} onClick={() => setTrendCat(cat)}
+                  style={{
+                    padding: "6px 13px", borderRadius: 100, cursor: "pointer",
+                    fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+                    background: trendCat === cat ? withAlpha(accent, 0.16) : "transparent",
+                    color: trendCat === cat ? P.ink : P.ink2,
+                    border: `1px solid ${trendCat === cat ? withAlpha(accent, 0.4) : P.line}`,
+                  }}>{cat}</button>
+              ))}
+            </div>
             <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
               {[["digest", "Digest"], ["cards", "Browse"]].map(([key, label]) => (
                 <button key={key} onClick={() => setTrendTab(key)}
@@ -4421,7 +4448,7 @@ function TrendingView({ P, accent, at, isMobile }) {
                  fits on a screen, which is the entire point of a digest —
                  you scan it, then open the two things worth reading. */
               <div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
-                {deduped.map((item, i) => (
+                {deduped.filter((x) => trendCat === "All" || x.category === trendCat).map((item, i) => (
                   <button key={item.url || i} onClick={() => setExpanded(item)}
                     style={{
                       display: "flex", alignItems: "baseline", gap: 14, width: "100%", textAlign: "left",
@@ -4435,7 +4462,7 @@ function TrendingView({ P, accent, at, isMobile }) {
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{item.title}</span>
                       <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>
-                        {[item.source, item.publishedAt ? relativeTime(item.publishedAt) : null].filter(Boolean).join(" · ")}
+                        {[item.category, item.source, item.publishedAt ? relativeTime(item.publishedAt) : null].filter(Boolean).join(" · ")}
                       </span>
                     </span>
                   </button>
