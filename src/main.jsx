@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
 import gsap from "gsap";
@@ -694,6 +694,154 @@ function Mark({ size = 26, accent, glow }) {
       <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
     </svg>
   );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MOTION SYSTEM — the Intro's GSAP choreography, everywhere else
+   ════════════════════════════════════════════════════════════════
+   The Intro (see Intro() below) was the only surface in this app running
+   real GSAP motion: a staggered power3.inOut timeline where each element
+   rises from a small y-offset while fading up. Everything else was CSS
+   keyframe classes (.cb-rise/.cb-fade/.cb-stagger) that fired at different
+   durations, different easings, and — in .cb-stagger's case — with no
+   y-motion at all, just opacity. Two different motion languages in one
+   product reads as unfinished no matter how good either one is on its own.
+
+   This is that single language, extracted once and reusable: same ease
+   (power3.inOut), same "rise + fade" gesture, same staggering, applied to
+   any container by wrapping it in <Reveal> or attaching useGsapReveal().
+
+   Three details that are load-bearing, not preference:
+
+   1. useLayoutEffect, not useEffect. GSAP's fromTo() sets its from-state
+      when the tween is created; in a plain useEffect that happens AFTER the
+      browser has already painted, so every reveal flashes its content at
+      full opacity for one frame before snapping to invisible and animating
+      in. Running before paint removes the flash entirely.
+
+   2. clearProps: "all" on completion. A finished tween otherwise leaves an
+      inline transform on the element forever, and a transformed ancestor
+      becomes the containing block for any position:fixed descendant — the
+      exact class of bug already documented on the cbEnter/cbRise keyframes
+      further down this file (a fixed print watermark resolving against a
+      narrow flex column instead of the viewport). Clearing on completion
+      means these elements end in the same state they'd be in with motion
+      switched off entirely.
+
+   3. Auto-descent to the first level with real siblings. A view's root is
+      usually a single wrapper div; staggering its one child is just a fade.
+      Walking down until there's more than one sibling is what makes a page
+      arrive section-by-section instead of as one block — without needing
+      every view refactored to expose its sections.
+
+   Honors the same "off" contract as every other animated surface here:
+   the cb_anim2 cookie set in Settings, plus the OS-level
+   prefers-reduced-motion, either of which skips the motion completely
+   rather than merely shortening it. */
+const CB_EASE = "power3.inOut";
+
+// GSAP's lag smoothing (on by default) is the wrong trade for entrance
+// animation. When the main thread stalls past its threshold, it clamps the
+// delta it feeds every running tween — so instead of dropping frames and
+// staying on schedule, animations stretch in wall-clock time. Measured on
+// this app's own home screen with the WebGL LivingBackground running: a
+// 1.05s hero reveal took ~12 SECONDS to finish, and because these tweens
+// animate from autoAlpha: 0, the entire hero — wordmark, search bar,
+// suggestion chips — sat invisible for most of it. A slow device is
+// exactly when content must NOT be held hostage to the frame rate.
+//
+// lagSmoothing(0) makes tweens track real elapsed time: a stutter skips
+// ahead instead of extending the animation. The visual cost is a jumpier
+// animation on a struggling device; the thing it buys is that the page is
+// always finished animating when it says it is.
+try { gsap.ticker.lagSmoothing(0); } catch {}
+
+function cbMotionOff() {
+  try {
+    if (getCookie("cb_anim2") === "off") return true;
+  } catch {}
+  try {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  } catch { return false; }
+}
+
+function useGsapReveal(deps = [], opts = {}) {
+  const ref = useRef(null);
+  const { y = 14, stagger = 0.05, duration = 0.8, delay = 0, descend = true } = opts;
+  useLayoutEffect(() => {
+    const root = ref.current;
+    if (!root || cbMotionOff()) return;
+    // Decorative layers (glows, rings, scrims) sit in the same DOM slot as
+    // real content but shouldn't be sequenced with it — a backdrop that
+    // rises alongside the text it sits behind makes the whole surface look
+    // like it's sliding rather than assembling.
+    let targets = Array.from(root.children).filter((el) => !el.hasAttribute("data-cb-no-reveal"));
+    if (descend) {
+      let guard = 0;
+      while (targets.length === 1 && targets[0].children && targets[0].children.length > 1 && guard++ < 3) {
+        targets = Array.from(targets[0].children);
+      }
+    }
+    if (!targets.length) return;
+    // Snapshot exactly the three inline properties this tween writes, so
+    // they can be put back byte-for-byte when it finishes.
+    //
+    // clearProps was the obvious tool here and it is the wrong one in this
+    // codebase: every element in this file is styled with React inline
+    // style objects, and clearProps deletes properties from the same style
+    // attribute React owns — it does not "revert to the stylesheet",
+    // because for these elements there is no stylesheet. clearProps: "all"
+    // wiped entire React style objects (confirmed on screen: the hidden
+    // file input's display:none was erased so a raw "Choose File" control
+    // appeared mid-hero, and the search bar lost its flex row and stacked
+    // its own buttons vertically). Even narrowing it to clearProps:
+    // "opacity" is wrong — the trust row is deliberately React-styled at
+    // opacity 0.4, and clearing the property resets it to a fully opaque 1.
+    //
+    // Restoring per-property instead of restoring a whole cssText snapshot
+    // is also deliberate: React can re-render mid-animation (a hover, a
+    // rotating suggestion chip), and replaying a stale snapshot of the
+    // entire style attribute would silently undo whatever it changed.
+    const props = ["transform", "opacity", "visibility"];
+    const before = targets.map((el) => props.map((k) => el.style[k]));
+    const restore = () => {
+      targets.forEach((el, i) => {
+        props.forEach((k, j) => {
+          const v = before[i][j];
+          if (v) el.style[k] = v; else el.style.removeProperty(k);
+        });
+      });
+    };
+
+    const tl = gsap.timeline({ onComplete: restore });
+    tl.fromTo(
+      targets,
+      { y, autoAlpha: 0 },
+      { y: 0, autoAlpha: 1, duration, ease: CB_EASE, stagger },
+      delay
+    );
+    return () => {
+      tl.kill();
+      // kill() stops the tween wherever it happens to be, which for an
+      // autoAlpha tween means whatever partial opacity (or visibility:
+      // hidden) it had reached stays inline on the element permanently. If
+      // this effect is torn down mid-flight — a fast navigation away and
+      // back, a deps change — that is content stuck half-faded or fully
+      // invisible with nothing left running to finish it. Restoring here
+      // means the worst case of an interrupted reveal is "no animation",
+      // never "no content".
+      restore();
+    };
+  }, deps);
+  return ref;
+}
+
+// Drop-in wrapper for the hook above. `deps` is what re-fires the reveal —
+// pass the view name (or a data key) so navigating between pages replays
+// the entrance, the same way the Intro replays its own on mount.
+function Reveal({ children, deps = [], y, stagger, duration, delay, descend, style, className, role, "aria-label": ariaLabel }) {
+  const ref = useGsapReveal(deps, { y, stagger, duration, delay, descend });
+  return <div ref={ref} className={className} style={style} role={role} aria-label={ariaLabel}>{children}</div>;
 }
 
 function useTypewriter(full, on) {
@@ -3866,6 +4014,11 @@ function TrendingView({ P, accent, at, isMobile }) {
   // Forces the "Updated Xm ago" line to keep counting up between polls,
   // not just re-render whenever a fetch happens to land.
   const [, forceTick] = useState(0);
+  // Bumped by the error state's "Try again" button below. The fetch lives
+  // inside the effect (it owns the polling interval and the cancelled
+  // flag), so a retry is expressed as a dependency change rather than by
+  // hoisting load() out and losing that ownership.
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -3895,7 +4048,7 @@ function TrendingView({ P, accent, at, isMobile }) {
     timer = setInterval(() => load(true), TRENDING_POLL_MS);
     const tickTimer = setInterval(() => forceTick((n) => n + 1), 30000);
     return () => { cancelled = true; clearInterval(timer); clearInterval(tickTimer); };
-  }, []);
+  }, [reloadTick]);
 
   // Deduped here regardless of what the backend already did (see
   // dedupeTrendingItems above) — a safety net against a stale cache row or
@@ -3938,10 +4091,43 @@ function TrendingView({ P, accent, at, isMobile }) {
             </div>
           </>
         )}
+        {/* An error state is a screen a real person actually lands on, so it
+            gets the same treatment as any other: a contained surface rather
+            than text floating in the middle of an empty page, a headline
+            separated from the explanation, and — the part that was actually
+            missing — a way to act on it. Telling someone to "try again in a
+            moment" without giving them a button to do it with is a dead
+            end dressed up as guidance. */}
         {status === "error" && (
-          <div style={{ textAlign: "center", color: P.faint, padding: "60px 16px" }}>
-            <Icon name="warning" size={26} style={{ opacity: 0.6 }} />
-            <div style={{ fontSize: FONT_SIZES.body, marginTop: 12 }}>Couldn't load the trending feed right now — the source may be busy. Try again in a moment.</div>
+          <div style={{
+            maxWidth: 460, margin: "56px auto", textAlign: "center",
+            padding: "36px 32px", borderRadius: 14,
+            background: P.dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.015)",
+            border: `1px solid ${P.line}`,
+          }} className="cb-rise">
+            <div aria-hidden="true" style={{
+              width: 48, height: 48, borderRadius: "50%", margin: "0 auto 18px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: withAlpha(STATUS.bad, 0.1),
+              border: `1px solid ${withAlpha(STATUS.bad, 0.25)}`,
+            }}>
+              <Icon name="warning" size={22} style={{ color: STATUS.bad }} />
+            </div>
+            <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, marginBottom: 8 }}>
+              Trending feed didn't load
+            </div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>
+              The upstream science feed didn't answer. It's usually busy rather than
+              down — a retry in a few seconds normally works.
+            </div>
+            <button
+              onClick={() => setReloadTick((t) => t + 1)}
+              style={{
+                padding: "10px 22px", borderRadius: 100, cursor: "pointer",
+                fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+                background: accent, color: at, border: "none",
+              }}
+            >Try again</button>
           </div>
         )}
         {status === "ready" && (
@@ -7123,7 +7309,17 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500,
       fontFamily: "var(--cb-body)", transition: "background 150ms ease, color 150ms ease",
     },
-    sidebarItemActive: { background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600 },
+    // The active row used to be signalled by a tinted fill alone, which at
+    // 14% alpha is nearly invisible against a dark surface and reads as a
+    // hover state rather than "you are here." The inset edge is the part
+    // that actually carries the signal (it's accent at full strength, and
+    // it's the only element on the rail with that shape), with the fill
+    // kept as a supporting wash. Two channels, not one — which also means
+    // the state survives High Contrast mode flattening the tint.
+    sidebarItemActive: {
+      background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600,
+      boxShadow: `inset 2px 0 0 ${accent}`,
+    },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" },
     sidebarFooter: { flexShrink: 0, padding: "10px 12px 14px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
     // `position: relative` + `zIndex: 1` are load-bearing, not decoration:
@@ -7229,17 +7425,42 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       width: "100%", maxWidth: 700,
       backdropFilter: "blur(40px) saturate(150%)",
       WebkitBackdropFilter: "blur(40px) saturate(150%)",
-      background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
-      border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+      // This is the one control the entire product exists to serve, and it
+      // was the least defined element on the page: an 8%-alpha border and a
+      // single 32px shadow at 8% opacity, sitting on top of the animated
+      // WebGL field. Against the bright part of that field the border
+      // disappeared completely and the bar read as a floating placeholder
+      // string with no container around it — verified on a real render, not
+      // assumed. Three changes, each doing a specific job:
+      //   · the fill goes more opaque, so the aurora passing behind stops
+      //     changing the control's own color as it drifts;
+      //   · the border roughly doubles in strength, which is what actually
+      //     draws the edge on a busy background;
+      //   · the flat shadow becomes a layered one — a tight contact shadow
+      //     that separates the pill from whatever is directly behind it,
+      //     plus a wide ambient shadow that does the lifting, plus a 1px
+      //     inset top highlight (the standard glass trick: a lit top edge
+      //     is what makes a surface read as raised rather than printed).
+      background: P.dark ? "rgba(15, 17, 26, 0.92)" : "rgba(255, 255, 255, 0.94)",
+      border: P.dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.13)",
       borderRadius: 100,
       padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
-      boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
-      transition: "border-color 0.3s ease, box-shadow 0.3s ease",
+      boxShadow: P.dark
+        ? "inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.35), 0 18px 48px rgba(0,0,0,0.45)"
+        : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px rgba(0,0,0,0.06), 0 18px 44px rgba(0,0,0,0.10)",
+      transition: "border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease",
       position: "relative"
     },
+    // Hover previously swapped in P.shadow, a smaller shadow than the rest
+    // state above now carries — so hovering the search bar made it sit DOWN
+    // rather than respond. Hover now reads as the accent waking up: the
+    // border picks up accent tint and the ambient shadow deepens, with the
+    // geometry unchanged so nothing shifts under the cursor.
     searchShellActive: {
-      borderColor: P.line2,
-      boxShadow: P.shadow
+      borderColor: withAlpha(accent, 0.55),
+      boxShadow: P.dark
+        ? `inset 0 1px 0 rgba(255,255,255,0.09), 0 2px 10px rgba(0,0,0,0.4), 0 22px 56px rgba(0,0,0,0.5), 0 0 0 4px ${withAlpha(accent, 0.1)}`
+        : `inset 0 1px 0 rgba(255,255,255,0.95), 0 2px 10px rgba(0,0,0,0.07), 0 22px 52px rgba(0,0,0,0.12), 0 0 0 4px ${withAlpha(accent, 0.12)}`,
     },
     searchInput: {
       flex: 1, border: "none", outline: "none", background: "transparent",
@@ -7634,8 +7855,15 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
   const itemStyle = (key) => ({ ...S.sidebarItem, ...(view === key ? S.sidebarItemActive : {}) });
 
+  // The rail is persistent chrome, so this fires once on mount rather than
+  // on every navigation — a sidebar that re-animates each time you click an
+  // item in it reads as a glitch, not as polish. Tighter offset and faster
+  // stagger than a page body: chrome should feel like it's already there,
+  // just settling, not making an entrance of its own.
+  const navRevealRef = useGsapReveal([], { y: 8, stagger: 0.04, duration: 0.6, descend: false });
+
   const body = (
-    <nav aria-label="Main" style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}) }}>
+    <nav ref={navRevealRef} aria-label="Main" style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}) }}>
       <div style={S.sidebarBrand} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
         <Mark size={18} accent={accent} glow={P.dark} />
         <span style={{ fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-display)" }}>Cerebrum</span>
@@ -8695,8 +8923,18 @@ function App() {
       }}>
         <div style={S.container}>
           {!started ? (
-            <div style={S.hero} className="cb-hero">
-              <div style={S.heroGlow} className="cb-hero-glow" />
+            /* The home hero is the first thing anyone sees after the Intro
+               hands off, so it's the one surface where the two motion
+               languages colliding was most obvious: the Intro exits on a
+               1.3-1.7s power3.inOut rise, and this used to arrive on a
+               250ms CSS blur-fade. Same GSAP gesture, slightly quicker than
+               the Intro itself (this is a return-to-home, not a curtain
+               raise), so the handoff reads as one continuous motion. The
+               glow layer is excluded from the stagger — it's a decorative
+               backdrop, not a sequenced element, and having it rise with
+               the content made the whole hero look like it was sliding. */
+            <Reveal style={S.hero} deps={[started]} y={18} stagger={0.07} duration={1.05} descend={false}>
+              <div style={S.heroGlow} className="cb-hero-glow" data-cb-no-reveal="" />
               <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
                 <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
                 <Mark size={44} accent={accent} glow={P.dark} />
@@ -8749,7 +8987,7 @@ function App() {
                 {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
                 <span style={{ ...S.trustItem, color: P.faint }}>+ 8 more</span>
               </div>
-            </div>
+            </Reveal>
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
@@ -8810,7 +9048,7 @@ function App() {
       </div>
       )}
       {view === "profile" && (
-        <div style={S.pageView}>
+        <Reveal style={S.pageView} deps={[view]}>
           <ProfileView
             P={P} accent={accent} at={at} isMobile={isMobile}
             user={user} profile={profile} setProfile={setProfile} profileMeta={profileMeta}
@@ -8818,16 +9056,18 @@ function App() {
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
           />
-        </div>
+        </Reveal>
       )}
       {view === "settings" && (
+        <Reveal deps={[view]} style={{ display: "contents" }}>
         <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, turns }} />
+        </Reveal>
       )}
       {view === "trending" && (
-        <div style={S.pageView}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} /></div>
+        <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} /></Reveal>
       )}
       {view === "inbox" && (
-        <div style={S.pageView}>
+        <Reveal style={S.pageView} deps={[view]}>
           <InboxView
             P={P} accent={accent} at={at} isMobile={isMobile}
             threads={threads} setThreads={setThreads}
@@ -8837,7 +9077,7 @@ function App() {
             activeHuddleRoomSeed={activeHuddle?.roomSeed ?? null}
             onCompose={() => setNetworkSearchOpen(true)}
           />
-        </div>
+        </Reveal>
       )}
       </div>
       {started && isMobile && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 3, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
@@ -9159,13 +9399,27 @@ summary::-webkit-details-marker { display: none; }
 
 /* CTA shimmer — removed: monochrome CTA needs no shimmer */
 
-/* ── Entrance classes: SNAPPY (200-250ms) — instant-feeling, not sluggish ── */
-.cb-fade    { animation: cbFade  200ms var(--cb-ease) both; }
-.cb-rise    { animation: cbRise  250ms var(--cb-ease) both; }
-.cb-pop     { animation: cbPop   200ms var(--cb-ease) both; }
-.cb-gate    { animation: cbGate  250ms var(--cb-ease) both; }
-.cb-hero    { animation: cbHero  250ms var(--cb-ease) both; }
-.cb-modal   { animation: cbModal 400ms var(--cb-ease) both; will-change: transform, opacity, filter; }
+/* ── Entrance classes ──
+   These used to be four durations (200/250/400/700ms) picked independently,
+   which is why a card, a page and a modal all arriving at once looked like
+   three unrelated animations firing. They're now one scale, sized by how
+   much of the screen the element occupies — the same principle the GSAP
+   reveal system at the top of this file follows, so CSS-driven and
+   GSAP-driven entrances read as the same motion language:
+
+     micro  (inline, in-place)      180ms
+     object (a card, a row)         320ms
+     region (a panel, a page area)  460ms
+     surface(a modal, a full view)  560ms
+
+   Longer than the old values on purpose: 200ms on a large surface doesn't
+   read as "snappy," it reads as a jump cut. Small things stay fast. */
+.cb-fade    { animation: cbFade  180ms var(--cb-ease) both; }
+.cb-rise    { animation: cbRise  320ms var(--cb-ease) both; }
+.cb-pop     { animation: cbPop   320ms var(--cb-ease) both; }
+.cb-gate    { animation: cbGate  460ms var(--cb-ease) both; }
+.cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
+.cb-modal   { animation: cbModal 560ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
 .cb-answer-enter.cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
 
@@ -9206,17 +9460,28 @@ summary::-webkit-details-marker { display: none; }
   50% { transform: scale(1.16); opacity: 0.15; }
 }
 
-/* ── Stagger cascade: slower delays ── */
-.cb-stagger > * { opacity: 0; animation: cbFade 200ms var(--cb-ease) both; }
+/* ── Stagger cascade ──
+   This was a pure opacity fade: items appeared in sequence but never
+   moved, which is exactly what made every list in the app feel flat next
+   to the Intro's rise-and-fade. Now it runs cbRise (translateY + fade,
+   same gesture as the GSAP reveal system), with delays tightened from 60ms
+   to 45ms — a longer per-item animation needs a shorter gap between items
+   or the tail of a long list arrives noticeably late.
+
+   The nth-child ladder is capped at 8 deliberately: past ~350ms of
+   accumulated delay a cascade stops reading as choreography and starts
+   reading as lag, so everything from the 9th item on shares one delay
+   rather than continuing to add up. */
+.cb-stagger > * { opacity: 0; animation: cbRise 320ms var(--cb-ease) both; }
 .cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.cb-stagger > *:nth-child(2) { animation-delay: 60ms; }
-.cb-stagger > *:nth-child(3) { animation-delay: 120ms; }
-.cb-stagger > *:nth-child(4) { animation-delay: 180ms; }
-.cb-stagger > *:nth-child(5) { animation-delay: 240ms; }
-.cb-stagger > *:nth-child(6) { animation-delay: 300ms; }
-.cb-stagger > *:nth-child(7) { animation-delay: 360ms; }
-.cb-stagger > *:nth-child(8) { animation-delay: 420ms; }
-.cb-stagger > *:nth-child(n+9) { animation-delay: 480ms; }
+.cb-stagger > *:nth-child(2) { animation-delay: 45ms; }
+.cb-stagger > *:nth-child(3) { animation-delay: 90ms; }
+.cb-stagger > *:nth-child(4) { animation-delay: 135ms; }
+.cb-stagger > *:nth-child(5) { animation-delay: 180ms; }
+.cb-stagger > *:nth-child(6) { animation-delay: 225ms; }
+.cb-stagger > *:nth-child(7) { animation-delay: 270ms; }
+.cb-stagger > *:nth-child(8) { animation-delay: 315ms; }
+.cb-stagger > *:nth-child(n+9) { animation-delay: 360ms; }
 
 /* ── Global button physics: subtle, no bounce ── */
 button {
@@ -9232,6 +9497,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border-color: var(--cb-accent, #34d399) !important;
   box-shadow: 0 0 0 2px var(--cb-accent, #34d399) !important;
 }
+/* The pill itself already draws the accent ring above the moment anything
+   inside it takes focus, and the input is a borderless element filling that
+   pill — so the global :focus-visible ring firing on the input too stacked a
+   second ring inside the first (visible on a real render). One focus
+   indicator per control: the wrapper's, since that is the shape a person
+   reads as "the search bar". Only suppressed where a wrapper ring is
+   guaranteed to be showing — every other input in the app keeps its own. */
+.cb-search-glow input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
 
 /* ── Header buttons ── */
 .cb-hbtn:hover:not(:disabled) { background: rgba(138,155,186,0.08) !important; }
@@ -9245,7 +9521,15 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .cb-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+  /* Two shadows, not one: a tight contact shadow that keeps the card's
+     edge readable, plus the wide ambient one that sells the lift. A single
+     40px-blur shadow at 15% is nearly invisible on a light surface, which
+     is why hover felt like it did nothing in light mode. */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 16px 40px rgba(0,0,0,0.14);
+  /* Motion alone isn't a state change - the border responding is what
+     makes a card feel interactive rather than just animated. --cb-accent
+     is already set per-theme on :root, so this tracks the user's accent. */
+  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 38%, transparent);
 }
 
 /* Source card hover lift */
@@ -9253,7 +9537,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 0.25s, border-color 0.25s;
 }
-.cb-src-card:hover { transform: translateY(-2px); }
+.cb-src-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06), 0 10px 28px rgba(0,0,0,0.10);
+  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 32%, transparent);
+}
 
 /* Glass panel depth — multi-layer shadows for 3D float effect */
 .cb-glass-panel {
@@ -9314,7 +9602,19 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Focus */
 :focus { outline: none; }
-:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 6px; }
+:focus-visible {
+  /* Was "currentColor", which resolves to the focused element's own text
+     color - on the faint/ghost buttons this app uses everywhere, that's a
+     low-contrast grey ring on a low-contrast surface, i.e. a focus
+     indicator you can't find with the keyboard. The accent is the one
+     color guaranteed to be legible against every surface in every palette
+     (it's chosen for exactly that), and the paired dark/light halo keeps
+     it visible whichever side of the theme it lands on. */
+  outline: 2px solid var(--cb-accent, #34d399);
+  outline-offset: 2px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cb-accent, #34d399) 22%, transparent);
+}
 
 /* v31: was an animated emerald→sky→indigo gradient cycling every 8s behind
    the wordmark — exactly the "heavy 80s neon" look this round retires.
