@@ -46,7 +46,14 @@ function corsFor(request) {
 // religious rapture content; "cell" finds jail cells; "python" finds snakes.
 // We can't ban the words, but we CAN add scientific framing so YouTube's
 // ranker leans toward academic content.
-const SCIENCE_ANCHOR_HINT = " lecture explained biology microbiology science";
+// Commit 65 — this used to read " lecture explained biology microbiology
+// science". Those two discipline words were hardcoded into EVERY video
+// search, which is why a question about a satellite launch came back with
+// six introductory microbiology lectures: YouTube had nothing matching the
+// real topic, so it matched the words we were adding ourselves. The anchor
+// now only says "this should be an explanatory science video" and names no
+// field at all — the field has to come from the user's actual question.
+const SCIENCE_ANCHOR_HINT = " explained lecture";
 
 // Stopwords and question-phrasing words that should never be part of a video
 // search. Sending the raw natural-language question causes YouTube to match
@@ -72,11 +79,37 @@ function shortenQueryForVideos(raw) {
   // Keep it short: 4 anchors is what YouTube's ranker handles best. Longer
   // strings dilute intent and let single dramatic words (rupture, apocalypse)
   // dominate the ranking.
-  return words.slice(0, 4).join(" ");
+  return words.slice(0, 5).join(" ");
+}
+
+// Commit 65 — relevance gate.
+//
+// Even with a clean query, YouTube will happily return its best-selling
+// generic lectures when it has no real match for a niche topic (a rocket
+// launch, a specific instrument, an obscure protein). Those results are
+// worse than none: they look like Cerebrum is confidently recommending
+// unrelated material. So a returned video has to actually mention something
+// from the question. If nothing does, the section renders empty — which is
+// the honest outcome when there genuinely aren't videos on the subject.
+//
+// Matching is done on stems (first 5 characters) so "fluorescence" matches
+// "fluorescent" and "vegetation" matches "vegetative", without pulling in a
+// stemming library for four characters of overlap.
+function videoAnchorStems(raw) {
+  return shortenQueryForVideos(raw)
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w.slice(0, 5));
+}
+function videoIsRelevant(title, author, stems) {
+  if (!stems.length) return true;
+  const hay = ((title || "") + " " + (author || "")).toLowerCase();
+  return stems.some((st) => hay.includes(st));
 }
 
 async function youtubeDirectSearch(query, limit = 6) {
   const anchored = shortenQueryForVideos(query);
+  const stems = videoAnchorStems(query);
   const searchQuery = anchored ? anchored + SCIENCE_ANCHOR_HINT : query;
   const url =
     "https://www.youtube.com/results?" +
@@ -136,6 +169,8 @@ async function youtubeDirectSearch(query, limit = 6) {
           /\bmanifest(ing|ation)\b/, /\baliens?\s+are\s+coming\b/,
         ];
         if (offTopicSignals.some((re) => re.test(combined))) continue;
+        // Must actually be about what was asked — see videoIsRelevant.
+        if (!videoIsRelevant(title, author, stems)) continue;
 
         out.push({
           title,
@@ -162,7 +197,9 @@ const PROXIES = [
 ];
 
 async function tryProxy(inst, query) {
-  const qs = encodeURIComponent(query + " lecture");
+  const anchored = shortenQueryForVideos(query);
+  const stems = videoAnchorStems(query);
+  const qs = encodeURIComponent((anchored || query) + " lecture");
   const url = inst.type === "piped"
     ? inst.url + "/search?q=" + qs + "&filter=videos"
     : inst.url + "/api/v1/search?q=" + qs + "&type=video";
@@ -185,10 +222,13 @@ async function tryProxy(inst, query) {
     for (const it of items) {
       let id = it.videoId || (it.url && it.url.replace(/^.*\/watch\?v=/, "").split("&")[0]);
       if (!id || !YT_ID_RE.test(id)) continue;
+      const pTitle = it.title || "Video";
+      const pAuthor = it.author || it.uploaderName || it.uploader || "Channel";
+      if (!videoIsRelevant(pTitle, pAuthor, stems)) continue;
       out.push({
-        title: it.title || "Video",
+        title: pTitle,
         url: "https://www.youtube.com/watch?v=" + id,
-        author: it.author || it.uploaderName || it.uploader || "Channel",
+        author: pAuthor,
         thumbnail: "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg",
         id,
       });
