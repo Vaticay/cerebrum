@@ -6794,6 +6794,25 @@ Respond naturally to the user's message. Be yourself.`;
       }
     }
 
+    // Commit 58 — drop non-scholarly archive records. A search for "Saho"
+    // returned a Della Reese concert cassette, a 1930 quilt from a library
+    // digitisation project and a WWII oral-history interview, all scored as
+    // usable sources. Several aggregators index museum, library and archive
+    // holdings alongside journal articles; they have titles and years and
+    // therefore look like papers to a relevance scorer, but no one searching
+    // a literature tool wants them. Identified by their container, which is
+    // where these give themselves away — a "journal" called "National Museum
+    // of the Pacific War" is not a journal.
+    const NON_SCHOLARLY_CONTAINER = /(museum|library|archive|oral histor|quilt|collection|academy of arts|historical societ|digitiz|special collections|yearbook|newspaper|photograph)/i;
+    papers = papers.filter((pp) => {
+      const container = String(pp.journal || pp.source || "");
+      if (!container) return true;
+      // A DOI is decisive evidence of a real publication record, so a record
+      // that has one is kept regardless of what its container is called.
+      if (pp.doi || (pp.url || "").includes("doi.org")) return true;
+      return !NON_SCHOLARLY_CONTAINER.test(container);
+    });
+
     let evidencePapers = (isNameSearch || isFollowupMode)
       ? papers.slice(0, maxEvidence)
       : (() => {
