@@ -63,7 +63,11 @@ function relativeTime(ms) {
 // Previously these two spots (plus package.json) had each drifted to a
 // different number independently — a user could see three different
 // version strings in one sitting. One constant, everything else reads it.
-const APP_VERSION = "5.0.0";
+// Bumped whenever a batch of changes ships. This is the fastest way to
+// answer "did my deploy actually go live?" — the footer prints it, so a
+// stale bundle is visible in one glance instead of being diagnosed by
+// hunting for a missing feature.
+const APP_VERSION = "5.1.0";
 
 // ── Account API — thin wrappers around /api/auth and /api/data. Both
 // endpoints are same-origin (Cloudflare Pages Functions served from the same
@@ -674,6 +678,7 @@ function Icon({ name, size = 17, className, style }) {
     // End-call glyph: the standard rotated-handset silhouette (same shape
     // most icon sets use for "phone"), plus the same off-slash convention
     // as micOff/cameraOff above, for the red End Call button.
+    case "phone": return <svg {...common}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>;
     case "phoneOff": return <svg {...common}><path d="M22 16.9v3a2 2 0 01-2.18 2 19.8 19.8 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.34 1.85.57 2.81.7a2 2 0 011.72 2.03z" /><path d="M2 2l20 20" /></svg>;
     // Huddle minimize/expand — four arrowheads pointing inward (shrink to a
     // bubble) or outward (back to full screen), the standard convention.
@@ -861,6 +866,56 @@ function Reveal({ children, deps = [], y, stagger, duration, delay, descend, sty
    expect: the CALLER hears a slow low ringback (440+480Hz, 2s on / 4s off,
    the North American pattern), and the CALLEE hears a brighter, more
    insistent double-pulse that is impossible to mistake for the other. */
+// One-shot tone used for send/receive confirmations. Same mute contract as
+// useCallTone below.
+function cbBlip(freq, dur = 0.07, gain = 0.05) {
+  try {
+    if (getCookie("cb_muted") === "1") return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(gain, ctx.currentTime + 0.012);
+    g.gain.linearRampToValueAtTime(0, ctx.currentTime + dur);
+    g.connect(ctx.destination);
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    osc.connect(g); osc.start(); osc.stop(ctx.currentTime + dur);
+    setTimeout(() => { try { ctx.close(); } catch {} }, (dur + 0.25) * 1000);
+  } catch {}
+}
+
+// Commit 57 — OS-level notifications while Cerebrum is open.
+//
+// Not Web Push: that needs a service worker, VAPID keys and a server that
+// can wake a closed browser, and it is a genuinely bigger build. This is
+// the Notification API, which covers the case actually asked for — the
+// person has Cerebrum open in a tab and is looking at something else. A
+// message or an incoming call now surfaces in the OS notification centre
+// instead of only inside a tab nobody is looking at.
+//
+// Permission is requested lazily, on the first event worth notifying about,
+// never on page load: a permission prompt fired at someone who has not yet
+// used the feature is the fastest way to get permanently denied.
+function cbNotify(title, body, tag) {
+  try {
+    if (!("Notification" in window)) return;
+    // Only when the tab isn't the thing they're looking at — a notification
+    // for a conversation already on screen is noise.
+    if (document.visibilityState === "visible") return;
+    const fire = () => {
+      try {
+        const n = new Notification(title, { body, tag, icon: "/favicon.ico", renotify: false });
+        n.onclick = () => { try { window.focus(); n.close(); } catch {} };
+      } catch {}
+    };
+    if (Notification.permission === "granted") fire();
+    else if (Notification.permission === "default") Notification.requestPermission().then((p) => { if (p === "granted") fire(); });
+  } catch {}
+}
+
 function useCallTone(kind, active) {
   useEffect(() => {
     if (!active) return;
@@ -908,6 +963,89 @@ function useCallTone(kind, active) {
       try { ctx.close(); } catch {}
     };
   }, [kind, active]);
+}
+
+/* Commit 57 — the daily hook.
+   Engagement worth having, not the manipulative kind: a reason to come
+   back that is genuinely useful on arrival. One real headline from today's
+   literature, a one-tap way to ask about it, and a streak that counts days
+   you actually looked something up.
+
+   Deliberately NOT: an unread badge that lies, a red dot with nothing
+   behind it, an artificial "you're about to lose your streak" threat, or a
+   number that goes up for opening the app. The streak counts investigations
+   because that is the behavior worth reinforcing, it never scolds, and
+   breaking it costs nothing but the number. That's the line between a habit
+   that serves the person and a slot machine. */
+function readStreak() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("cb_streak") || "{}");
+    return { days: raw.days || 0, last: raw.last || "" };
+  } catch { return { days: 0, last: "" }; }
+}
+function bumpStreak() {
+  try {
+    const today = new Date().toDateString();
+    const cur = readStreak();
+    if (cur.last === today) return cur;
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    const days = cur.last === yesterday ? cur.days + 1 : 1;
+    const next = { days, last: today };
+    localStorage.setItem("cb_streak", JSON.stringify(next));
+    return next;
+  } catch { return { days: 0, last: "" }; }
+}
+
+function DailyScience({ P, accent, at, onAsk }) {
+  const [item, setItem] = useState(null);
+  const [streak, setStreak] = useState(() => readStreak());
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/trending").then((r) => r.json()).then((d) => {
+      if (cancelled) return;
+      const items = (d && Array.isArray(d.items) ? d.items : []).filter((x) => x && x.title);
+      if (!items.length) return;
+      // Same story for everyone for a given day — a digest that reshuffles
+      // on every refresh isn't a digest, it's a slot machine pull.
+      const dayIndex = Math.floor(Date.now() / 86400000) % items.length;
+      setItem(items[dayIndex]);
+    }).catch(() => {});
+    const onFocus = () => setStreak(readStreak());
+    window.addEventListener("focus", onFocus);
+    return () => { cancelled = true; window.removeEventListener("focus", onFocus); };
+  }, []);
+  if (!item) return null;
+  const ask = () => onAsk(`Explain the science behind: ${String(item.title).slice(0, 160)}`);
+  return (
+    <div style={{
+      marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left",
+      padding: "16px 18px", borderRadius: 14,
+      background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+      border: `1px solid ${P.line}`,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Today in science</span>
+        {streak.days > 1 && (
+          <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+            {streak.days}-day streak
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.5, marginBottom: 12 }}>{item.title}</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={ask} style={{
+          padding: "8px 16px", borderRadius: 100, border: "none", cursor: "pointer",
+          background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
+        }}>Explain this</button>
+        {item.url && (
+          <a href={item.url} target="_blank" rel="noopener noreferrer" style={{
+            padding: "8px 16px", borderRadius: 100, textDecoration: "none",
+            border: `1px solid ${P.line2}`, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
+          }}>Read source</a>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function useTypewriter(full, on) {
@@ -4145,6 +4283,13 @@ function TrendingView({ P, accent, at, isMobile }) {
   // flag), so a retry is expressed as a dependency change rather than by
   // hoisting load() out and losing that ownership.
   const [reloadTick, setReloadTick] = useState(0);
+  // Commit 58 — Trending was one long column of large cards: enormous
+  // vertical space, one story per screenful, and no way to get an overview
+  // of what's happening today without scrolling for a minute. Two changes:
+  // a Digest tab that lists everything compactly (the default, because the
+  // first thing anyone wants from a feed is the shape of the day), and the
+  // existing card layout kept as a second tab for browsing.
+  const [trendTab, setTrendTab] = useState("digest");
 
   useEffect(() => {
     let cancelled = false;
@@ -4258,10 +4403,52 @@ function TrendingView({ P, accent, at, isMobile }) {
         )}
         {status === "ready" && (
           <>
-            {hero && <div style={{ marginBottom: 24 }}><TrendingHero P={P} accent={accent} item={hero} onExpand={setExpanded} /></div>}
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
-              {rest.map((item, i) => <TrendingCard key={item.url || i} P={P} accent={accent} at={at} item={item} onExpand={setExpanded} />)}
+            <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+              {[["digest", "Digest"], ["cards", "Browse"]].map(([key, label]) => (
+                <button key={key} onClick={() => setTrendTab(key)}
+                  style={{
+                    padding: "7px 16px", borderRadius: 100, cursor: "pointer",
+                    fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)",
+                    letterSpacing: "0.04em", textTransform: "uppercase",
+                    background: trendTab === key ? withAlpha(accent, 0.14) : "transparent",
+                    color: trendTab === key ? P.ink : P.faint,
+                    border: `1px solid ${trendTab === key ? withAlpha(accent, 0.35) : P.line}`,
+                  }}>{label}</button>
+              ))}
             </div>
+            {trendTab === "digest" ? (
+              /* One line per story: headline, source, age. The whole day
+                 fits on a screen, which is the entire point of a digest —
+                 you scan it, then open the two things worth reading. */
+              <div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
+                {deduped.map((item, i) => (
+                  <button key={item.url || i} onClick={() => setExpanded(item)}
+                    style={{
+                      display: "flex", alignItems: "baseline", gap: 14, width: "100%", textAlign: "left",
+                      padding: "14px 4px", background: "transparent", border: "none",
+                      borderBottom: `1px solid ${P.line}`, cursor: "pointer", fontFamily: "var(--cb-body)",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", width: 22, flexShrink: 0 }}>{String(i + 1).padStart(2, "0")}</span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{item.title}</span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>
+                        {[item.source, item.publishedAt ? relativeTime(item.publishedAt) : null].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                {hero && <div style={{ marginBottom: 24 }}><TrendingHero P={P} accent={accent} item={hero} onExpand={setExpanded} /></div>}
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
+                  {rest.map((item, i) => <TrendingCard key={item.url || i} P={P} accent={accent} at={at} item={item} onExpand={setExpanded} />)}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -4673,7 +4860,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
           animation: "cbHuddleRing 1.6s ease-in-out infinite",
         }}>{initial}</span>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Incoming huddle</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Incoming call</div>
           <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{call.fromName}</div>
         </div>
       </div>
@@ -4705,7 +4892,7 @@ async function postCallSignal(threadId, clientId, type, payload) {
   }
 }
 
-function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, onClose }) {
+function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, audioOnly = false, onClose }) {
   const threadId = roomSeed; // roomSeed has always actually been the DM's thread id — see onStartHuddle in InboxView
   const videoARef = useRef(null); // "main stage" slot
   const videoBRef = useRef(null); // picture-in-picture slot
@@ -4721,7 +4908,10 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
   const [errorReason, setErrorReason] = useState("");
   const [retryTick, setRetryTick] = useState(0);
   const [micMuted, setMicMuted] = useState(false);
-  const [camMuted, setCamMuted] = useState(false);
+  // An audio call is a video call that opens with the camera already off —
+  // same surface, same controls, so switching the camera on mid-call is one
+  // tap rather than hanging up and calling back a different way.
+  const [camMuted, setCamMuted] = useState(audioOnly);
   const [hasCamera, setHasCamera] = useState(true);
   // Repurposes the old Jitsi "tile view" toggle: with exactly two
   // participants and no SFU, a tile grid doesn't apply the way it did for
@@ -4921,7 +5111,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
           if (!cancelled) setHasCamera(false);
         } catch {
           if (!cancelled) {
-            setErrorReason("Camera/microphone access is required for a video huddle. Please allow access in your browser and try again.");
+            setErrorReason("Camera/microphone access is required to place a call. Please allow access in your browser and try again.");
             setStatus("error");
           }
           return;
@@ -5085,7 +5275,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
     : { position: "fixed", inset: 0, zIndex: 300, background: "#0b0b0d" };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Video huddle with ${name}`} style={wrapStyle} onClick={minimized ? () => setMinimized(false) : undefined}>
+    <div role="dialog" aria-modal="true" aria-label={`Call with ${name}`} style={wrapStyle} onClick={minimized ? () => setMinimized(false) : undefined}>
       {/* Main stage — a plain <video> now instead of a Jitsi iframe mount;
           which stream (self or remote) plays here vs. in the PiP slot below
           is decided by mainIsSelf/assignVideos, not by which JSX slot this
@@ -5546,7 +5736,23 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       apiDataGet("thread", { thread_id: activeId }).then((data) => {
         if (cancelled) return;
         if (isFirst) setLoadingThread(false);
-        setActiveThread(data && !data.error ? data : null);
+        // A message that arrives while you're on another tab should reach
+        // you the same way any other app's would.
+        setActiveThread((prevThread) => {
+          const next = data && !data.error ? data : null;
+          try {
+            const prevMsgs = (prevThread && prevThread.messages) || [];
+            const nextMsgs = (next && next.messages) || [];
+            if (prevThread && nextMsgs.length > prevMsgs.length) {
+              const fresh = nextMsgs[nextMsgs.length - 1];
+              if (fresh && !fresh.mine) {
+                cbBlip(660, 0.07, 0.045);
+                cbNotify(fresh.who || next.name || "New message", (fresh.text || "Sent an attachment").slice(0, 140), "cb-msg-" + activeId);
+              }
+            }
+          } catch {}
+          return next;
+        });
         // The backend marks this thread read as part of that same GET (see
         // the "thread" resource handler in functions/api/data.js) — mirror it
         // here optimistically so the list's bold/dot treatment and the
@@ -5578,6 +5784,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     setSending(true);
     setDraft("");
     try {
+      // Commit 57 — a short confirmation blip on send. Silence after
+      // pressing send leaves a half-second of "did that go?"; every
+      // messaging app answers that with a sound, and it costs one
+      // oscillator. Honors the app's mute setting like every other tone.
+      cbBlip(880, 0.07, 0.05);
       const res = await apiDataAction("send-message", {
         thread_id: activeId, text,
         ...(attachment ? {
@@ -5740,19 +5951,32 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {/* Commit 57 — "Huddle" was internal vocabulary on the most
+                    important button in a conversation. Nobody arrives at a
+                    science tool knowing what a huddle is; everyone knows a
+                    phone icon and a camera icon. Both open the same call
+                    surface; the audio one starts with the camera off. */}
+                <button
+                  onClick={() => { if (!activeThread.blocked) onStartHuddle(activeThread.name, activeId, { audioOnly: true }); }}
+                  disabled={activeThread.blocked}
+                  aria-label="Start an audio call" title="Audio call"
+                  style={{
+                    background: withAlpha(accent, 0.1), border: "none", borderRadius: "50%", color: accent,
+                    cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
+                    width: 38, height: 38, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  }}
+                ><Icon name="phone" size={16} /></button>
                 <button
                   onClick={() => { if (!activeThread.blocked) onStartHuddle(activeThread.name, activeId); }}
                   disabled={activeThread.blocked}
-                  aria-label={activeThread.blocked ? "You've blocked this person — huddle unavailable" : activeHuddleRoomSeed === activeId ? "Return to video huddle" : "Start video huddle"}
-                  title={activeThread.blocked ? "You've blocked this person" : activeHuddleRoomSeed === activeId ? "Return to call" : "Video Huddle"}
+                  aria-label={activeThread.blocked ? "You've blocked this person — calling unavailable" : activeHuddleRoomSeed === activeId ? "Return to call" : "Start a video call"}
+                  title={activeThread.blocked ? "You've blocked this person" : activeHuddleRoomSeed === activeId ? "Return to call" : "Video call"}
                   style={{
-                    background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: 8, color: accent,
+                    background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: "50%", color: accent,
                     cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
-                    padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)", flexShrink: 0,
+                    width: 38, height: 38, display: "inline-flex", alignItems: "center", justifyContent: "center",
                   }}
-                >
-                  <Icon name="camera" size={16} /> {!isMobile && (activeHuddleRoomSeed === activeId ? "In call" : "Huddle")}
-                </button>
+                ><Icon name="camera" size={16} /></button>
                 {/* Commit 48: block/report menu — DM-only (see user_blocks'
                     scope note in schema.sql: groups have no membership-
                     removal flow to pair blocking with yet), and only once
@@ -5785,7 +6009,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             {activeThread.blocked && (
               <div style={{ padding: "10px 24px", background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8 }}>
                 <Icon name="block" size={14} style={{ color: STATUS.bad, flexShrink: 0 }} />
-                You've blocked {activeThread.name}. Neither of you can message or huddle here until you unblock.
+                You've blocked {activeThread.name}. Neither of you can message or call here until you unblock.
               </div>
             )}
             <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -6685,7 +6909,9 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
   useEffect(() => {
     clearTimeout(searchTimer.current);
     const q = query.trim();
-    if (q.length < 2) { setLoading(false); setResults([]); setHubs([]); return; }
+    // Commit 57 — the client used to bail out on a short query too, so even
+    // with the endpoint fixed the picker would still show nothing until you
+    // typed. An empty box now browses the directory (see search-users).
     setLoading(true);
     searchTimer.current = setTimeout(async () => {
       const data = await apiDataGet("search-users", { q });
@@ -8947,6 +9173,9 @@ function App() {
   }, [entered]);
 
   const ask = useCallback(async (q, opts = {}) => {
+    // Counts a day only when a real investigation runs — not for opening
+    // the app. See readStreak/bumpStreak for why that distinction matters.
+    try { bumpStreak(); } catch {}
     const question = (q ?? input).trim();
     const imageToSend = attachedImage;
     if ((!question && !imageToSend) || busy) return;
@@ -9179,7 +9408,15 @@ function App() {
       try {
         const data = await apiDataGet("incoming-calls");
         if (cancelled) return;
-        setIncomingCall(data && data.call ? data.call : null);
+        const call = data && data.call ? data.call : null;
+        // Only on the transition into ringing, not on every poll — the
+        // poll runs every 3s and a notification per poll would be abuse.
+        setIncomingCall((prev) => {
+          if (call && (!prev || prev.threadId !== call.threadId)) {
+            cbNotify("Incoming call", `${call.fromName} is calling you on Cerebrum`, "cb-call");
+          }
+          return call;
+        });
       } catch { /* a failed poll is just "no call right now" */ }
     };
     tick();
@@ -9670,6 +9907,7 @@ function App() {
               <div style={S.chips} className="cb-stagger" onMouseEnter={() => chipsPausedRef.current = true} onMouseLeave={() => chipsPausedRef.current = false} onFocus={() => chipsPausedRef.current = true} onBlur={() => chipsPausedRef.current = false}>
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
+              <DailyScience P={P} accent={accent} at={at} onAsk={(q) => ask(q)} />
               <div style={S.trustRow}>
                 {/* Bug: this said "+ 10 more" after 6 named databases (implying
                     16 total), matching the stale "16 databases" figure that
@@ -9766,7 +10004,7 @@ function App() {
             threads={threads} setThreads={setThreads}
             initialThreadId={pendingThreadId}
             onConsumeInitialThread={() => setPendingThreadId(null)}
-            onStartHuddle={(name, roomSeed) => setActiveHuddle({ name, roomSeed })}
+            onStartHuddle={(name, roomSeed, opts) => setActiveHuddle({ name, roomSeed, audioOnly: !!(opts && opts.audioOnly) })}
             activeHuddleRoomSeed={activeHuddle?.roomSeed ?? null}
             onCompose={() => setNetworkSearchOpen(true)}
           />
@@ -9933,7 +10171,7 @@ function App() {
       {activeHuddle && (
         <VideoHuddle
           P={P} accent={accent} at={at} isMobile={isMobile}
-          name={activeHuddle.name} roomSeed={activeHuddle.roomSeed} currentUserId={user?.id}
+          name={activeHuddle.name} roomSeed={activeHuddle.roomSeed} audioOnly={activeHuddle.audioOnly} currentUserId={user?.id}
           onClose={() => setActiveHuddle(null)}
         />
       )}
