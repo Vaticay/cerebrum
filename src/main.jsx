@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "5.1.0";
+const APP_VERSION = "5.2.0";
 
 // ── Account API — thin wrappers around /api/auth and /api/data. Both
 // endpoints are same-origin (Cloudflare Pages Functions served from the same
@@ -623,6 +623,9 @@ function Icon({ name, size = 17, className, style }) {
     case "menu": return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
     case "arrowRight": return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
     case "mic": return <svg {...common}><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" /><path d="M5 12a7 7 0 0014 0M12 19v3" /></svg>;
+    // Commit 65 — watched topics. A bell rather than a bookmark: watching a
+    // topic isn't saving it, it's asking to be told when it changes.
+    case "bell": return <svg {...common}><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 01-3.4 0" /></svg>;
     case "check": return <svg {...common}><path d="M20 6L9 17l-5-5" /></svg>;
     // v28: the toolbar's Copy button used to borrow "check" (a checkmark)
     // because it always had a visible "Copy answer" text label to carry the
@@ -994,6 +997,177 @@ function bumpStreak() {
     localStorage.setItem("cb_streak", JSON.stringify(next));
     return next;
   } catch { return { days: 0, last: "" }; }
+}
+
+/* Commit 65 — Watched topics.
+   ---------------------------------------------------------------------
+   This is the retention mechanic, and it is deliberately the honest one.
+
+   The research (arXiv 2511.18013, "Save, Revisit, Retain") found that
+   saving predicts a user coming back better than any engagement signal,
+   but that it's the REVISIT of the saved thing — not the save — that
+   correlates with still being active a month later. Most revisits happen
+   within about a day of the save. The design consequence is that the app's
+   job is to give someone a real reason to come back, at the moment they've
+   just shown they care about a subject.
+
+   So: at the end of an answer, you can watch the topic. When literature is
+   actually indexed on it, the watchlist says so, with a count that came
+   from a live query rather than from a growth team. When nothing new has
+   been published, it says nothing. There is no artificial urgency, no
+   streak to lose, no red dot for a number that isn't real — because the
+   users are scientists, and a fake number is the fastest way to lose one. */
+
+const TOPIC_STOP = /^(explain the science behind|tell me about|what's new in|whats|what's|what|how|why|when|where|who|which|is|are|does|do|did|can|could|should|would|will|explain|summarize|the|a|an)\b[\s:,-]*/i;
+function deriveTopic(q) {
+  let t = (q || "").toString().trim();
+  // Strip the question scaffolding so what gets watched is the subject
+  // ("gut microbiome brain function"), not the phrasing of one question
+  // ("how does the gut microbiome influence brain function?") — otherwise
+  // two people watching the same subject store two different rows and the
+  // literature query gets narrower for no reason.
+  for (let i = 0; i < 4; i++) t = t.replace(TOPIC_STOP, "");
+  t = t.replace(/[?!.]+\s*$/, "").replace(/\s+/g, " ").trim();
+  const words = t.split(" ");
+  if (words.length > 10) t = words.slice(0, 10).join(" ");
+  return t.slice(0, 120);
+}
+
+function WatchTopicButton({ q, P, accent, user, onChanged }) {
+  const topic = deriveTopic(q);
+  const [state, setState] = useState("idle"); // idle | saving | on
+  const [err, setErr] = useState("");
+  useEffect(() => { setState("idle"); setErr(""); }, [topic]);
+  if (!topic || topic.length < 3) return null;
+  const signedIn = !!user;
+  const toggle = async () => {
+    if (!signedIn) { setErr("Sign in to watch topics."); return; }
+    const next = state === "on" ? "off" : "on";
+    setState("saving");
+    try {
+      await apiDataAction(next === "on" ? "watch-topic" : "unwatch-topic", { topic });
+      setState(next === "on" ? "on" : "idle");
+      setErr("");
+      if (onChanged) onChanged();
+    } catch (e) {
+      setState(state === "on" ? "on" : "idle");
+      setErr(e.message || "Couldn't save that.");
+    }
+  };
+  const on = state === "on";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
+      <button
+        onClick={toggle}
+        disabled={state === "saving"}
+        title={on ? `You're watching "${topic}"` : `Get told when new papers on "${topic}" are indexed`}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "8px 15px", borderRadius: 100, cursor: state === "saving" ? "default" : "pointer",
+          fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+          background: on ? withAlpha(accent, 0.12) : "transparent",
+          color: on ? accent : P.ink2,
+          border: `1px solid ${on ? withAlpha(accent, 0.45) : P.line2}`,
+          transition: "all 0.18s ease", opacity: state === "saving" ? 0.6 : 1,
+        }}
+      >
+        <Icon name={on ? "check" : "bell"} size={14} />
+        {on ? "Watching this topic" : "Watch this topic"}
+      </button>
+      <span style={{ fontSize: FONT_SIZES.micro, color: err ? STATUS.bad : P.faint, fontFamily: "var(--cb-mono)" }}>
+        {err || (on ? "New papers will show on your home screen" : `Tracks new literature on "${topic}"`)}
+      </span>
+    </div>
+  );
+}
+
+/* The home-screen watchlist. Renders nothing at all when there's nothing
+   to watch or nothing new — an empty box that exists to remind you the
+   feature exists is clutter, not engagement. */
+function WatchList({ P, accent, at, user, onAsk, refreshKey }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [busyTopic, setBusyTopic] = useState("");
+  const load = useCallback(async () => {
+    if (!user) { setItems([]); return; }
+    setLoading(true);
+    const d = await apiDataGet("watchlist");
+    setLoading(false);
+    setItems(d && Array.isArray(d.items) ? d.items : []);
+  }, [user]);
+  useEffect(() => { load(); }, [load, refreshKey]);
+  // Recheck when the tab regains focus — someone coming back tomorrow
+  // should see today's count, not yesterday's render.
+  useEffect(() => {
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [load]);
+  if (!user || (!items.length && !loading)) return null;
+  const withNew = items.filter((i) => i.newCount > 0);
+  const open = async (item) => {
+    setBusyTopic(item.topic);
+    try { await apiDataAction("watchlist-seen", { topic: item.topic }); } catch {}
+    setBusyTopic("");
+    onAsk(`What's new in ${item.topic}? Summarize the most recent findings.`);
+  };
+  const drop = async (item) => {
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
+    try { await apiDataAction("unwatch-topic", { topic: item.topic }); } catch { load(); }
+  };
+  return (
+    <div style={{
+      marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left",
+      padding: "16px 18px", borderRadius: 14,
+      background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+      border: `1px solid ${P.line}`,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Your watched topics</span>
+        {withNew.length > 0 && (
+          <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+            {withNew.length} with new work
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {items.map((item) => (
+          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: `1px solid ${P.line}` }}>
+            <button
+              onClick={() => open(item)}
+              disabled={busyTopic === item.topic}
+              style={{
+                flex: 1, minWidth: 0, textAlign: "left", background: "none", border: "none",
+                cursor: "pointer", padding: 0, color: P.ink, fontFamily: "var(--cb-body)",
+                fontSize: FONT_SIZES.small, fontWeight: 600,
+              }}
+            >
+              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.topic}</span>
+              <span style={{ display: "block", marginTop: 3, fontSize: FONT_SIZES.micro, fontWeight: 500, color: item.newCount > 0 ? accent : P.faint, fontFamily: "var(--cb-mono)" }}>
+                {/* `live: false` means the count came from cache because the
+                    literature index couldn't be reached just now. Saying so
+                    is better than presenting a stale number as current. */}
+                {item.newCount > 0
+                  ? `${item.newCount} new paper${item.newCount === 1 ? "" : "s"} since you looked${item.live ? "" : " (last check)"}`
+                  : (item.live ? "Nothing new yet" : "Couldn't check just now")}
+              </span>
+            </button>
+            {item.newCount > 0 && (
+              <span style={{
+                flexShrink: 0, minWidth: 26, textAlign: "center", padding: "3px 8px", borderRadius: 100,
+                background: withAlpha(accent, 0.14), color: accent,
+                fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-mono)",
+              }}>{item.newCount > 99 ? "99+" : item.newCount}</span>
+            )}
+            <button onClick={() => drop(item)} title={`Stop watching ${item.topic}`} aria-label={`Stop watching ${item.topic}`}
+              style={{ flexShrink: 0, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 3, display: "inline-flex" }}>
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function DailyScience({ P, accent, at, onAsk }) {
@@ -2940,7 +3114,7 @@ function buildAcademicPaperBlocks(answer) {
   return { abstract, bodyBlocks, conclusion };
 }
 
-function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true }) {
+function Turn({ t, P, accent, at, S, typewriter, last = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true, user = null, onWatchChanged = () => {} }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   // Only fires once the text has stopped changing (see the comment at the
@@ -3192,6 +3366,13 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
         </div>
       )}
       {openVideo && <VideoPlayerModal P={P} accent={accent} at={at} video={openVideo} close={() => setOpenVideo(null)} />}
+      {/* Commit 65 — "Watch this topic", placed at the end of a finished
+          answer because that is the one moment we know the reader cares
+          about this subject. Only on the LAST turn: repeating it under
+          every answer in a long thread turns a useful offer into nagging. */}
+      {interactive && done && last && (
+        <WatchTopicButton q={t.q} P={P} accent={accent} user={user} onChanged={onWatchChanged} />
+      )}
       {/* Related questions */}
       {interactive && done && t.related && t.related.length > 0 && (
         <div style={S.relatedWrap} className="cb-fade">
@@ -9369,6 +9550,9 @@ function App() {
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
   const [hover, setHover] = useState("");
   const [hoverCite, setHoverCite] = useState(0);
+  // Commit 65 — bumped whenever a topic is watched or unwatched, so the
+  // home-screen watchlist reflects it without a page reload.
+  const [watchKey, setWatchKey] = useState(0);
   const inputRef = useRef(null);
   const cmdRef = useRef(null);
   // A quiet tribute, not a feature: the version badge used to read "DP" —
@@ -10164,6 +10348,7 @@ function App() {
               <div style={S.chips} className="cb-stagger" onMouseEnter={() => chipsPausedRef.current = true} onMouseLeave={() => chipsPausedRef.current = false} onFocus={() => chipsPausedRef.current = true} onBlur={() => chipsPausedRef.current = false}>
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
+              <WatchList P={P} accent={accent} at={at} user={user} onAsk={(q) => ask(q)} refreshKey={watchKey} />
               <DailyScience P={P} accent={accent} at={at} onAsk={(q) => ask(q)} />
               <div style={S.trustRow}>
                 {/* Bug: this said "+ 10 more" after 6 named databases (implying
@@ -10173,13 +10358,13 @@ function App() {
                     fanout (functions/api/search.js's `sourceNames`) queries
                     14. Corrected to match. */}
                 {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
-                <span style={{ ...S.trustItem, color: P.faint }}>+ 8 more</span>
+                <span style={{ ...S.trustItem, color: P.faint }}>+ 9 more</span>
               </div>
             </Reveal>
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
+                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.08em", textTransform: "uppercase" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
