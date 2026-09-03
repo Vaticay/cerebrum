@@ -4487,6 +4487,77 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
 // Commit 46: rebuilt as a dedicated full-screen overlay (FaceTime-style)
 // instead of an inline panel confined to the Inbox's right pane — kept as-is
 // below, only what's inside it changed.
+/* ════════════════════════════════════════════════════════════════
+   INCOMING CALL — the receiving half of a video huddle
+   ════════════════════════════════════════════════════════════════
+   Until this existed, "calling someone" in Cerebrum wasn't a thing that
+   could happen: VideoHuddle assumed both people had already independently
+   opened the same thread's huddle, and if they hadn't, both sides simply
+   sat on "Waiting for X to join" until one of them gave up. That is the
+   whole of the reported bug — the WebRTC handshake underneath was fine.
+
+   The caller now emits a `ring` heartbeat (see VideoHuddle), every signed-in
+   client polls "is anyone calling me" app-wide (see the effect in App), and
+   this is what that poll puts on screen. Modeled on the incoming-call sheet
+   every phone uses: who's calling, and two unmistakable choices.
+
+   Declining posts a `bye` on the thread so the caller's own huddle closes
+   immediately rather than ringing into a void — a decline the caller can't
+   see is just a call that seems to go unanswered. */
+function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
+  const initial = (call.fromName || "?").trim().charAt(0).toUpperCase();
+  const btn = (bg, color, label, icon, onClick) => (
+    <button onClick={onClick} style={{
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+      background: "none", border: "none", cursor: "pointer", color: P.ink2,
+      fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+    }}>
+      <span style={{
+        width: 58, height: 58, borderRadius: "50%", background: bg, color,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}><Icon name={icon} size={22} /></span>
+      {label}
+    </button>
+  );
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`Incoming call from ${call.fromName}`}
+      style={{
+        position: "fixed", zIndex: 320,
+        // Phone-like placement: top sheet on mobile (where a call banner
+        // belongs), bottom-right card on desktop (where it doesn't cover
+        // what someone is reading).
+        ...(isMobile
+          ? { top: 12, left: 12, right: 12 }
+          : { bottom: 24, right: 24, width: 340 }),
+        padding: 20, borderRadius: 18,
+        background: P.dark ? "rgba(18,19,24,0.96)" : "rgba(255,255,255,0.98)",
+        border: `1px solid ${P.line2}`,
+        boxShadow: "0 18px 60px rgba(0,0,0,0.4)",
+        backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+      }}
+      className="cb-modal"
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+        <span aria-hidden="true" style={{
+          width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
+          background: withAlpha(accent, 0.2), border: `1px solid ${withAlpha(accent, 0.45)}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 20, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)",
+          animation: "cbHuddleRing 1.6s ease-in-out infinite",
+        }}>{initial}</span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Incoming huddle</div>
+          <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{call.fromName}</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-evenly" }}>
+        {btn(withAlpha(STATUS.bad, 0.16), STATUS.bad, "Decline", "phoneOff", onDecline)}
+        {btn(accent, at, "Accept", "camera", onAccept)}
+      </div>
+    </div>
+  );
+}
+
 let __cbHuddleClientSeq = 0;
 function newHuddleClientId() {
   __cbHuddleClientSeq += 1;
@@ -4546,11 +4617,25 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
   // scoped by thread_id rather than a specific user, since a call has no
   // single message to point at the way the Inbox's per-message report does.
   const [reportOpen, setReportOpen] = useState(false);
+  // Refs don't re-render, and which slot each stream belongs in changes the
+  // moment the remote track lands — so the arrival itself has to be state.
+  const [hasRemote, setHasRemote] = useState(false);
 
+  // Which physical <video> slot shows which stream. The `!remote` clause is
+  // what makes the outgoing-call screen feel like FaceTime instead of a
+  // loading spinner: until the other side's track actually arrives there is
+  // nothing to put on the main stage, and the old code put that nothing
+  // there anyway — a black rectangle with "Waiting for X to join" over it.
+  // Every real calling app shows YOU full-screen while it's ringing out,
+  // then demotes you to the corner the instant the other person appears.
+  // That's exactly what this does, and it also means the call screen proves
+  // your own camera and mic are working before the call ever connects.
   function assignVideos(isSelfMain) {
     const a = videoARef.current, b = videoBRef.current;
-    if (a) a.srcObject = isSelfMain ? localStreamRef.current : remoteStreamRef.current;
-    if (b) b.srcObject = isSelfMain ? remoteStreamRef.current : localStreamRef.current;
+    const local = localStreamRef.current, remote = remoteStreamRef.current;
+    const selfOnMain = isSelfMain || !remote;
+    if (a) a.srcObject = selfOnMain ? local : remote;
+    if (b) b.srcObject = selfOnMain ? remote : local;
   }
 
   useEffect(() => { mainIsSelfRef.current = mainIsSelf; assignVideos(mainIsSelf); }, [mainIsSelf]);
@@ -4567,6 +4652,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
     let remoteDescSet = false;
     let connected = false;
     let pollFailures = 0;
+    let ringTimer = null;
     const pendingRemoteCandidates = [];
     const myClientId = clientIdRef.current;
 
@@ -4716,12 +4802,17 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
       localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
       pc.ontrack = (e) => {
         remoteStreamRef.current = e.streams[0];
+        if (!cancelled) setHasRemote(true);
         assignVideos(mainIsSelfRef.current);
       };
       pc.onicecandidate = (e) => { if (e.candidate) postSignal("ice", e.candidate.toJSON()); };
       pc.onconnectionstatechange = () => {
         if (cancelled || !pc) return;
-        if (pc.connectionState === "connected") { connected = true; setStatus("ready"); }
+        if (pc.connectionState === "connected") {
+          connected = true;
+          if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
+          setStatus("ready");
+        }
         else if (pc.connectionState === "failed") {
           connected = false;
           setErrorReason("Couldn't establish a direct connection to the other person — this can happen on some restrictive networks.");
@@ -4731,6 +4822,22 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
 
       setStatus("waiting");
       await postSignal("hello", {});
+      // Commit 54 — this is the half of "call someone" that never existed.
+      // Everything else in this component assumed both people had already
+      // decided to be in the same huddle; nothing ever told the other
+      // person a call was happening, so unless they independently clicked
+      // Huddle on the same thread within seconds, both sides sat on
+      // "Waiting for X to join" indefinitely. That's the reported bug, and
+      // no amount of fixing the WebRTC handshake could have solved it.
+      //
+      // A repeating heartbeat rather than one "incoming call" row: hanging
+      // up, closing the tab, a dead network and a killed browser all stop
+      // it in exactly the same way, so the other end's ringing UI expires
+      // by itself. There is no cleanup path that can fail and leave someone
+      // with a phantom call ringing forever.
+      const ring = () => { if (!cancelled && !connected) postSignal("ring", {}); };
+      ring();
+      ringTimer = setInterval(ring, 3000);
       poll();
     }
 
@@ -4739,6 +4846,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
     return () => {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
+      if (ringTimer) clearInterval(ringTimer);
       postSignal("bye", {});
       if (pc) { try { pc.close(); } catch {} }
       if (localStream) localStream.getTracks().forEach((t) => t.stop());
@@ -4820,6 +4928,9 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
   // self-view PiP, full control island) is swapped for a compact bubble
   // overlay. That's what lets the call keep running while minimized instead
   // of dropping and reconnecting.
+  // Self takes the main stage whenever there's no remote feed to put there
+  // (ringing out, reconnecting), regardless of the manual swap state.
+  const selfOnMain = mainIsSelf || !hasRemote;
   const bubbleSize = isMobile ? { width: 148, height: 108 } : { width: 220, height: 150 };
   const wrapStyle = minimized
     ? {
@@ -4842,24 +4953,50 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
         position: "absolute", inset: minimized ? 0 : (isMobile ? 0 : 16),
         borderRadius: minimized ? 0 : (isMobile ? 0 : 20), overflow: "hidden", background: "#000",
       }}>
-        <video ref={videoARef} autoPlay playsInline muted={mainIsSelf} style={{
+        <video ref={videoARef} autoPlay playsInline muted={selfOnMain} style={{
           position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
-          transform: mainIsSelf ? "scaleX(-1)" : "none",
-          opacity: mainIsSelf && (!hasCamera || camMuted) ? 0 : 1,
+          transform: selfOnMain ? "scaleX(-1)" : "none",
+          opacity: selfOnMain && (!hasCamera || camMuted) ? 0 : 1,
         }} />
-        {mainIsSelf && (!hasCamera || camMuted) && status === "ready" && (
+        {selfOnMain && (!hasCamera || camMuted) && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="cameraOff" size={28} style={{ color: "rgba(255,255,255,0.4)" }} />
           </div>
         )}
+        {/* While ringing out, this sits ON TOP of your own live camera feed
+            (see assignVideos) rather than replacing it, so the screen reads
+            as "you, calling someone" the way FaceTime does. The scrim is a
+            gradient weighted to the top and bottom edges — enough contrast
+            for the status text and the End-call button without flattening
+            the middle of your own picture into grey. The full-bleed opaque
+            treatment stays for the states where there genuinely is nothing
+            to look at yet (still acquiring the camera, or an error). */}
         {status !== "ready" && !minimized && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center" }}>
+          <div style={{
+            position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center",
+            background: (status === "waiting" || status === "connecting")
+              ? "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.12) 35%, rgba(0,0,0,0.12) 62%, rgba(0,0,0,0.72) 100%)"
+              : "rgba(11,11,13,0.92)",
+          }}>
             {status === "loading" ? (<>
               <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
               <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Getting camera ready…</div>
             </>) : status === "waiting" ? (<>
-              <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-              <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Waiting for {name} to join…</div>
+              {/* "Waiting for X to join" described the old behavior
+                  accurately — nothing was calling anyone, it really was
+                  just waiting. Now that starting a huddle actually rings
+                  the other person (see the ring heartbeat in the effect
+                  above), the copy says what is happening: it's calling. */}
+              <div aria-hidden="true" style={{
+                width: 84, height: 84, borderRadius: "50%", marginBottom: 4,
+                background: withAlpha(accent, 0.22), border: `1px solid ${withAlpha(accent, 0.4)}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 30, fontWeight: 700, color: "#fff", fontFamily: "var(--cb-display)",
+                animation: "cbHuddleRing 2s ease-in-out infinite",
+              }}>{(name || "?").trim().charAt(0).toUpperCase()}</div>
+              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: "#fff" }}>Calling {name}…</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(255,255,255,0.6)" }}>Ringing on Cerebrum — they'll see it if they're online.</div>
               <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)" }}>Back to chat</button>
             </>) : status === "connecting" ? (<>
               <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
@@ -4924,13 +5061,13 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
           borderRadius: 16, overflow: "hidden", background: "#18181c", cursor: "pointer",
           border: "1px solid rgba(255,255,255,0.22)", boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
         }}>
-          <video ref={videoBRef} autoPlay playsInline muted={!mainIsSelf} style={{
+          <video ref={videoBRef} autoPlay playsInline muted={!selfOnMain} style={{
             width: "100%", height: "100%", objectFit: "cover",
-            transform: !mainIsSelf ? "scaleX(-1)" : "none",
-            opacity: !mainIsSelf && (!hasCamera || camMuted) ? 0 : 1,
+            transform: !selfOnMain ? "scaleX(-1)" : "none",
+            opacity: !selfOnMain && (!hasCamera || camMuted) ? 0 : 1,
             transition: "opacity 0.2s ease",
           }} />
-          {!mainIsSelf && (!hasCamera || camMuted) && (
+          {!selfOnMain && (!hasCamera || camMuted) && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name="cameraOff" size={18} style={{ color: "rgba(255,255,255,0.4)" }} />
             </div>
@@ -5663,6 +5800,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const fileInputRef = useRef(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState("");
+  // Commit 54 — a profile is a thing you LOOK at; editing it is a mode you
+  // enter. Every field on this page used to be a permanently-open form
+  // control, so the page you landed on to see who someone is was really a
+  // settings screen wearing a cover photo: three empty input boxes with
+  // placeholder text where a name, a degree and an institution should be.
+  // That is the whole of "it looks basic and bare" — there was nothing to
+  // read, only blanks to fill. Display by default, edit on request.
+  const [editing, setEditing] = useState(false);
+  const [profileTab, setProfileTab] = useState("investigations");
 
   // Center-crops whatever aspect ratio was uploaded to a square, then
   // downsamples it onto a fixed 256x256 canvas and re-encodes as JPEG —
@@ -5784,7 +5930,16 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         {/* Roster info: overlapping avatar + identity + institution crest */}
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 20, marginTop: isMobile ? -46 : -64, marginBottom: 24 }}>
           <div style={{ position: "relative", width: isMobile ? 92 : 120, height: isMobile ? 92 : 120, flexShrink: 0 }}>
-            {avatarFailed && !profile.avatar_base64 ? (
+            {/* Commit 54: the fallback is now the DEFAULT, not the error
+                path. This used to request a generated avatar from an
+                external service (api.dicebear.com) on every profile view,
+                which meant the most personal element on the page depended
+                on a third party being reachable — and when it wasn't, the
+                page rendered an empty ring (confirmed on screen). A
+                locally-drawn initial always renders, costs no request, and
+                leaks no one's profile view to another host. A real uploaded
+                photo still wins over both. */}
+            {!profile.avatar_base64 ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
                 background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
@@ -5831,6 +5986,12 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </div>
 
           <div style={{ flex: 1, minWidth: 220, paddingBottom: 4 }}>
+            {!editing ? (
+              <div style={{
+                fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700,
+                color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
+              }}>{displayName}</div>
+            ) : (
             <input
               value={profile.name || ""}
               onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
@@ -5838,14 +5999,76 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               aria-label="Your name"
               style={{ display: "block", width: "100%", background: "transparent", border: "none", padding: 0, fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}
             />
+            )}
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 6, fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-mono)" }}>
               <span>{displayUsername}</span>
-              <span style={{ opacity: 0.4 }}>·</span>
-              <span>{user?.email}</span>
-              <span style={{ opacity: 0.4 }}>·</span>
-              <span>{followers} {followers === 1 ? "follower" : "followers"}</span>
+              {badges.length > 0 && (<>
+                <span style={{ opacity: 0.4 }}>·</span>
+                {/* Accolades were buried in a card below the fold. On every
+                    social profile the verification mark sits next to the
+                    handle, because that is where it does its job. */}
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  padding: "2px 9px", borderRadius: 100, color: accent,
+                  background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`,
+                  fontSize: FONT_SIZES.caption, fontWeight: 700,
+                }}><Icon name="check" size={11} /> {badges[0].label || "Verified"}</span>
+              </>)}
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+
+            {/* The identity line a reader actually wants: who you are
+                academically, as prose rather than three empty inputs. Parts
+                that aren't filled in are simply absent — an empty profile
+                shows one honest prompt instead of a row of blank boxes. */}
+            {!editing && (
+              (profile.degree || profile.affiliation || profile.grad_year) ? (
+                <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
+                  {[profile.degree, profile.affiliation, profile.grad_year].filter(Boolean).join(" · ")}
+                </div>
+              ) : (
+                <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6 }}>
+                  No research details yet — add your degree and institution so collaborators know who they're reading.
+                </div>
+              )
+            )}
+
+            {/* Stats bar. A social profile leads with its numbers; this page
+                previously mentioned a follower count mid-sentence in a
+                metadata line and showed nothing else countable at all. */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: isMobile ? 20 : 34, marginTop: 16 }}>
+              {[
+                ["Investigations", history.length],
+                ["Saved", saved.length],
+                ["Collections", collections.length],
+                ["Followers", followers],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", lineHeight: 1.1 }}>{value}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 2 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
+              <button
+                onClick={() => setEditing((v) => !v)}
+                style={{
+                  padding: "9px 20px", borderRadius: 100, cursor: "pointer",
+                  fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+                  background: editing ? accent : "transparent", color: editing ? at : P.ink,
+                  border: editing ? "none" : `1px solid ${P.line2}`,
+                }}
+              >{editing ? "Done editing" : "Edit profile"}</button>
+              <button
+                onClick={onManageAccount}
+                style={{
+                  padding: "9px 20px", borderRadius: 100, cursor: "pointer",
+                  fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+                  background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
+                }}
+              >Account &amp; security</button>
+            </div>
+            {editing && (<div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
               <div style={{ position: "relative", flex: "1 1 200px" }}>
                 <input
                   value={profile.degree || ""}
@@ -5882,7 +6105,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 aria-label="Graduating year"
                 style={{ ...inputStyle, width: 100, flex: "0 0 100px", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
               />
-            </div>
+            </div>)}
           </div>
 
           {/* Institution crest — an initials badge generated from the
@@ -5901,7 +6124,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
         {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginBottom: 16 }}>{avatarError}</div>}
 
-        <div style={{ position: "relative", marginBottom: 24 }}>
+        {editing && (<div style={{ position: "relative", marginBottom: 24 }}>
           <input
             value={profile.affiliation || ""}
             onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
@@ -5929,14 +6152,14 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               ))}
             </div>
           )}
-        </div>
+        </div>)}
 
         {/* Two-column body: Accolades/Affiliations on the left, Recent
             Investigations/Saved Collections — real data, not placeholder
             copy — on the right. */}
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0,1fr) minmax(0,1.4fr)", gap: 16, alignItems: "start" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={cardStyle}>
+            {badges.length > 1 && (<div style={cardStyle}>
               <div style={cardLabel}>Accolades</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {badges.map((b) => (
@@ -5952,7 +6175,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   </span>
                 ))}
               </div>
-            </div>
+            </div>)}
             <div style={cardStyle}>
               <div style={cardLabel}>Affiliations</div>
               {profile.affiliation && profile.affiliation.trim() ? (
@@ -6001,7 +6224,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         </div>
         {/* /Profile panel */}
 
-        <button onClick={onManageAccount} style={{ marginTop: 20, padding: "10px 18px", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Manage account &amp; security</button>
+        {/* The "Account & security" action moved up next to Edit profile,
+            where a profile's own actions belong; this second copy of the
+            same button at the bottom of the page is just a duplicate now. */}
       </div>
     </div>
   );
@@ -7973,6 +8198,8 @@ function App() {
   // `view` change; it minimizes to a small floating bubble instead of
   // disappearing. `null` = no call. `{ name, roomSeed }` = active.
   const [activeHuddle, setActiveHuddle] = useState(null);
+  // The call currently ringing at THIS client, or null. Polled below.
+  const [incomingCall, setIncomingCall] = useState(null);
   // Profile — name/username/affiliation live in the `users` table now (see
   // functions/api/data.js's get-profile/update-profile), pulled down on
   // sign-in and pushed back up on every edit by the debounced sync effect
@@ -8505,6 +8732,49 @@ function App() {
   useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
   useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
   useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
+  // Commit 54 — app-wide "is anyone calling me right now?" poll. This is
+  // the piece that turns a video huddle into something you can actually
+  // receive: it runs for any signed-in user on any screen, so a call
+  // reaches someone reading a paper or in Settings, not only someone who
+  // happens to be staring at the same Inbox thread.
+  //
+  // Suspended while a huddle is already open — you can't be rung by a call
+  // you're on, and it stops the accepted call from immediately re-ringing
+  // itself from its own leftover heartbeat rows.
+  //
+  // 3s matches the caller's ring heartbeat; the server only returns rings
+  // from the last ~9s, so a caller who hangs up, closes the tab or drops
+  // off the network stops ringing here within a poll or two with nothing to
+  // clean up. No push notifications involved — this is in-app only, which
+  // is exactly the "if they have Cerebrum open" case.
+  const userId = user?.id ?? null;
+  const huddleOpen = !!activeHuddle;
+  useEffect(() => {
+    if (!userId || huddleOpen) { setIncomingCall(null); return; }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const data = await apiDataGet("incoming-calls");
+        if (cancelled) return;
+        setIncomingCall(data && data.call ? data.call : null);
+      } catch { /* a failed poll is just "no call right now" */ }
+    };
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+    // Depends on primitives, NOT on the `user` / `activeHuddle` objects.
+    // That is not a style preference — it was the bug. App rebuilds its
+    // `user` object on its own cadence (profile refreshes, inbox polls), so
+    // an effect keyed on the object identity tore down and restarted every
+    // few hundred milliseconds. Each restart fired a fresh fetch and each
+    // teardown flipped `cancelled`, so the in-flight poll was almost always
+    // discarded on arrival: the request went out, the server answered with a
+    // real ringing call, and the handler returned early without ever calling
+    // setIncomingCall. Verified in a browser — the network tab showed the
+    // call arriving while nothing appeared on screen. Keying on user.id and
+    // a boolean keeps one long-lived interval that actually gets to finish.
+  }, [userId, huddleOpen]);
+
   useEffect(() => { setCookie("cb_anim2", animationMode); }, [animationMode]);
   useEffect(() => { const t = setTimeout(() => setCookie("cb_animS", String(animSpeed)), 500); return () => clearTimeout(t); }, [animSpeed]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
@@ -9219,6 +9489,24 @@ function App() {
           call the instant the sidebar navigated anywhere else. Being a
           sibling of every view instead means switching tabs mid-call can
           never unmount it; only `onClose`/hangup does. */}
+      {incomingCall && !activeHuddle && (
+        <IncomingCall
+          call={incomingCall} P={P} accent={accent} at={at} isMobile={isMobile}
+          onAccept={() => {
+            sfx();
+            // roomSeed has always been the thread id (see VideoHuddle) — so
+            // accepting is just opening the same huddle the caller is
+            // already sitting in, and the existing handshake takes over.
+            setActiveHuddle({ name: incomingCall.fromName, roomSeed: incomingCall.threadId });
+            setIncomingCall(null);
+          }}
+          onDecline={() => {
+            sfx();
+            postCallSignal(incomingCall.threadId, newHuddleClientId(), "bye", {});
+            setIncomingCall(null);
+          }}
+        />
+      )}
       {activeHuddle && (
         <VideoHuddle
           P={P} accent={accent} at={at} isMobile={isMobile}
@@ -9307,6 +9595,10 @@ summary::-webkit-details-marker { display: none; }
 @keyframes cbspin { to { transform: rotate(360deg); } }
 .cb-spin { animation: cbspin 0.9s linear infinite; display: inline-flex; }
 @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes cbHuddleRing {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.18); }
+  50%      { box-shadow: 0 0 0 16px rgba(255,255,255,0); }
+}
 @keyframes cbHuddlePulse { 0%, 100% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 0.35; } }
 @keyframes cbpulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(255,255,255,0.1); } 50% { box-shadow: 0 0 0 8px rgba(255,255,255,0.2); } }
 
