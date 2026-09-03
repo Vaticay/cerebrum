@@ -942,7 +942,30 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     // a surface that's now deliberately frameless everywhere else. Bumped
     // larger and bolder per "large, bold h2/h3 for structural hierarchy";
     // whitespace above/below now does the separating work a rule used to.
-    if (h2) return <h3 key={pi} style={{ fontSize: 26, fontWeight: 700, color: P.ink, margin: "44px 0 16px", letterSpacing: "-0.02em", fontFamily: "var(--cb-display)", lineHeight: 1.25 }}>{h2[1]}</h3>;
+    // Commit 55: a section header is now a small editorial masthead — an
+    // accent rule, the title, and a hairline running to the right margin —
+    // rather than one large word floating in whitespace. Three reasons this
+    // is worth the extra markup: it makes the four sections scannable at a
+    // glance in a long answer (the actual job of a header), the rule gives
+    // the eye a place to reset between sections without reinstating the
+    // heavy frame line v30 removed, and it reads as designed rather than as
+    // default markdown, which was the gap on a screen that carries the
+    // whole product's credibility.
+    if (h2) return (
+      <div key={pi} style={{ margin: "46px 0 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <span aria-hidden="true" style={{ width: 3, height: 22, borderRadius: 2, background: accent, flexShrink: 0 }} />
+          <h3 style={{
+            fontSize: 24, fontWeight: 700, color: P.ink, margin: 0,
+            letterSpacing: "-0.02em", fontFamily: "var(--cb-display)", lineHeight: 1.2,
+          }}>{h2[1]}</h3>
+          <span aria-hidden="true" style={{
+            flex: 1, height: 1, minWidth: 12,
+            background: `linear-gradient(90deg, ${withAlpha(accent, 0.35)}, transparent)`,
+          }} />
+        </div>
+      </div>
+    );
     const h3 = para.match(/^###\s+(.+)$/);
     if (h3) return <h4 key={pi} style={{ fontSize: 19, fontWeight: 700, color: P.ink, margin: "32px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{h3[1]}</h4>;
     // Bold-line headers (e.g., "**Mechanism**")
@@ -2479,8 +2502,11 @@ const TOUR_STEPS = [
   {
     title: "Contradiction Engine",
     icon: "⟁",
-    text: "The Divergent Findings & Gaps section surfaces papers that disagree with each other or with the consensus. Instead of burying conflicting evidence, Cerebrum highlights it — so you can evaluate the full landscape of a question, not just the majority position.",
-    hint: "Methodological Confidence scores help distinguish strong from weak disagreements.",
+    // Commit 55: these referenced the old section names ("Divergent
+    // Findings & Gaps", "Methodological Confidence"). Tour copy that names
+    // sections the reader will never see is worse than no tour copy.
+    text: "The \"Where researchers disagree\" section surfaces papers that conflict with each other or with the consensus. Instead of burying disagreement, Cerebrum shows it — so you can judge the full landscape of a question, not just the majority position.",
+    hint: "The \"How solid is this?\" section tells you which disagreements actually matter.",
   },
   {
     title: "High-APM Navigation",
@@ -2686,6 +2712,10 @@ function buildAcademicPaperBlocks(answer) {
 function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
+  // Only fires once the text has stopped changing (see the comment at the
+  // render site): `done` flips true when the typewriter has caught up, or
+  // immediately when the typewriter is off.
+  const answerRevealRef = useGsapReveal([done ? t.answer : null], { y: 12, stagger: 0.045, duration: 0.7 });
   const [copiedAnswer, setCopiedAnswer] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [showReport, setShowReport] = useState(false);
@@ -2831,7 +2861,19 @@ function Turn({ t, P, accent, at, S, typewriter, hoverCite, setHoverCite, onRela
             )}
           </div>
         )}
-        {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
+        {/* Commit 55 — the answer arrives section by section, on the same
+            GSAP gesture as the Intro and every page view. The whole card
+            already faded in as one block (cbEnter), which is fine for a
+            card and wrong for a document: an answer is read top-down, and
+            staggering its paragraphs is what makes it feel like it's being
+            composed rather than pasted. Keyed on the answer text so it
+            replays for each new answer but NOT on every re-render, and
+            skipped entirely while the typewriter is still streaming (the
+            text is changing every few milliseconds; animating each keystroke
+            would be strobing, not motion). */}
+        <div ref={answerRevealRef}>
+          {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite)}
+        </div>
         {done && (
           <div style={{ ...S.byline, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
             <span style={S.aiTag}>AI-synthesized · verify against cited sources</span>
@@ -10052,14 +10094,22 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 
 /* Citation superscript links within answers */
 .cb-answer-enter a[href^="#ref-"] {
+  /* Commit 55: the badge used to reserve an 18px-wide box with 3px of side
+     padding and a 1px margin on each side for what is usually a single
+     digit — so a citation followed by a full stop rendered as "ends 1 3 ."
+     with a visible gap before the punctuation (the answer text itself has
+     no space there; renderAnswer strips it). Tightening the box to hug its
+     own digits closes the gap without making the badge harder to hit: the
+     tap target is padded, not the glyph box, and it still reads as a
+     distinct chip rather than superscript text. */
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 18px; height: 18px;
+  min-width: 0; height: 16px;
   font-size: 10px; font-weight: 700; font-family: var(--cb-mono);
   text-decoration: none;
   border-radius: 4px;
   vertical-align: super;
-  padding: 0 3px;
-  margin: 0 1px;
+  padding: 0 4px;
+  margin: 0;
   transition: all 0.15s ease;
 }
 .cb-answer-enter a[href^="#ref-"]:hover {
