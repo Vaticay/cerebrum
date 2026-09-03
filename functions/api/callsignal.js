@@ -141,7 +141,7 @@ export async function onRequest(context) {
       const messages = (rows.results || []).map((r) => {
         let payload = null;
         try { payload = JSON.parse(r.payload); } catch { payload = null; }
-        return { id: r.id, sender_id: r.sender_id, client_id: r.client_id, type: r.type, payload };
+        return { id: r.id, sender_id: r.sender_id, client_id: r.client_id, type: r.type, payload, created_at: r.created_at };
       });
       return new Response(JSON.stringify({ messages }), { status: 200, headers: cors });
     }
