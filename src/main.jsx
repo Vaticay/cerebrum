@@ -4877,18 +4877,24 @@ function newHuddleClientId() {
   __cbHuddleClientSeq += 1;
   return `${Date.now().toString(36)}-${__cbHuddleClientSeq}-${Math.random().toString(36).slice(2, 8)}`;
 }
+// Returns true only if the signal actually landed. Commit 59: this used to
+// be fire-and-forget, which is why a call could ring on the caller's screen
+// while the ring POST was being rejected — nothing anywhere looked at the
+// result, so a 404 (endpoint not deployed) and a 200 were indistinguishable.
 async function postCallSignal(threadId, clientId, type, payload) {
   try {
-    await fetch("/api/call-signal", {
+    const res = await fetch("/api/call-signal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ threadId, clientId, type, payload }),
     });
+    return res.ok;
   } catch {
     // Best-effort. A dropped offer/answer/ICE post is recoverable — the
     // sender's own retry logic or the next natural signal covers it, except
     // `bye` on unmount, which is inherently best-effort everywhere (the tab
     // may already be closing when it fires).
+    return false;
   }
 }
 
@@ -5164,7 +5170,21 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       // it in exactly the same way, so the other end's ringing UI expires
       // by itself. There is no cleanup path that can fail and leave someone
       // with a phantom call ringing forever.
-      const ring = () => { if (!cancelled && !connected) postSignal("ring", {}); };
+      // If the very first ring can't be delivered, the person on the other
+      // end will never know they're being called no matter how long we spin.
+      // Better to say so immediately than to show "Calling…" forever.
+      let ringFailures = 0;
+      const ring = async () => {
+        if (cancelled || connected) return;
+        const ok = await postSignal("ring", {});
+        if (ok === false) {
+          ringFailures += 1;
+          if (ringFailures >= 3 && !cancelled) {
+            setErrorReason("Calls aren't fully set up on the server — the ring couldn't be delivered, so the other person won't be notified. Check Settings → System status.");
+            setStatus("error");
+          }
+        } else ringFailures = 0;
+      };
       ring();
       ringTimer = setInterval(ring, 3000);
       poll();
@@ -7585,6 +7605,63 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
    Proper alignment, accessibility, real settings (no orphaned
    controls — every piece of state below is reachable from here).
    ════════════════════════════════════════════════════════════════ */
+/* Commit 59 — live deploy status.
+   Every backend feature in this app ships as a separate file that has to be
+   pasted into the repo by hand, and a partial deploy fails silently: calling
+   works on the caller's screen and simply never reaches anyone, because the
+   one endpoint that was missed returns 404 and the client reads that as
+   "nothing to report". Diagnosing that has cost more time than building the
+   feature did. This asks each endpoint whether it exists and says so
+   plainly, so "did my deploy land?" is a question the app answers itself. */
+function SystemStatus({ P, accent }) {
+  const [rows, setRows] = useState(null);
+  const check = useCallback(async () => {
+    const probes = [
+      ["Calling — signaling", "/api/call-signal?threadId=probe&clientId=probe&since=0", "call-signal.js"],
+      ["Calling — ring delivery", "/api/data?resource=incoming-calls", "data.js"],
+      ["Calling — network relay", "/api/ice-servers", "ice-servers.js"],
+      ["Trending feed", "/api/trending", "trending.js"],
+    ];
+    const out = [];
+    for (const [label, url, file] of probes) {
+      let state = "down", detail = "";
+      try {
+        const res = await fetch(url);
+        if (res.status === 404) { state = "missing"; detail = file + " isn't deployed"; }
+        // 401/403 mean the endpoint EXISTS and answered — it just wants a
+        // session or rejected this probe's fake ids. For "is it deployed?"
+        // that is a pass, and treating it as a failure would be a false
+        // alarm for every signed-out visitor.
+        else if (res.ok || res.status === 401 || res.status === 403 || res.status === 400) { state = "ok"; }
+        else { state = "down"; detail = "HTTP " + res.status; }
+      } catch { state = "down"; detail = "no response"; }
+      out.push({ label, state, detail, file });
+    }
+    setRows(out);
+  }, []);
+  useEffect(() => { check(); }, [check]);
+  const tone = (st) => (st === "ok" ? STATUS.good : st === "missing" ? STATUS.bad : STATUS.warn);
+  return (
+    <div>
+      {(rows || []).map((r) => (
+        <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: `1px solid ${P.line}` }}>
+          <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: tone(r.state), flexShrink: 0 }} />
+          <span style={{ fontSize: FONT_SIZES.small, color: P.ink, flex: 1 }}>{r.label}</span>
+          <span style={{ fontSize: FONT_SIZES.caption, color: r.state === "ok" ? P.faint : tone(r.state), fontFamily: "var(--cb-mono)" }}>
+            {r.state === "ok" ? "live" : r.detail || r.state}
+          </span>
+        </div>
+      ))}
+      {!rows && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "10px 0" }}>Checking…</div>}
+      <button onClick={check} style={{
+        marginTop: 14, padding: "8px 16px", borderRadius: 100, cursor: "pointer",
+        background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2,
+        fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+      }}>Re-check</button>
+    </div>
+  );
+}
+
 function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "general");
@@ -7949,6 +8026,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   </div>
                 ))}
               </div>
+            </Section>
+
+            {/* Commit 59 — surfaced here rather than hidden behind a
+                developer flag: on this project a feature can be fully built
+                and still appear broken because one backend file didn't make
+                it into the repo, and until now the only symptom was silence. */}
+            <Section title="System status">
+              <SystemStatus P={P} accent={accent} />
             </Section>
 
             <Section title="About">
@@ -9990,7 +10075,7 @@ function App() {
         </Reveal>
       )}
       {view === "settings" && (
-        <Reveal deps={[view]} style={{ display: "contents" }}>
+        <Reveal deps={[view]} style={S.pageView}>
         <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, turns }} />
         </Reveal>
       )}
