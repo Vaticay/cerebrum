@@ -230,6 +230,60 @@ export async function onRequest(context) {
         items.sort((a, b) => (b.lastMessage?.createdAt || 0) - (a.lastMessage?.createdAt || 0));
         return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
       }
+      // Commit 54 — "is anyone calling me right now?", polled app-wide by
+      // every signed-in client. This is what makes a video huddle actually
+      // ring: before it, both people had to independently decide to click
+      // the huddle button on the same thread at roughly the same moment,
+      // which is why the reported symptom was both sides sitting on
+      // "Waiting for X to join" forever. Nobody was doing anything wrong —
+      // there was simply no path by which one person starting a call could
+      // reach the other.
+      //
+      // Deliberately a heartbeat, not a stored "call state" row. The caller
+      // re-posts a `ring` signal every few seconds for as long as it's
+      // waiting (see VideoHuddle in main.jsx); this returns the most recent
+      // one from the last few seconds. Hanging up, closing the tab, losing
+      // the network, or the browser being killed all stop the heartbeat
+      // identically, so the callee's ringing UI expires on its own with no
+      // cleanup path to get wrong and no way to leave a phantom call
+      // ringing forever. The cost is a few seconds of ring latency at
+      // pickup; the thing it buys is that there is no such thing as a stuck
+      // call.
+      if (resource === "incoming-calls") {
+        // A ring older than this is from a caller who has stopped ringing.
+        const RING_WINDOW_MS = 9000;
+        let row = null;
+        try {
+          row = await env.DB.prepare(
+            `SELECT cs.thread_id, cs.sender_id, cs.created_at
+             FROM call_signals cs
+             JOIN thread_participants tp ON tp.thread_id = cs.thread_id
+             WHERE tp.user_id = ? AND cs.sender_id != ? AND cs.type = 'ring' AND cs.created_at > ?
+             ORDER BY cs.created_at DESC LIMIT 1`
+          ).bind(user.id, user.id, Date.now() - RING_WINDOW_MS).first();
+        } catch (e) {
+          // call_signals is created by ensureSocialTables, but this endpoint
+          // must never be the thing that takes the app down if that hasn't
+          // run yet on a given isolate — "nobody is calling" is the correct
+          // degraded answer.
+          row = null;
+        }
+        if (!row) return new Response(JSON.stringify({ call: null }), { status: 200, headers: cors });
+        if (await isBlockedPair(env, user.id, row.sender_id)) {
+          return new Response(JSON.stringify({ call: null }), { status: 200, headers: cors });
+        }
+        const caller = await env.DB.prepare(
+          "SELECT name, username, email FROM users WHERE id = ?"
+        ).bind(row.sender_id).first();
+        return new Response(JSON.stringify({
+          call: {
+            threadId: row.thread_id,
+            fromId: row.sender_id,
+            fromName: caller ? (caller.name || caller.username || caller.email) : "Someone",
+            at: row.created_at,
+          },
+        }), { status: 200, headers: cors });
+      }
       // A single thread's full message history — get-inbox above only ever
       // returns the most recent message per thread (that's what a thread
       // list needs), so opening a conversation needs its own fetch. Same
