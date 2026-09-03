@@ -844,6 +844,72 @@ function Reveal({ children, deps = [], y, stagger, duration, delay, descend, sty
   return <div ref={ref} className={className} style={style} role={role} aria-label={ariaLabel}>{children}</div>;
 }
 
+/* Commit 56 — audible ringing. A call that is silent on both ends doesn't
+   read as a call: the person placing it has no feedback that anything is
+   happening ("there's no dial tone"), and the person receiving it has to
+   be looking at the screen to notice at all, which defeats the point of
+   ringing them. Both tones are synthesized with WebAudio rather than
+   shipped as audio files — a ringback is two sine tones, it costs nothing
+   to generate, and it avoids adding binary assets to a repo that deploys
+   by pasting source files.
+
+   Deliberately follows the app's existing mute setting (the same cb_muted
+   cookie the sfx helper uses), because a tone that ignores mute is the
+   single most hostile thing an app can do.
+
+   Two distinct patterns, matching what phones have trained everyone to
+   expect: the CALLER hears a slow low ringback (440+480Hz, 2s on / 4s off,
+   the North American pattern), and the CALLEE hears a brighter, more
+   insistent double-pulse that is impossible to mistake for the other. */
+function useCallTone(kind, active) {
+  useEffect(() => {
+    if (!active) return;
+    try { if (getCookie("cb_muted") === "1") return; } catch {}
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    let ctx;
+    try { ctx = new AC(); } catch { return; }
+    let stopped = false;
+    let timer = null;
+
+    const blip = (freqs, dur, gainValue) => {
+      if (stopped || ctx.state === "closed") return;
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0, ctx.currentTime);
+      // Ramped, never switched: an instant gain change on a sine wave is an
+      // audible click, and a clicking ringtone sounds broken rather than
+      // premium.
+      master.gain.linearRampToValueAtTime(gainValue, ctx.currentTime + 0.04);
+      master.gain.setValueAtTime(gainValue, ctx.currentTime + dur - 0.06);
+      master.gain.linearRampToValueAtTime(0, ctx.currentTime + dur);
+      master.connect(ctx.destination);
+      freqs.forEach((f) => {
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(f, ctx.currentTime);
+        osc.connect(master);
+        osc.start();
+        osc.stop(ctx.currentTime + dur);
+      });
+    };
+
+    const ringback = () => { blip([440, 480], 1.6, 0.09); timer = setTimeout(ringback, 5200); };
+    const ringtone = () => {
+      blip([660, 880], 0.32, 0.11);
+      setTimeout(() => blip([660, 880], 0.32, 0.11), 480);
+      timer = setTimeout(ringtone, 2600);
+    };
+
+    (kind === "incoming" ? ringtone : ringback)();
+
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      try { ctx.close(); } catch {}
+    };
+  }, [kind, active]);
+}
+
 function useTypewriter(full, on) {
   const [out, setOut] = useState(on ? "" : full);
   useEffect(() => {
@@ -969,8 +1035,26 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     const h3 = para.match(/^###\s+(.+)$/);
     if (h3) return <h4 key={pi} style={{ fontSize: 19, fontWeight: 700, color: P.ink, margin: "32px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{h3[1]}</h4>;
     // Bold-line headers (e.g., "**Mechanism**")
+    //
+    // Commit 56: this used to promote ANY paragraph that was entirely
+    // bold into a large accent-colored heading. The enforcer in
+    // functions/api/search.js explicitly requires the model to bold at
+    // least four key terms per answer, so it regularly emits a bolded
+    // lead-in sentence — and that sentence was being rendered as a giant
+    // heading immediately under "The short answer", which is exactly the
+    // reported "why did it randomly push through big bold text". A real
+    // subheading is short and isn't a sentence; a bolded sentence is
+    // emphasis and should render as emphasis. Three guards: it has to be
+    // short, it has to be a single line, and it must not end like a
+    // sentence. Anything else falls through to normal paragraph rendering
+    // with its bold intact.
     const boldHeader = para.match(/^\*\*([^*]+)\*\*\s*$/);
-    if (boldHeader) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accent, margin: "30px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{boldHeader[1]}</h4>;
+    const boldHeaderText = boldHeader ? boldHeader[1].trim() : "";
+    const looksLikeHeading = !!boldHeaderText
+      && boldHeaderText.length <= 60
+      && !boldHeaderText.includes("\n")
+      && !/[.!?;,]$/.test(boldHeaderText);
+    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accent, margin: "30px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-display)" }}>{boldHeaderText}</h4>;
 
     // Bullet lists: lines starting with "- " or "• "
     const bulletMatch = para.match(/^(?:[•\-]\s+.+\n?)+$/m);
@@ -4547,6 +4631,7 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
    immediately rather than ringing into a void — a decline the caller can't
    see is just a call that seems to go unanswered. */
 function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
+  useCallTone("incoming", true);
   const initial = (call.fromName || "?").trim().charAt(0).toUpperCase();
   const btn = (bg, color, label, icon, onClick) => (
     <button onClick={onClick} style={{
@@ -4695,6 +4780,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
     let connected = false;
     let pollFailures = 0;
     let ringTimer = null;
+    const startedAt = Date.now();
     const pendingRemoteCandidates = [];
     const myClientId = clientIdRef.current;
 
@@ -4721,6 +4807,17 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
     }
 
     async function handleMessage(msg) {
+      // Commit 56 — ignore signals that predate this huddle. Rows live for
+      // ten minutes (SIGNAL_TTL_MS in call-signal.js), so a thread that has
+      // been called on recently still holds hello/ice/bye rows from an
+      // abandoned attempt. Without this, a fresh call can latch its peer
+      // identity onto a client that is no longer there — which decides the
+      // offerer/answerer tie-break against a ghost, and then neither live
+      // side ever sends an offer. That failure looks exactly like the
+      // connection simply never establishing, and it gets MORE likely the
+      // more times a pair retries, which is the worst possible property for
+      // something someone is already struggling to get working.
+      if (msg.created_at && msg.created_at < startedAt - 2000) return;
       if (peerId == null && msg.sender_id) {
         peerId = msg.sender_id;
         // Deterministic tie-break so exactly one side ever creates the
@@ -4972,6 +5069,9 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, o
   // of dropping and reconnecting.
   // Self takes the main stage whenever there's no remote feed to put there
   // (ringing out, reconnecting), regardless of the manual swap state.
+  // Ringback for the caller, but only while actually ringing out — the
+  // moment a peer answers, status leaves "waiting" and the tone stops.
+  useCallTone("outgoing", status === "waiting" && !minimized);
   const selfOnMain = mainIsSelf || !hasRemote;
   const bubbleSize = isMobile ? { width: 148, height: 108 } : { width: 220, height: 150 };
   const wrapStyle = minimized
@@ -5295,6 +5395,125 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [blockBusy, setBlockBusy] = useState(false);
   const [reportModal, setReportModal] = useState(null);
   const [hoverMsgId, setHoverMsgId] = useState(null);
+  // Commit 56 — attachments. `attachBusy` covers both the compression pass
+  // and the upload, so the composer can't fire twice on a slow phone.
+  const imageInputRef = useRef(null);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
+  const recRef = useRef(null);
+  const [lightbox, setLightbox] = useState(null);
+
+  // Downscales to fit inside 1400px and re-encodes as JPEG before upload.
+  // A phone photo is several MB; a message row in D1 has roughly 1MB to
+  // work with, so compressing here is what makes image messages possible at
+  // all rather than a nice-to-have. 1400px is chosen to keep a figure or a
+  // plot legible when opened full-screen — this is a science tool, and an
+  // unreadable figure is a failed message.
+  async function compressImageFile(file) {
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result); r.onerror = () => rej(new Error("Couldn't read that file."));
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise((res, rej) => {
+      const el = new Image();
+      el.onload = () => res(el); el.onerror = () => rej(new Error("That doesn't look like an image."));
+      el.src = dataUrl;
+    });
+    const maxSide = 1400;
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+    // Step the quality down until it fits the server's cap rather than
+    // sending something that will be refused — a person who picked a photo
+    // should get the photo sent, not an error telling them to go resize it.
+    for (const q of [0.82, 0.7, 0.58, 0.45, 0.34]) {
+      const out = canvas.toDataURL("image/jpeg", q);
+      if (out.length < 650000) return out;
+    }
+    throw new Error("That image is too detailed to send — try a smaller crop.");
+  }
+
+  async function handleImagePick(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file || !activeId) return;
+    if (!file.type.startsWith("image/")) { toast("Please choose an image file.", { tone: "error" }); return; }
+    setAttachBusy(true);
+    try {
+      const data = await compressImageFile(file);
+      await sendMessage({ kind: "image", data, title: file.name.slice(0, 120) });
+    } catch (err) {
+      toast(err.message || "Couldn't attach that image.", { tone: "error" });
+    } finally { setAttachBusy(false); }
+  }
+
+  // Voice notes record audio AND run speech recognition over the same take,
+  // so the message arrives with a transcript attached. That is the whole
+  // reason voice notes belong in a research tool rather than being a chat
+  // gimmick: a transcript is skimmable, searchable, quotable and readable by
+  // someone who can't play audio right now, while the recording keeps the
+  // tone and emphasis a transcript loses.
+  async function startRecording() {
+    if (recording || !activeId) return;
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { toast("Microphone access is needed for a voice note.", { tone: "error" }); return; }
+    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => {
+      try { return window.MediaRecorder && MediaRecorder.isTypeSupported(m); } catch { return false; }
+    });
+    if (!mime) { stream.getTracks().forEach((t) => t.stop()); toast("Voice notes aren't supported in this browser.", { tone: "error" }); return; }
+    const chunks = [];
+    const rec = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 32000 });
+    let transcript = "";
+    let sr = null;
+    try {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SR) {
+        sr = new SR(); sr.continuous = true; sr.interimResults = false; sr.lang = navigator.language || "en-US";
+        sr.onresult = (ev) => { for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) transcript += ev.results[i][0].transcript; };
+        sr.onerror = () => {};
+        sr.start();
+      }
+    } catch {}
+    const startedAt = Date.now();
+    rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      try { sr && sr.stop(); } catch {}
+      const durationMs = Date.now() - startedAt;
+      if (durationMs < 700) return; // a mis-tap, not a message
+      const blob = new Blob(chunks, { type: mime });
+      const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+      if (data.length > 650000) { toast("That voice note is too long to send — try a shorter one.", { tone: "error" }); return; }
+      setAttachBusy(true);
+      try {
+        await sendMessage({ kind: "audio", data, title: "Voice note", meta: { durationMs, transcript: transcript.trim().slice(0, 2000) } });
+      } catch (err) { toast(err.message || "Couldn't send that voice note.", { tone: "error" }); }
+      finally { setAttachBusy(false); }
+    };
+    // 90 seconds is the hard ceiling the D1 row size implies at this
+    // bitrate; stopping automatically is friendlier than letting someone
+    // record for three minutes and then telling them it can't be sent.
+    recRef.current = { rec, timer: setInterval(() => setRecSeconds((v) => { const nv = v + 1; if (nv >= 90) stopRecording(); return nv; }), 1000) };
+    rec.start();
+    setRecSeconds(0);
+    setRecording(true);
+  }
+
+  function stopRecording() {
+    const cur = recRef.current;
+    if (!cur) return;
+    clearInterval(cur.timer);
+    try { cur.rec.stop(); } catch {}
+    recRef.current = null;
+    setRecording(false);
+    setRecSeconds(0);
+  }
 
   // Refreshed every time this view mounts (navigating here from the
   // Sidebar), in case something arrived since the last visit.
@@ -5351,13 +5570,24 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     return () => { cancelled = true; clearInterval(pollId); };
   }, [activeId]);
 
-  const sendMessage = async () => {
+  const sendMessage = async (attachment) => {
     const text = draft.trim();
-    if (!text || !activeId || sending) return;
+    // An attachment is a complete message on its own — a photo of a gel or
+    // a ten-second voice note doesn't need a caption to be worth sending.
+    if ((!text && !attachment) || !activeId || sending) return;
     setSending(true);
     setDraft("");
     try {
-      const res = await apiDataAction("send-message", { thread_id: activeId, text });
+      const res = await apiDataAction("send-message", {
+        thread_id: activeId, text,
+        ...(attachment ? {
+          attachment_kind: attachment.kind,
+          attachment_title: attachment.title || "",
+          attachment_data: attachment.data || "",
+          attachment_url: attachment.url || "",
+          attachment_meta: attachment.meta || null,
+        } : {}),
+      });
       setActiveThread((t) => (t ? { ...t, messages: [...t.messages, { ...res.message, who: "You" }] } : t));
       setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, lastMessage: res.message } : t)));
     } catch (e) {
@@ -5421,7 +5651,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
 
   return (
     <>
-    <div style={{ height: "100%", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
+    {/* Commit 56 — was height:"100%". Its parent chain (S.pageView inside
+        S.appMain) only ever sets minHeight, and a percentage height
+        resolves against a parent's *height*, not its min-height — so this
+        collapsed to the height of its own content. On screen that meant the
+        conversation stopped a few hundred pixels down with the composer
+        floating mid-page and the bottom half of the window empty, which is
+        the single thing that made this screen look unfinished next to
+        everything else. A viewport-relative height is resolvable no matter
+        what the ancestors declare; dvh (not vh) so mobile browser chrome
+        collapsing doesn't leave the composer under the address bar. */}
+    <div style={{ height: "100dvh", maxHeight: "100dvh", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
       {showList && (
         <div style={{ width: isMobile ? "100%" : 300, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`, display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ padding: "22px 22px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -5554,8 +5794,28 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               )}
               {activeThread.messages.map((m, i) => {
                 const key = m.id || i;
+                // Commit 56 — a date separator whenever the day changes, so
+                // a conversation that spans weeks stops reading as one
+                // undifferentiated column of bubbles with no sense of when
+                // anything was said.
+                const prev = i > 0 ? activeThread.messages[i - 1] : null;
+                const dayOf = (ts) => (ts ? new Date(ts).toDateString() : "");
+                const showDay = !!m.createdAt && dayOf(m.createdAt) !== dayOf(prev && prev.createdAt);
+                const dayLabel = (() => {
+                  if (!m.createdAt) return "";
+                  const d = new Date(m.createdAt), now = new Date();
+                  const days = Math.round((new Date(now.toDateString()) - new Date(d.toDateString())) / 86400000);
+                  if (days === 0) return "Today";
+                  if (days === 1) return "Yesterday";
+                  return d.toLocaleDateString(undefined, { month: "long", day: "numeric", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+                })();
+                const timeLabel = m.createdAt ? new Date(m.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
                 return (
-                <div key={key} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
+                <React.Fragment key={key}>
+                {showDay && (
+                  <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", textTransform: "uppercase" }}>{dayLabel}</div>
+                )}
+                <div style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                 >
                   {!m.mine && activeThread.kind === "group" && m.who && (
@@ -5572,7 +5832,65 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           border: m.mine ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
                         }}>{m.text}</div>
                       )}
-                      {m.attachmentTitle && (
+                      {/* Image: shown at real size in the thread (a figure
+                          you have to click to evaluate is a figure you
+                          won't evaluate), click to open full-screen. */}
+                      {m.attachmentKind === "image" && m.attachmentData && (
+                        <img
+                          src={m.attachmentData}
+                          alt={m.attachmentTitle || "Attached image"}
+                          onClick={() => setLightbox(m.attachmentData)}
+                          style={{
+                            marginTop: m.text ? 8 : 0, display: "block", maxWidth: "100%", maxHeight: 340,
+                            borderRadius: 14, cursor: "zoom-in", border: `1px solid ${P.line}`, objectFit: "cover",
+                          }}
+                        />
+                      )}
+                      {/* Voice note: the player and, underneath it, the
+                          transcript captured while recording. The transcript
+                          is the point — it makes the note skimmable, and
+                          readable at all by someone who can't play audio. */}
+                      {m.attachmentKind === "audio" && m.attachmentData && (
+                        <div style={{
+                          marginTop: m.text ? 8 : 0, padding: "10px 12px", borderRadius: 14, minWidth: 220,
+                          background: m.mine ? withAlpha(at, 0.14) : (P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"),
+                          border: `1px solid ${m.mine ? withAlpha(at, 0.25) : P.line}`,
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <Icon name="mic" size={14} style={{ color: m.mine ? at : accent, flexShrink: 0 }} />
+                            <audio controls src={m.attachmentData} style={{ height: 32, maxWidth: 210 }} />
+                          </div>
+                          {m.attachmentMeta && m.attachmentMeta.transcript && (
+                            <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: m.mine ? at : P.ink2, opacity: 0.92 }}>
+                              “{m.attachmentMeta.transcript}”
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {/* A shared paper. Distinct from a plain link: it keeps
+                          the citation metadata, so a source sent in a DM
+                          still reads like a source. */}
+                      {m.attachmentKind === "paper" && m.attachmentTitle && (
+                        <a
+                          href={m.attachmentUrl || "#"} target="_blank" rel="noopener noreferrer"
+                          style={{
+                            marginTop: m.text ? 8 : 0, padding: "12px 14px", borderRadius: 12, display: "block",
+                            background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.28)}`, textDecoration: "none",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                            <Icon name="bookOpen" size={13} style={{ color: accent, flexShrink: 0 }} />
+                            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Paper</span>
+                          </div>
+                          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{m.attachmentTitle}</div>
+                          {m.attachmentMeta && (m.attachmentMeta.journal || m.attachmentMeta.year) && (
+                            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
+                              {[m.attachmentMeta.journal, m.attachmentMeta.year].filter(Boolean).join(" · ")}
+                            </div>
+                          )}
+                        </a>
+                      )}
+                      {m.attachmentKind !== "image" && m.attachmentKind !== "audio" && m.attachmentKind !== "paper" && m.attachmentTitle && (
                         <div style={{
                           marginTop: 8, padding: "10px 14px", borderRadius: 8, display: "flex", alignItems: "center", gap: 10,
                           background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.2)}`,
@@ -5599,12 +5917,20 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       </button>
                     )}
                   </div>
-                  {m.mine && m.id && lastMineMessage?.id === m.id && (
-                    <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 3, textAlign: "right", marginRight: 4 }}>
-                      {seenLastMine ? "Seen" : "Delivered"}
-                    </div>
-                  )}
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 6, marginTop: 4,
+                    justifyContent: m.mine ? "flex-end" : "flex-start",
+                    fontSize: FONT_SIZES.micro, color: P.faint,
+                  }}>
+                    {/* A message with no time on it is a message you can't
+                        place in a conversation. */}
+                    {timeLabel && <span style={{ fontFamily: "var(--cb-mono)" }}>{timeLabel}</span>}
+                    {m.mine && m.id && lastMineMessage?.id === m.id && (
+                      <span>· {seenLastMine ? "Seen" : "Delivered"}</span>
+                    )}
+                  </div>
                 </div>
+                </React.Fragment>
                 );
               })}
             </div>
@@ -5614,7 +5940,31 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   You've blocked {activeThread.name} — unblock above to send a message.
                 </div>
               ) : (
-                <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} aria-hidden="true" />
+                  {/* While recording, the composer becomes the recorder —
+                      one obvious thing to look at and one obvious way out,
+                      rather than a record button competing with a text field
+                      nobody is going to use mid-sentence. */}
+                  {recording ? (
+                    <div style={{
+                      flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderRadius: 100,
+                      background: withAlpha(STATUS.bad, 0.1), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
+                    }}>
+                      <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: "50%", background: STATUS.bad, animation: "cbMicPulse 1.4s ease-in-out infinite" }} />
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 600 }}>Recording</span>
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-mono)" }}>
+                        {String(Math.floor(recSeconds / 60)).padStart(2, "0")}:{String(recSeconds % 60).padStart(2, "0")}
+                      </span>
+                      <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.caption, color: P.faint }}>Max 90s</span>
+                    </div>
+                  ) : (<>
+                  <button
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={attachBusy || sending}
+                    aria-label="Attach an image" title="Attach an image"
+                    style={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></button>
                   <input
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
@@ -5624,9 +5974,27 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     style={{ flex: 1, padding: "10px 14px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small }}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } }}
                   />
-                  <button onClick={sendMessage} disabled={!draft.trim() || sending} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() && !sending ? "pointer" : "default", opacity: draft.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  </>)}
+                  {/* Record / stop. Recording is the one action here that
+                      benefits from being a toggle rather than press-and-hold:
+                      a research note is often 30-60 seconds, and holding a
+                      button that long while thinking is genuinely awkward. */}
+                  <button
+                    onClick={() => (recording ? stopRecording() : startRecording())}
+                    disabled={attachBusy || sending}
+                    aria-label={recording ? "Send voice note" : "Record a voice note"}
+                    title={recording ? "Stop and send" : "Record a voice note"}
+                    style={{
+                      width: 40, height: 40, borderRadius: "50%", flexShrink: 0, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: recording ? STATUS.bad : "transparent",
+                      border: recording ? "none" : `1px solid ${P.line}`,
+                      color: recording ? "#fff" : P.ink2,
+                    }}
+                  ><Icon name={recording ? "send" : "mic"} size={16} /></button>
+                  {!recording && <button onClick={() => sendMessage()} disabled={!draft.trim() || sending} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() && !sending ? "pointer" : "default", opacity: draft.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="send" size={16} />
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>
@@ -5638,6 +6006,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         </div>
       )}
     </div>
+    {/* Full-screen image view. A figure shared in a conversation has to be
+        inspectable at full size — a 340px-tall thumbnail is a notification
+        that an image exists, not the image. */}
+    {lightbox && (
+      <div
+        role="dialog" aria-modal="true" aria-label="Attached image"
+        onClick={() => setLightbox(null)}
+        style={{ position: "fixed", inset: 0, zIndex: 260, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", padding: 28, cursor: "zoom-out" }}
+        className="cb-backdrop"
+      >
+        <img src={lightbox} alt="Attached" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 10, objectFit: "contain" }} />
+      </div>
+    )}
     {reportModal && activeThread && (
       <ReportConductModal
         P={P} accent={accent} at={at}
