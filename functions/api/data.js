@@ -412,18 +412,37 @@ export async function onRequest(context) {
       // keystroke.
       if (resource === "search-users") {
         const q = (url.searchParams.get("q") || "").trim();
-        if (q.length < 2) return new Response(JSON.stringify({ items: [], hubs: [] }), { status: 200, headers: cors });
+        // Commit 57 — an empty query used to return an empty list, which is
+        // why "no one shows up in my inbox": opening Find People (or the
+        // compose picker) showed a blank screen until you typed two
+        // characters, and if you didn't already know a colleague's exact
+        // username there was nothing to type. A social network that shows
+        // you nobody until you can name somebody has no way in. Empty query
+        // now browses the directory instead — the most-followed accounts
+        // first, which is the same "who's here?" list every other network
+        // opens with.
+        const browsing = q.length < 2;
         const like = "%" + escapeLikeWildcards(q) + "%";
-        const rows = await env.DB.prepare(
-          `SELECT u.id, u.username, u.name, u.affiliation, u.degree, u.grad_year,
-                  (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
-                  EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
-           FROM users u
-           WHERE u.id != ?
-             AND (u.username LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.affiliation LIKE ? ESCAPE '\\')
-           ORDER BY followers DESC, u.name ASC
-           LIMIT 20`
-        ).bind(user.id, user.id, like, like, like).all();
+        const rows = browsing
+          ? await env.DB.prepare(
+              `SELECT u.id, u.username, u.name, u.affiliation, u.degree, u.grad_year,
+                      (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
+                      EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
+               FROM users u
+               WHERE u.id != ?
+               ORDER BY followers DESC, u.last_login_at DESC
+               LIMIT 20`
+            ).bind(user.id, user.id).all()
+          : await env.DB.prepare(
+              `SELECT u.id, u.username, u.name, u.affiliation, u.degree, u.grad_year,
+                      (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
+                      EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
+               FROM users u
+               WHERE u.id != ?
+                 AND (u.username LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.affiliation LIKE ? ESCAPE '\\' OR u.email_lower LIKE ? ESCAPE '\\')
+               ORDER BY followers DESC, u.name ASC
+               LIMIT 20`
+            ).bind(user.id, user.id, like, like, like, like).all();
         const items = (rows.results || []).map((r) => ({
           id: r.id,
           username: r.username,
