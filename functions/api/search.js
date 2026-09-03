@@ -3707,25 +3707,59 @@ function stripLeakedMetaCommentary(text) {
 // Strip banned phrases from the answer
 function stripBannedPhrases(text) {
   if (!text) return text;
-  let cleaned = text;
-  for (const re of BANNED_PHRASES_RE) {
-    // Reset the regex's lastIndex for global regexes
-    re.lastIndex = 0;
-    cleaned = cleaned.replace(re, (match) => {
-      // Some of these are mid-sentence — try to clean up gracefully
-      return "";
+
+  // Commit 56 — REWRITTEN. This used to delete each banned phrase in place
+  // and then try to tidy up the punctuation left behind. That produces
+  // ungrammatical text whenever the phrase is the head of a sentence rather
+  // than the whole of it, which is the common case:
+  //
+  //   "Further research is needed to fully understand the effects of
+  //    temperature on BSFL rearing."
+  //      → ", to fully understand the effects of temperature on BSFL
+  //         rearing."
+  //
+  // Seen in a real answer Dusty sent back: three separate sentences in one
+  // response began mid-clause, and one section opened with the fragment
+  // "address the effects of temperature on..." — its subject deleted. A
+  // reader can't tell mangled post-processing from a model that lost the
+  // thread, so this made every answer it touched look unreliable.
+  //
+  // Sentence-level now, and deliberately conservative:
+  //   · a sentence that is mostly filler is dropped whole;
+  //   · a longer sentence that merely CONTAINS a banned phrase is left
+  //     completely alone.
+  // Shipping a sentence with "further research is needed" in it is a style
+  // miss. Shipping a sentence with no subject reads as a broken product.
+  // The prompt already instructs the model not to write these; this is a
+  // backstop, and a backstop must never make the output worse.
+  const hasBanned = (chunk) => BANNED_PHRASES_RE.some((re) => { re.lastIndex = 0; return re.test(chunk); });
+  const strippedLength = (chunk) => {
+    let out = chunk;
+    for (const re of BANNED_PHRASES_RE) { re.lastIndex = 0; out = out.replace(re, ""); }
+    return out.replace(/[\s,;:.]+/g, "").length;
+  };
+
+  // Split on sentence ends while keeping the delimiter, per line, so
+  // markdown structure (headers, bullets, blank lines) survives untouched.
+  const cleanedLines = text.split("\n").map((line) => {
+    if (!line.trim() || /^\s*(#{1,6}\s|[-•*]\s|\d+\.\s)/.test(line)) return line;
+    if (!hasBanned(line)) return line;
+    const sentences = line.match(/[^.!?]+(?:[.!?]+|$)/g) || [line];
+    const kept = sentences.filter((sentence) => {
+      if (!hasBanned(sentence)) return true;
+      const before = sentence.replace(/[\s,;:.]+/g, "").length;
+      const after = strippedLength(sentence);
+      // Less than half the sentence survives removal → it was filler.
+      // Otherwise the sentence carries real content and stays intact.
+      return after >= before * 0.5;
     });
-  }
-  // Clean up artifacts from removal: double spaces, orphaned commas, etc.
-  cleaned = cleaned.replace(/\s{2,}/g, " ");
-  cleaned = cleaned.replace(/,\s*,/g, ",");
-  cleaned = cleaned.replace(/\.\s*\./g, ".");
-  cleaned = cleaned.replace(/\s+\./g, ".");
-  cleaned = cleaned.replace(/\s+,/g, ",");
-  cleaned = cleaned.replace(/^\s*[,;]\s*/gm, "");
-  // Remove sentences that became empty or near-empty after stripping
-  cleaned = cleaned.replace(/(?:^|\.\s+)[A-Z][a-z]{0,3}\s*\.(?=\s|$)/g, ".");
-  return cleaned.trim();
+    const out = kept.join("").replace(/\s{2,}/g, " ").trim();
+    // Never return an empty line where there was prose — an empty string
+    // here would silently delete a paragraph.
+    return out || line;
+  });
+
+  return cleanedLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 // Detect source-listing patterns and flag them
@@ -6634,7 +6668,8 @@ Respond naturally to the user's message. Be yourself.`;
       }), { status: 200, headers: cors });
     }
 
-    const papers = gResult.papers || [];
+    // `let`, not `const` — the English-language filter below reassigns it.
+    let papers = gResult.papers || [];
     const hasPapers = papers.length > 0;
 
     // ============ D1 PAPER-LEVEL LEARNING (read) ============
@@ -6712,12 +6747,74 @@ Respond naturally to the user's message. Be yourself.`;
     // whatever it received — the direct cause of confidently-wrong answers.
     // Author and follow-up modes bypass this (their papers are pre-verified).
     const maxEvidence = wantsMorePapers ? 20 : 12;
+    // Commit 56 — drop papers that aren't in English before any of them
+    // reach the answer model or the sources panel.
+    //
+    // Reported with a real example: a BSFL rearing question came back citing
+    // three papers — one Russian, one Turkish, one Spanish — and nothing
+    // else. The retrieval fanout hits OpenAlex, Crossref and Europe PMC,
+    // all of which happily return non-English records for an English query.
+    // The system prompt already says to ANSWER in English, which quietly
+    // made this worse rather than better: the model paraphrased the gist
+    // and cited a paper the reader then could not check. An uncheckable
+    // citation is the one thing this product cannot ship.
+    //
+    // Script detection first (a run of CJK/Cyrillic/Greek/Arabic/Hebrew is
+    // decisive), then a function-word test for the Latin-script languages,
+    // which no script check can separate from English. Deliberately
+    // conservative: it rejects only on positive evidence of another
+    // language, and it stands down entirely if filtering would leave too
+    // little to answer from — a thin English result set beats an empty one,
+    // and beats silently discarding the only paper on a niche topic.
+    const EN_STOP = new Set(["the","of","and","in","to","a","is","was","were","with","that","for","are","this","from","by","on","as","an","we","been","which","these","study","results"]);
+    const OTHER_STOP = new Set([
+      "el","la","los","las","del","una","por","para","con","que","como","este","esta","sus","fueron","estudio","resultados","se","mosca","dietas",
+      "os","dos","uma","com","foram","estudo","não",
+      "le","les","des","dans","pour","cette","sont","été","étude","résultats",
+      "der","die","das","und","den","von","mit","für","eine","wurde","wurden","studie","ergebnisse","nicht",
+      "il","lo","gli","dei","per","che","questo","questa","sono","stato","risultati",
+      "olarak","ve","bir","için","kaynağı","değerlendirilmesi",
+    ]);
+    const looksNonEnglish = (paper) => {
+      const text = ((paper.title || "") + " " + (paper.abstract || "")).trim();
+      if (text.length < 30) return false;
+      if (/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\u0400-\u04ff\u0370-\u03ff\u0590-\u05ff\u0600-\u06ff]{3,}/.test(text)) return true;
+      const words = text.toLowerCase().match(/[a-zà-ÿğışçöü]+/g) || [];
+      if (words.length < 6) return false;
+      const sample = words.slice(0, 140);
+      const en = sample.filter((w) => EN_STOP.has(w)).length;
+      const other = sample.filter((w) => OTHER_STOP.has(w)).length;
+      return other >= 2 && other > en;
+    };
+    {
+      const englishOnly = papers.filter((p) => !looksNonEnglish(p));
+      // Only apply the filter when enough survives to still answer well.
+      if (englishOnly.length >= 3 || englishOnly.length === papers.length) {
+        papers = englishOnly;
+      }
+    }
+
     let evidencePapers = (isNameSearch || isFollowupMode)
       ? papers.slice(0, maxEvidence)
       : (() => {
-          const strong = papers.filter((p) => (p.relevance || 0) >= 10);
+          // Commit 56 — was `>= 10`. Relevance is scored 0-100 and the UI
+          // labels anything under ~40 as "weak", so a threshold of 10 meant
+          // every paper the search returned counted as strong evidence. Real
+          // example: a BSFL temperature question retrieved three papers
+          // scored 20% — none of which studied temperature — and the answer
+          // synthesized from them anyway, citing all three. Its own
+          // fact-check panel then reported 0% source alignment, which is the
+          // system correctly noticing what it had just done.
+          const strong = papers.filter((p) => (p.relevance || 0) >= 45);
           return (strong.length >= 2 ? strong : papers.slice(0, 8)).slice(0, maxEvidence);
         })();
+    // Whether what survived is actually good enough to answer FROM. When it
+    // isn't, the model is told so explicitly below rather than being left to
+    // infer it — a model handed weak papers and no signal will write around
+    // them confidently, which is exactly how a citation ends up attached to
+    // a paper that doesn't support it.
+    const evidenceIsWeak = evidencePapers.length > 0
+      && evidencePapers.filter((p) => (p.relevance || 0) >= 45).length < 2;
 
     // ═══════════════════════════════════════════════════════════════
     // LLM PAPER VALIDATION: before sending papers to the answer LLM,
@@ -7155,7 +7252,17 @@ Respond naturally to the user's message. Be yourself.`;
     } else if (useEvidence && isNameSearch) {
       systemPrompt = ID + PERSONALITY + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
     } else if (useEvidence) {
-      systemPrompt = ID + PERSONALITY + "You have " + evidencePapers.length + " papers below. READ EACH ABSTRACT before answering.\n\n" +
+      systemPrompt = ID + PERSONALITY +
+        (evidenceIsWeak
+          ? "⚠ WEAK EVIDENCE — READ THIS FIRST. The retrieved papers scored poorly against this question; " +
+            "most or all of them do NOT directly study what was asked. Say that in your FIRST sentence, plainly and " +
+            "specifically ('the literature search didn't surface papers that directly test X'), then answer from your own " +
+            "scientific knowledge. Do NOT cite these papers for claims they don't actually make — a citation on a " +
+            "borrowed claim is worse than no citation. You may cite them only for the narrower things they genuinely do " +
+            "report, and you may leave them uncited entirely. Suggest the specific search terms that would find the real " +
+            "primary literature.\n\n"
+          : "") +
+        "You have " + evidencePapers.length + " papers below. READ EACH ABSTRACT before answering.\n\n" +
         "═══ PAPER USAGE PROTOCOL (HARD-ENFORCED) ═══\n\n" +
         "STEP 1 — ORGANISM/TOPIC AUDIT: For EACH paper, check:\n" +
         "  • Does this paper study the EXACT organism the user asked about?\n" +
