@@ -4059,6 +4059,46 @@ function IllustrationModal({ P, accent, at, query, close }) {
 // Nebula's featured-show rail both lead with one large cinematic card
 // before dropping into a grid, rather than just a bigger version of the
 // same image-on-top-text-below card every other story uses.
+/* Commit 63 — generated cover art.
+   Only the spaceflight source ships an image_url; journals and preprint
+   servers don't publish thumbnails at all. So every biology, chemistry and
+   preprint card rendered as a large empty grey rectangle with a broken-image
+   glyph — the exact screenshot Dusty sent. Three quarters of the feed
+   looked broken purely because it wasn't space news.
+
+   This draws a cover instead of faking a photo: a deterministic gradient
+   seeded by the title (so a given article always looks the same, and
+   adjacent cards never collide), the discipline named, and the source's
+   initials set large. It reads as a designed cover rather than a missing
+   asset, and it never misrepresents a paper with an unrelated stock image —
+   which is the thing a science tool must not do. */
+function coverFor(item) {
+  const seedStr = (item.title || item.url || "cerebrum");
+  let h = 0;
+  for (let i = 0; i < seedStr.length; i++) h = (h * 31 + seedStr.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  const hue2 = (hue + 38) % 360;
+  return {
+    background: `linear-gradient(135deg, hsl(${hue} 42% 22%) 0%, hsl(${hue2} 38% 13%) 100%)`,
+    initials: (item.source || item.category || "CB").replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "CB",
+  };
+}
+
+function TrendCover({ item, P, radius = 0 }) {
+  const c = coverFor(item);
+  return (
+    <div aria-hidden="true" style={{
+      position: "absolute", inset: 0, background: c.background, borderRadius: radius,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, overflow: "hidden",
+    }}>
+      <span style={{ fontSize: 40, fontWeight: 800, letterSpacing: "0.06em", color: "rgba(255,255,255,0.9)", fontFamily: "var(--cb-display)" }}>{c.initials}</span>
+      {item.category && (
+        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-mono)" }}>{item.category}</span>
+      )}
+    </div>
+  );
+}
+
 function TrendingHero({ P, accent, item, onExpand }) {
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
   return (
@@ -4076,11 +4116,7 @@ function TrendingHero({ P, accent, item, onExpand }) {
         <img src={item.image_url} alt="" aria-hidden="true" loading="eager" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.5s ease" }} />
       )}
-      {imgStatus !== "ready" && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, background: P.surface }}>
-          <Icon name="image" size={36} style={{ opacity: 0.4 }} />
-        </div>
-      )}
+      {imgStatus !== "ready" && <TrendCover item={item} P={P} />}
       {/* Always-on scrim (not opacity-gated to imgStatus) so the headline
           stays legible over the placeholder background too, not just once
           a real photo loads. */}
@@ -4121,11 +4157,7 @@ function TrendingCard({ P, accent, at, item, onExpand }) {
           <img src={item.image_url} alt="" aria-hidden="true" loading="lazy" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
             style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }} />
         )}
-        {imgStatus !== "ready" && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint }}>
-            <Icon name="image" size={20} style={{ opacity: 0.4 }} />
-          </div>
-        )}
+        {imgStatus !== "ready" && <TrendCover item={item} P={P} />}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />
         {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>{item.source}</span>}
       </div>
@@ -4176,7 +4208,23 @@ function dedupeTrendingItems(items) {
 // full title, full untruncated summary, source, published date, and the
 // actual outbound link to the original article, which lives here now
 // instead of on the card itself.
-function TrendingArticleModal({ P, accent, at, item, close }) {
+function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], onOpenItem }) {
+  // Commit 63 — the modal used to be a summary and a link straight off the
+  // site. Every one of those clicks was someone leaving. It now carries the
+  // three things that make staying the better option: explainer videos
+  // playing inline, a one-tap route into Cerebrum's own literature search on
+  // the same subject, and what to read next.
+  const [videos, setVideos] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const q = (item.title || "").slice(0, 120);
+    if (!q) return;
+    fetch(`/api/videos?q=${encodeURIComponent(q)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d && Array.isArray(d.videos)) setVideos(d.videos.slice(0, 2)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [item.title]);
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
@@ -4212,13 +4260,70 @@ function TrendingArticleModal({ P, accent, at, item, close }) {
           <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, lineHeight: 1.25, letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", marginTop: 10 }}>{item.title}</div>
           {publishedLabel && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", marginTop: 8 }}>{publishedLabel}</div>}
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{item.summary}</div>
-          <a href={safeHref(item.url)} target="_blank" rel="noreferrer" style={{
-            display: "inline-flex", alignItems: "center", gap: 8, marginTop: 24, padding: "10px 18px",
-            fontSize: FONT_SIZES.small, fontWeight: 600, color: at, background: accent, borderRadius: 8,
-            textDecoration: "none",
-          }}>
-            Read the full story{item.source ? ` at ${item.source}` : ""} <Icon name="external" size={14} />
-          </a>
+          {/* The primary action is now the one that keeps someone here and
+              is genuinely more useful than the source page: Cerebrum can
+              answer what the science actually says, with citations. Reading
+              the original is still one tap away, just no longer the only
+              thing on offer. */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 24 }}>
+            <button
+              onClick={() => { if (onAsk) { onAsk(`What does the research actually show about this: ${item.title}`); close(); } }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 18px",
+                fontSize: FONT_SIZES.small, fontWeight: 700, color: at, background: accent,
+                borderRadius: 100, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)",
+              }}
+            ><Icon name="sparkle" size={14} /> Explain with papers</button>
+            <a href={safeHref(item.url)} target="_blank" rel="noreferrer" style={{
+              display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 18px",
+              fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: "transparent",
+              border: `1px solid ${P.line2}`, borderRadius: 100, textDecoration: "none",
+            }}>
+              Read at source <Icon name="external" size={13} />
+            </a>
+          </div>
+
+          {videos.length > 0 && (
+            <div style={{ marginTop: 28 }}>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Watch</div>
+              {videos.map((v) => {
+                const id = getYouTubeId(v);
+                if (!id) return null;
+                return (
+                  <div key={id} style={{ position: "relative", aspectRatio: "16/9", marginBottom: 12, borderRadius: 12, overflow: "hidden", border: `1px solid ${P.line}` }}>
+                    {/* youtube-nocookie, and no autoplay: a video that starts
+                        talking the moment a card opens is the fastest way to
+                        make someone close the tab. */}
+                    <iframe
+                      src={`https://www.youtube-nocookie.com/embed/${id}`}
+                      title={v.title || "Related video"}
+                      allow="accelerometer; encrypted-media; picture-in-picture"
+                      allowFullScreen
+                      loading="lazy"
+                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {upNext.length > 0 && (
+            <div style={{ marginTop: 26 }}>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 8 }}>Up next</div>
+              {upNext.map((nx, i) => (
+                <button key={nx.url || i} onClick={() => onOpenItem && onOpenItem(nx)}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left", padding: "11px 0",
+                    background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
+                    cursor: "pointer", fontFamily: "var(--cb-body)",
+                  }}>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{nx.title}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{[nx.category, nx.source].filter(Boolean).join(" · ")}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -4279,7 +4384,7 @@ function VideoPlayerModal({ P, accent, at, video, close }) {
 // refresh land without having to manually reload.
 const TRENDING_POLL_MS = 5 * 60 * 1000;
 
-function TrendingView({ P, accent, at, isMobile }) {
+function TrendingView({ P, accent, at, isMobile, onAsk }) {
   const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
   const [items, setItems] = useState([]);
   const [generatedAt, setGeneratedAt] = useState(0);
@@ -4298,7 +4403,10 @@ function TrendingView({ P, accent, at, isMobile }) {
   // a Digest tab that lists everything compactly (the default, because the
   // first thing anyone wants from a feed is the shape of the day), and the
   // existing card layout kept as a second tab for browsing.
-  const [trendTab, setTrendTab] = useState("digest");
+  // Browse is the default: the cards carry images and are what people
+  // actually want to look at first — Digest is the scan-the-day view you
+  // switch to deliberately.
+  const [trendTab, setTrendTab] = useState("cards");
   // Commit 60 — the feed now spans disciplines (see functions/lib/
   // trendingSource.js), so it needs a way to narrow to one. Built from the
   // categories actually present rather than a hardcoded list, so a source
@@ -4340,7 +4448,13 @@ function TrendingView({ P, accent, at, isMobile }) {
   // dedupeTrendingItems above) — a safety net against a stale cache row or
   // a future source change, never a substitute for the server-side dedup.
   const deduped = useMemo(() => dedupeTrendingItems(items), [items]);
-  const [hero, ...rest] = deduped;
+  // Commit 63 — the category filter used to be applied only inside the
+  // digest branch, so clicking a chip did nothing at all in Browse: hero and
+  // the card grid were still built from the unfiltered list. Filtering once,
+  // here, means every view below is fed the same already-narrowed list and
+  // no future view can forget to apply it.
+  const visibleItems = deduped.filter((x) => trendCat === "All" || x.category === trendCat);
+  const [hero, ...rest] = visibleItems;
 
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
@@ -4431,7 +4545,7 @@ function TrendingView({ P, accent, at, isMobile }) {
               ))}
             </div>
             <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-              {[["digest", "Digest"], ["cards", "Browse"]].map(([key, label]) => (
+              {[["cards", "Browse"], ["digest", "Digest"]].map(([key, label]) => (
                 <button key={key} onClick={() => setTrendTab(key)}
                   style={{
                     padding: "7px 16px", borderRadius: 100, cursor: "pointer",
@@ -4448,7 +4562,7 @@ function TrendingView({ P, accent, at, isMobile }) {
                  fits on a screen, which is the entire point of a digest —
                  you scan it, then open the two things worth reading. */
               <div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
-                {deduped.filter((x) => trendCat === "All" || x.category === trendCat).map((item, i) => (
+                {visibleItems.map((item, i) => (
                   <button key={item.url || i} onClick={() => setExpanded(item)}
                     style={{
                       display: "flex", alignItems: "baseline", gap: 14, width: "100%", textAlign: "left",
@@ -4479,7 +4593,15 @@ function TrendingView({ P, accent, at, isMobile }) {
           </>
         )}
       </div>
-      {expanded && <TrendingArticleModal P={P} accent={accent} at={at} item={expanded} close={() => setExpanded(null)} />}
+      {expanded && (
+        <TrendingArticleModal
+          P={P} accent={accent} at={at} item={expanded}
+          close={() => setExpanded(null)}
+          onAsk={onAsk}
+          upNext={visibleItems.filter((x) => x.url !== expanded.url).slice(0, 4)}
+          onOpenItem={(nx) => setExpanded(nx)}
+        />
+      )}
     </div>
   );
 }
@@ -7505,7 +7627,24 @@ function NotebookMode({ P, accent, at, close }) {
             />
           )}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexShrink: 0, gap: 12 }}>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{documentText.trim().length.toLocaleString()} characters</div>
+            {/* Commit 64 — a bare character count told a reader nothing they
+                could act on. Words and an approximate read time are the units
+                people actually think in, and the count no longer implies a
+                limit is being approached: long documents are analyzed with a
+                visible note rather than refused. */}
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {(() => {
+                const t = documentText.trim();
+                if (!t) return <span>Paste a paper, report, or any long document</span>;
+                const words = t.split(/\s+/).length;
+                const mins = Math.max(1, Math.round(words / 220));
+                return <>
+                  <span>{words.toLocaleString()} words</span>
+                  <span style={{ opacity: 0.5 }}>·</span>
+                  <span>~{mins} min read</span>
+                </>;
+              })()}
+            </div>
             <button
               onClick={analyze}
               disabled={!documentText.trim() || analyzing}
@@ -7526,14 +7665,20 @@ function NotebookMode({ P, accent, at, close }) {
         <div style={{ ...paneBase, padding: 20 }}>
           {!summary && !analyzing && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint }}>
-              <Icon name="bookOpen" size={28} style={{ opacity: 0.4 }} />
-              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink2 }}>Awaiting Document</div>
-              <div style={{ fontSize: FONT_SIZES.caption, maxWidth: 280, textAlign: "center" }}>Paste or drop a document on the left, then analyze it to get a structured summary here.</div>
+              <span aria-hidden="true" style={{
+                width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
+                background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, marginBottom: 4,
+              }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
+              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink }}>Read a paper with me</div>
+              <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, textAlign: "center", lineHeight: 1.6, color: P.ink2 }}>
+                Paste a paper on the left and I'll pull out what it found, how it was done, and where it's weak — then you can ask follow-up questions about it.
+              </div>
             </div>
           )}
           {analyzing && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink2 }}>Reading the document…</div>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Reading the document…</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
               <Skeleton P={P} accent={accent} />
             </div>
           )}
@@ -10107,7 +10252,7 @@ function App() {
         </Reveal>
       )}
       {view === "trending" && (
-        <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} /></Reveal>
+        <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} onAsk={(q) => { setView("search"); ask(q); }} /></Reveal>
       )}
       {view === "inbox" && (
         <Reveal style={S.pageView} deps={[view]}>
