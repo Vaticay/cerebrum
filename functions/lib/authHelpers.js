@@ -378,6 +378,36 @@ export async function ensureSocialTables(env) {
     "CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, sender_id TEXT NOT NULL, text TEXT, attachment_title TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
   );
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at)");
+  // Commit 56 — attachments. `attachment_title` already existed (a bare
+  // label with nothing behind it); these four give a message something to
+  // actually carry:
+  //   attachment_kind  "image" | "audio" | "paper"
+  //   attachment_data  the base64 data URL for image/audio
+  //   attachment_url   the DOI/link for a shared paper (no blob to store)
+  //   attachment_meta  JSON — a voice note's duration and transcript, or a
+  //                    paper's authors/journal/year
+  // Same attempt-and-swallow-duplicate-column self-heal as every other
+  // column in this file, so a live database picks these up on the first
+  // request after deploy with no manual SQL.
+  //
+  // Blobs live in D1 as base64 on the row rather than in object storage.
+  // That is a deliberate ceiling, not an oversight: a D1 row tops out
+  // around 1MB, so the client compresses images and caps voice notes
+  // before upload (see the composer in src/main.jsx) and the endpoint
+  // rejects anything over ~700KB. It buys attachments with zero new
+  // infrastructure on the same paste-and-deploy path as everything else.
+  // Video is deliberately NOT supported for exactly this reason — it
+  // cannot be made to fit, and pretending otherwise would mean shipping a
+  // feature that fails on the second file anyone tries.
+  for (const sql of [
+    "ALTER TABLE messages ADD COLUMN attachment_kind TEXT",
+    "ALTER TABLE messages ADD COLUMN attachment_data TEXT",
+    "ALTER TABLE messages ADD COLUMN attachment_url TEXT",
+    "ALTER TABLE messages ADD COLUMN attachment_meta TEXT",
+  ]) {
+    try { await env.DB.exec(sql); }
+    catch (e) { if (!/duplicate column name/i.test(String(e && e.message))) throw e; }
+  }
   // Commit 51 — root cause of "the Inbox unread badge never clears": this
   // column is DATETIME DEFAULT CURRENT_TIMESTAMP, which SQLite gives NUMERIC
   // affinity. Any row created via that default stores created_at as a TEXT
