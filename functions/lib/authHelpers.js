@@ -472,6 +472,23 @@ export async function ensureSocialTables(env) {
   );
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_call_signals_thread ON call_signals(thread_id, id)");
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_call_signals_created ON call_signals(created_at)");
+  // Commit 65 — watched topics: the retention engine.
+  //
+  // Grounded in a real finding rather than a hunch (Pinterest's "Save,
+  // Revisit, Retain", arXiv 2511.18013): saving is the single strongest
+  // predictor of a user returning, and it's the REVISIT of saved things —
+  // not the save itself — that correlates with sustained activity. A save
+  // that never gives you a reason to come back is a dead end.
+  //
+  // For a literature tool the honest version of that loop is an alert: you
+  // watch a topic, and when genuinely new papers appear you're told. The
+  // count is computed from a real index query (see functions/api/data.js),
+  // so a badge here always means literature that actually exists — never a
+  // manufactured number to make the app look busy.
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS watched_topics (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, topic TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, last_count INTEGER DEFAULT 0)"
+  );
+  await env.DB.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_watched_user_topic ON watched_topics(user_id, topic)");
   _socialTablesEnsured = true;
 }
 
