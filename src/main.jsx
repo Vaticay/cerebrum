@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "5.2.0";
+const APP_VERSION = "5.3.0";
 
 // ── Account API — thin wrappers around /api/auth and /api/data. Both
 // endpoints are same-origin (Cloudflare Pages Functions served from the same
@@ -1084,7 +1084,7 @@ function WatchTopicButton({ q, P, accent, user, onChanged }) {
 /* The home-screen watchlist. Renders nothing at all when there's nothing
    to watch or nothing new — an empty box that exists to remind you the
    feature exists is clutter, not engagement. */
-function WatchList({ P, accent, at, user, onAsk, refreshKey }) {
+function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCount }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busyTopic, setBusyTopic] = useState("");
@@ -1096,6 +1096,42 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey }) {
     setItems(d && Array.isArray(d.items) ? d.items : []);
   }, [user]);
   useEffect(() => { load(); }, [load, refreshKey]);
+  // Report the count up to the Home Deck's stats strip so "Topics watched"
+  // is the same number this card is showing, not a second fetch that could
+  // disagree with it.
+  useEffect(() => { if (onCount) onCount(items.length); }, [items.length, onCount]);
+
+  // Commit 66 — the watchlist becomes an actual return trigger.
+  //
+  // A card that only says "3 new papers" once you've already come back is a
+  // reward for returning, not a reason to. This fires a desktop notification
+  // when real new literature lands on a topic you're watching — and only
+  // then: cbNotify itself refuses to fire while the tab is visible, the
+  // count is a live Europe PMC hit count (never a cached or estimated one),
+  // and each topic can notify at most once a day.
+  //
+  // Deliberately not a daily "come back and see what's new!" ping. If
+  // nothing was published, nothing is sent. That's the whole difference
+  // between a literature alert and a re-engagement campaign.
+  useEffect(() => {
+    const fresh = items.filter((i) => i.live && i.newCount > 0);
+    if (!fresh.length) return;
+    let seen = {};
+    try { seen = JSON.parse(localStorage.getItem("cb_watch_notified") || "{}"); } catch {}
+    const today = new Date().toDateString();
+    let changed = false;
+    for (const i of fresh) {
+      if (seen[i.topic] === today) continue;
+      seen[i.topic] = today;
+      changed = true;
+      cbNotify(
+        `${i.newCount} new paper${i.newCount === 1 ? "" : "s"} on ${i.topic}`,
+        "Indexed since you last looked. Open Cerebrum to read them.",
+        "cb-watch-" + i.topic
+      );
+    }
+    if (changed) { try { localStorage.setItem("cb_watch_notified", JSON.stringify(seen)); } catch {} }
+  }, [items]);
   // Recheck when the tab regains focus — someone coming back tomorrow
   // should see today's count, not yesterday's render.
   useEffect(() => {
@@ -1105,6 +1141,15 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey }) {
   }, [load]);
   if (!user || (!items.length && !loading)) return null;
   const withNew = items.filter((i) => i.newCount > 0);
+  const shell = deck
+    ? { width: "100%", textAlign: "left", padding: "16px 18px 15px", borderRadius: 14, minWidth: 0,
+        display: "flex", flexDirection: "column",
+        background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
+        border: `1px solid ${P.line}` }
+    : { marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left",
+        padding: "16px 18px", borderRadius: 14,
+        background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+        border: `1px solid ${P.line}` };
   const open = async (item) => {
     setBusyTopic(item.topic);
     try { await apiDataAction("watchlist-seen", { topic: item.topic }); } catch {}
@@ -1116,13 +1161,8 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey }) {
     try { await apiDataAction("unwatch-topic", { topic: item.topic }); } catch { load(); }
   };
   return (
-    <div style={{
-      marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left",
-      padding: "16px 18px", borderRadius: 14,
-      background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
-      border: `1px solid ${P.line}`,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+    <div className={deck ? "cb-card cb-deck-card" : undefined} style={shell}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 11, flexWrap: "wrap" }}>
         <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Your watched topics</span>
         {withNew.length > 0 && (
           <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
@@ -1131,8 +1171,11 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey }) {
         )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {items.map((item) => (
-          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: `1px solid ${P.line}` }}>
+        {/* In the deck a card is one grid cell among several — a 40-row
+            watchlist would stretch the whole row. Show the four freshest and
+            say how many more there are. */}
+        {(deck ? items.slice(0, 4) : items).map((item) => (
+          <div key={item.id} className="cb-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0 9px 8px", margin: "0 -8px 0 -8px", borderTop: `1px solid ${P.line}` }}>
             <button
               onClick={() => open(item)}
               disabled={busyTopic === item.topic}
@@ -1166,11 +1209,236 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey }) {
           </div>
         ))}
       </div>
+      {deck && items.length > 4 && (
+        <div style={{ marginTop: 9, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+          +{items.length - 4} more watched
+        </div>
+      )}
     </div>
   );
 }
 
-function DailyScience({ P, accent, at, onAsk }) {
+/* Commit 66 — the Home Deck.
+   ---------------------------------------------------------------------
+   The home screen used to be a wordmark, a search bar, and two cards
+   stacked loosely underneath at whatever width they felt like. It looked
+   like a landing page for a product you haven't signed into yet — which is
+   exactly wrong, because the person looking at it has an account, a
+   history, saved papers and watched topics, and none of that was on screen.
+
+   The deck is the fix: everything Cerebrum already knows about your work,
+   laid out as one designed grid instead of a pile. Every card here is
+   backed by real state — your history, your saved sources, your watchlist,
+   today's actual story. There is no card that exists to look busy, and no
+   number on this screen that isn't counted from something real. */
+
+// Saved rows can carry createdAt as an epoch number (written by this app)
+// or an ISO string (a row seeded some other way). Normalize before doing
+// date math on it, or a string timestamp silently becomes NaN and every
+// saved paper looks "stale".
+function toMs(v) {
+  if (typeof v === "number") return v;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+// Counts a number up when it first appears. Purely presentational — it
+// always lands on the true value, and lands immediately for reduced-motion
+// users. Numbers that animate into place read as "measured"; numbers that
+// blink into existence read as "printed", and this screen is full of
+// measurements.
+function useCountUp(target, ms = 900) {
+  const [n, setN] = useState(() => (cbMotionOff() ? target : 0));
+  const prev = useRef(target);
+  useEffect(() => {
+    if (cbMotionOff()) { setN(target); prev.current = target; return; }
+    const from = prev.current === target ? 0 : prev.current;
+    prev.current = target;
+    if (target === from) { setN(target); return; }
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = (t) => {
+      const p = Math.min(1, (t - t0) / ms);
+      // Same easing curve as the rest of the motion system, so a counter
+      // settling and a card rising feel like one gesture.
+      const eased = 1 - Math.pow(1 - p, 3);
+      setN(Math.round(from + (target - from) * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return n;
+}
+
+function DeckStat({ label, value, accent, P, suffix = "" }) {
+  const n = useCountUp(value);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+      <span style={{
+        fontSize: FONT_SIZES.subhead, fontWeight: 700, color: value > 0 ? P.ink : P.faint,
+        fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
+      }}>{n}{suffix}</span>
+      <span style={{
+        fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)",
+        letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap",
+        overflow: "hidden", textOverflow: "ellipsis",
+      }}>{label}</span>
+    </div>
+  );
+}
+
+function DeckCard({ P, accent, label, children, className = "" }) {
+  return (
+    <div className={"cb-card cb-deck-card " + className} style={{
+      display: "flex", flexDirection: "column", textAlign: "left",
+      padding: "16px 18px 15px", borderRadius: 14, minWidth: 0,
+      background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
+      border: `1px solid ${P.line}`,
+    }}>
+      {label && (
+        <div style={{
+          fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent,
+          fontFamily: "var(--cb-mono)", letterSpacing: "0.09em",
+          textTransform: "uppercase", marginBottom: 11,
+          display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+        }}>{label}</div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// A card's primary action. Filled when it's the thing to do, outlined when
+// it's a secondary path — one filled button per card, never two.
+function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
+  return (
+    <button onClick={onClick} title={title} className="cb-deck-btn" style={{
+      padding: "7px 15px", borderRadius: 100, cursor: "pointer",
+      fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
+      background: primary ? accent : "transparent",
+      color: primary ? at : P.ink2,
+      border: primary ? "1px solid transparent" : `1px solid ${P.line2}`,
+      whiteSpace: "nowrap",
+    }}>{children}</button>
+  );
+}
+
+function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile }) {
+  const deckRef = useGsapReveal([user ? user.id : "anon", history.length, saved.length], {
+    y: 14, stagger: 0.06, duration: 0.85, descend: false,
+  });
+  const [streak, setStreak] = useState(() => readStreak());
+  const [watchCount, setWatchCount] = useState(0);
+  useEffect(() => {
+    const onFocus = () => setStreak(readStreak());
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  // "Pick up where you left off." The revisit research this whole surface is
+  // built on is specific: it's returning to something you already engaged
+  // with that predicts staying active, not being shown something new. So the
+  // most recent unfinished investigation gets the most prominent card.
+  const lastRun = history && history.length ? history[0] : null;
+  const lastQ = lastRun && lastRun.turns && lastRun.turns.length
+    ? lastRun.turns[lastRun.turns.length - 1].q
+    : (lastRun && lastRun.title) || "";
+
+  // Papers saved but not looked at since the day they were saved. This is
+  // the honest version of a "you have unread items" nudge: it's counted from
+  // your actual saved list, it names a real paper, and if you've revisited
+  // everything the card doesn't render at all.
+  const DAY = 86400000;
+  // `savedAt` is stamped when a paper is saved and carried across from the
+  // server's created_at on sync (see setSaved in App). A source with no
+  // timestamp at all — an older row saved before this existed — is treated
+  // as NOT stale rather than as infinitely old, so upgrading the app never
+  // greets someone with a card claiming they've been ignoring everything.
+  const stale = (saved || []).filter((s) => s && s.title && s.savedAt && (Date.now() - toMs(s.savedAt)) > DAY);
+  const revisit = stale.length ? stale[0] : null;
+
+  const totalTurns = (history || []).reduce((n, h) => n + ((h.turns && h.turns.length) || 0), 0);
+
+  return (
+    <div ref={deckRef} style={{
+      width: "100%", maxWidth: 880, marginTop: 34, textAlign: "left",
+      display: "flex", flexDirection: "column", gap: 12,
+    }}>
+      {/* Stats strip — four real counts. Rendered only for signed-in users
+          with something to count; a row of zeroes is a worse first
+          impression than no row at all. */}
+      {user && (totalTurns > 0 || saved.length > 0) && (
+        <div className="cb-deck-stats" style={{
+          display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 14,
+          padding: "13px 18px", borderRadius: 14,
+          background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
+          border: `1px solid ${P.line}`,
+        }}>
+          <DeckStat label="Questions asked" value={totalTurns} P={P} accent={accent} />
+          <DeckStat label="Papers saved" value={(saved || []).length} P={P} accent={accent} />
+          <DeckStat label="Topics watched" value={watchCount} P={P} accent={accent} />
+          <DeckStat label="Day streak" value={streak.days} P={P} accent={accent} />
+        </div>
+      )}
+
+      <div style={{
+        display: "grid", gap: 12,
+        gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(310px, 1fr))",
+      }}>
+        {lastQ && (
+          <DeckCard P={P} accent={accent} label="Pick up where you left off">
+            <div style={{
+              fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45,
+              marginBottom: 12, display: "-webkit-box", WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical", overflow: "hidden",
+            }}>{lastQ}</div>
+            <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Continue</DeckBtn>
+              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>All history</DeckBtn>
+            </div>
+          </DeckCard>
+        )}
+
+        {revisit && (
+          <DeckCard P={P} accent={accent} label={
+            <>
+              <span>Saved, not revisited</span>
+              {stale.length > 1 && (
+                <span style={{
+                  padding: "2px 8px", borderRadius: 100, background: withAlpha(accent, 0.14),
+                  color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700,
+                }}>{stale.length}</span>
+              )}
+            </>
+          }>
+            <div style={{
+              fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45,
+              marginBottom: 4, display: "-webkit-box", WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical", overflow: "hidden",
+            }}>{revisit.title}</div>
+            <div style={{
+              fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 12,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>{[revisit.journal, revisit.year].filter(Boolean).join(" · ")}</div>
+            <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <DeckBtn primary accent={accent} at={at} P={P}
+                onClick={() => onAsk(`What are the key findings and limitations of "${String(revisit.title).slice(0, 140)}"?`)}>
+                Dig into this
+              </DeckBtn>
+              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenSaved}>All saved</DeckBtn>
+            </div>
+          </DeckCard>
+        )}
+
+        <WatchList P={P} accent={accent} at={at} user={user} onAsk={onAsk}
+          refreshKey={watchKey} deck onCount={setWatchCount} />
+        <DailyScience P={P} accent={accent} at={at} onAsk={onAsk} deck />
+      </div>
+    </div>
+  );
+}
+function DailyScience({ P, accent, at, onAsk, deck = false }) {
   const [item, setItem] = useState(null);
   const [streak, setStreak] = useState(() => readStreak());
   useEffect(() => {
@@ -1199,13 +1467,19 @@ function DailyScience({ P, accent, at, onAsk }) {
   }, []);
   if (!item) return null;
   const ask = () => onAsk(`Explain the science behind: ${String(item.title).slice(0, 160)}`);
+  // Commit 66 — in `deck` mode this is a cell in the Home Deck's grid and
+  // must fill it; standalone it keeps its own width and top margin.
+  const shell = deck
+    ? { width: "100%", textAlign: "left", padding: "16px 18px 15px", borderRadius: 14, minWidth: 0,
+        display: "flex", flexDirection: "column",
+        background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
+        border: `1px solid ${P.line}` }
+    : { marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left",
+        padding: "16px 18px", borderRadius: 14,
+        background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+        border: `1px solid ${P.line}` };
   return (
-    <div style={{
-      marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left",
-      padding: "16px 18px", borderRadius: 14,
-      background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
-      border: `1px solid ${P.line}`,
-    }}>
+    <div className={deck ? "cb-card cb-deck-card" : undefined} style={shell}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Today in science</span>
         {streak.days > 1 && (
@@ -1214,8 +1488,8 @@ function DailyScience({ P, accent, at, onAsk }) {
           </span>
         )}
       </div>
-      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.5, marginBottom: 12 }}>{item.title}</div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.5, marginBottom: 12, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.title}</div>
+      <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button onClick={ask} style={{
           padding: "8px 16px", borderRadius: 100, border: "none", cursor: "pointer",
           background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
@@ -6262,8 +6536,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               // column now — see functions/api/data.js) instead of every
               // row rendering identically regardless of read state.
               return (
-                <button key={t.id} onClick={() => setActiveId(t.id)} style={{
-                  width: "100%", textAlign: "left", padding: "12px 10px", borderRadius: 8, border: "none", cursor: "pointer",
+                <button key={t.id} onClick={() => setActiveId(t.id)} className="cb-row" style={{
+                  width: "100%", textAlign: "left", padding: "12px 10px 12px 14px", borderRadius: 8, border: "none", cursor: "pointer",
                   background: activeId === t.id ? withAlpha(accent, 0.1) : "transparent",
                   display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-body)",
                 }}>
@@ -8700,6 +8974,21 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       padding: isMobile ? "32px 0 40px" : "40px 0 56px", 
       position: "relative",
     },
+    // Commit 66 — compact variants used when the Home Deck has content.
+    // See the comment at the hero's <Reveal>.
+    heroCompact: {
+      flex: "0 0 auto",
+      padding: isMobile ? "18px 0 8px" : "20px 0 10px",
+    },
+    heroTitleCompact: {
+      fontSize: isMobile ? 34 : 50,
+      marginBottom: 12,
+    },
+    heroSubCompact: {
+      fontSize: FONT_SIZES.small,
+      marginBottom: 26,
+      color: P.faint,
+    },
     heroGlow: { display: "none" },
     heroMark: { marginBottom: 32, position: "relative" },
     heroTitle: {
@@ -9342,7 +9631,17 @@ function App() {
     if (serverSaved.length > 0 || serverHist.length > 0) {
       // This account already has data (a returning session, or a second
       // device) — the server copy wins over whatever's in this browser.
-      setSaved(serverSaved.map(({ id, createdAt, ...rest }) => rest));
+      // Commit 66 — the server row's `id` and `createdAt` are dropped here
+      // (they're server-side identity, and the client's replace-all sync
+      // pushes this array straight back), but WHEN a paper was saved is real
+      // information the interface needs: the Home Deck's "Saved, not
+      // revisited" card is built on it, and stripping it meant nothing could
+      // ever qualify. Carried across as `savedAt`, a plain field on the
+      // source object, so it round-trips through source_json without
+      // colliding with the server's own column.
+      setSaved(serverSaved.map(({ id, createdAt, ...rest }) => (
+        rest.savedAt ? rest : { ...rest, savedAt: createdAt }
+      )));
       setHistory(serverHist.map((h) => ({ id: h.id, title: h.title, ts: h.createdAt, turns: h.turns, allSources: h.allSources })));
       setSyncReady(true);
     } else if (checkImport && (saved.length > 0 || history.length > 0)) {
@@ -9553,6 +9852,12 @@ function App() {
   // Commit 65 — bumped whenever a topic is watched or unwatched, so the
   // home-screen watchlist reflects it without a page reload.
   const [watchKey, setWatchKey] = useState(0);
+  // Commit 66 — true once this account has anything of its own to show on
+  // the Home Deck. Drives the compact hero; see the comment at its
+  // <Reveal>. Deliberately does NOT include the watchlist: that loads
+  // asynchronously inside WatchList, and keying the hero's height on it
+  // would make the whole page jump a second after paint.
+  const deckHasContent = !!(user && ((history && history.length) || (saved && saved.length)));
   const inputRef = useRef(null);
   const cmdRef = useRef(null);
   // A quiet tribute, not a feature: the version badge used to read "DP" —
@@ -10032,7 +10337,10 @@ function App() {
   const handleSidebarCloseMobile = useCallback(() => setSidebarMobileOpen(false), []);
   const handleToggleMute = useCallback(() => setMuted((m) => !m), []);
   const handleLogoClick = useCallback(() => { sfx(); setEntered(false); setView("search"); }, [sfx]);
-  function toggleSave(s) { sfx(); setSaved((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
+  // Commit 66 — stamp savedAt on the way in, so a paper saved in this
+  // session has a real timestamp immediately rather than waiting for the
+  // next server round-trip to acquire one.
+  function toggleSave(s) { sfx(); setSaved((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, { ...s, savedAt: s.savedAt || Date.now() }]; }); }
   function isPinned(s) { const k = sourceKey(s); return pinnedSources.some((x) => sourceKey(x) === k); }
   function togglePin(s) { sfx(); setPinnedSources((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
   const isSaved = (s) => saved.some((x) => sourceKey(x) === sourceKey(s));
@@ -10304,14 +10612,34 @@ function App() {
                glow layer is excluded from the stagger — it's a decorative
                backdrop, not a sequenced element, and having it rise with
                the content made the whole hero look like it was sliding. */
-            <Reveal style={S.hero} deps={[started]} y={18} stagger={0.07} duration={1.05} descend={false}>
+            /* Commit 66 — the returning-user hero.
+
+               A signed-in person with history, saved papers or watched
+               topics was getting the same full-height landing hero as a
+               first-time visitor: an 84px wordmark, a 52px-margin tagline
+               explaining what the product is, and a screen's worth of
+               whitespace before anything about THEIR work appeared. The
+               deck was real but below the fold, which made it useless.
+
+               When there's a deck to show, the hero compacts — smaller
+               wordmark, no "here's what this product does" tagline (they
+               know), tighter padding — so the search bar and the first row
+               of deck cards land on the first screen together. A visitor
+               with nothing on the deck still gets the full curtain-raise. */
+            <Reveal style={{ ...S.hero, ...(deckHasContent ? S.heroCompact : null) }} deps={[started, deckHasContent]} y={18} stagger={0.07} duration={1.05} descend={false}>
               <div style={S.heroGlow} className="cb-hero-glow" data-cb-no-reveal="" />
-              <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+              <div style={{ ...S.heroMark, ...(deckHasContent ? { marginBottom: 14 } : null), display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
                 <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
                 <Mark size={44} accent={accent} glow={P.dark} />
               </div>
-              <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
-              <p style={S.heroSub}>Ask a real research question. We'll dig through the actual literature and give you a straight answer — every citation checkable, nothing invented.</p>
+              <h1 style={{ ...S.heroTitle, ...(deckHasContent ? S.heroTitleCompact : null) }} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
+              {/* The tagline explains what Cerebrum is. Someone with a
+                  watchlist and eleven saved papers has worked that out. */}
+              {deckHasContent ? (
+                <p style={{ ...S.heroSub, ...S.heroSubCompact }}>Ask anything, or pick up below.</p>
+              ) : (
+                <p style={S.heroSub}>Ask a real research question. We'll dig through the actual literature and give you a straight answer — every citation checkable, nothing invented.</p>
+              )}
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               {attachedImage && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 3, maxWidth: "fit-content" }}>
@@ -10348,8 +10676,16 @@ function App() {
               <div style={S.chips} className="cb-stagger" onMouseEnter={() => chipsPausedRef.current = true} onMouseLeave={() => chipsPausedRef.current = false} onFocus={() => chipsPausedRef.current = true} onBlur={() => chipsPausedRef.current = false}>
                 {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
-              <WatchList P={P} accent={accent} at={at} user={user} onAsk={(q) => ask(q)} refreshKey={watchKey} />
-              <DailyScience P={P} accent={accent} at={at} onAsk={(q) => ask(q)} />
+              {/* Commit 66 — the Home Deck replaces the loose stack of
+                  cards that used to sit here. See HomeDeck. */}
+              <HomeDeck
+                P={P} accent={accent} at={at} user={user} isMobile={isMobile}
+                history={history} saved={saved} sessions={sessions}
+                watchKey={watchKey}
+                onAsk={(q) => ask(q)}
+                onOpenHistory={() => setHistoryOpen(true)}
+                onOpenSaved={() => setSavedOpen(true)}
+              />
               <div style={S.trustRow}>
                 {/* Bug: this said "+ 10 more" after 6 named databases (implying
                     16 total), matching the stale "16 databases" figure that
@@ -10481,7 +10817,7 @@ function App() {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>
                   {saved.map((s, i) => (
-                    <div key={sourceKey(s) || i} style={{ padding: "12px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}>
+                    <div key={sourceKey(s) || i} className="cb-row" style={{ padding: "12px 10px 12px 14px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}>
                       <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: FONT_SIZES.body }}>{s.title ? renderCleanTitle(s.title) : s.url}</a>
                       <div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
                       <div style={S.srcRow}>
@@ -11314,6 +11650,141 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Commit 66 — the polish layer.
+
+   Everything below is opt-in by class or scoped to a safe property. The
+   app sets "transform" inline via JS on a few controls (the ask button's
+   hover scale, for instance) and an inline style always beats a stylesheet
+   rule — so a global button:active{transform:...} would look like it
+   works everywhere and silently do nothing on exactly the buttons people
+   press most. Press feedback is therefore a class you apply, not a
+   blanket selector.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Every button gets its color/background changes eased. This is the single
+   cheapest upgrade in the file: the difference between a UI that snaps and
+   one that feels considered is usually 160ms on the properties that were
+   already changing. "transform" is deliberately NOT in this list — see
+   above. */
+button, a, .cb-tap {
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+              color 0.18s ease, opacity 0.18s ease, box-shadow 0.22s ease;
+}
+
+/* Opt-in press feedback. A control that doesn't move when you push it
+   reads as a picture of a button. */
+.cb-deck-btn, .cb-press {
+  transition: transform 0.14s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+.cb-deck-btn:hover, .cb-press:hover { transform: translateY(-1px); }
+.cb-deck-btn:active, .cb-press:active { transform: translateY(0) scale(0.97); }
+
+/* ── Home Deck cards ──
+   .cb-card already supplies the lift, the two-layer shadow and the accent
+   border on hover. What a deck cell adds is a hairline of accent along its
+   top edge that wipes in from the left — a small "this one is live"
+   signal that doesn't cost a color change or a size change. */
+.cb-deck-card { position: relative; overflow: hidden; }
+.cb-deck-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--cb-accent, #34d399) 70%, transparent),
+    transparent);
+  transform: scaleX(0); transform-origin: left center;
+  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.cb-deck-card:hover::before { transform: scaleX(1); }
+
+/* The stats strip lifts as one object rather than per-number — the four
+   counts are one reading, not four cards. */
+.cb-deck-stats { transition: border-color 0.3s ease; }
+.cb-deck-stats:hover {
+  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 26%, transparent);
+}
+
+/* ── Selection ──
+   Default browser blue on a themed dark surface is the one place the app
+   still looked like an unstyled document. */
+::selection {
+  background: color-mix(in srgb, var(--cb-accent, #34d399) 30%, transparent);
+  color: inherit;
+}
+
+/* ── Keyboard focus ──
+   Scrollbars are hidden app-wide (see above), which makes keyboard
+   navigation the only way some surfaces are reachable — so the focus ring
+   has to be genuinely visible, and in the user's accent rather than the
+   platform default. :focus-visible only, so it never fires on a mouse
+   click. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cb-accent, #34d399) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* The existing reduced-motion block at the end of this stylesheet zeroes
+   animations and transitions. The one thing it can't do is un-hide
+   something whose resting state is "collapsed until hover" — so the deck
+   card's accent hairline is pinned open here instead of never appearing. */
+@media (prefers-reduced-motion: reduce) {
+  .cb-deck-card::before { transform: scaleX(1); }
+}
+
+
+/* ── Trending cards ──
+   .cb-trend-card and .cb-trend-hero were applied in the markup and had no
+   rules anywhere in this stylesheet — dead class names, so the whole
+   Trending grid was the one major surface in the app with no hover
+   response at all. They behave like .cb-card, plus the thing a card with a
+   photograph should do: the image scales inside its own frame while the
+   card lifts, which reads as depth rather than as the card growing. */
+.cb-trend-card, .cb-trend-hero {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.3s ease, box-shadow 0.3s ease;
+  will-change: transform;
+}
+.cb-trend-card:hover, .cb-trend-hero:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 16px 40px rgba(0,0,0,0.16);
+  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 38%, transparent);
+}
+.cb-trend-card img, .cb-trend-hero img {
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cb-trend-card:hover img, .cb-trend-hero:hover img { transform: scale(1.045); }
+.cb-trend-card:active, .cb-trend-hero:active { transform: translateY(-1px) scale(0.995); }
+
+/* ── Interactive list rows ──
+   For lists that aren't card grids — inbox threads, saved papers, history
+   entries. A row shouldn't lift (it has neighbours directly above and
+   below and lifting one shoves the eye), so it gets an inset accent rail
+   on the left and a faint wash instead. Same interaction language, correct
+   for the shape. */
+.cb-row {
+  position: relative;
+  transition: background-color 0.2s ease, padding-left 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cb-row::before {
+  content: '';
+  position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px;
+  background: var(--cb-accent, #34d399);
+  border-radius: 2px;
+  transform: scaleY(0); transform-origin: center;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.cb-row:hover {
+  background: color-mix(in srgb, var(--cb-accent, #34d399) 6%, transparent);
+}
+.cb-row:hover::before { transform: scaleY(1); }
+
 `;
 
 /* Animation-library loading. The Google Fonts stylesheet used to be
