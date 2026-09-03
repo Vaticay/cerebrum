@@ -45,7 +45,9 @@ const RATE_WINDOW_MS = 60000;
 // cutting a document without telling the user could lop off exactly the
 // section their question is about, quietly breaking the "answer ONLY from
 // this text" guarantee the whole feature is built on.
-const MAX_DOCUMENT_LEN = 120000;
+// Raised from 120k now that exceeding it truncates with a visible note
+// instead of refusing the document outright (see the handler below).
+const MAX_DOCUMENT_LEN = 250000;
 const MAX_QUERY_LEN = 2000;
 
 function cleanAIResponse(raw) {
@@ -172,10 +174,18 @@ const callCF = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
 // is bound, and a full-wave failure gets one sequential smaller-model retry
 // rather than an immediate dead end.
 async function generate(env, messages, maxTokens) {
+  // Commit 64 — more racers, shorter leash. Promise.any resolves on the
+  // FIRST success, so adding models makes the common case faster (more
+  // chances that one is not currently throttled) rather than slower, and
+  // trimming the per-call timeout from 25s to 15s means a wedged provider
+  // stops holding the whole request hostage. The old configuration could
+  // sit for 25 seconds and then report a generic failure.
   const calls = [
-    callOR(env, "deepseek/deepseek-chat-v3-0324:free", messages, maxTokens),
-    callOR(env, "google/gemini-2.0-flash-exp:free", messages, maxTokens),
-    callOR(env, "meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens),
+    callOR(env, "deepseek/deepseek-chat-v3-0324:free", messages, maxTokens, 15000),
+    callOR(env, "google/gemini-2.0-flash-exp:free", messages, maxTokens, 15000),
+    callOR(env, "meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens, 15000),
+    callOR(env, "qwen/qwen-2.5-72b-instruct:free", messages, maxTokens, 15000),
+    callOR(env, "mistralai/mistral-small-3.2-24b-instruct:free", messages, maxTokens, 15000),
   ];
   if (env.AI && typeof env.AI.run === "function") {
     calls.push(callCF(env, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", messages, maxTokens));
@@ -251,17 +261,23 @@ export async function onRequest(context) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const documentText = typeof body.documentText === "string" ? body.documentText.trim() : "";
+    let documentText = typeof body.documentText === "string" ? body.documentText.trim() : "";
     const query = typeof body.query === "string" ? body.query.trim().slice(0, MAX_QUERY_LEN) : "";
     const historyBlock = formatHistory(body.history);
 
     if (!documentText) {
       return new Response(JSON.stringify({ error: "No document text provided." }), { status: 400, headers: cors });
     }
+    // Commit 64 — a long document is no longer refused. It used to return
+    // a 413 telling the person to go and cut their own paper down, which is
+    // work the tool should be doing for them. There is still a real ceiling
+    // (the model's context window), so what changes is the response to
+    // hitting it: analyze what fits and say plainly that the tail wasn't
+    // read, rather than analyzing nothing and blaming the input.
+    let truncatedNote = "";
     if (documentText.length > MAX_DOCUMENT_LEN) {
-      return new Response(JSON.stringify({
-        error: `That document is too long (${documentText.length.toLocaleString()} characters, limit ${MAX_DOCUMENT_LEN.toLocaleString()}). Try pasting an excerpt or just the sections you need analyzed.`,
-      }), { status: 413, headers: cors });
+      truncatedNote = `\n\n[Note: this document is ${documentText.length.toLocaleString()} characters; the first ${MAX_DOCUMENT_LEN.toLocaleString()} were analyzed. Sections beyond that point were not read.]`;
+      documentText = documentText.slice(0, MAX_DOCUMENT_LEN);
     }
 
     const isQA = query.length > 0;
@@ -284,12 +300,28 @@ export async function onRequest(context) {
     const result = await generate(env, messages, maxTokens);
 
     if (isQA) {
-      return new Response(JSON.stringify({ mode: "qa", answer: result.answer, model: result.model }), { status: 200, headers: cors });
+      return new Response(JSON.stringify({ mode: "qa", answer: result.answer + truncatedNote, model: result.model }), { status: 200, headers: cors });
     }
     const sectioned = splitSummarySections(result.answer);
-    return new Response(JSON.stringify({ mode: "summary", raw: result.answer, ...sectioned, model: result.model }), { status: 200, headers: cors });
+    // The truncation note is appended to what the reader actually sees —
+    // a summary that silently covers only part of a document is worse than
+    // no summary, because nothing on screen says so.
+    const raw = result.answer + truncatedNote;
+    return new Response(JSON.stringify({ mode: "summary", raw, ...sectioned, truncated: !!truncatedNote, model: result.model }), { status: 200, headers: cors });
   } catch (e) {
     console.error("Cerebrum document endpoint error:", e);
-    return new Response(JSON.stringify({ error: "Something went wrong analyzing that document. Please try again." }), { status: 500, headers: cors });
+    // Commit 64 — "Something went wrong. Please try again." was shown for
+    // every failure, including the one that actually happens: every free-tier
+    // model being rate-limited at once. Retrying immediately is the WORST
+    // response to that, and the message advised exactly that. A 3,400-character
+    // paper was being refused with a message implying the document was at
+    // fault. Distinguish the cases so the advice matches the cause.
+    const msg = String((e && e.message) || e);
+    const rateLimited = /429|rate.?limit|quota|too many requests|All providers failed/i.test(msg);
+    return new Response(JSON.stringify({
+      error: rateLimited
+        ? "Every free AI model is rate-limited right now — this isn't a problem with your document. Capacity usually returns within a minute."
+        : "Couldn't analyze that document. " + (msg.length < 160 ? msg : "The analysis service returned an unexpected error."),
+    }), { status: rateLimited ? 503 : 500, headers: cors });
   }
 }
