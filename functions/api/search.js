@@ -2031,6 +2031,35 @@ function extractPersonNameFromQuery(raw) {
   if (!raw) return null;
   const s = raw.trim();
   if (!s) return null;
+
+  // Commit 61 — refuse queries that are plainly not "who is this person".
+  //
+  // Real failure: "Explain the science behind: NASA Rocket Takes First
+  // Multi-Point Look Inside Radio-Disrupting Clouds" was routed to the
+  // author search, which then reported it had searched seven databases for
+  // papers by an author named "Rocket Takes First Multi-Point". The scanner
+  // below looks for a run of capitalised tokens, and a news headline is
+  // nothing but capitalised tokens — so the more headline-shaped a question
+  // is, the more confidently it gets misread as a name.
+  //
+  // Three guards, each aimed at a way a headline differs from a name:
+  //   · an explicit instruction verb means the user asked for an
+  //     explanation, not a person;
+  //   · a name is short — nobody types a fourteen-word person query;
+  //   · a colon separates a preamble from a title, and a title is not a
+  //     name, so only what follows the colon is worth scanning at all.
+  const lower = s.toLowerCase();
+  if (/^(explain|describe|summar(y|ise|ize)|what|why|how|when|where|compare|tell me|give me|overview)\b/.test(lower)) return null;
+  if (/\b(science behind|explain|research on|studies on|overview of)\b/.test(lower)) return null;
+  const afterColon = s.includes(":") ? s.slice(s.indexOf(":") + 1).trim() : s;
+  // The length cap only applies when nothing in the query signals that a
+  // person is actually being asked about. "does Reese Saho have papers on
+  // this" is nine words and unambiguously a person query; a nine-word
+  // headline is not. The difference is the vocabulary, not the length, so
+  // the cap stands down whenever author-context words are present.
+  const hasPersonContext = /\b(papers?|publications?|authors?|wrote|written|research(ed)? by|studies by|work by|lab|et al)\b/i.test(s);
+  if (!hasPersonContext && afterColon.split(/\s+/).length > 6) return null;
+  if (afterColon !== s) return extractPersonNameFromQuery(afterColon);
   // If the query IS itself just a clean name, return it
   if (looksLikePersonName(s)) return s;
 
@@ -2438,6 +2467,55 @@ async function doaj(query, limit = 6) {
   }
 }
 
+// Commit 65 — dedicated preprint search.
+//
+// The bug this fixes: `biorxiv()` above is the only preprint-facing source in
+// the topic fanout, and it reaches bioRxiv indirectly, through OpenAlex with
+// `filter=type:preprint`. OpenAlex types a large share of bioRxiv/medRxiv
+// deposits as plain `article`, so that filter quietly drops them — which is
+// how Cerebrum ended up telling people a paper "isn't in the literature"
+// when it is sitting on bioRxiv under exactly the terms they searched.
+//
+// Europe PMC's `SRC:PPR` is the authoritative preprint slice: bioRxiv,
+// medRxiv, arXiv, Research Square, ChemRxiv, SSRN and Preprints.org, all
+// searchable by topic through the same keyless endpoint the rest of this
+// file already uses. Preprints are labelled as such in `journal` so the
+// answer layer and the UI can weight them below peer-reviewed work rather
+// than presenting them as equivalent evidence.
+async function preprintSearch(query, limit = 8) {
+  try {
+    const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
+      new URLSearchParams({
+        query: "(" + query + ") AND (SRC:PPR)",
+        resultType: "core",
+        pageSize: String(limit),
+        format: "json",
+        sort: "relevance",
+      });
+    const data = await getJSON(url, {}, 6000);
+    const rows = (data && data.resultList && data.resultList.result) || [];
+    return rows.filter((r) => r.title).map((r) => {
+      // bookOrReportDetails.publisher carries the actual server name
+      // ("bioRxiv", "medRxiv") for PPR records; journalTitle is usually empty
+      // for them, so falling back to it alone produced a bare "Preprint".
+      const server =
+        (r.bookOrReportDetails && r.bookOrReportDetails.publisher) ||
+        r.journalTitle || r.publisher || "";
+      return {
+        title: r.title || "Untitled",
+        url: r.doi ? "https://doi.org/" + r.doi : "https://europepmc.org/article/" + r.source + "/" + r.id,
+        year: r.pubYear || "",
+        citations: typeof r.citedByCount === "number" ? r.citedByCount : null,
+        authors: r.authorString || "",
+        _allAuthors: r.authorString || "",
+        journal: server ? server + " (preprint)" : "Preprint",
+        abstract: stripTags(r.abstractText),
+        isPreprint: true,
+      };
+    });
+  } catch { return []; }
+}
+
 async function biorxiv(query, limit = 6) {
   try {
     const params = new URLSearchParams({
@@ -2487,7 +2565,7 @@ async function biorxiv(query, limit = 6) {
 // zenodo.org URL as non-literature across the board, per explicit direction,
 // so every result this function returns is now discarded downstream before
 // it can reach an answer. Left in place rather than removed — deleting it
-// (and its entry in `sourceNames`/the "14 databases" this app advertises)
+// (and its entry in `sourceNames`/the "15 databases" this app advertises)
 // is a bigger, riskier change than the data-quality bug actually required,
 // and this comment is here so the next person who notices "zenodo never
 // shows results" understands why without re-deriving it.
@@ -4866,6 +4944,9 @@ async function gatherPapers(rawQuery, opts) {
       baseSearch(bare, 8),
       pmcFullText(bare, 6),
       openAire(bare, 6),
+      // Commit 65 — see preprintSearch: bioRxiv/medRxiv/arXiv topic search
+      // that the OpenAlex-mediated `biorxiv()` above was silently missing.
+      preprintSearch(bare, 8),
     ];
   };
 
@@ -4888,7 +4969,7 @@ async function gatherPapers(rawQuery, opts) {
   _outerDiag.phase = "ladder_start";
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
-  const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire"];
+  const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire","preprints"];
 
   let accumulated = [];
   for (let i = 0; i < rungs.length; i++) {
@@ -5708,6 +5789,91 @@ const RATE_WINDOW_MS = 60000;  // per minute
 const MAX_QUERY_LEN = 2000;      // reject absurdly long queries (abuse / cost)
 const MAX_HISTORY_TURNS = 20;    // cap conversation history size
 
+/* Commit 62 — conversational replies, reachable from BOTH intent paths.
+   This logic used to be inline inside the request handler, so only the
+   hardcoded regex list could reach it: when the LLM classifier decided a
+   message was "conversational", its case did nothing and execution fell
+   straight through into a full literature search. That is why saying "hi
+   how are you" could come back as a failed paper hunt — the system had
+   correctly understood it was small talk and then searched anyway.
+
+   Returns the reply text, or null if it couldn't produce one, so callers
+   decide what to send. */
+const CEREBRUM_PERSONA = `You are Cerebrum — a free scientific literature search engine. Here is your fact sheet:
+
+IDENTITY:
+- Built by Vaticay (a 21-year-old developer from Knoxville, TN)
+- You search 14 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, and OpenAIRE (medRxiv is additionally used for direct author lookups)
+- You use free-tier AI models (DeepSeek, Gemini Flash, Llama, Qwen, Mistral) — you race them and take the fastest good response
+- You mechanically strip any citation the AI fabricates — no fake DOIs ever
+- You have no account system, no ads, no paywall, no subscription
+- Your name is Latin for "brain"
+
+PERSONALITY:
+- You're dry, sharp, and slightly cocky — like a brilliant grad student who knows they're good but doesn't take themselves too seriously
+- You genuinely love science and get excited about interesting questions
+- You're direct. You don't hedge or apologize unnecessarily
+- You have a sense of humor but it's deadpan, not forced
+- You never use emoji, exclamation marks sparingly
+- Keep responses SHORT — 1-3 sentences for simple interactions, up to a paragraph for explanations
+- Never sound corporate, never sound like a customer service bot
+- Never preface with "Great question!" or "That's a great point!" — just answer
+
+WHAT YOU ARE NOT:
+- You are not sentient, conscious, or alive. You're software. Say so plainly if asked.
+- You are not ChatGPT, Gemini, Claude, or any general assistant. You're a specialized literature search tool.
+- You don't have feelings, opinions on non-science topics, or personal experiences
+- You cannot browse the web, access URLs, or do anything outside of searching scholarly databases
+
+HOW TO ACTUALLY CONVERSE (Commit 62):
+- You are talking WITH someone, not fielding isolated queries. Read the conversation above and respond to what was
+  actually said. If they just got an answer from you and say "that's interesting", engage with the thing that was
+  interesting — don't reset to a greeting.
+- Small talk is fine and you're good at it. Answer "how are you" like a person would, briefly, and move on. Do NOT
+  deflect every non-scientific message with a line about preferring science questions; saying that once is dry, saying
+  it every time is a broken record.
+- You can answer general questions, reason about things, explain what you can do, and have a normal exchange. What you
+  can't do is invent citations or claim to have searched when you haven't.
+- If a message hints at something you could genuinely look up, offer it in one clause ("want me to pull the literature
+  on that?") rather than lecturing about your purpose. Offer once; don't nag.
+- Match their energy and length. A two-word message gets a short reply, not a paragraph.
+
+Respond naturally to the user's message. Be yourself.`;
+
+async function answerConversationally(query, history, env) {
+  const apiKey = env.OPENROUTER_KEY || "";
+  if (!apiKey) return null;
+  const models = [
+    { url: "https://openrouter.ai/api/v1/chat/completions", model: "deepseek/deepseek-chat-v3-0324:free" },
+    { url: "https://openrouter.ai/api/v1/chat/completions", model: "google/gemini-2.0-flash-exp:free" },
+  ];
+  const messages = [{ role: "system", content: CEREBRUM_PERSONA }];
+  // Real conversation memory: without the recent turns this answers every
+  // greeting as though it were the first thing ever said, which is the
+  // difference between a chat partner and a doorbell.
+  const turns = Array.isArray(history) ? history.slice(-8) : [];
+  for (const t of turns) {
+    if (t && (t.role === "user" || t.role === "assistant")) {
+      messages.push({ role: t.role, content: String(t.content || "").slice(0, 700) });
+    }
+  }
+  messages.push({ role: "user", content: query });
+  try {
+    return await Promise.any(models.map(async (m) => {
+      const res = await fetch(m.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": "https://askcerebrum.org" },
+        body: JSON.stringify({ model: m.model, messages, max_tokens: 320, temperature: 0.8 }),
+      });
+      if (!res.ok) { await res.text().catch(() => {}); throw new Error(String(res.status)); }
+      const data = await res.json();
+      const text = (data.choices?.[0]?.message?.content || "").trim();
+      if (!text) throw new Error("empty");
+      return text;
+    }));
+  } catch { return null; }
+}
+
 export async function onRequest(context) {
   const { request, env, waitUntil } = context;
 
@@ -5878,97 +6044,35 @@ export async function onRequest(context) {
       // Emotional venting (not scientific)
       /^(im (sad|happy|bored|tired|lonely|angry|scared|stressed|depressed|anxious))\b/,
       /^(i feel|i think im|i need to vent|i just wanted to talk)\b/,
+      // Commit 62 — additions from real usage. Each of these previously fell
+      // through to a literature search and came back as a failed paper hunt.
+      /^(how (are|r) (you|u|ya)|hows it going|how you doing|you good|you there|u there)\b/,
+      /^(thanks|thank you|ty|thx|appreciate it|cheers|much appreciated)\b/,
+      /^(nice|cool|awesome|great|perfect|amazing|interesting|wow|damn|nvm|never mind)\s*[.!]?\s*$/,
+      /^(good (morning|night|evening|afternoon))\b/,
+      /^(can|could) (you|u) (help|assist)\b/,
+      /^(what (can|do) (you|u) do|what are your (features|capabilities)|help)\s*[?.!]?\s*$/,
+      /^(bye|goodbye|see ya|later|gtg|good night)\b/,
+      /^(sorry|my bad|oops)\b/,
+      /^(who|what) (is|are) (your|ur) (creator|maker|owner|dev|developer)\b/,
     ];
 
     const isConversational = CONVERSATIONAL_PATTERNS.some(p => p.test(small));
 
     if (isConversational) {
-      // Route to LLM with Cerebrum persona — no scholarly search needed
-      const PERSONA_PROMPT = `You are Cerebrum — a free scientific literature search engine. Here is your fact sheet:
-
-IDENTITY:
-- Built by Vaticay (a 21-year-old developer from Knoxville, TN)
-- You search 14 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, and OpenAIRE (medRxiv is additionally used for direct author lookups)
-- You use free-tier AI models (DeepSeek, Gemini Flash, Llama, Qwen, Mistral) — you race them and take the fastest good response
-- You mechanically strip any citation the AI fabricates — no fake DOIs ever
-- You have no account system, no ads, no paywall, no subscription
-- Your name is Latin for "brain"
-
-PERSONALITY:
-- You're dry, sharp, and slightly cocky — like a brilliant grad student who knows they're good but doesn't take themselves too seriously
-- You genuinely love science and get excited about interesting questions
-- You're direct. You don't hedge or apologize unnecessarily
-- You have a sense of humor but it's deadpan, not forced
-- You never use emoji, exclamation marks sparingly
-- Keep responses SHORT — 1-3 sentences for simple interactions, up to a paragraph for explanations
-- Never sound corporate, never sound like a customer service bot
-- Never preface with "Great question!" or "That's a great point!" — just answer
-
-WHAT YOU ARE NOT:
-- You are not sentient, conscious, or alive. You're software. Say so plainly if asked.
-- You are not ChatGPT, Gemini, Claude, or any general assistant. You're a specialized literature search tool.
-- You don't have feelings, opinions on non-science topics, or personal experiences
-- You cannot browse the web, access URLs, or do anything outside of searching scholarly databases
-
-Respond naturally to the user's message. Be yourself.`;
-
-      try {
-        // Use the fastest available model for persona responses
-        const personaModels = [
-          { url: "https://openrouter.ai/api/v1/chat/completions", model: "deepseek/deepseek-chat-v3-0324:free", key: "OPENROUTER_KEY" },
-          { url: "https://openrouter.ai/api/v1/chat/completions", model: "google/gemini-2.0-flash-exp:free", key: "OPENROUTER_KEY" },
-        ];
-
-        const apiKey = env.OPENROUTER_KEY || "";
-        if (!apiKey) {
-          // Fallback if no key — still better than hardcoded
-          return new Response(
-            JSON.stringify({ answer: "Ask me a science question — that's where I shine.", sources: [], videos: [], source: "Cerebrum" }),
-            { status: 200, headers: cors }
-          );
-        }
-
-        const personaMessages = [
-          { role: "system", content: PERSONA_PROMPT },
-        ];
-
-        // Include conversation history for context
-        const historyTurns = Array.isArray(body.history) ? body.history.slice(-6) : [];
-        for (const turn of historyTurns) {
-          if (turn.role === "user" || turn.role === "assistant") {
-            personaMessages.push({ role: turn.role, content: String(turn.content || "").slice(0, 500) });
-          }
-        }
-
-        personaMessages.push({ role: "user", content: query });
-
-        // Race two models for speed
-        const personaResponse = await Promise.any(
-          personaModels.map(async (m) => {
-            const res = await fetch(m.url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}`, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
-              body: JSON.stringify({ model: m.model, messages: personaMessages, max_tokens: 300, temperature: 0.8 }),
-            });
-            if (!res.ok) { await res.text().catch(() => {}); throw new Error(`${m.model} ${res.status}`); }
-            const data = await res.json();
-            const text = (data.choices?.[0]?.message?.content || "").trim();
-            if (!text) throw new Error("empty");
-            return text;
-          })
-        );
-
-        return new Response(
-          JSON.stringify({ answer: personaResponse, sources: [], videos: [], source: "Cerebrum" }),
-          { status: 200, headers: cors }
-        );
-      } catch {
-        // If LLM fails, use a minimal fallback
-        return new Response(
-          JSON.stringify({ answer: "I'm better at science questions than small talk. Try me.", sources: [], videos: [], source: "Cerebrum" }),
-          { status: 200, headers: cors }
-        );
-      }
+      // Commit 62 — the persona responder moved to a module-level function
+      // (answerConversationally, above) so the LLM classifier's
+      // "conversational" branch can reach it too. It previously lived inline
+      // here, which meant only the regex list below could ever trigger it —
+      // see the dead `case "conversational"` this fixes.
+      const personaText = await answerConversationally(query, body.history, env);
+      return new Response(
+        JSON.stringify({
+          answer: personaText || "I'm better at science questions than small talk. Try me.",
+          sources: [], videos: [], source: "Cerebrum",
+        }),
+        { status: 200, headers: cors }
+      );
     }
 
     const settings = body.settings || {};
@@ -6341,8 +6445,20 @@ Respond naturally to the user's message. Be yourself.`;
         }
 
         case "conversational": {
-          // Should have been caught by CONVERSATIONAL_PATTERNS above.
-          // If it wasn't (edge case), handle it here.
+          // Commit 62 — this used to `break`, which fell through into a full
+          // literature search. The regex list above catches the common
+          // phrasings, but it is a fixed list and the whole reason the LLM
+          // classifier exists is to catch what a fixed list can't ("appreciate
+          // it", "that clears things up", "you're quicker than I expected").
+          // Understanding a message is small talk and then searching for
+          // papers about it anyway was the worst of both designs.
+          const chat = await answerConversationally(query, body.history, env);
+          if (chat) {
+            return new Response(
+              JSON.stringify({ answer: chat, answerId: Date.now().toString(36), sources: [], videos: [], source: "Cerebrum" }),
+              { status: 200, headers: cors }
+            );
+          }
           break;
         }
       }
