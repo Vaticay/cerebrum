@@ -68,7 +68,13 @@ const POST_LIMIT = 240;
 const GET_LIMIT = 240;
 const WINDOW_MS = 60000;
 
-const ALLOWED_TYPES = new Set(["hello", "offer", "answer", "ice", "bye"]);
+// "ring" (Commit 54) is the caller's repeating "I am calling you" heartbeat.
+// It is a signal like any other rather than its own endpoint because it is
+// scoped, authorized and cleaned up on exactly the same terms as the rest of
+// a call's traffic — and because leaving it off this list is precisely what
+// made the first attempt at ringing fail silently: every heartbeat POST came
+// back 400 and no row was ever written.
+const ALLOWED_TYPES = new Set(["hello", "offer", "answer", "ice", "bye", "ring"]);
 const MAX_PAYLOAD_JSON_LEN = 8000; // SDP blobs are a few KB; ICE candidates are tiny
 const MAX_CLIENT_ID_LEN = 100;
 const SIGNAL_TTL_MS = 10 * 60 * 1000; // 10 minutes — a call's signaling is long done well before this
