@@ -49,6 +49,71 @@ const ALLOWED_ATTACHMENT_KINDS = new Set(["image", "audio", "paper"]);
 // code ever ran (e.g. a manually seeded test row that fell through to the
 // column's own string default). This normalizes either shape to a number
 // so a stray ISO-string timestamp can't silently break a numeric sort.
+// Commit 65 — watchlist support.
+//
+// A watched topic is stored as the user's own words, normalized only for
+// whitespace and case-folding on the uniqueness index, so "CRISPR base
+// editing" and "crispr base editing" don't become two rows the user has to
+// manage separately.
+const MAX_TOPIC_LEN = 120;
+function normalizeTopic(raw) {
+  return (raw || "").toString().replace(/\s+/g, " ").trim().slice(0, MAX_TOPIC_LEN);
+}
+
+// How many papers Europe PMC has indexed on a topic since a given moment.
+//
+// Returns a number, or null if the upstream couldn't be reached — null and
+// 0 mean genuinely different things here (null = "we don't know", 0 = "we
+// checked and there's nothing new"), and the caller keeps them apart so a
+// network blip never renders as "no new research."
+//
+// CREATION_DATE is the date Europe PMC first indexed the record, which is
+// the right clock for "new since you last looked" — a paper's own
+// publication date can be months earlier than the day it became findable.
+// resultType=idlist + pageSize=1 makes this the cheapest possible query:
+// all we read is hitCount.
+async function countNewSince(topic, sinceMs) {
+  const t = normalizeTopic(topic);
+  if (!t) return null;
+  const since = new Date(Math.max(0, sinceMs || 0));
+  if (!Number.isFinite(since.getTime())) return null;
+  const from = since.toISOString().slice(0, 10);
+  const to = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  // Query shape matters a lot here. A bare multi-word topic is treated as
+  // a loose OR by Europe PMC, which inflates every count into meaningless
+  // hundreds; a quoted phrase on a long topic is so strict it returns zero
+  // forever. So: short topics search as an exact phrase, longer ones as an
+  // AND of their significant terms, which is what a person means when they
+  // say they're watching "CRISPR base editing in sickle cell disease".
+  const words = t.replace(/["()\[\]:]/g, " ").split(/\s+/).filter(Boolean);
+  const STOP = new Set(["the", "a", "an", "of", "in", "on", "for", "and", "or", "to", "with", "how", "what", "why", "does", "do", "is", "are", "can"]);
+  const terms = words.filter((w) => w.length > 2 && !STOP.has(w.toLowerCase())).slice(0, 6);
+  const core = words.length <= 3
+    ? `"${words.join(" ")}"`
+    : (terms.length ? terms.map((w) => `"${w}"`).join(" AND ") : `"${words.slice(0, 3).join(" ")}"`);
+  const q = `(${core}) AND (CREATION_DATE:[${from} TO ${to}])`;
+  const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(q)}&format=json&resultType=idlist&pageSize=1`;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 6000);
+  try {
+    // Belt and braces: the abort signal is the real timeout, but racing a
+    // timer too means a fetch that never settles at all can't hold the
+    // whole watchlist response open behind it.
+    const res = await Promise.race([
+      fetch(url, { signal: ctl.signal, headers: { Accept: "application/json" } }),
+      new Promise((resolve) => setTimeout(() => resolve(null), 6500)),
+    ]);
+    if (!res || !res.ok) return null;
+    const json = await res.json();
+    const n = Number(json && json.hitCount);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function toEpochMs(v) {
   if (typeof v === "number") return v;
   if (v == null) return 0;
@@ -510,6 +575,60 @@ export async function onRequest(context) {
         });
         return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
       }
+      // Commit 65 — the watchlist. This is the retention mechanic, and it
+      // is deliberately the honest version of one.
+      //
+      // The research behind it (arXiv 2511.18013, "Save, Revisit, Retain")
+      // found that saving is the strongest single predictor of a user
+      // coming back, but that it is the REVISIT of a saved thing — not the
+      // save — that correlates with sustained activity a month out. So the
+      // job of this endpoint is not to manufacture a reason to return; it
+      // is to surface a real one. `newCount` below is a live hit count from
+      // Europe PMC for literature indexed since the user last looked at
+      // that topic. If no new papers exist, the number is 0 and the UI says
+      // nothing. A badge in Cerebrum always means literature that actually
+      // exists.
+      if (resource === "watchlist") {
+        const rows = await env.DB.prepare(
+          "SELECT id, topic, created_at, last_seen_at, last_count FROM watched_topics WHERE user_id = ? ORDER BY created_at DESC LIMIT 40"
+        ).bind(user.id).all();
+        const watched = rows.results || [];
+        // Only the most recent dozen get a live count: each one is a
+        // network round trip, and a 40-topic watchlist would otherwise turn
+        // one page load into 40 upstream requests. The rest render from
+        // last_count (the number as of the last time it was checked),
+        // which is honest — it was true when it was measured.
+        const LIVE = 12;
+        const counted = await Promise.all(watched.slice(0, LIVE).map(async (w) => {
+          const n = await countNewSince(w.topic, toEpochMs(w.last_seen_at));
+          return { ...w, live: n };
+        }));
+        const out = [];
+        for (const w of counted) {
+          const newCount = w.live == null ? (w.last_count || 0) : w.live;
+          if (w.live != null && w.live !== w.last_count) {
+            // Cache the fresh number so the next render has something true
+            // to fall back on if Europe PMC is unreachable.
+            try {
+              await env.DB.prepare("UPDATE watched_topics SET last_count = ? WHERE id = ?").bind(w.live, w.id).run();
+            } catch {}
+          }
+          out.push({
+            id: w.id, topic: w.topic, createdAt: toEpochMs(w.created_at),
+            lastSeenAt: toEpochMs(w.last_seen_at), newCount,
+            live: w.live != null,
+          });
+        }
+        for (const w of watched.slice(LIVE)) {
+          out.push({
+            id: w.id, topic: w.topic, createdAt: toEpochMs(w.created_at),
+            lastSeenAt: toEpochMs(w.last_seen_at), newCount: w.last_count || 0,
+            live: false,
+          });
+        }
+        const totalNew = out.reduce((s, w) => s + (w.newCount || 0), 0);
+        return new Response(JSON.stringify({ items: out, totalNew }), { status: 200, headers: cors });
+      }
       return new Response(JSON.stringify({ error: "Unknown resource." }), { status: 400, headers: cors });
     }
 
@@ -883,6 +1002,55 @@ export async function onRequest(context) {
       await env.DB.prepare(
         "INSERT INTO content_reports (id, reporter_id, reported_user_id, thread_id, message_id, kind, reason, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).bind(newId("rpt"), user.id, reportedUserId, threadId, messageId, kind, reason, note || null, Date.now()).run();
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
+    }
+
+    // Commit 65 — watch / unwatch / mark-seen for a topic.
+    //
+    // "Watch this topic" is offered at the end of an answer, which is the
+    // one moment we know the user cared about the subject. Unwatching is a
+    // single click from the same places watching is — a retention feature
+    // that's hard to leave is just a trap, and a trap doesn't survive
+    // contact with a scientist.
+    if (action === "watch-topic" || action === "unwatch-topic") {
+      const topic = normalizeTopic(body.topic);
+      if (!topic) return new Response(JSON.stringify({ error: "Missing topic." }), { status: 400, headers: cors });
+      if (action === "unwatch-topic") {
+        await env.DB.prepare(
+          "DELETE FROM watched_topics WHERE user_id = ? AND lower(topic) = lower(?)"
+        ).bind(user.id, topic).run();
+        return new Response(JSON.stringify({ watching: false, topic }), { status: 200, headers: cors });
+      }
+      const existing = await env.DB.prepare(
+        "SELECT id FROM watched_topics WHERE user_id = ? AND lower(topic) = lower(?)"
+      ).bind(user.id, topic).first();
+      if (existing) return new Response(JSON.stringify({ watching: true, topic }), { status: 200, headers: cors });
+      // A cap, because a 200-topic watchlist produces a number nobody
+      // reads and a page nobody opens twice.
+      const countRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM watched_topics WHERE user_id = ?"
+      ).bind(user.id).first();
+      if ((countRow && countRow.n) >= 40) {
+        return new Response(JSON.stringify({ error: "You're watching 40 topics already — remove one to add another." }), { status: 400, headers: cors });
+      }
+      const now = Date.now();
+      // last_seen_at starts at now, so the first count is "published since
+      // you started watching" rather than the whole back catalogue.
+      await env.DB.prepare(
+        "INSERT INTO watched_topics (id, user_id, topic, created_at, last_seen_at, last_count) VALUES (?, ?, ?, ?, ?, 0)"
+      ).bind(newId("wt"), user.id, topic, now, now).run();
+      return new Response(JSON.stringify({ watching: true, topic }), { status: 200, headers: cors });
+    }
+
+    // Called when the user actually opens a watched topic's new results.
+    // This is the only thing that clears the badge — it can't be dismissed
+    // without looking, and it doesn't clear itself on a page view.
+    if (action === "watchlist-seen") {
+      const topic = normalizeTopic(body.topic);
+      if (!topic) return new Response(JSON.stringify({ error: "Missing topic." }), { status: 400, headers: cors });
+      await env.DB.prepare(
+        "UPDATE watched_topics SET last_seen_at = ?, last_count = 0 WHERE user_id = ? AND lower(topic) = lower(?)"
+      ).bind(Date.now(), user.id, topic).run();
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
     }
 
