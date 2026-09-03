@@ -29,6 +29,16 @@ const MAX_REPORT_NOTE_LEN = 1000;
 // rejecting anything that isn't actually a compressed 256x256 thumbnail
 // (a full-res photo someone points a hand-rolled client at, for instance).
 const MAX_AVATAR_BASE64_LEN = 300000;
+// Commit 56 — an attachment's blob rides on the message row as a base64
+// data URL. A D1 row tops out around 1MB, so this is the ceiling that keeps
+// a send from failing at the database rather than at the door: the client
+// compresses images and caps voice-note length before it ever posts (see
+// the composer in src/main.jsx), and anything still over this is refused
+// with a message a person can act on instead of a 500.
+const MAX_ATTACHMENT_DATA_LEN = 700000;
+const MAX_ATTACHMENT_URL_LEN = 600;
+const MAX_ATTACHMENT_META_LEN = 4000;
+const ALLOWED_ATTACHMENT_KINDS = new Set(["image", "audio", "paper"]);
 
 // The live social tables declare their timestamp columns DATETIME DEFAULT
 // CURRENT_TIMESTAMP (a SQLite string default), but every write this file
@@ -102,13 +112,31 @@ export async function onRequest(context) {
   if (!originAllowed(request)) return new Response(JSON.stringify({ error: "Origin not allowed." }), { status: 403, headers: cors });
   if (!env.DB) return new Response(JSON.stringify({ error: "Accounts are not configured on this deployment." }), { status: 503, headers: cors });
 
+  const user = await getSessionUser(request, env);
+  if (!user) return new Response(JSON.stringify({ error: "Sign in first." }), { status: 401, headers: cors });
+
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
-  if (!(await checkRateLimit(env, `data:${clientIP}`, DATA_RATE_LIMIT, DATA_RATE_WINDOW_MS))) {
+  // Commit 56 — polling resources are exempt from the shared per-IP budget
+  // and metered per user instead. This was a real, silent production
+  // failure, not a tuning preference: DATA_RATE_LIMIT is 60 requests per
+  // minute PER IP, and Commit 54's incoming-call poll alone spends 20 of
+  // them (every 3s), with the open-thread poll spending 12 more (every 5s).
+  // Two people testing a call from the same home or campus network share
+  // one IP, so between them they blow the whole budget on polling before
+  // anyone loads a page — and because apiDataGet treats a non-OK response
+  // as "no data", a 429 arrived as a silent "nobody is calling you." That
+  // is exactly the reported symptom: a call that rings on the caller's
+  // screen and never reaches the person being called.
+  //
+  // Keyed on user id (not IP) so two people behind one router can't starve
+  // each other, and sized to comfortably fit both poll loops plus headroom.
+  const pollingResource = request.method === "GET" && ["incoming-calls", "thread", "inbox"].includes(url.searchParams.get("resource"));
+  const rateKey = pollingResource ? `data-poll:${user.id}` : `data:${clientIP}`;
+  const rateLimit = pollingResource ? 240 : DATA_RATE_LIMIT;
+  if (!(await checkRateLimit(env, rateKey, rateLimit, DATA_RATE_WINDOW_MS))) {
     return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment." }), { status: 429, headers: { ...cors, "Retry-After": "20" } });
   }
 
-  const user = await getSessionUser(request, env);
-  if (!user) return new Response(JSON.stringify({ error: "Sign in first." }), { status: 401, headers: cors });
 
   try {
     // Self-healing, memoized per isolate after the first real call — see
@@ -184,7 +212,7 @@ export async function onRequest(context) {
         const items = [];
         for (const t of threadRows.results || []) {
           const last = await env.DB.prepare(
-            "SELECT sender_id, text, attachment_title, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
+            "SELECT sender_id, text, attachment_title, attachment_kind, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
           ).bind(t.id).first();
           let displayName = t.name;
           let otherId = null;
@@ -221,6 +249,7 @@ export async function onRequest(context) {
             lastMessage: last ? {
               text: last.text,
               attachmentTitle: last.attachment_title || null,
+              attachmentKind: last.attachment_kind || null,
               senderId: last.sender_id,
               createdAt: lastCreatedAt,
               mine: last.sender_id === user.id,
@@ -345,7 +374,7 @@ export async function onRequest(context) {
         // rows already fetched above double as the sender-lookup table —
         // no extra per-message query needed for the "who said this" label.
         const messageRows = await env.DB.prepare(
-          "SELECT id, sender_id, text, attachment_title, created_at FROM messages WHERE thread_id = ? ORDER BY created_at ASC"
+          "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at FROM messages WHERE thread_id = ? ORDER BY created_at ASC"
         ).bind(threadId).all();
         const messages = (messageRows.results || []).map((m) => ({
           id: m.id,
@@ -353,6 +382,10 @@ export async function onRequest(context) {
           mine: m.sender_id === user.id,
           text: m.text,
           attachmentTitle: m.attachment_title || null,
+          attachmentKind: m.attachment_kind || null,
+          attachmentData: m.attachment_data || null,
+          attachmentUrl: m.attachment_url || null,
+          attachmentMeta: (() => { try { return m.attachment_meta ? JSON.parse(m.attachment_meta) : null; } catch { return null; } })(),
           createdAt: toEpochMs(m.created_at),
           who: displayNameFor(byId.get(m.sender_id)),
         }));
@@ -642,7 +675,30 @@ export async function onRequest(context) {
       // Optional: a message can carry text, an attachment, or both, but
       // not neither.
       const attachmentTitle = typeof body.attachment_title === "string" ? body.attachment_title.trim().slice(0, 300) : "";
-      if (!threadId || (!text && !attachmentTitle)) {
+      // Commit 56 — image / voice note / shared paper.
+      const attachmentKind = ALLOWED_ATTACHMENT_KINDS.has(body.attachment_kind) ? body.attachment_kind : "";
+      const attachmentData = attachmentKind === "image" || attachmentKind === "audio"
+        ? (typeof body.attachment_data === "string" ? body.attachment_data : "") : "";
+      const attachmentUrl = typeof body.attachment_url === "string" ? body.attachment_url.trim().slice(0, MAX_ATTACHMENT_URL_LEN) : "";
+      let attachmentMeta = "";
+      try { attachmentMeta = body.attachment_meta ? JSON.stringify(body.attachment_meta).slice(0, MAX_ATTACHMENT_META_LEN) : ""; } catch { attachmentMeta = ""; }
+      if (attachmentData) {
+        // Refused explicitly rather than left to fail as a D1 row-size
+        // error, so the composer can tell someone their file is too big
+        // instead of showing them a generic send failure.
+        if (attachmentData.length > MAX_ATTACHMENT_DATA_LEN) {
+          return new Response(JSON.stringify({ error: "That attachment is too large to send. Try a smaller image or a shorter voice note." }), { status: 413, headers: cors });
+        }
+        // Only ever a self-contained data URL of the kind claimed — this is
+        // rendered straight into an <img>/<audio> src on someone else's
+        // screen, so a remote or javascript: URL smuggled through here would
+        // be an injection vector, not merely a wrong file.
+        const expected = attachmentKind === "image" ? /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/ : /^data:audio\/(webm|ogg|mp4|mpeg|wav)(;codecs=[a-z0-9.,=]+)?;base64,[A-Za-z0-9+/=]+$/;
+        if (!expected.test(attachmentData)) {
+          return new Response(JSON.stringify({ error: "That attachment format isn't supported." }), { status: 400, headers: cors });
+        }
+      }
+      if (!threadId || (!text && !attachmentTitle && !attachmentData)) {
         return new Response(JSON.stringify({ error: "Missing thread_id, or a message needs text or an attachment." }), { status: 400, headers: cors });
       }
       // Not in the literal spec, but load-bearing: without this, any
@@ -674,11 +730,20 @@ export async function onRequest(context) {
       // autoincrement) — has to be generated here, same as accolades.id in
       // auth.js's verify-code.
       await env.DB.prepare(
-        "INSERT INTO messages (id, thread_id, sender_id, text, attachment_title, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-      ).bind(newId("msg"), threadId, user.id, text || null, attachmentTitle || null, now).run();
+        "INSERT INTO messages (id, thread_id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(
+        newId("msg"), threadId, user.id, text || null, attachmentTitle || null,
+        attachmentKind || null, attachmentData || null, attachmentUrl || null, attachmentMeta || null, now
+      ).run();
       return new Response(JSON.stringify({
         ok: true,
-        message: { text, attachmentTitle: attachmentTitle || null, senderId: user.id, createdAt: now, mine: true },
+        message: {
+          text, attachmentTitle: attachmentTitle || null,
+          attachmentKind: attachmentKind || null, attachmentData: attachmentData || null,
+          attachmentUrl: attachmentUrl || null,
+          attachmentMeta: (() => { try { return attachmentMeta ? JSON.parse(attachmentMeta) : null; } catch { return null; } })(),
+          senderId: user.id, createdAt: now, mine: true,
+        },
       }), { status: 200, headers: cors });
     }
 
