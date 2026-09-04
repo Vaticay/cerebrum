@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.0.1";
+const APP_VERSION = "6.1.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1988,6 +1988,48 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
       && !boldHeaderText.includes("\n")
       && !/[.!?;,]$/.test(boldHeaderText);
     if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accent, margin: "30px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-display)" }}>{boldHeaderText}</h4>;
+
+    /* Commit 79 — a section heading that arrived on the same line-break as
+       its body.
+       The renderer only promoted a heading when the model emitted it as
+       its own paragraph, wrapped in bold. In practice it very often
+       returns:
+
+           The short answer
+           The new pulse sequence developed by Tan H et al...
+
+       — one paragraph, two lines, no bold. So "The short answer", "What
+       the research shows", "Where researchers disagree" and "How solid is
+       this?" all rendered at body size with no space under them, and an
+       answer that HAS four clear sections looked like an undifferentiated
+       wall of text. That is most of what "the answer screen needs serious
+       polish" is pointing at.
+
+       Split it: a first line that is short, has no sentence-ending
+       punctuation, isn't a bullet, and is followed by real body text is a
+       heading. Conservative on purpose — a genuine one-line paragraph is
+       left alone, because promoting a real sentence to a heading is a
+       worse error than missing one. */
+    const nlIdx = para.indexOf("\n");
+    if (nlIdx > 0) {
+      const firstLine = para.slice(0, nlIdx).trim();
+      const rest = para.slice(nlIdx + 1).trim();
+      const bare = firstLine.replace(/\*\*/g, "").trim();
+      const isHeadingLine =
+        rest.length > 0 &&
+        bare.length > 0 && bare.length <= 60 &&
+        !/[.!?;,:]$/.test(bare) &&
+        !/^[•\-\d]/.test(bare) &&
+        bare.split(/\s+/).length <= 9;
+      if (isHeadingLine) {
+        return (
+          <div key={pi}>
+            <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, margin: "34px 0 10px", letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", lineHeight: 1.25 }}>{bare}</h4>
+            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite)}
+          </div>
+        );
+      }
+    }
 
     // Bullet lists: lines starting with "- " or "• "
     const bulletMatch = para.match(/^(?:[•\-]\s+.+\n?)+$/m);
@@ -5127,13 +5169,21 @@ function TrendingHero({ P, accent, item, onExpand }) {
   const found = useResolvedImage(item.image_url ? "" : item.title, item.image_url, item.category);
   const media = item.image_url ? { url: item.image_url, type: "image" } : found;
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
+  // A real photograph, loaded and decoded — not "we might find one".
+  const hasPhoto = imgStatus === "ready";
   useEffect(() => { if (media && media.url) setImgStatus("loading"); }, [media && media.url]);
   return (
     <button
       type="button" onClick={() => onExpand(item)}
       style={{
         position: "relative", display: "block", width: "100%", borderRadius: 16, overflow: "hidden",
-        aspectRatio: "16/9", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+        /* Commit 79 — only reserve a picture's worth of height when there
+           is a picture. A hard 16:9 with no photograph is ~600px of empty
+           gradient with a headline adrift in it, which is precisely what
+           made Trending read as chunky. With a photo it stays cinematic;
+           without one it is a type hero and the words set the height. */
+        ...(hasPhoto ? { aspectRatio: "16/9" } : { minHeight: 190 }),
+        background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
         textDecoration: "none", color: "inherit", border: `1px solid ${P.line}`, padding: 0,
         font: "inherit", cursor: "pointer", textAlign: "left",
       }}
@@ -5144,13 +5194,28 @@ function TrendingHero({ P, accent, item, onExpand }) {
           <CardMedia media={media} onReady={() => setImgStatus("ready")} onFail={() => setImgStatus("error")} />
         </div>
       )}
-      {imgStatus !== "ready" && <TrendCover item={item} P={P} />}
-      {imgStatus === "ready" && !item.image_url && <ImageCredit image={found} />}
+      {/* Commit 79 — a type hero gets a quiet gradient, not a monogram.
+          TrendCover paints a full-bleed colour field with two 40px letters
+          in the middle of it. At hero size that is a 600px placeholder
+          announcing that no picture was found, which is the last thing a
+          lead story should say. */}
+      {!hasPhoto && (
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background, opacity: 0.55 }} />
+      )}
+      {hasPhoto && !item.image_url && <ImageCredit image={found} />}
       {/* Always-on scrim (not opacity-gated to imgStatus) so the headline
           stays legible over the placeholder background too, not just once
           a real photo loads. */}
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(0deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.05) 100%)" }} />
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "28px 28px 26px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{
+        // With a photograph the text is pinned over the bottom of the
+        // image; without one there is no image to pin to, so it simply
+        // sits in the box and the box is as tall as the words need.
+        ...(hasPhoto
+          ? { position: "absolute", left: 0, right: 0, bottom: 0 }
+          : { position: "relative" }),
+        padding: "28px 28px 26px", display: "flex", flexDirection: "column", gap: 10,
+      }}>
         {item.source && (
           <span style={{ display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", fontFamily: "var(--cb-body)" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
@@ -5177,6 +5242,11 @@ function TrendingCard({ P, accent, at, item, onExpand }) {
   const found = useResolvedImage(item.image_url ? "" : item.title, item.image_url, item.category);
   const media = item.image_url ? { url: item.image_url, type: "image" } : found;
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
+  // Commit 79 — same reasoning as TrendingHero: a card with no photograph
+  // becomes a type card instead of a 16:10 monogram placeholder. The media
+  // band collapses to a slim category strip, and the headline gets the
+  // room. It makes the grid look edited rather than generated.
+  const hasPhoto = imgStatus === "ready";
   useEffect(() => { if (media && media.url) setImgStatus("loading"); }, [media && media.url]);
   return (
     <button
@@ -5189,18 +5259,29 @@ function TrendingCard({ P, accent, at, item, onExpand }) {
       }}
       className="cb-trend-card"
     >
-      <div style={{ position: "relative", aspectRatio: "16/10", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0 }}>
+      <div style={{ position: "relative", ...(hasPhoto ? { aspectRatio: "16/10" } : { height: 6 }), background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0, overflow: "hidden" }}>
         {media && media.url && imgStatus !== "error" && (
           <div style={{ position: "absolute", inset: 0, opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }}>
             <CardMedia media={media} onReady={() => setImgStatus("ready")} onFail={() => setImgStatus("error")} />
           </div>
         )}
-        {imgStatus !== "ready" && <TrendCover item={item} P={P} />}
-        {imgStatus === "ready" && !item.image_url && <ImageCredit image={found} />}
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />
-        {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>{item.source}</span>}
+        {!hasPhoto && (
+          /* The slim strip. Category colour, no monogram, no empty field. */
+          <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background }} />
+        )}
+        {hasPhoto && !item.image_url && <ImageCredit image={found} />}
+        {hasPhoto && <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />}
+        {hasPhoto && item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>{item.source}</span>}
       </div>
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+        {/* On a photo card the source sits on the image; on a type card
+            there is no image to sit on, so it leads the text instead. */}
+        {!hasPhoto && (item.source || item.category) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint }}>
+            <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+            <span>{item.source || item.category}</span>
+          </div>
+        )}
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{item.title}</div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55, flex: 1, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
         <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
@@ -10524,7 +10605,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // itself (rather than the FAB or some wrapper) guarantees real content
     // never lands in that reserved strip regardless of how long the answer
     // runs. Desktop keeps the old, smaller value — there's no floating FAB there.
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? 120 : 48, flex: 1, maxWidth: 900, margin: "0 auto", width: "100%" },
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? 120 : 48, flex: 1, maxWidth: 980, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -10532,7 +10613,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // one drawer pattern doing double duty. Widening the row and giving the
     // sidebar its own fixed column turns "tap to see your sources" into
     // "they're just there," which is the whole point of a research tool.
-    workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 40, maxWidth: 1160 },
+    workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 44, maxWidth: 1320 },
     thread: { minWidth: 0, flex: 1 },
     sidebarCol: { width: 340, flexShrink: 0 },
 
@@ -13464,13 +13545,25 @@ button, a, .cb-tap {
    a radial gradient — no image request, no bytes over the wire, no
    layout cost. pointer-events:none so it can never eat a click.
    ══════════════════════════════════════════════════════════════════ */
+/* Commit 79 — mix-blend-mode removed. It was a performance bug, not a
+   style choice.
+   A blend mode on a fixed, full-viewport layer forces the browser to
+   composite the ENTIRE page against that layer, and to redo it on every
+   scroll, every hover, every animation frame underneath. On a page that
+   already runs a WebGL background and GSAP timelines, that is the
+   difference between smooth and the reported "so laggy". Plain low-opacity
+   noise gets ~90% of the texture for none of the compositing cost — the
+   grain is a whisper either way, and a whisper is not worth a frame. */
 .cb-grain {
   position: fixed;
   inset: 0;
   z-index: 9999;
   pointer-events: none;
-  opacity: 0.035;
-  mix-blend-mode: overlay;
+  opacity: 0.03;
+  /* Tell the compositor this layer never changes, so it can be uploaded
+     once and left alone instead of being re-rasterized. */
+  will-change: auto;
+  contain: strict;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
   background-repeat: repeat;
   background-size: 160px 160px;
@@ -13480,6 +13573,7 @@ button, a, .cb-tap {
   inset: 0;
   z-index: 9998;
   pointer-events: none;
+  contain: strict;
   background: radial-gradient(ellipse 120% 90% at 50% 40%, transparent 40%, rgba(0,0,0,0.28) 100%);
 }
 /* On a light palette the same vignette reads as dirt rather than depth,
