@@ -240,7 +240,7 @@ export async function onRequest(context) {
       // raise, so it's not being guessed at here.
       if (resource === "profile") {
         const row = await env.DB.prepare(
-          "SELECT id, email, username, name, affiliation, degree, grad_year, avatar_base64 FROM users WHERE id = ?"
+          "SELECT id, email, username, name, affiliation, degree, grad_year, avatar_base64, terms_version, terms_accepted_at FROM users WHERE id = ?"
         ).bind(user.id).first();
         if (!row) return new Response(JSON.stringify({ error: "Account not found." }), { status: 404, headers: cors });
         const followerCount = await env.DB.prepare(
@@ -253,6 +253,12 @@ export async function onRequest(context) {
           user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, degree: row.degree || null, grad_year: row.grad_year || null, avatar_base64: row.avatar_base64 || null },
           followers: followerCount?.n || 0,
           badges: (badgeRows.results || []).map((b) => b.badge_type),
+          // Commit 69 — lets the consent gate ask the ACCOUNT, not just
+          // this browser. Someone who accepted on their laptop shouldn't be
+          // re-prompted on their phone; someone who cleared their cookies
+          // shouldn't lose a real acceptance.
+          termsVersion: row.terms_version || null,
+          termsAcceptedAt: row.terms_accepted_at || null,
         }), { status: 200, headers: cors });
       }
 
@@ -629,6 +635,87 @@ export async function onRequest(context) {
         const totalNew = out.reduce((s, w) => s + (w.newCount || 0), 0);
         return new Response(JSON.stringify({ items: out, totalNew }), { status: 200, headers: cors });
       }
+      // Commit 69 — milestones.
+      //
+      // The honest version of achievements. Every milestone below is
+      // computed from a real count in this database at request time —
+      // sources you actually saved, topics you actually watch, people you
+      // actually follow. Nothing is awarded for opening the app, for
+      // consecutive days, or for any behaviour whose only value is that it
+      // looks like engagement. If a number here is 12, there are twelve
+      // rows.
+      //
+      // Progress toward the NEXT milestone is returned alongside the earned
+      // ones, because "3 of 10" is the part that motivates; a wall of
+      // locked badges with no distance marked is just a list of things you
+      // don't have.
+      //
+      // Grants are written to `accolades` with INSERT OR IGNORE, so a
+      // milestone is earned exactly once and its granted_at is the first
+      // time the threshold was actually crossed.
+      if (resource === "milestones") {
+        const one = async (sql) => {
+          try { const r = await env.DB.prepare(sql).bind(user.id).first(); return (r && r.n) || 0; }
+          catch { return 0; }
+        };
+        const saved = await one("SELECT COUNT(*) AS n FROM user_saved_sources WHERE user_id = ?");
+        const investigations = await one("SELECT COUNT(*) AS n FROM user_history WHERE user_id = ?");
+        const watched = await one("SELECT COUNT(*) AS n FROM watched_topics WHERE user_id = ?");
+        const following = await one("SELECT COUNT(*) AS n FROM follows WHERE follower_id = ?");
+        const collections = await one("SELECT COUNT(*) AS n FROM user_collections WHERE user_id = ?");
+
+        const DEFS = [
+          { key: "first_question", label: "First question", desc: "Ask Cerebrum something", need: 1, have: investigations, unit: "investigation" },
+          { key: "ten_questions", label: "Ten investigations", desc: "Ten separate lines of enquiry", need: 10, have: investigations, unit: "investigation" },
+          { key: "fifty_questions", label: "Fifty investigations", desc: "This is a research habit now", need: 50, have: investigations, unit: "investigation" },
+          { key: "first_save", label: "First paper saved", desc: "Keep something worth returning to", need: 1, have: saved, unit: "paper" },
+          { key: "ten_saves", label: "Ten papers saved", desc: "A reading list with weight", need: 10, have: saved, unit: "paper" },
+          { key: "fifty_saves", label: "Fifty papers saved", desc: "A genuine personal library", need: 50, have: saved, unit: "paper" },
+          { key: "first_collection", label: "First collection", desc: "Organize saved work by theme", need: 1, have: collections, unit: "collection" },
+          { key: "first_watch", label: "First watched topic", desc: "Get told when new work lands", need: 1, have: watched, unit: "topic" },
+          { key: "five_watches", label: "Five watched topics", desc: "A field of view, not a question", need: 5, have: watched, unit: "topic" },
+          { key: "first_follow", label: "First researcher followed", desc: "Cerebrum has people in it too", need: 1, have: following, unit: "researcher" },
+        ];
+
+        // Grant anything newly crossed. INSERT OR IGNORE means the first
+        // crossing keeps its timestamp forever, even if the count later
+        // drops because something was deleted — you did do it.
+        const earnedNow = DEFS.filter((d) => d.have >= d.need);
+        for (const d of earnedNow) {
+          try {
+            await env.DB.prepare(
+              "INSERT OR IGNORE INTO accolades (id, user_id, badge_type, granted_at) VALUES (?, ?, ?, ?)"
+            ).bind(newId("acc"), user.id, d.key, Date.now()).run();
+          } catch {}
+        }
+        const heldRows = await env.DB.prepare(
+          "SELECT badge_type, granted_at FROM accolades WHERE user_id = ?"
+        ).bind(user.id).all();
+        const held = new Map((heldRows.results || []).map((r) => [r.badge_type, r.granted_at]));
+
+        const items = DEFS.map((d) => ({
+          key: d.key, label: d.label, desc: d.desc,
+          need: d.need, have: Math.min(d.have, d.need), unit: d.unit,
+          earned: held.has(d.key),
+          earnedAt: held.has(d.key) ? toEpochMs(held.get(d.key)) : null,
+        }));
+        // The single most useful thing to show: the nearest unearned
+        // milestone with real distance to it.
+        const next = items
+          .filter((i) => !i.earned)
+          .sort((a2, b2) => (b2.have / b2.need) - (a2.have / a2.need))[0] || null;
+        return new Response(JSON.stringify({
+          items,
+          next,
+          earnedCount: items.filter((i) => i.earned).length,
+          total: items.length,
+          // early_adopter is granted at signup by auth.js and isn't a
+          // milestone anyone can work toward, so it is reported separately
+          // rather than padding the count.
+          earlyAdopter: held.has("early_adopter"),
+        }), { status: 200, headers: cors });
+      }
+
       return new Response(JSON.stringify({ error: "Unknown resource." }), { status: 400, headers: cors });
     }
 
@@ -1052,6 +1139,25 @@ export async function onRequest(context) {
         "UPDATE watched_topics SET last_seen_at = ?, last_count = 0 WHERE user_id = ? AND lower(topic) = lower(?)"
       ).bind(Date.now(), user.id, topic).run();
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
+    }
+
+    // Commit 69 — record that this account accepted a specific version of
+    // the Terms, Privacy Policy and Disclosures. Called by the consent gate
+    // in src/main.jsx after the person ticks the box; the cookie gates the
+    // UI, this row is the durable evidence. Idempotent: accepting the same
+    // version twice just refreshes the timestamp.
+    if (action === "accept-terms") {
+      const version = (body.version || "").toString().trim().slice(0, 40);
+      // A version string is a date-like identifier we generate, not free
+      // text from the client — validate the shape so a hostile client
+      // can't write arbitrary content into an audit column.
+      if (!/^[0-9A-Za-z._-]{1,40}$/.test(version)) {
+        return new Response(JSON.stringify({ error: "Invalid version." }), { status: 400, headers: cors });
+      }
+      await env.DB.prepare(
+        "UPDATE users SET terms_version = ?, terms_accepted_at = ? WHERE id = ?"
+      ).bind(version, Date.now(), user.id).run();
+      return new Response(JSON.stringify({ ok: true, version }), { status: 200, headers: cors });
     }
 
     return new Response(JSON.stringify({ error: "Unknown resource/action." }), { status: 400, headers: cors });
