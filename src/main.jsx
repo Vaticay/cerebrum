@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "5.8.0";
+const APP_VERSION = "5.9.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -7521,6 +7521,25 @@ const BADGE_ORDER = ["founder", "verified", "early_adopter"];
    name in five different places, and a check that renders slightly
    differently in each of them reads as a sticker rather than a system
    mark. */
+/* Commit 75 — profile covers.
+   Eight named designs rather than free input, because a cover renders on a
+   public page and a value the client can compose is a value the client can
+   abuse. Each is a real composition — two or three layered gradients with
+   different angles and stops — not one hue rotated eight times, which is
+   what "customization" usually means and why it always feels cheap. The
+   server validates the name against the same list (ALLOWED_COVERS). */
+const PROFILE_COVERS = {
+  aurora: { label: "Aurora", css: "radial-gradient(ellipse 90% 130% at 12% 8%, #1d7a63 0%, transparent 55%), radial-gradient(ellipse 80% 120% at 88% 20%, #2b4c8c 0%, transparent 55%), linear-gradient(160deg, #0b1418 0%, #101b22 100%)" },
+  graphite: { label: "Graphite", css: "linear-gradient(135deg, #23282d 0%, #14171a 45%, #0d0f11 100%), radial-gradient(ellipse 70% 100% at 78% 10%, rgba(255,255,255,0.08), transparent 60%)" },
+  ember: { label: "Ember", css: "radial-gradient(ellipse 90% 120% at 15% 10%, #8a3b12 0%, transparent 55%), radial-gradient(ellipse 70% 110% at 85% 30%, #b8621f 0%, transparent 50%), linear-gradient(155deg, #180d08 0%, #1e1310 100%)" },
+  abyss: { label: "Abyss", css: "radial-gradient(ellipse 100% 130% at 20% 0%, #12324f 0%, transparent 60%), radial-gradient(ellipse 80% 100% at 90% 60%, #1b5566 0%, transparent 55%), linear-gradient(170deg, #060d14 0%, #0a141c 100%)" },
+  moss: { label: "Moss", css: "radial-gradient(ellipse 95% 120% at 10% 15%, #2f5a34 0%, transparent 55%), radial-gradient(ellipse 75% 110% at 80% 75%, #4a7a42 0%, transparent 50%), linear-gradient(150deg, #0c130d 0%, #121a13 100%)" },
+  violet: { label: "Violet", css: "radial-gradient(ellipse 90% 130% at 18% 5%, #4a2a7a 0%, transparent 55%), radial-gradient(ellipse 80% 100% at 85% 45%, #7a3f8f 0%, transparent 50%), linear-gradient(160deg, #0f0a16 0%, #16101f 100%)" },
+  sandstone: { label: "Sandstone", css: "radial-gradient(ellipse 90% 120% at 12% 12%, #8a7038 0%, transparent 55%), radial-gradient(ellipse 70% 100% at 82% 70%, #a8894a 0%, transparent 50%), linear-gradient(155deg, #15120b 0%, #1b1710 100%)" },
+  signal: { label: "Signal", css: "repeating-linear-gradient(115deg, rgba(255,255,255,0.045) 0 2px, transparent 2px 9px), radial-gradient(ellipse 90% 130% at 25% 0%, #1a4f4a 0%, transparent 60%), linear-gradient(165deg, #08100f 0%, #0d1614 100%)" },
+};
+const COVER_KEYS = Object.keys(PROFILE_COVERS);
+
 function VerifiedCheck({ size = 15, title = "Verified — the owner of Cerebrum" }) {
   return (
     <span title={title} aria-label={title} role="img" style={{ display: "inline-flex", flexShrink: 0, verticalAlign: "middle" }}>
@@ -7833,7 +7852,11 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   // the next elevation step up to still read as distinct, layered blocks
   // rather than disappearing flush into the panel behind them.
   const cardStyle = { background: P.raised, border: `1px solid ${P.line}`, borderRadius: 14, padding: 18 };
-  const cardLabel = { fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 14 };
+  // Commit 75 — was uppercase mono at wide tracking on every panel header
+  // (ACCOLADES, AFFILIATIONS, RECENT INVESTIGATIONS, SAVED COLLECTIONS),
+  // the same shouted-eyebrow pattern Commit 71 removed from the home deck
+  // and never came back for here. Sentence case in the body face.
+  const cardLabel = { fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 12 };
   const recentHistory = (history || []).slice(0, 6);
   const collectionCounts = (collections || []).map((c) => ({ ...c, count: (saved || []).filter((s) => s.collectionId === c.id).length }));
 
@@ -7845,11 +7868,17 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           it's the same accent-tinted gradient wash the rest of the app
           already uses for depth, just at full page width. */}
       <div aria-hidden="true" style={{
-        height: isMobile ? 130 : 200, width: "100%",
-        background: `linear-gradient(135deg, ${withAlpha(accent, 0.5)} 0%, ${P.raised} 60%, ${P.surface} 100%)`,
+        height: isMobile ? 150 : 230, width: "100%",
+        // Commit 75 — the chosen cover, or the accent wash for anyone who
+        // hasn't picked one yet.
+        background: PROFILE_COVERS[profile.cover]
+          ? PROFILE_COVERS[profile.cover].css
+          : `linear-gradient(135deg, ${withAlpha(accent, 0.5)} 0%, ${P.raised} 60%, ${P.surface} 100%)`,
         position: "relative", overflow: "hidden",
       }}>
+        {!PROFILE_COVERS[profile.cover] && (
         <div style={{ position: "absolute", inset: 0, opacity: 0.6, backgroundImage: `radial-gradient(circle at 15% 25%, ${withAlpha(accent, 0.45)}, transparent 45%), radial-gradient(circle at 85% 75%, ${withAlpha(accent, 0.3)}, transparent 42%)` }} />
+        )}
         {/* Fades the banner's bottom edge into the panel's own P.surface so
             the two read as one continuous piece instead of a hard seam. */}
         <div style={{ position: "absolute", inset: 0, boxShadow: `inset 0 -46px 40px -20px ${withAlpha(P.surface, 0.95)}` }} />
@@ -7867,7 +7896,14 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           padding: isMobile ? "0 18px 26px" : "0 28px 34px",
         }}>
         {/* Roster info: overlapping avatar + identity + institution crest */}
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 20, marginTop: isMobile ? -46 : -64, marginBottom: 24 }}>
+        {/* Commit 75 — align to the TOP, not the bottom.
+            flex-end worked while the identity column was three short lines.
+            Adding a bio and a link row made it taller, so bottom-aligning
+            pushed the avatar down the card while the name floated up out of
+            the panel entirely — the two halves stopped looking like one
+            block. Top alignment keeps the avatar and the name on the same
+            line however long the bio gets. */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 20, marginTop: isMobile ? -46 : -64, marginBottom: 24 }}>
           <div className={isFounder ? "cb-founder-avatar" : undefined} style={{ position: "relative", width: isMobile ? 92 : 120, height: isMobile ? 92 : 120, flexShrink: 0 }}>
             {/* Commit 54: the fallback is now the DEFAULT, not the error
                 path. This used to request a generated avatar from an
@@ -7989,6 +8025,87 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               )
             )}
 
+            {/* Commit 75 — bio and links.
+                A profile with a name, an avatar and an institution is an
+                account record. A sentence in your own words and a link to
+                your actual work is a profile — and for researchers, ORCID
+                and Scholar are the two links that matter most. */}
+            {!editing && profile.bio && (
+              <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
+            )}
+            {!editing && (profile.link_site || profile.link_orcid || profile.link_scholar) && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+                {[["link", "Website", profile.link_site], ["sparkle", "ORCID", profile.link_orcid], ["history", "Scholar", profile.link_scholar]]
+                  .filter(([, , href]) => !!href)
+                  .map(([icon, label, href]) => (
+                    <a key={label} href={safeHref(href)} target="_blank" rel="noopener noreferrer nofollow" className="cb-press" style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "5px 13px", borderRadius: 100, textDecoration: "none",
+                      border: `1px solid ${P.line2}`, color: P.ink2,
+                      fontSize: FONT_SIZES.caption, fontWeight: 600,
+                    }}><Icon name={icon} size={13} /> {label}</a>
+                  ))}
+              </div>
+            )}
+            {editing && (
+              <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12, maxWidth: 620 }}>
+                <div>
+                  <div style={{ ...cardLabel, marginBottom: 6 }}>About you</div>
+                  <textarea
+                    value={profile.bio || ""}
+                    onChange={(e) => setProfile((p2) => ({ ...p2, bio: e.target.value.slice(0, 400) }))}
+                    placeholder="What do you work on? One or two sentences is plenty."
+                    rows={3}
+                    style={{
+                      width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 10,
+                      background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                      border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+                      fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", lineHeight: 1.6,
+                    }}
+                  />
+                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", marginTop: 4 }}>
+                    {(profile.bio || "").length}/400
+                  </div>
+                </div>
+                <div style={{ display: "grid", gap: 8, gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr" }}>
+                  {[["link_site", "Website"], ["link_orcid", "ORCID profile"], ["link_scholar", "Google Scholar"]].map(([field, label]) => (
+                    <input key={field}
+                      value={profile[field] || ""}
+                      onChange={(e) => setProfile((p2) => ({ ...p2, [field]: e.target.value }))}
+                      placeholder={label}
+                      aria-label={label}
+                      style={{
+                        padding: "9px 12px", borderRadius: 10, minWidth: 0,
+                        background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                        border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+                        fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
+                      }}
+                    />
+                  ))}
+                </div>
+                <div>
+                  <div style={{ ...cardLabel, marginBottom: 8 }}>Cover</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {COVER_KEYS.map((k) => (
+                      <button key={k} type="button"
+                        onClick={() => setProfile((p2) => ({ ...p2, cover: p2.cover === k ? "" : k }))}
+                        title={PROFILE_COVERS[k].label}
+                        aria-label={PROFILE_COVERS[k].label}
+                        aria-pressed={profile.cover === k}
+                        style={{
+                          width: 64, height: 40, borderRadius: 8, cursor: "pointer", padding: 0,
+                          background: PROFILE_COVERS[k].css,
+                          border: profile.cover === k ? `2px solid ${accent}` : `1px solid ${P.line2}`,
+                          boxShadow: profile.cover === k ? `0 0 0 3px ${withAlpha(accent, 0.25)}` : "none",
+                          transition: "box-shadow 0.2s ease, border-color 0.2s ease",
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Stats bar. A social profile leads with its numbers; this page
                 previously mentioned a follower count mid-sentence in a
                 metadata line and showed nothing else countable at all. */}
@@ -8001,7 +8118,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               ].map(([label, value]) => (
                 <div key={label}>
                   <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", lineHeight: 1.1 }}>{value}</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 2 }}>{label}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.01em", fontWeight: 500, marginTop: 3 }}>{label}</div>
                 </div>
               ))}
             </div>
@@ -9065,6 +9182,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     try { return "Notification" in window ? Notification.permission : "unsupported"; } catch { return "unsupported"; }
   });
   const [confirmReset, setConfirmReset] = useState(false);
+  // Commit 75 — founder diagnostics. Loaded only on the Account tab.
+  const [founderStatus, setFounderStatus] = useState(null);
+  useEffect(() => {
+    if (tab !== "account" || !user) return;
+    let dead = false;
+    apiDataGet("founder-status").then((d) => { if (!dead && d) setFounderStatus(d); });
+    return () => { dead = true; };
+  }, [tab, user]);
   const setNotifyKind = (k, v) => {
     const next = { ...notify, [k]: v };
     setNotify(next); setNotifyPref(next); sfx();
@@ -9444,6 +9569,52 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   </form>
                 </div>
               </Section>
+              {/* Commit 75 — the founder badge depends on a Cloudflare
+                  environment variable, and an env var is not part of a git
+                  push. That is the failure this panel exists to make
+                  visible, in the app, instead of over a screenshot. It
+                  renders for everyone, because "not configured" is exactly
+                  the state the operator needs to see. */}
+              {founderStatus && (
+                <Section
+                  title="Owner verification"
+                  footer={
+                    !founderStatus.configured
+                      ? "Set FOUNDER_EMAIL in Cloudflare Pages → Settings → Environment variables, then redeploy. Pushing code does not set environment variables — that is a separate step in the Cloudflare dashboard."
+                      : founderStatus.youAreFounder
+                        ? "This account carries the Founder & Owner badge and the verified check."
+                        : "FOUNDER_EMAIL is set, but it doesn't match this account's email address. Either change the variable to this account's address, or sign in with the address the variable names."
+                  }
+                >
+                  <Row
+                    label="FOUNDER_EMAIL"
+                    desc={founderStatus.configured ? `Set to ${founderStatus.configuredValue}` : "Not set on the server"}
+                    control={
+                      <span style={{
+                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", letterSpacing: "0.07em",
+                        textTransform: "uppercase", padding: "4px 10px", borderRadius: 100,
+                        color: founderStatus.configured ? STATUS.good : STATUS.bad,
+                        background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
+                      }}>{founderStatus.configured ? "Configured" : "Missing"}</span>
+                    }
+                  />
+                  <Row label="This account" desc={founderStatus.yourEmail || "—"} />
+                  <Row
+                    label="Match"
+                    desc={founderStatus.matchedUser ? `Resolves to @${founderStatus.matchedUser}` : "No account matches that address"}
+                    control={
+                      <span style={{
+                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", letterSpacing: "0.07em",
+                        textTransform: "uppercase", padding: "4px 10px", borderRadius: 100,
+                        color: founderStatus.youAreFounder ? STATUS.good : P.faint,
+                        background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
+                      }}>{founderStatus.youAreFounder ? "You" : "No"}</span>
+                    }
+                    last
+                  />
+                </Section>
+              )}
+
               <Section title="Session">
                 <Row label="Sign out" desc="Switches this browser back to guest mode." onClick={() => { onSignOut(); close(); }} last />
               </Section>
@@ -10938,6 +11109,11 @@ function App() {
         degree: profileRes.user.degree || "",
         grad_year: profileRes.user.grad_year || "",
         avatar_base64: profileRes.user.avatar_base64 || "",
+        bio: profileRes.user.bio || "",
+        cover: profileRes.user.cover || "",
+        link_site: profileRes.user.link_site || "",
+        link_orcid: profileRes.user.link_orcid || "",
+        link_scholar: profileRes.user.link_scholar || "",
       }));
       setProfileMeta({ followers: profileRes.followers || 0, badges: profileRes.badges || [] });
       // Accepted on another device? Don't ask again here — write the
@@ -11603,11 +11779,16 @@ function App() {
         affiliation: profile.affiliation || "",
         degree: profile.degree || "",
         grad_year: profile.grad_year || "",
+        bio: profile.bio || "",
+        cover: profile.cover || "",
+        link_site: profile.link_site || "",
+        link_orcid: profile.link_orcid || "",
+        link_scholar: profile.link_scholar || "",
       }).catch((e) => toast(e.message || "Couldn't save your profile changes.", { tone: "error" }));
     }, 900);
     return () => clearTimeout(profileSyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile.name, profile.username, profile.affiliation, profile.degree, profile.grad_year, user, syncReady]);
+  }, [profile.name, profile.username, profile.affiliation, profile.degree, profile.grad_year, profile.bio, profile.cover, profile.link_site, profile.link_orcid, profile.link_scholar, user, syncReady]);
 
   // Collections CRUD — thin wrappers around /api/data's "collections"
   // actions, plus the local `saved` array update so the Collections modal
