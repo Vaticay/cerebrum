@@ -294,6 +294,15 @@ export async function ensureUserProfileColumns(env) {
     // automatically, the same way every column above already got added.
     "ALTER TABLE users ADD COLUMN degree TEXT",
     "ALTER TABLE users ADD COLUMN grad_year TEXT",
+    // Commit 69 — which version of the Terms/Privacy/Disclosures this
+    // account accepted, and when. The browser cookie (cb_legal) is what
+    // gates the UI, but a cookie is deletable by the person it is meant to
+    // record, so it is evidence of a preference, not of an agreement. The
+    // account row is the durable record: if it is ever necessary to show
+    // that a specific user accepted a specific version at a specific time,
+    // this is the column that can show it.
+    "ALTER TABLE users ADD COLUMN terms_version TEXT",
+    "ALTER TABLE users ADD COLUMN terms_accepted_at INTEGER",
   ];
   for (const sql of alters) {
     try {
