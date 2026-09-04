@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "5.9.0";
+const APP_VERSION = "6.0.1";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1196,12 +1196,12 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
   if (!user || (!items.length && !loading)) return null;
   const withNew = items.filter((i) => i.newCount > 0);
   const shell = deck
-    ? { width: "100%", textAlign: "left", padding: "16px 18px 15px", borderRadius: 14, minWidth: 0,
+    ? { width: "100%", textAlign: "left", padding: "16px 18px 15px", borderRadius: 12, minWidth: 0,
         display: "flex", flexDirection: "column",
         background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
         border: `1px solid ${P.line}` }
     : { marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left",
-        padding: "16px 18px", borderRadius: 14,
+        padding: "16px 18px", borderRadius: 12,
         background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
         border: `1px solid ${P.line}` };
   const open = async (item) => {
@@ -1378,7 +1378,7 @@ function DeckCard({ P, accent, label, children, className = "", labelExtra, span
   return (
     <div className={"cb-card cb-deck-card " + className} style={{
       display: "flex", flexDirection: "column", textAlign: "left",
-      padding: "17px 19px 16px", borderRadius: 14, minWidth: 0,
+      padding: "17px 19px 16px", borderRadius: 12, minWidth: 0,
       background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
       border: `1px solid ${P.line}`,
       ...(span ? { gridColumn: span } : null),
@@ -1425,7 +1425,7 @@ function MilestoneCard({ P, accent, at, user, refreshKey, onOpenAll }) {
   return (
     <div className="cb-card cb-deck-card" style={{
       display: "flex", flexDirection: "column", textAlign: "left",
-      padding: "16px 18px 15px", borderRadius: 14, minWidth: 0,
+      padding: "16px 18px 15px", borderRadius: 12, minWidth: 0,
       background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
       border: `1px solid ${P.line}`,
     }}>
@@ -1549,7 +1549,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           display: "grid",
           gridTemplateColumns: isMobile ? "repeat(2, minmax(0,1fr))" : "repeat(4, minmax(0,1fr))",
           gap: isMobile ? "14px 12px" : 14,
-          padding: isMobile ? "15px 16px" : "13px 18px", borderRadius: 14,
+          padding: isMobile ? "15px 16px" : "13px 18px", borderRadius: 12,
           background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
           border: `1px solid ${P.line}`,
         }}>
@@ -1780,12 +1780,12 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
   const heroMedia = item.image_url ? { url: item.image_url, type: "image" } : found;
   const ask = () => onAsk(`Explain the science behind: ${String(item.title).slice(0, 160)}`);
   const shell = deck
-    ? { width: "100%", textAlign: "left", borderRadius: 14, minWidth: 0, overflow: "hidden",
+    ? { width: "100%", textAlign: "left", borderRadius: 12, minWidth: 0, overflow: "hidden",
         display: "flex", flexDirection: "column",
         background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
         border: `1px solid ${P.line}` }
     : { marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left", overflow: "hidden",
-        borderRadius: 14,
+        borderRadius: 12,
         background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
         border: `1px solid ${P.line}` };
   return (
@@ -1953,7 +1953,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     if (h2) return (
       <div key={pi} style={{ margin: "46px 0 18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <span aria-hidden="true" style={{ width: 3, height: 22, borderRadius: 2, background: accent, flexShrink: 0 }} />
+          <span aria-hidden="true" style={{ width: 3, height: 22, borderRadius: 8, background: accent, flexShrink: 0 }} />
           <h3 style={{
             fontSize: 24, fontWeight: 700, color: P.ink, margin: 0,
             letterSpacing: "-0.02em", fontFamily: "var(--cb-display)", lineHeight: 1.2,
@@ -2065,7 +2065,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)
     if (ul) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{ul[1]}</em>;
     // Inline code backticks
     const code = seg.match(/^`([^`\n]+)`$/);
-    if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-mono)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: 4, color: accent }}>{code[1]}</code>;
+    if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-mono)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: 8, color: accent }}>{code[1]}</code>;
     const c = seg.match(/^\[(\d+)\]$/);
     if (c) {
       const n = parseInt(c[1], 10); const src = (sources || [])[n - 1];
@@ -2118,10 +2118,10 @@ function FactCheck({ fc, P, accent }) {
   const score = total ? Math.round(((nSup + nThin * 0.5) / total) * 100) : null;
   const scoreColor = score === null ? P.ink2 : score >= 75 ? STATUS.good : score >= 45 ? STATUS.warn : STATUS.bad;
   return (
-    <div style={{ marginTop: 20, border: `1px solid ${P.line2}`, borderRadius: 3, background: P.surface, padding: "20px 22px" }} className="cb-rise">
+    <div style={{ marginTop: 20, border: `1px solid ${P.line2}`, borderRadius: 8, background: P.surface, padding: "20px 22px" }} className="cb-rise">
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: oc, flexShrink: 0 }} />
-        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, letterSpacing: "0.02em", color: oc, fontFamily: "var(--cb-mono)", textTransform: "uppercase" }}>{label[fc.overall] || fc.overall}</span>
+        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, letterSpacing: "0.02em", color: oc, fontFamily: "var(--cb-body)" }}>{label[fc.overall] || fc.overall}</span>
         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginLeft: "auto", fontFamily: "var(--cb-mono)" }}>vs. cited abstracts</span>
       </div>
       {score !== null && (
@@ -2130,10 +2130,10 @@ function FactCheck({ fc, P, accent }) {
             <span style={{ fontSize: FONT_SIZES.hero, fontWeight: 700, color: scoreColor, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" }}>{score}<span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, opacity: 0.7 }}>%</span></span>
             <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 500 }}>source alignment</span>
           </div>
-          <div style={{ display: "flex", height: 4, borderRadius: 2, overflow: "hidden", background: P.line, gap: 1 }}>
-            {nSup > 0 && <div style={{ flex: nSup, background: STATUS.good, borderRadius: 2 }} title={`${nSup} supported`} />}
-            {nThin > 0 && <div style={{ flex: nThin, background: STATUS.warn, borderRadius: 2 }} title={`${nThin} thin`} />}
-            {nUns > 0 && <div style={{ flex: nUns, background: STATUS.bad, borderRadius: 2 }} title={`${nUns} unsupported`} />}
+          <div style={{ display: "flex", height: 4, borderRadius: 8, overflow: "hidden", background: P.line, gap: 1 }}>
+            {nSup > 0 && <div style={{ flex: nSup, background: STATUS.good, borderRadius: 8 }} title={`${nSup} supported`} />}
+            {nThin > 0 && <div style={{ flex: nThin, background: STATUS.warn, borderRadius: 8 }} title={`${nThin} thin`} />}
+            {nUns > 0 && <div style={{ flex: nUns, background: STATUS.bad, borderRadius: 8 }} title={`${nUns} unsupported`} />}
           </div>
           <div style={{ display: "flex", gap: 16, marginTop: 8, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: P.faint }}>
             <span>{nSup} solid</span><span>{nThin} thin</span><span>{nUns} unsupported</span>
@@ -2146,7 +2146,7 @@ function FactCheck({ fc, P, accent }) {
         const iconName = c.status === "supported" ? "check" : c.status === "thin" ? "partial" : "close";
         return (
           <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
-            <span style={{ color: cc, flexShrink: 0, width: 18, height: 18, borderRadius: 3, background: withAlpha(cc, 0.1), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}><Icon name={iconName} size={11} /></span>
+            <span style={{ color: cc, flexShrink: 0, width: 18, height: 18, borderRadius: 8, background: withAlpha(cc, 0.1), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}><Icon name={iconName} size={11} /></span>
             <div><div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5 }}>{c.claim}</div>{c.note && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 3, lineHeight: 1.5 }}>{c.note}</div>}</div>
           </div>
         );
@@ -2158,7 +2158,7 @@ function FactCheck({ fc, P, accent }) {
 function Skeleton({ P, accent }) {
   const bar = (w, h = 12, delay = 0) => (
     <div style={{
-      height: h, width: w, borderRadius: 3,
+      height: h, width: w, borderRadius: 8,
       background: P.skel,
       backgroundSize: "200% 100%",
       animation: `cbShimmer 1.8s ease-in-out ${delay}ms infinite`,
@@ -2169,7 +2169,7 @@ function Skeleton({ P, accent }) {
       background: P.dark ? withAlpha(P.surface, 0.85) : "rgba(255,255,255,0.7)",
       backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       border: `1px solid ${P.line}`,
-      borderRadius: 3, padding: "32px 34px",
+      borderRadius: 8, padding: "32px 34px",
       display: "flex", flexDirection: "column", gap: 14,
     }}>
       {/* Simulated header */}
@@ -2785,11 +2785,11 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Mark size={20} accent={introAccent} glow />
-          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#ffffff", letterSpacing: "0.04em", textTransform: "uppercase", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>Cerebrum</span>
+          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#ffffff", letterSpacing: "0.01em", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>Cerebrum</span>
         </div>
         <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
           {["About", "Privacy", "Contact"].map((item) => (
-            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: FONT_SIZES.caption, color: "#a3b0c2", textDecoration: "none", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", transition: "color 0.2s", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}
+            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: FONT_SIZES.caption, color: "#a3b0c2", textDecoration: "none", fontWeight: 600, letterSpacing: "0.01em", transition: "color 0.2s", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}
               onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#a3b0c2"}>{item}</a>
           ))}
         </div>
@@ -2808,7 +2808,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           fontSize: isMobile ? 48 : "clamp(64px, 8vw, 96px)",
           fontWeight: 800, letterSpacing: "-0.05em", lineHeight: 1.0,
           color: "#ffffff", margin: "0 0 28px",
-          fontFamily: "var(--cb-display)", textTransform: "uppercase",
+          fontFamily: "var(--cb-display)",
         }}>
           <div ref={head1Ref} style={{ opacity: animationMode === "off" ? 1 : 0, textShadow: "0 4px 32px rgba(0,0,0,0.65)" }}>Ask anything.</div>
           <div ref={head2Ref} style={{ color: introAccent, opacity: animationMode === "off" ? 1 : 0, textShadow: "0 4px 32px rgba(0,0,0,0.65)" }}>We'll find the paper.</div>
@@ -2836,7 +2836,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           opacity: animationMode === "off" ? 0.85 : 0,
         }}>
           {FEATURE_TAGS.map((f) => (
-            <span key={f} style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: "#a3b0c2", letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>{f}</span>
+            <span key={f} style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: "#a3b0c2", letterSpacing: "0.01em", fontFamily: "var(--cb-body)", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>{f}</span>
           ))}
         </div>
 
@@ -2844,7 +2844,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           <button onClick={go} style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             padding: "16px 36px", fontSize: FONT_SIZES.body, fontWeight: 700,
-            textTransform: "uppercase", letterSpacing: "0.05em",
+            letterSpacing: "0.01em",
             background: "#ffffff", color: "#000000", border: "none", borderRadius: 0,
             cursor: "pointer", fontFamily: "var(--cb-display)",
             transition: "opacity 0.2s ease",
@@ -2968,9 +2968,9 @@ function MicButton({ onTranscript, accent, P }) {
   };
   return (
     <button onClick={toggle} title={listening ? "Stop dictation" : "Start voice dictation"} className="cb-hbtn"
-      style={{ width: 34, height: 34, borderRadius: 3, border: "none", cursor: "pointer", background: listening ? accent : "transparent", color: listening ? "#fff" : P.faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" }}>
+      style={{ width: 34, height: 34, borderRadius: 8, border: "none", cursor: "pointer", background: listening ? accent : "transparent", color: listening ? "#fff" : P.faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" }}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /><path d="M5 12a7 7 0 0014 0M12 19v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-      {listening && <span style={{ position: "absolute", inset: -4, borderRadius: 3, border: `2px solid ${accent}`, animation: "cbMicPulse 1.5s ease-in-out infinite", pointerEvents: "none" }} />}
+      {listening && <span style={{ position: "absolute", inset: -4, borderRadius: 8, border: `2px solid ${accent}`, animation: "cbMicPulse 1.5s ease-in-out infinite", pointerEvents: "none" }} />}
     </button>
   );
 }
@@ -3071,12 +3071,12 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
   }
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-      <button onClick={onClick} style={{ padding: "6px 14px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: active ? accent : "transparent", color: active ? accentText(accent) : P.ink2, border: `1px solid ${active ? accent : P.line2}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: "0.01em" }}>
+      <button onClick={onClick} style={{ padding: "6px 14px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: active ? accent : "transparent", color: active ? accentText(accent) : P.ink2, border: `1px solid ${active ? accent : P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: "0.01em" }}>
         {playIcon}
         {label}
       </button>
       {active && (
-        <div style={{ width: 80, height: 2, background: P.line, borderRadius: 1, overflow: "hidden" }}>
+        <div style={{ width: 80, height: 2, background: P.line, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ width: "100%", height: "100%", background: accent, transformOrigin: "left", transform: `scaleX(${progress})`, transition: "transform 0.15s ease" }} />
         </div>
       )}
@@ -3093,7 +3093,7 @@ function TtsVoiceSetting({ P, accent, at, S, sfx }) {
   return (
     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
       {[["female", "Female"], ["male", "Male"]].map(([v, label]) => (
-        <button key={v} onClick={() => set(v)} style={{ flex: 1, padding: "9px 6px", fontSize: FONT_SIZES.small, fontWeight: 600, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
+        <button key={v} onClick={() => set(v)} style={{ flex: 1, padding: "9px 6px", fontSize: FONT_SIZES.small, fontWeight: 600, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
       ))}
     </div>
   );
@@ -3108,13 +3108,13 @@ function ElevenLabsSetting({ P, accent, at, S, sfx }) {
   const clear = () => { setKey(""); try { localStorage.removeItem("cb_eleven_key"); } catch {} sfx(); };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <input type="password" aria-label="ElevenLabs API key" placeholder="ElevenLabs API key (optional)" value={key} onChange={(e) => setKey(e.target.value)} style={{ padding: "10px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 3, fontFamily: "inherit", outline: "none" }} />
-      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{ padding: "10px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 3, fontFamily: "inherit", cursor: "pointer", outline: "none", ...selectChrome(P) }}>
+      <input type="password" aria-label="ElevenLabs API key" placeholder="ElevenLabs API key (optional)" value={key} onChange={(e) => setKey(e.target.value)} style={{ padding: "10px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", outline: "none" }} />
+      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{ padding: "10px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", cursor: "pointer", outline: "none", ...selectChrome(P) }}>
         {voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
       </select>
       <div style={{ display: "flex", gap: 6 }}>
-        <button onClick={save} style={{ flex: 1, padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>{saved ? "✓ Saved" : "Save"}</button>
-        {key && <button onClick={clear} style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>}
+        <button onClick={save} style={{ flex: 1, padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{saved ? "✓ Saved" : "Save"}</button>
+        {key && <button onClick={clear} style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>}
       </div>
     </div>
   );
@@ -3445,18 +3445,18 @@ function InfoPage({ page }) {
       <main style={{ flex: 1, position: "relative", zIndex: 1 }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "48px 20px 64px" : "72px 28px 80px" }}>
           <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
-            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.15em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)" }}>{data.eyebrow}</span>
+            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)" }}>{data.eyebrow}</span>
             <h1 style={{ fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.15, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-display)" }}>{data.title}</h1>
             <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.65, color: P.ink2, marginBottom: 8 }}>{data.lede}</p>
             {data.updated && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginBottom: 0, fontFamily: "var(--cb-mono)" }}>{data.updated}</div>}
           </div>
           {isLegal && (
             <nav aria-label="Contents" className="cb-fadein" style={{
-              marginTop: 34, padding: "18px 20px", borderRadius: 14,
+              marginTop: 34, padding: "18px 20px", borderRadius: 12,
               background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
               border: `1px solid ${P.line}`,
             }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginBottom: 12 }}>Contents</div>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginBottom: 12 }}>Contents</div>
               <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "2px 22px" }}>
                 {toc.map((t) => (
                   <li key={t.id}>
@@ -3513,15 +3513,15 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   return (
-    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 3, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
+    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap", paddingBottom: 16, borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 3, height: 18, background: accent, borderRadius: 2 }} />
-          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, letterSpacing: "0.04em", color: P.ink, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>Bibliography</div>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", background: withAlpha(P.faint, 0.1), padding: "1px 8px", borderRadius: 3 }}>{sources.length}</div>
+          <div style={{ width: 3, height: 18, background: accent, borderRadius: 8 }} />
+          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, letterSpacing: "0.01em", color: P.ink, fontFamily: "var(--cb-body)" }}>Bibliography</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", background: withAlpha(P.faint, 0.1), padding: "1px 8px", borderRadius: 8 }}>{sources.length}</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} style={{ padding: "6px 10px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: P.bg, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", outline: "none", ...selectChrome(P) }}>
+          <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} style={{ padding: "6px 10px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: P.bg, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", outline: "none", ...selectChrome(P) }}>
             {styleOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
           </select>
           <button onClick={copyAll} style={bibBtn(P, accent)}>{copied ? "✓ Copied" : "Copy all"}</button>
@@ -3559,7 +3559,7 @@ function BibEntry({ source, index, P, accent, style, className, last }) {
       <span style={{ flexShrink: 0, width: 20, textAlign: "right", paddingTop: 1, color: accent, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)" }}>{index}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 7px", marginBottom: 5, background: withAlpha(source.retracted ? STATUS.bad : STATUS.warn, source.retracted ? 0.12 : 0.14), border: `1px solid ${source.retracted ? STATUS.bad : STATUS.warn}`, borderRadius: 3, fontSize: FONT_SIZES.micro, fontWeight: 700, color: source.retracted ? STATUS.bad : STATUS.warn, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 7px", marginBottom: 5, background: withAlpha(source.retracted ? STATUS.bad : STATUS.warn, source.retracted ? 0.12 : 0.14), border: `1px solid ${source.retracted ? STATUS.bad : STATUS.warn}`, borderRadius: 8, fontSize: FONT_SIZES.micro, fontWeight: 700, color: source.retracted ? STATUS.bad : STATUS.warn, letterSpacing: "0.01em", fontFamily: "var(--cb-body)" }}>
             <span>⚠</span><span>{source.retracted ? "RETRACTED" : "EXPRESSION OF CONCERN"}</span>
           </div>
         )}
@@ -3598,14 +3598,14 @@ function BibEntry({ source, index, P, accent, style, className, last }) {
         )}
         {source.tldr && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic" }}>
-            <span style={{ fontWeight: 600, fontStyle: "normal", color: accent, letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 6, fontFamily: "var(--cb-mono)" }}>TL;DR</span>{source.tldr}
+            <span style={{ fontWeight: 600, fontStyle: "normal", color: accent, letterSpacing: "0.01em", marginRight: 6, fontFamily: "var(--cb-body)" }}>TL;DR</span>{source.tldr}
           </div>
         )}
       </div>
     </li>
   );
 }
-function bibBtn(P, accent) { return { padding: "5px 10px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", letterSpacing: "0.01em" }; }
+function bibBtn(P, accent) { return { padding: "5px 10px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", letterSpacing: "0.01em" }; }
 
 // v28: one icon-only button shape shared by every item in the docked answer
 // toolbar (Copy/Share/PDF/Illustrate/Source network/Timeline — Listen is the
@@ -3626,7 +3626,7 @@ function ToolbarBtn({ title, icon, onClick, accent, P, active = false, spin = fa
     </button>
   );
 }
-function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 3, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", transition: "background 0.15s ease, color 0.15s ease" }; }
+function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-mono)", transition: "background 0.15s ease, color 0.15s ease" }; }
 
 function ReportModal({ query, P, accent, at, onClose }) {
   const [description, setDescription] = useState("");
@@ -3669,7 +3669,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
         backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 3, maxWidth: 460, width: "100%", padding: "28px", outline: "none",
+        borderRadius: 8, maxWidth: 460, width: "100%", padding: "28px", outline: "none",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
       }} className="cb-modal">
         {submitted ? (
@@ -3691,7 +3691,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {categories.map((c) => (
                   <button key={c.id} type="button" onClick={() => setCategory(c.id)} style={{
-                    fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 3, cursor: "pointer",
+                    fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
                     fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.15s ease",
                     background: category === c.id ? withAlpha(accent, 0.16) : "transparent",
                     color: category === c.id ? accent : P.ink2,
@@ -3703,14 +3703,14 @@ function ReportModal({ query, P, accent, at, onClose }) {
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Describe the issue</div>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} placeholder="Which claim is incorrect? What should it say instead?" style={{
-                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 3,
+                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 8,
                 border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
                 color: P.ink, fontFamily: "var(--cb-body)", resize: "vertical", outline: "none",
               }} />
             </div>
             <button type="submit" disabled={submitting || !description.trim()} style={{
               width: "100%", padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600,
-              background: accent, color: at, border: "none", borderRadius: 3,
+              background: accent, color: at, border: "none", borderRadius: 8,
               cursor: submitting || !description.trim() ? "default" : "pointer",
               opacity: submitting || !description.trim() ? 0.6 : 1,
               fontFamily: "var(--cb-body)",
@@ -3843,14 +3843,14 @@ function GuidedTour({ P, accent }) {
             }}>{current.icon}</div>
             <span style={{
               fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em",
-              textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)",
+              color: P.faint, fontFamily: "var(--cb-body)",
             }}>{step + 1} of {TOUR_STEPS.length}</span>
           </div>
 
           {/* Title */}
           <h3 style={{
             fontSize: "clamp(18px, 2.5vw, 22px)", fontWeight: 700, color: P.ink,
-            margin: "0 0 12px", fontFamily: "var(--cb-heading)", letterSpacing: "-0.02em",
+            margin: "0 0 12px", fontFamily: "var(--cb-display)", letterSpacing: "-0.02em",
             lineHeight: 1.2,
           }}>{current.title}</h3>
 
@@ -3918,7 +3918,7 @@ function GuidedTour({ P, accent }) {
         }}>
           {TOUR_STEPS.map((_, i) => (
             <button key={i} onClick={() => setStep(i)} aria-label={`Go to step ${i + 1}`} style={{
-              width: i === step ? 20 : 6, height: 6, borderRadius: 3,
+              width: i === step ? 20 : 6, height: 6, borderRadius: 8,
               background: i === step ? accent : P.dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)",
               border: "none", cursor: "pointer", padding: 0,
               transition: "all 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
@@ -3999,7 +3999,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
       {/* Query label — monospaced, quiet */}
       <div style={S.qLabel}>
         <span style={S.qDot} />
-        <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.08em", textTransform: "uppercase" }}>Inquiry</span>
+        <span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Inquiry</span>
       </div>
       <h2 style={S.headline}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
       {/* Answer card */}
@@ -4022,7 +4022,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 8, marginBottom: 16 }}>
             {t.sources && t.sources.length > 0 ? (
               <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "3px 10px", borderRadius: 3, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
+                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "3px 10px", borderRadius: 8, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
                 {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
               </div>
             ) : <span />}
@@ -4129,23 +4129,23 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
       </div>
       {/* Points of Friction — conflicting claims detected across sources */}
       {done && t.literatureConflicts && t.literatureConflicts.length > 0 && (
-        <div style={{ marginTop: 20, padding: "20px 24px", border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: 3, background: withAlpha(STATUS.warn, 0.04) }} className="cb-fade">
+        <div style={{ marginTop: 20, padding: "20px 24px", border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: 8, background: withAlpha(STATUS.warn, 0.04) }} className="cb-fade">
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-            <div style={{ width: 3, height: 18, background: STATUS.warn, borderRadius: 2 }} />
-            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, letterSpacing: "0.04em", color: STATUS.warn, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>Points of Friction</div>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", background: withAlpha(STATUS.warn, 0.1), padding: "1px 8px", borderRadius: 3 }}>{t.literatureConflicts.length}</div>
+            <div style={{ width: 3, height: 18, background: STATUS.warn, borderRadius: 8 }} />
+            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, letterSpacing: "0.01em", color: STATUS.warn, fontFamily: "var(--cb-body)" }}>Points of Friction</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", background: withAlpha(STATUS.warn, 0.1), padding: "1px 8px", borderRadius: 8 }}>{t.literatureConflicts.length}</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {t.literatureConflicts.map((c, ci) => (
               <div key={ci} style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 12, alignItems: "stretch" }}>
-                <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.06), borderRadius: 3, border: `1px solid ${withAlpha(STATUS.warn, 0.15)}` }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", marginBottom: 6 }}>[{c.idxA}]</div>
+                <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.06), borderRadius: 8, border: `1px solid ${withAlpha(STATUS.warn, 0.15)}` }}>
+                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-body)", marginBottom: 6 }}>[{c.idxA}]</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{c.claimA}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceA ? renderCleanTitle(c.sourceA) : ""}</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: withAlpha(STATUS.warn, 0.5), fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)", fontWeight: 700 }}>vs</div>
-                <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.06), borderRadius: 3, border: `1px solid ${withAlpha(STATUS.warn, 0.15)}` }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-mono)", marginBottom: 6 }}>[{c.idxB}]</div>
+                <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.06), borderRadius: 8, border: `1px solid ${withAlpha(STATUS.warn, 0.15)}` }}>
+                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-body)", marginBottom: 6 }}>[{c.idxB}]</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{c.claimB || "—"}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceB ? renderCleanTitle(c.sourceB) : ""}</div>
                 </div>
@@ -4160,7 +4160,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
         <div style={{ marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
           {t.suggestions.map((s, i) => (
             <button key={i} onClick={() => s.query && onRelated && onRelated(s.query)} disabled={!s.query}
-              style={{ padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: s.query ? withAlpha(accent, 0.08) : "transparent", color: s.query ? accent : P.faint, border: `1px solid ${s.query ? withAlpha(accent, 0.25) : P.line}`, borderRadius: 3, cursor: s.query ? "pointer" : "default", fontFamily: "inherit" }}>
+              style={{ padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: s.query ? withAlpha(accent, 0.08) : "transparent", color: s.query ? accent : P.faint, border: `1px solid ${s.query ? withAlpha(accent, 0.25) : P.line}`, borderRadius: 8, cursor: s.query ? "pointer" : "default", fontFamily: "inherit" }}>
               {s.label} {s.query && <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>}
             </button>
           ))}
@@ -4179,13 +4179,13 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
       {done && t.videos && t.videos.length > 0 && t.sources && t.sources.length > 0 && (
         <div style={{ marginTop: 24 }} className="cb-fade">
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <div style={{ width: 3, height: 18, background: accent, borderRadius: 2 }} />
-            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, letterSpacing: "0.04em", color: P.ink, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>Related videos</div>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", background: withAlpha(P.faint, 0.1), padding: "1px 8px", borderRadius: 3 }}>{t.videos.length}</div>
+            <div style={{ width: 3, height: 18, background: accent, borderRadius: 8 }} />
+            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, letterSpacing: "0.01em", color: P.ink, fontFamily: "var(--cb-body)" }}>Related videos</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", background: withAlpha(P.faint, 0.1), padding: "1px 8px", borderRadius: 8 }}>{t.videos.length}</div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }} className="cb-stagger">
             {t.videos.slice(0, 6).map((v, i) => (
-              <button key={v.id || i} type="button" onClick={() => setOpenVideo(v)} className="cb-fade cb-card" style={{ display: "block", width: "100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 3, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, padding: 0, font: "inherit", textAlign: "left", cursor: "pointer", transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
+              <button key={v.id || i} type="button" onClick={() => setOpenVideo(v)} className="cb-fade cb-card" style={{ display: "block", width: "100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, padding: 0, font: "inherit", textAlign: "left", cursor: "pointer", transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 0 0 1px ${withAlpha(accent, 0.4)}, 0 8px 24px ${withAlpha(accent, 0.12)}`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
                 <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
@@ -4359,7 +4359,7 @@ function HowItWorksModal({ P, accent, close }) {
   const trapRef = useFocusTrap();
   const Section = ({ title, children }) => (
     <div style={{ marginBottom: 28 }}>
-      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.1em", color: accent, marginBottom: 10, textTransform: "uppercase", fontFamily: "var(--cb-mono)" }}>{title}</div>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.1em", color: accent, marginBottom: 10, fontFamily: "var(--cb-body)" }}>{title}</div>
       <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.7, color: P.ink }}>{children}</div>
     </div>
   );
@@ -4370,7 +4370,7 @@ function HowItWorksModal({ P, accent, close }) {
   );
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="How Cerebrum works" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 600, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 600, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ position: "sticky", top: 0, background: P.bg, padding: "20px 24px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>How Cerebrum works</div>
@@ -4411,9 +4411,9 @@ function V5AnnouncementModal({ P, accent, at, close }) {
   ];
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="What's new in Cerebrum V5" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 520, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 520, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ padding: "28px 28px 8px" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", borderRadius: 3, background: withAlpha(accent, 0.12), color: accent, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", marginBottom: 16 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", borderRadius: 8, background: withAlpha(accent, 0.12), color: accent, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", marginBottom: 16 }}>
             <Icon name="sparkle" size={12} /> V5 · NOW LIVE
           </div>
           <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", marginBottom: 8 }}>Cerebrum is now an all-in-one research instrument.</div>
@@ -4422,7 +4422,7 @@ function V5AnnouncementModal({ P, accent, at, close }) {
         <div style={{ padding: "0 28px" }}>
           {items.map((it, i) => (
             <div key={i} style={{ display: "flex", gap: 14, padding: "14px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
-              <span style={{ flexShrink: 0, width: 34, height: 34, borderRadius: 3, background: withAlpha(accent, 0.1), color: accent, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name={it.icon} size={16} /></span>
+              <span style={{ flexShrink: 0, width: 34, height: 34, borderRadius: 8, background: withAlpha(accent, 0.1), color: accent, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name={it.icon} size={16} /></span>
               <div>
                 <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 3 }}>{it.title}</div>
                 <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55 }}>{it.body}</div>
@@ -4431,7 +4431,7 @@ function V5AnnouncementModal({ P, accent, at, close }) {
           ))}
         </div>
         <div style={{ padding: "20px 28px 28px" }}>
-          <button onClick={close} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Got it</button>
+          <button onClick={close} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Got it</button>
         </div>
       </div>
     </div>
@@ -4447,16 +4447,16 @@ function ImportLocalDataPrompt({ P, accent, at, savedCount, historyCount, onImpo
   const trapRef = useFocusTrap();
   return (
     <div role="dialog" aria-modal="true" aria-label="Import your existing data" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 216, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} style={{ background: P.bg, borderRadius: 3, maxWidth: 400, width: "100%", padding: 26, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
-        <div style={{ width: 40, height: 40, borderRadius: 3, background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}><Icon name="bookmarkFilled" size={18} /></div>
+      <div ref={trapRef} tabIndex={-1} style={{ background: P.bg, borderRadius: 8, maxWidth: 400, width: "100%", padding: 26, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
+        <div style={{ width: 40, height: 40, borderRadius: 8, background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}><Icon name="bookmarkFilled" size={18} /></div>
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, marginBottom: 8 }}>Bring your existing data along?</div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 18 }}>
           This browser already has {savedCount > 0 ? <><strong>{savedCount} saved source{savedCount === 1 ? "" : "s"}</strong>{historyCount > 0 ? " and " : ""}</> : null}
           {historyCount > 0 ? <><strong>{historyCount} past investigation{historyCount === 1 ? "" : "s"}</strong></> : null} from before you signed in. Attach it to your new account so it follows you to other devices?
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onSkip} style={{ flex: 1, padding: "11px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 3, cursor: "pointer" }}>Start account fresh</button>
-          <button onClick={onImport} style={{ flex: 1, padding: "11px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: "pointer" }}>Add to my account</button>
+          <button onClick={onSkip} style={{ flex: 1, padding: "11px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer" }}>Start account fresh</button>
+          <button onClick={onImport} style={{ flex: 1, padding: "11px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer" }}>Add to my account</button>
         </div>
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 12, lineHeight: 1.5 }}>"Start fresh" clears this browser's local list rather than leaving it stranded outside your account.</div>
       </div>
@@ -4485,15 +4485,15 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Collections" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }} className="cb-modal">
         <div style={{ width: 210, flexShrink: 0, borderRight: `1px solid ${P.line}`, padding: 16, overflowY: "auto" }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 12 }}>Collections</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 12 }}>Collections</div>
           {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Uncategorized" }, ...collections].map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
               {renamingId === c.id ? (
-                <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: 3, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
+                <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
               ) : (
-                <button onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ flex: 1, textAlign: "left", padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: 3, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accent : P.ink2, fontFamily: "var(--cb-body)" }}>
+                <button onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ flex: 1, textAlign: "left", padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: 8, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accent : P.ink2, fontFamily: "var(--cb-body)" }}>
                   {c.name} <span style={{ opacity: 0.6 }}>({countFor(c.id)})</span>
                 </button>
               )}
@@ -4510,8 +4510,8 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
             </div>
           ))}
           <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-            <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} placeholder="New collection…" aria-label="New collection name" style={{ flex: 1, padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: 3, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
-            <button onClick={() => { if (newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} aria-label="Create collection" style={{ background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 3, padding: "0 10px", cursor: "pointer" }}><Icon name="plus" size={13} /></button>
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} placeholder="New collection…" aria-label="New collection name" style={{ flex: 1, padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
+            <button onClick={() => { if (newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} aria-label="Create collection" style={{ background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 8, padding: "0 10px", cursor: "pointer" }}><Icon name="plus" size={13} /></button>
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
@@ -4530,7 +4530,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                   <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, marginBottom: 4 }}>{s.title}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{s.journal || ""}{s.year ? ` · ${s.year}` : ""}</div>
                 </div>
-                <select value={s.collectionId || ""} onChange={(e) => onMoveSource(s, e.target.value || null)} aria-label={`Move "${s.title}" to a collection`} style={{ fontSize: FONT_SIZES.caption, padding: "5px 6px", borderRadius: 3, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-mono)", cursor: "pointer", ...selectChrome(P) }}>
+                <select value={s.collectionId || ""} onChange={(e) => onMoveSource(s, e.target.value || null)} aria-label={`Move "${s.title}" to a collection`} style={{ fontSize: FONT_SIZES.caption, padding: "5px 6px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-mono)", cursor: "pointer", ...selectChrome(P) }}>
                   <option value="">Uncategorized</option>
                   {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -4556,7 +4556,7 @@ function CompareModal({ P, accent, at, S, history, close }) {
   const right = history.find((h) => h.id === rightId);
   const noop = () => {};
   const Picker = ({ value, onChange, exclude }) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", padding: "9px 10px", fontSize: FONT_SIZES.small, borderRadius: 3, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-mono)", cursor: "pointer", ...selectChrome(P) }}>
+    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", padding: "9px 10px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-mono)", cursor: "pointer", ...selectChrome(P) }}>
       <option value="">Choose an investigation…</option>
       {history.filter((h) => h.id !== exclude).map((h) => <option key={h.id} value={h.id}>{h.title}</option>)}
     </select>
@@ -4575,7 +4575,7 @@ function CompareModal({ P, accent, at, S, history, close }) {
   );
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Compare investigations" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 1100, width: "100%", height: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 1100, width: "100%", height: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }} className="cb-modal">
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, flexShrink: 0 }}>Compare</div>
           <div style={{ flex: 1 }}><Picker value={leftId} onChange={setLeftId} exclude={rightId} /></div>
@@ -4799,7 +4799,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid " + P.line, flexShrink: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 6 }}>Deep Read</div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 6 }}>Deep Read</div>
             <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, margin: 0, lineHeight: 1.4, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>
               {source.title ? renderCleanTitle(source.title) : ""}
             </h2>
@@ -4828,7 +4828,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
               {source.journal && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{source.journal}</span>}
               {source.year && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{source.year}</span>}
-              {source.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{source.type}</span>}
+              {source.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, background: withAlpha(accent, 0.1), padding: "2px 6px", borderRadius: 8, fontFamily: "var(--cb-body)" }}>{source.type}</span>}
               {typeof source.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)" }}>{source.relevance}%</span>}
             </div>
             {source.url && (
@@ -4840,7 +4840,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
 
           {/* Abstract */}
           <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Abstract</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 10 }}>Abstract</div>
             <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.75, fontFamily: "var(--cb-body)" }}>
               {source.abstract || "No abstract available for this paper."}
             </div>
@@ -4848,24 +4848,24 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
 
           {/* Scoped Q&A */}
           <div style={{ borderTop: "1px solid " + P.line, paddingTop: 20 }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Ask about this paper</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 10 }}>Ask about this paper</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 value={scopedInput}
                 onChange={(e) => setScopedInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && askScoped()}
                 placeholder="e.g. What methodology did they use?"
-                style={{ flex: 1, padding: "10px 14px", fontSize: FONT_SIZES.small, border: "1px solid " + P.line, borderRadius: 3, background: "transparent", color: P.ink, fontFamily: "var(--cb-body)", outline: "none" }}
+                style={{ flex: 1, padding: "10px 14px", fontSize: FONT_SIZES.small, border: "1px solid " + P.line, borderRadius: 8, background: "transparent", color: P.ink, fontFamily: "var(--cb-body)", outline: "none" }}
               />
               <button onClick={askScoped} disabled={scopedBusy} style={{
                 padding: "10px 16px", fontSize: FONT_SIZES.small, fontWeight: 600,
-                background: P.ink, color: P.bg, border: "none", borderRadius: 3,
+                background: P.ink, color: P.bg, border: "none", borderRadius: 8,
                 cursor: scopedBusy ? "default" : "pointer", opacity: scopedBusy ? 0.6 : 1,
                 fontFamily: "var(--cb-body)", flexShrink: 0,
               }}>{scopedBusy ? "Thinking…" : "Ask"}</button>
             </div>
             {scopedAnswer && (
-              <div className="cb-fade" style={{ marginTop: 16, padding: "16px 18px", background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", border: "1px solid " + P.line, borderRadius: 3, fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.7, fontFamily: "var(--cb-body)" }}>
+              <div className="cb-fade" style={{ marginTop: 16, padding: "16px 18px", background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", border: "1px solid " + P.line, borderRadius: 8, fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.7, fontFamily: "var(--cb-body)" }}>
                 {scopedAnswer}
               </div>
             )}
@@ -4873,14 +4873,14 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
           </>}
           {drawerTab === "methodology" && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 16 }}>Methodology Matrix</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 16 }}>Methodology Matrix</div>
               {methodology.length > 0 && methodology[0].design !== "Not specified" ? (
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)" }}>
                     <thead>
                       <tr>
                         {["Study Design", "Sample Size", "Key Metrics", "P-Value / Significance"].map((h) => (
-                          <th key={h} style={{ padding: "10px 12px", textAlign: "left", borderBottom: "2px solid " + P.line, color: P.ink, fontWeight: 600, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                          <th key={h} style={{ padding: "10px 12px", textAlign: "left", borderBottom: "2px solid " + P.line, color: P.ink, fontWeight: 600, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em", whiteSpace: "nowrap" }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -4926,7 +4926,7 @@ function SourceNetworkGraph({ P, accent, at, sources, close }) {
   const sizeFor = (s) => 8 + Math.min(14, (s.relevance || 40) / 100 * 16);
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Source relevance network" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 680, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 680, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Source network</div>
@@ -5016,7 +5016,7 @@ function IllustrationModal({ P, accent, at, query, close }) {
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Concept illustration" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 640, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none", overflow: "hidden" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 640, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none", overflow: "hidden" }} className="cb-modal">
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Concept illustration</div>
@@ -5053,8 +5053,8 @@ function IllustrationModal({ P, accent, at, query, close }) {
             Generated by an AI image model from your question alone — a conceptual sketch, not a scientific figure. Verify anything visual against the cited sources.
           </div>
           <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-            <button onClick={() => setSeed(Math.floor(Math.random() * 1000000))} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-body)" }}><Icon name="refresh" size={13} />Regenerate</button>
-            <a href={imgUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: "pointer", textDecoration: "none", fontFamily: "var(--cb-body)" }}><Icon name="link" size={13} />Open full size</a>
+            <button onClick={() => setSeed(Math.floor(Math.random() * 1000000))} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}><Icon name="refresh" size={13} />Regenerate</button>
+            <a href={imgUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", textDecoration: "none", fontFamily: "var(--cb-body)" }}><Icon name="link" size={13} />Open full size</a>
           </div>
         </div>
       </div>
@@ -5114,7 +5114,7 @@ function TrendCover({ item, P, radius = 0 }) {
     }}>
       <span style={{ fontSize: 40, fontWeight: 800, letterSpacing: "0.06em", color: "rgba(255,255,255,0.9)", fontFamily: "var(--cb-display)" }}>{c.initials}</span>
       {item.category && (
-        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-mono)" }}>{item.category}</span>
+        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-body)" }}>{item.category}</span>
       )}
     </div>
   );
@@ -5152,7 +5152,7 @@ function TrendingHero({ P, accent, item, onExpand }) {
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(0deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.05) 100%)" }} />
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "28px 28px 26px", display: "flex", flexDirection: "column", gap: 10 }}>
         {item.source && (
-          <span style={{ display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#fff", fontFamily: "var(--cb-mono)" }}>
+          <span style={{ display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", fontFamily: "var(--cb-body)" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
             {item.source}
           </span>
@@ -5182,7 +5182,7 @@ function TrendingCard({ P, accent, at, item, onExpand }) {
     <button
       type="button" onClick={() => onExpand(item)}
       style={{
-        borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden",
+        borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden",
         background: P.surface, display: "flex", flexDirection: "column",
         textDecoration: "none", color: "inherit", width: "100%", padding: 0,
         font: "inherit", cursor: "pointer", textAlign: "left",
@@ -5198,7 +5198,7 @@ function TrendingCard({ P, accent, at, item, onExpand }) {
         {imgStatus !== "ready" && <TrendCover item={item} P={P} />}
         {imgStatus === "ready" && !item.image_url && <ImageCredit image={found} />}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />
-        {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>{item.source}</span>}
+        {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>{item.source}</span>}
       </div>
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{item.title}</div>
@@ -5291,7 +5291,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: 26 }}>
           {item.source && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
               {item.source}
             </span>
@@ -5324,7 +5324,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
 
           {videos.length > 0 && (
             <div style={{ marginTop: 28 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Watch</div>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 10 }}>Watch</div>
               {videos.map((v) => {
                 const id = getYouTubeId(v);
                 if (!id) return null;
@@ -5349,7 +5349,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
 
           {upNext.length > 0 && (
             <div style={{ marginTop: 26 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 8 }}>Up next</div>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 8 }}>Up next</div>
               {upNext.map((nx, i) => (
                 <button key={nx.url || i} onClick={() => onOpenItem && onOpenItem(nx)}
                   style={{
@@ -5501,7 +5501,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         <div style={{ marginBottom: 28 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Trending in Science</div>
-            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>Preview</span>
+            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, background: withAlpha(accent, 0.12), padding: "3px 10px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>Preview</span>
             {status === "ready" && (
               <span title="Refreshed automatically once an hour" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)" }}>
                 <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS.good, flexShrink: 0, animation: "cbHuddlePulse 1.6s ease-in-out infinite" }} />
@@ -5518,12 +5518,12 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             <div style={{ borderRadius: 16, overflow: "hidden", aspectRatio: "16/9", background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.8s ease-in-out infinite", marginBottom: 24 }} />
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
               {[0, 1, 2, 3, 4, 5].map((i) => (
-                <div key={i} style={{ borderRadius: 14, border: `1px solid ${P.line}`, overflow: "hidden" }}>
+                <div key={i} style={{ borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden" }}>
                   <div style={{ aspectRatio: "16/10", background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
                   <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ height: 14, width: "80%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                    <div style={{ height: 10, width: "100%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                    <div style={{ height: 10, width: "60%", borderRadius: 3, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                    <div style={{ height: 14, width: "80%", borderRadius: 8, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                    <div style={{ height: 10, width: "100%", borderRadius: 8, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
+                    <div style={{ height: 10, width: "60%", borderRadius: 8, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
                   </div>
                 </div>
               ))}
@@ -5540,7 +5540,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         {status === "error" && (
           <div style={{
             maxWidth: 460, margin: "56px auto", textAlign: "center",
-            padding: "36px 32px", borderRadius: 14,
+            padding: "36px 32px", borderRadius: 12,
             background: P.dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.015)",
             border: `1px solid ${P.line}`,
           }} className="cb-rise">
@@ -5588,8 +5588,12 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                 <button key={key} onClick={() => setTrendTab(key)}
                   style={{
                     padding: "7px 16px", borderRadius: 100, cursor: "pointer",
-                    fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)",
-                    letterSpacing: "0.04em", textTransform: "uppercase",
+                    // Commit 76 — was uppercase mono. Two tabs shouting
+                    // BROWSE / DIGEST next to a sentence-case headline is
+                    // the same eyebrow disease Commit 71 cleared out of the
+                    // deck; Trending never got the same pass.
+                    fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+                    letterSpacing: "0.01em",
                     background: trendTab === key ? withAlpha(accent, 0.14) : "transparent",
                     color: trendTab === key ? P.ink : P.faint,
                     border: `1px solid ${trendTab === key ? withAlpha(accent, 0.35) : P.line}`,
@@ -5697,7 +5701,7 @@ function LiteratureTimeline({ P, accent, at, sources, close }) {
   const ticks = minYear === null ? [] : minYear === maxYear ? [minYear] : Array.from(new Set([minYear, Math.round((minYear + maxYear) / 2), maxYear]));
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Literature timeline" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 3, maxWidth: 700, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 700, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Literature timeline</div>
@@ -5881,12 +5885,12 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
     distributeFromIndex(0, text);
   }
 
-  const inputStyle = { width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 3, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", marginTop: 6 };
+  const inputStyle = { width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)", marginTop: 6 };
   const boxStyle = { width: 44, height: 52, textAlign: "center", fontSize: 22, fontWeight: 700, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-mono)", outline: "none" };
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Sign in to Cerebrum" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", borderRadius: 3, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", borderRadius: 8, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
         <div style={{ padding: "26px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>{step === "email" ? "Sign in" : "Enter your code"}</div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
@@ -5899,8 +5903,8 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
               <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@example.com" aria-label="Email" />
             </label>
             <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>No password to remember — we'll email you a 6-digit code that signs you in.</div>
-            {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: 3, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5 }}>{error}</div>}
-            <button type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-body)" }}>
+            {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5 }}>{error}</div>}
+            <button type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-body)" }}>
               {busy ? "Sending…" : "Send sign-in code"}
             </button>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 14, lineHeight: 1.6 }}>
@@ -5929,7 +5933,7 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
                 />
               ))}
             </div>
-            {error && <div role="alert" style={{ marginTop: 16, padding: "9px 12px", borderRadius: 3, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5, textAlign: "center" }}>{error}</div>}
+            {error && <div role="alert" style={{ marginTop: 16, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5, textAlign: "center" }}>{error}</div>}
             {busy && <div style={{ marginTop: 16, textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint }}>Verifying…</div>}
             <div style={{ marginTop: 20, textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint }}>
               {cooldown > 0 ? (
@@ -5962,7 +5966,7 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
 //
 // This is a genuine from-scratch replacement, not a patch: real
 // getUserMedia capture, a real RTCPeerConnection per call, and a real
-// signaling channel of our own (functions/api/call-signal.js, backed by the
+// signaling channel of our own (functions/api/callsignal.js, backed by the
 // call_signals D1 table) instead of a third party's server. No OAuth wall
 // is possible here because there is no third party in the call path at all
 // — only two browsers and Cerebrum's own backend relaying the small
@@ -6031,7 +6035,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
         ...(isMobile
           ? { top: 12, left: 12, right: 12 }
           : { bottom: 24, right: 24, width: 340 }),
-        padding: 20, borderRadius: 18,
+        padding: 20, borderRadius: 16,
         background: P.dark ? "rgba(18,19,24,0.96)" : "rgba(255,255,255,0.98)",
         border: `1px solid ${P.line2}`,
         boxShadow: "0 18px 60px rgba(0,0,0,0.4)",
@@ -6048,7 +6052,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
           animation: "cbHuddleRing 1.6s ease-in-out infinite",
         }}>{initial}</span>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Incoming call</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>Incoming call</div>
           <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{call.fromName}</div>
         </div>
       </div>
@@ -6076,9 +6080,30 @@ function newHuddleClientId() {
 // real cause was a missing table, a rate limit, a blocked user, an expired
 // session, or a dropped connection — five very different problems, one
 // misleading sentence, and no way to tell them apart from a screenshot.
+/* ── API ROUTE NAMING: NO HYPHENS. EVER. ────────────────────────────────
+   Cloudflare Pages maps functions/api/<name>.js to /api/<name>, literally
+   and with no normalization. These endpoints were originally called
+   call-signal, ice-servers and trending-refresh, and when the files were
+   copied into the repo the hyphens were lost — so the files existed as
+   callsignal.js and iceservers.js while the app kept asking for
+   /api/call-signal. Nothing served those paths.
+
+   That is not a small bug. Pages answers a request for a route no Function
+   claims by falling back to the STATIC handler: a GET returns index.html
+   with HTTP 200, and a POST returns 405. So the app got a 200 containing a
+   web page where it expected JSON, and failed silently. Calling never
+   worked at all, and Trending never showed a single picture, for weeks —
+   while every health probe reported "live", because a 200 is a 200.
+
+   The convention is now: API filenames are a single lowercase word, no
+   hyphens, no underscores. It is not prettier. It is simply the only
+   version of this that cannot be broken by a filename losing a character
+   in transit, and a route name nobody can mistype is worth more than a
+   route name that reads nicely.
+   ─────────────────────────────────────────────────────────────────────── */
 async function postCallSignal(threadId, clientId, type, payload) {
   try {
-    const res = await fetch("/api/call-signal", {
+    const res = await fetch("/api/callsignal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ threadId, clientId, type, payload }),
@@ -6269,7 +6294,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       if (cancelled) return;
       try {
         const qs = new URLSearchParams({ threadId: String(threadId), since: String(lastSeenId), clientId: myClientId });
-        const res = await fetch(`/api/call-signal?${qs.toString()}`);
+        const res = await fetch(`/api/callsignal?${qs.toString()}`);
         if (res.ok) {
           pollFailures = 0;
           const data = await res.json().catch(() => null);
@@ -6286,7 +6311,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           // between "the call feature is broken" and "why didn't Dusty's
           // deploy work" being knowable at all from the UI.
           if (!cancelled) {
-            setErrorReason("Video calling isn't fully set up on the server yet (the call-signal endpoint is missing). Make sure call-signal.js and ice-servers.js were both deployed.");
+            setErrorReason("Video calling isn't set up on the server yet — /api/callsignal isn't answering. Check that functions/api/callsignal.js and iceservers.js are both deployed.");
             setStatus("error");
           }
           return;
@@ -6312,7 +6337,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
     }
 
     async function start() {
-      const icePromise = fetch("/api/ice-servers").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const icePromise = fetch("/api/iceservers").then((r) => (r.ok ? r.json() : null)).catch(() => null);
       try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       } catch {
@@ -6746,7 +6771,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
         backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 3, maxWidth: 420, width: "100%", padding: "26px", outline: "none",
+        borderRadius: 8, maxWidth: 420, width: "100%", padding: "26px", outline: "none",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
       }} className="cb-modal">
         {submitted ? (
@@ -6768,7 +6793,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {REPORT_REASONS.map((r) => (
                   <button key={r.id} type="button" onClick={() => setReason(r.id)} style={{
-                    fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 3, cursor: "pointer",
+                    fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
                     fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.15s ease",
                     background: reason === r.id ? withAlpha(accent, 0.16) : "transparent",
                     color: reason === r.id ? accent : P.ink2,
@@ -6780,14 +6805,14 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Anything else? (optional)</div>
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Add context for the review team" style={{
-                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 3,
+                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 8,
                 border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
                 color: P.ink, fontFamily: "var(--cb-body)", resize: "vertical", outline: "none",
               }} />
             </div>
             <button type="submit" disabled={submitting} style={{
               width: "100%", padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600,
-              background: accent, color: at, border: "none", borderRadius: 3,
+              background: accent, color: at, border: "none", borderRadius: 8,
               cursor: submitting ? "default" : "pointer",
               opacity: submitting ? 0.6 : 1,
               fontFamily: "var(--cb-body)",
@@ -7228,10 +7253,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         background: P.dark ? "rgba(22,24,34,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
                         boxShadow: "0 12px 32px rgba(0,0,0,0.22)", padding: 6, display: "flex", flexDirection: "column",
                       }}>
-                        <button onClick={toggleBlock} disabled={blockBusy} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 6, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <button onClick={toggleBlock} disabled={blockBusy} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="block" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
                         </button>
-                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 6, border: "none", background: "transparent", color: STATUS.bad, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", color: STATUS.bad, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                           <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
                         </button>
                       </div>
@@ -7271,7 +7296,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 return (
                 <React.Fragment key={key}>
                 {showDay && (
-                  <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", textTransform: "uppercase" }}>{dayLabel}</div>
+                  <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>{dayLabel}</div>
                 )}
                 <div style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
@@ -7300,7 +7325,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           onClick={() => setLightbox(m.attachmentData)}
                           style={{
                             marginTop: m.text ? 8 : 0, display: "block", maxWidth: "100%", maxHeight: 340,
-                            borderRadius: 14, cursor: "zoom-in", border: `1px solid ${P.line}`, objectFit: "cover",
+                            borderRadius: 12, cursor: "zoom-in", border: `1px solid ${P.line}`, objectFit: "cover",
                           }}
                         />
                       )}
@@ -7310,7 +7335,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           readable at all by someone who can't play audio. */}
                       {m.attachmentKind === "audio" && m.attachmentData && (
                         <div style={{
-                          marginTop: m.text ? 8 : 0, padding: "10px 12px", borderRadius: 14, minWidth: 220,
+                          marginTop: m.text ? 8 : 0, padding: "10px 12px", borderRadius: 12, minWidth: 220,
                           background: m.mine ? withAlpha(at, 0.14) : (P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"),
                           border: `1px solid ${m.mine ? withAlpha(at, 0.25) : P.line}`,
                         }}>
@@ -7338,7 +7363,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                             <Icon name="bookOpen" size={13} style={{ color: accent, flexShrink: 0 }} />
-                            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Paper</span>
+                            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>Paper</span>
                           </div>
                           <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{m.attachmentTitle}</div>
                           {m.attachmentMeta && (m.attachmentMeta.journal || m.attachmentMeta.year) && (
@@ -7474,7 +7499,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         style={{ position: "fixed", inset: 0, zIndex: 260, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", padding: 28, cursor: "zoom-out" }}
         className="cb-backdrop"
       >
-        <img src={lightbox} alt="Attached" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 10, objectFit: "contain" }} />
+        <img src={lightbox} alt="Attached" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12, objectFit: "contain" }} />
       </div>
     )}
     {reportModal && activeThread && (
@@ -7509,6 +7534,26 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
    mark that anyone can obtain is decoration; this one is a fact.
 
    `founder` is the same grant, said in words rather than a glyph. */
+/* Commit 77 — the radius scale.
+   ---------------------------------------------------------------------
+   An audit of this file found TWELVE different corner radii in use: 3
+   (120 times), 100 (56), 8, 14, 2, 16, 12, 10, 4, 6, 18 and 0. That is
+   not a style, it is the absence of one, and it is the loudest reason the
+   interface reads as assembled rather than designed — a 3px modal corner
+   next to a fully-round pill next to a 14px card tells the eye that
+   nobody decided.
+
+   Four tokens now, and every value in the file was normalized onto them:
+
+     SM  8   chips, inputs, small controls, thumbnails      (was 2,3,4,6,8)
+     MD  12  cards, panels, popovers, media blocks          (was 10,12,14)
+     LG  16  modals, sheets, the largest surfaces           (was 16,18)
+     PILL 100 buttons, tags, avatars, anything capsule      (unchanged)
+
+   Use these when adding anything new. A fifth value is a decision to
+   defend, not a default. */
+const RADIUS = { sm: 8, md: 12, lg: 16, pill: 100 };
+
 const BADGE_DISPLAY = {
   founder: { label: "Founder & Owner", icon: "sparkle", tint: "#c9a227" },
   verified: { label: "Verified", icon: "check", tint: "#2f7fe6" },
@@ -7851,7 +7896,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   // its own P.surface panel (see the return below), so these stat cards use
   // the next elevation step up to still read as distinct, layered blocks
   // rather than disappearing flush into the panel behind them.
-  const cardStyle = { background: P.raised, border: `1px solid ${P.line}`, borderRadius: 14, padding: 18 };
+  const cardStyle = { background: P.raised, border: `1px solid ${P.line}`, borderRadius: 12, padding: 18 };
   // Commit 75 — was uppercase mono at wide tracking on every panel header
   // (ACCOLADES, AFFILIATIONS, RECENT INVESTIGATIONS, SAVED COLLECTIONS),
   // the same shouted-eyebrow pattern Commit 71 removed from the home deck
@@ -8057,7 +8102,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                     placeholder="What do you work on? One or two sentences is plenty."
                     rows={3}
                     style={{
-                      width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 10,
+                      width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 12,
                       background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                       border: `1px solid ${P.line}`, color: P.ink, outline: "none",
                       fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", lineHeight: 1.6,
@@ -8075,7 +8120,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       placeholder={label}
                       aria-label={label}
                       style={{
-                        padding: "9px 12px", borderRadius: 10, minWidth: 0,
+                        padding: "9px 12px", borderRadius: 12, minWidth: 0,
                         background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                         border: `1px solid ${P.line}`, color: P.ink, outline: "none",
                         fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
@@ -8389,13 +8434,13 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
         backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 14, maxWidth: 480, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column",
+        borderRadius: 12, maxWidth: 480, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
       }} className="cb-modal">
         <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)" }}>
           <div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Find people</div>
-            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-mono)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Search Cerebrum researchers</div>
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>Search Cerebrum researchers</div>
           </div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
@@ -8431,7 +8476,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
               card is honest about exactly who it is recommending and why. */}
           {founder && (
             <div className="cb-founder-card" style={{
-              marginBottom: 10, padding: "14px 15px", borderRadius: 14,
+              marginBottom: 10, padding: "14px 15px", borderRadius: 12,
               background: "linear-gradient(135deg, rgba(201,162,39,0.10), rgba(47,127,230,0.08))",
               border: "1px solid rgba(201,162,39,0.35)",
             }}>
@@ -8470,7 +8515,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
           )}
           {hubs.length > 0 && (
             <div style={{ marginBottom: 4 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", padding: "4px 8px" }}>Institutions</div>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", padding: "4px 8px" }}>Institutions</div>
               {hubs.map((h) => (
                 <div
                   key={h.name}
@@ -8478,7 +8523,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
                   tabIndex={0}
                   onClick={() => onOpenHub(h.name)}
                   onKeyDown={(e) => { if (e.key === "Enter") onOpenHub(h.name); }}
-                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 10, cursor: "pointer" }}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 12, cursor: "pointer" }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                 >
@@ -8495,7 +8540,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
                 </div>
               ))}
               {results.length > 0 && (
-                <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", padding: "10px 8px 4px" }}>People</div>
+                <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", padding: "10px 8px 4px" }}>People</div>
               )}
             </div>
           )}
@@ -8505,7 +8550,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
             const isMessageBusy = messageBusy.has(r.id);
             const subtitle = [r.affiliation, r.followers ? `${r.followers} follower${r.followers === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
             return (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 10 }}>
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 12 }}>
                 <img
                   src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.username || r.id)}&backgroundColor=0a0a0a`}
                   alt=""
@@ -8614,7 +8659,7 @@ function InstitutionModal({ P, accent, at, close, hubName, onMessage }) {
               style={{ width: 64, height: 64, borderRadius: 12, border: `1px solid ${P.line}`, flexShrink: 0, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}
             />
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: withAlpha(accent, 0.9), fontFamily: "var(--cb-mono)" }}>Institution Hub</div>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", color: withAlpha(accent, 0.9), fontFamily: "var(--cb-body)" }}>Institution Hub</div>
               <div style={{ fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", marginTop: 2 }}>{hubName}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{researchers.length} researcher{researchers.length === 1 ? "" : "s"} on Cerebrum</div>
             </div>
@@ -8642,7 +8687,7 @@ function InstitutionModal({ P, accent, at, close, hubName, onMessage }) {
                   const isMessageBusy = messageBusy.has(r.id);
                   const meta = [r.degree, r.gradYear].filter(Boolean).join(" · ");
                   return (
-                    <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, borderRadius: 10, border: `1px solid ${P.line}` }}>
+                    <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, borderRadius: 12, border: `1px solid ${P.line}` }}>
                       <img
                         src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.username || r.id)}&backgroundColor=0a0a0a`}
                         alt="" aria-hidden="true" loading="lazy"
@@ -8887,7 +8932,7 @@ function NotebookMode({ P, accent, at, close }) {
             {[["paste", "Source Text"], ["upload", "Upload File"]].map(([key, label]) => (
               <button key={key} role="tab" aria-selected={leftTab === key} onClick={() => setLeftTab(key)}
                 style={{
-                  flex: 1, padding: "7px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+                  flex: 1, padding: "7px 10px", borderRadius: 8, border: "none", cursor: "pointer",
                   background: leftTab === key ? accent : "transparent", color: leftTab === key ? at : P.ink2,
                   fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-mono)", transition: "all 150ms ease",
                 }}
@@ -8926,7 +8971,7 @@ function NotebookMode({ P, accent, at, close }) {
               onChange={(e) => setDocumentText(e.target.value)}
               placeholder="Paste the full text of a paper, report, or document here…"
               style={{
-                flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 10, border: `1px solid ${P.line}`,
+                flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
                 background: inputBg, color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, lineHeight: 1.6, minHeight: isMobile ? 140 : 240,
               }}
             />
@@ -9012,11 +9057,11 @@ function NotebookMode({ P, accent, at, close }) {
                     return (
                       <>
                         {hasFindings && (<>
-                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginBottom: 10 }}>Key Findings</div>
+                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginBottom: 10 }}>Key Findings</div>
                           {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
                         </>)}
                         {hasLimitations && (<>
-                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
+                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
                           {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
                         </>)}
                       </>
@@ -9106,13 +9151,19 @@ function SystemStatus({ P, accent }) {
     // means the call path is genuinely broken, which is what we needed to
     // be able to see.
     const probes = [
-      ["Calling — signaling", "/api/call-signal", "call-signal.js", "POST"],
+      ["Calling — signaling", "/api/callsignal", "callsignal.js", "POST"],
       ["Calling — ring delivery", "/api/data?resource=incoming-calls", "data.js"],
-      ["Calling — network relay", "/api/ice-servers", "ice-servers.js"],
+      ["Calling — network relay", "/api/iceservers", "iceservers.js"],
       ["Trending feed", "/api/trending", "trending.js"],
+      // Commit 76 — the illustration engine, checked end to end rather
+      // than by existence. This is the probe that would have caught "no
+      // images in Trending" before it shipped: it asks for a picture of
+      // something every source should know about and reports which one
+      // actually answered.
+      ["Illustrations", "/api/image?q=spiral%20galaxy&debug=1", "image.js", null, "image"],
     ];
     const out = [];
-    for (const [label, url, file, method] of probes) {
+    for (const [label, url, file, method, kind] of probes) {
       let state = "down", detail = "";
       try {
         const res = method === "POST"
@@ -9122,11 +9173,43 @@ function SystemStatus({ P, accent }) {
               body: JSON.stringify({ threadId: "__probe__", clientId: "__probe__", type: "bye", payload: {} }),
             })
           : await fetch(url);
-        if (res.status === 404) { state = "missing"; detail = file + " isn't deployed"; }
+        // Commit 77 — how "not deployed" actually presents on Cloudflare
+        // Pages, learned from a real 405 in the wild.
+        //
+        // Pages falls back to the static asset handler for any path no
+        // Function claims. That handler answers a GET with index.html
+        // (HTTP 200 — which is why these probes cheerfully reported "live"
+        // for an endpoint that did not exist) and answers a POST with
+        // 405 Method Not Allowed, because you cannot POST to a static
+        // file. Neither is a 404. So:
+        //   • 405 on the POST probe  -> the Function file is missing
+        //   • HTML body on a GET     -> the Function file is missing
+        // Both now say so by name instead of showing a raw status code.
+        const ctype = res.headers.get("content-type") || "";
+        if (res.status === 404 || (method === "POST" && res.status === 405)) {
+          state = "missing";
+          detail = file + " isn't deployed — Cloudflare is serving the app shell for this path";
+        }
+        else if (res.ok && !ctype.includes("json")) {
+          state = "missing";
+          detail = file + " isn't deployed — this path returned the page, not the API";
+        }
         // 401/403 mean the endpoint EXISTS and answered — it just wants a
         // session or rejected this probe's fake ids. For "is it deployed?"
         // that is a pass, and treating it as a failure would be a false
         // alarm for every signed-out visitor.
+        else if (kind === "image" && res.ok) {
+          // A 200 with no picture in it is not a healthy illustration
+          // engine, it is the exact failure being diagnosed. Report which
+          // source answered, or that none did.
+          const d = await res.json().catch(() => null);
+          const hits = ((d && d.sources) || []).filter((x) => x.result === "hit");
+          const errs = ((d && d.sources) || []).filter((x) => x.result === "error");
+          if (d && d.image && d.image.url) { state = "ok"; detail = "via " + (d.image.source || "?"); }
+          else if (errs.length) { state = "down"; detail = errs[0].source + ": " + (errs[0].error || "error"); }
+          else { state = "down"; detail = "no source returned a picture"; }
+          if (hits.length) detail = "via " + hits[0].source;
+        }
         else if (res.ok || res.status === 401 || res.status === 403 || res.status === 400) { state = "ok"; }
         else {
           state = "down";
@@ -9385,8 +9468,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
   const Section = ({ title, footer, children }) => (
     <div style={{ marginBottom: 22 }}>
-      {title && <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, marginBottom: 8, paddingLeft: 2, textTransform: "uppercase", fontFamily: "var(--cb-mono)", letterSpacing: "0.08em" }}>{title}</div>}
-      <div style={{ background: bg, border: glassBorderS, borderRadius: 3, overflow: "hidden", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>{children}</div>
+      {title && <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, marginBottom: 8, paddingLeft: 2, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>{title}</div>}
+      <div style={{ background: bg, border: glassBorderS, borderRadius: 8, overflow: "hidden", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, paddingLeft: 2, lineHeight: 1.5 }}>{footer}</div>}
     </div>
   );
@@ -9402,7 +9485,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       background: withAlpha(accent, 0.16),
       boxShadow: `inset 0 0 0 1px ${withAlpha(accent, 0.6)}, inset 3px 0 0 ${accent}`,
     } : null), transition: "background-color 0.35s ease, box-shadow 0.35s ease" }}>
-      {icon && <span style={{ fontSize: FONT_SIZES.heading, width: 28, height: 28, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
+      {icon && <span style={{ fontSize: FONT_SIZES.heading, width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: FONT_SIZES.body, color: destructive ? STATUS.bad : P.ink, fontWeight: 500, fontFamily: "var(--cb-body)", letterSpacing: "-0.01em" }}>{label}</div>
         {desc && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.4, marginTop: 2 }}>{desc}</div>}
@@ -9497,7 +9580,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       textAlign: "left", fontFamily: "var(--cb-body)",
                     }}>
                       <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 600 }}>{h.label}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", textTransform: "uppercase", letterSpacing: "0.07em", whiteSpace: "nowrap" }}>{tabLabel(h.tabId)}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>{tabLabel(h.tabId)}</span>
                     </button>
                   ))}
                 </div>
@@ -9511,7 +9594,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
                   style={{ flexShrink: 0, padding: "8px 10px 10px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
               ))}
-              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: tabUnderline.left, width: tabUnderline.width, height: 2, background: accent, borderRadius: 2, transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1), width 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
+              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: tabUnderline.left, width: tabUnderline.width, height: 2, background: accent, borderRadius: 8, transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1), width 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
             </div>
           )}
         </div>
@@ -9529,7 +9612,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   className="cb-row"
                   style={{
                     display: "flex", alignItems: "center", gap: 11, width: "100%",
-                    padding: "10px 12px", borderRadius: 9, border: "none", cursor: "pointer",
+                    padding: "10px 12px", borderRadius: 8, border: "none", cursor: "pointer",
                     textAlign: "left", fontFamily: "var(--cb-body)",
                     fontSize: FONT_SIZES.small, fontWeight: tab === id ? 700 : 500,
                     letterSpacing: "-0.01em",
@@ -9552,7 +9635,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             {!user ? (
               <Section title="Account" footer="Signing in moves your saved articles, collections, and history to your account so they follow you to any device. Guest mode — everything you're using right now — keeps working exactly as-is if you never sign in.">
                 <Row label="You're browsing as a guest" desc="Nothing here leaves this browser." control={
-                  <button onClick={() => onOpenAuth("login")} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: "pointer" }}>Sign in</button>
+                  <button onClick={() => onOpenAuth("login")} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer" }}>Sign in</button>
                 } last />
               </Section>
             ) : (<>
@@ -9562,10 +9645,10 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Section title="Password" footer="Set a password so you can sign in without waiting on an email link every time.">
                 <div style={{ padding: "14px 16px" }}>
                   <form onSubmit={submitPassword}>
-                    <input type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} placeholder="New password (8+ characters)" aria-label="New password" style={{ width: "100%", padding: "10px 12px", fontSize: FONT_SIZES.small, borderRadius: 3, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, marginBottom: 8 }} />
-                    <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="Confirm new password" aria-label="Confirm new password" style={{ width: "100%", padding: "10px 12px", fontSize: FONT_SIZES.small, borderRadius: 3, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
+                    <input type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} placeholder="New password (8+ characters)" aria-label="New password" style={{ width: "100%", padding: "10px 12px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, marginBottom: 8 }} />
+                    <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="Confirm new password" aria-label="Confirm new password" style={{ width: "100%", padding: "10px 12px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
                     {pwMsg && <div style={{ fontSize: FONT_SIZES.small, color: pwMsg === "Password updated." ? STATUS.good : STATUS.bad, marginTop: 8 }}>{pwMsg}</div>}
-                    <button type="submit" disabled={pwBusy} style={{ marginTop: 10, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 3, cursor: pwBusy ? "default" : "pointer", opacity: pwBusy ? 0.6 : 1 }}>{pwBusy ? "Saving…" : "Update password"}</button>
+                    <button type="submit" disabled={pwBusy} style={{ marginTop: 10, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 8, cursor: pwBusy ? "default" : "pointer", opacity: pwBusy ? 0.6 : 1 }}>{pwBusy ? "Saving…" : "Update password"}</button>
                   </form>
                 </div>
               </Section>
@@ -9592,7 +9675,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     control={
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", letterSpacing: "0.07em",
-                        textTransform: "uppercase", padding: "4px 10px", borderRadius: 100,
+                        padding: "4px 10px", borderRadius: 100,
                         color: founderStatus.configured ? STATUS.good : STATUS.bad,
                         background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
                       }}>{founderStatus.configured ? "Configured" : "Missing"}</span>
@@ -9605,7 +9688,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     control={
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", letterSpacing: "0.07em",
-                        textTransform: "uppercase", padding: "4px 10px", borderRadius: 100,
+                        padding: "4px 10px", borderRadius: 100,
                         color: founderStatus.youAreFounder ? STATUS.good : P.faint,
                         background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
                       }}>{founderStatus.youAreFounder ? "You" : "No"}</span>
@@ -9625,8 +9708,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                     <span style={{ fontSize: FONT_SIZES.small, color: STATUS.bad }}>Permanently delete your account and all its data?</span>
                     <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                      <button onClick={() => setConfirmDeleteAccount(false)} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 3, cursor: "pointer" }}>Cancel</button>
-                      <button onClick={submitDeleteAccount} disabled={delBusy} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 3, cursor: delBusy ? "default" : "pointer" }}>{delBusy ? "Deleting…" : "Confirm delete"}</button>
+                      <button onClick={() => setConfirmDeleteAccount(false)} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer" }}>Cancel</button>
+                      <button onClick={submitDeleteAccount} disabled={delBusy} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: delBusy ? "default" : "pointer" }}>{delBusy ? "Deleting…" : "Confirm delete"}</button>
                     </span>
                   </div>
                 )}
@@ -9653,10 +9736,10 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <div style={{ display: "flex", gap: 8, padding: 12 }}>
                 {Object.keys(PALETTES).map((pn) => (
                   <button key={pn} onClick={() => { sfx(); setPaletteName(pn); }}
-                    style={{ flex: 1, padding: "14px 10px 10px", borderRadius: 3, cursor: "pointer", border: paletteName === pn ? `2px solid ${accent}` : `1px solid ${divider}`, background: PALETTES[pn].bg, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    style={{ flex: 1, padding: "14px 10px 10px", borderRadius: 8, cursor: "pointer", border: paletteName === pn ? `2px solid ${accent}` : `1px solid ${divider}`, background: PALETTES[pn].bg, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                     <div style={{ display: "flex", gap: 4 }}>
-                      <span style={{ width: 22, height: 22, borderRadius: 3, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} />
-                      <span style={{ width: 22, height: 22, borderRadius: 3, background: accent }} />
+                      <span style={{ width: 22, height: 22, borderRadius: 8, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} />
+                      <span style={{ width: 22, height: 22, borderRadius: 8, background: accent }} />
                     </div>
                     <span style={{ fontSize: FONT_SIZES.small, color: PALETTES[pn].ink, fontWeight: paletteName === pn ? 600 : 500, fontFamily: "var(--cb-body)" }}>{pn}</span>
                   </button>
@@ -9673,9 +9756,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "14px 16px", alignItems: "center" }}>
                 {Object.keys(ACCENTS).map((an) => (
                   <button key={an} title={an} aria-label={an} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }}
-                    style={{ width: 30, height: 30, borderRadius: 3, background: ACCENTS[an], border: (!customAccent && accentName === an) ? "2px solid #fff" : "2px solid transparent", cursor: "pointer", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${ACCENTS[an]}` : "none", transition: "all 150ms ease" }} />
+                    style={{ width: 30, height: 30, borderRadius: 8, background: ACCENTS[an], border: (!customAccent && accentName === an) ? "2px solid #fff" : "2px solid transparent", cursor: "pointer", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${ACCENTS[an]}` : "none", transition: "all 150ms ease" }} />
                 ))}
-                <label style={{ width: 30, height: 30, borderRadius: 3, border: `2px dashed ${P.faint}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }} title="Custom">
+                <label style={{ width: 30, height: 30, borderRadius: 8, border: `2px dashed ${P.faint}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }} title="Custom">
                   <input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} />
                   <span style={{ fontSize: FONT_SIZES.subhead, color: P.faint, lineHeight: 1 }}>+</span>
                 </label>
@@ -9750,7 +9833,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   ) : (
                     <span style={{
                       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", letterSpacing: "0.07em",
-                      textTransform: "uppercase", padding: "4px 10px", borderRadius: 100,
+                      padding: "4px 10px", borderRadius: 100,
                       color: notifPerm === "granted" ? STATUS.good : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
                     }}>{notifPerm === "granted" ? "On" : notifPerm === "denied" ? "Blocked" : "Unavailable"}</span>
@@ -9845,8 +9928,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Clear all data" destructive control={
                 confirmClear
                   ? <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Delete</button>
-                      <button onClick={() => setConfirmClear(false)} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, color: P.ink2, background: "transparent", border: `1px solid ${P.line}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Cancel</button>
+                      <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Delete</button>
+                      <button onClick={() => setConfirmClear(false)} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, color: P.ink2, background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Cancel</button>
                     </div>
                   : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, color: STATUS.bad, background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-body)" }}>Clear…</button>
               } last />
@@ -9904,10 +9987,10 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   document.body.appendChild(a); a.click(); document.body.removeChild(a);
                   URL.revokeObjectURL(url);
                   sfx();
-                }} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Export JSON</button>
+                }} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Export JSON</button>
               } />
               <Row label="Import workspace" desc="Restore from a previously exported file" control={
-                <label style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-body)", display: "inline-block" }}>
+                <label style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", display: "inline-block" }}>
                   Import
                   <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -9953,7 +10036,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], [kbdLabel("D"), "Toggle light / dark"], ["Esc", "Back to search"]].map(([key, desc], i, arr) => (
                   <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${divider}` : "none" }}>
                     <span style={{ fontSize: FONT_SIZES.body, color: P.ink, fontWeight: 500, fontFamily: "var(--cb-body)" }}>{desc}</span>
-                    <kbd style={{ fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 3, fontWeight: 500 }}>{key}</kbd>
+                    <kbd style={{ fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 8, fontWeight: 500 }}>{key}</kbd>
                   </div>
                 ))}
               </div>
@@ -10166,12 +10249,12 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // (that's the normal, expected convention — see `kbd` below, which sets
     // its own fontFamily independently and is untouched by this), just not
     // on the word next to it.
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 3, cursor: "pointer", fontSize: FONT_SIZES.small, fontFamily: font, fontWeight: 500, letterSpacing: "-0.01em", boxShadow: P.shadowSm, marginRight: 4 },
-    kbd: { fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 4, padding: "2px 6px", fontWeight: 500 },
-    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: 3, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: font },
-    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 3, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-body)", position: "relative" },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontFamily: font, fontWeight: 500, letterSpacing: "-0.01em", boxShadow: P.shadowSm, marginRight: 4 },
+    kbd: { fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 8, padding: "2px 6px", fontWeight: 500 },
+    ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: font },
+    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-body)", position: "relative" },
     iconBtnLabel: { lineHeight: 1 },
-    countPill: { fontSize: FONT_SIZES.micro, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 3, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
+    countPill: { fontSize: FONT_SIZES.micro, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: 8, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
 
     /* ── App shell: fixed Sidebar + everything else shifted right of it ──
        The header used to carry every destination (New, Document, Trending,
@@ -10193,7 +10276,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarMobileOpen: { transform: "translateX(0)", boxShadow: "0 0 40px rgba(0,0,0,0.4)" },
     sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "18px 18px 14px", cursor: "pointer", flexShrink: 0 },
     sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
-    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)", padding: "14px 10px 6px" },
+    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", padding: "14px 10px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
       padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent",
@@ -10419,7 +10502,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       outline: "none",
     },
     trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
-    trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
+    trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.01em", fontFamily: "var(--cb-body)" },
 
     /* ── Workspace: single-column editorial flow ──
        v6.4: widened from 760 to give the answer more room to breathe —
@@ -10457,7 +10540,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     turn: { marginBottom: isMobile ? 40 : 56 },
     qLabel: {
       fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em",
-      textTransform: "uppercase", color: accent,
+      color: accent,
       marginBottom: isMobile ? 16 : 20, display: "flex", alignItems: "center", gap: 8,
       fontFamily: "var(--cb-mono)",
     },
@@ -10480,7 +10563,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       backdropFilter: "blur(40px) saturate(150%)",
       WebkitBackdropFilter: "blur(40px) saturate(150%)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-      borderRadius: 3,
+      borderRadius: 8,
       padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
       boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
       lineHeight: 1.7,
@@ -10490,27 +10573,27 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       fontSize: FONT_SIZES.micro, color: P.faint, 
       paddingTop: 16, marginTop: 20, 
       fontFamily: "var(--cb-mono)", display: "flex",
-      letterSpacing: "0.04em", textTransform: "uppercase",
+      letterSpacing: "0.01em",
     },
-    aiTag: { fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 500, letterSpacing: "0.04em", fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
+    aiTag: { fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 500, letterSpacing: "0.01em", fontFamily: "var(--cb-body)" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: FONT_SIZES.body, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     error: {
       padding: "20px 24px", background: withAlpha(STATUS.bad, 0.06), color: STATUS.bad,
-      borderRadius: 3, fontSize: FONT_SIZES.body, lineHeight: 1.6,
+      borderRadius: 8, fontSize: FONT_SIZES.body, lineHeight: 1.6,
       border: `1px solid ${withAlpha(STATUS.bad, 0.2)}`,
       display: "flex", alignItems: "flex-start", gap: 12,
       backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
     },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 3, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
-    relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 8 },
+    relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-body)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
     relatedBtn: {
       display: "flex", alignItems: "center", justifyContent: "space-between",
       gap: 12, textAlign: "left", padding: "14px 18px",
       fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, color: P.ink2,
-      border: glassBorder, borderRadius: 3,
+      border: glassBorder, borderRadius: 8,
       cursor: "pointer", fontFamily: font,
       transition: "all 0.25s ease", letterSpacing: "-0.01em",
       lineHeight: 1.45,
@@ -10541,28 +10624,28 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       backdropFilter: "blur(40px) saturate(150%)",
       WebkitBackdropFilter: "blur(40px) saturate(150%)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-      borderRadius: 3,
+      borderRadius: 8,
       padding: "20px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
-    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--cb-mono)" },
-    srcCount: { fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 3, fontFamily: "var(--cb-mono)" },
+    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.01em", fontFamily: "var(--cb-body)" },
+    srcCount: { fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 8, fontFamily: "var(--cb-mono)" },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
-    srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 3, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 10 },
-    sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 3, marginBottom: 14, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.2s ease" },
+    srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: "var(--cb-mono)", marginBottom: 10 },
+    sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 8, marginBottom: 14, border: `1px solid ${P.line}` },
+    sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, transition: "all 0.2s ease" },
     sortTabActive: { background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", color: P.ink, boxShadow: "none", fontWeight: 600 },
-    srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" },
-    sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
-    sBtnP: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.ink, color: P.bg, border: "none", borderRadius: 3, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-mono)" },
+    srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-body)" },
+    sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
+    sBtnP: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.ink, color: P.bg, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-mono)" },
     savedNote: { fontSize: FONT_SIZES.caption, color: accent, marginBottom: 12, fontFamily: "var(--cb-mono)" },
-    zBox: { background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, border: glassBorder, borderRadius: 3, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
-    zIn: { padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.surface, 0.4) : P.surface, color: P.ink, borderRadius: 3, outline: "none", fontFamily: "var(--cb-mono)" },
+    zBox: { background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, border: glassBorder, borderRadius: 8, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
+    zIn: { padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.surface, 0.4) : P.surface, color: P.ink, borderRadius: 8, outline: "none", fontFamily: "var(--cb-mono)" },
     zMsg: { fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-mono)" },
     srcList: { display: "flex", flexDirection: "column", gap: 2 },
     empty: { fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
-    srcItem: { padding: isCompact ? "10px 14px" : "16px 14px", margin: "0 -14px", borderRadius: 3, transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}` },
+    srcItem: { padding: isCompact ? "10px 14px" : "16px 14px", margin: "0 -14px", borderRadius: 8, transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}` },
     // v31: srcTitle was already inheriting the page's body font (`font`,
     // set on `page:` at the root) — never mono to begin with, so nothing to
     // change there. srcMeta was the one actually set to mono; switched to
@@ -10571,7 +10654,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
     srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-body)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
-    chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "all 0.2s ease" },
+    chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600, background: "transparent", transition: "all 0.2s ease" },
     // v28: the old row (icon+text-label buttons, `flexWrap: "wrap"`) read as
     // a loose pile that reflowed onto 2-3 ragged lines the moment "Source
     // network"/"Timeline" showed up next to "Print / Save PDF" — six
@@ -10603,33 +10686,33 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
 
     /* ── Footer ── */
     foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
-    footDbs: { fontSize: FONT_SIZES.micro, letterSpacing: "0.06em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-mono)", textTransform: "uppercase" },
+    footDbs: { fontSize: FONT_SIZES.micro, letterSpacing: "0.01em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-body)" },
 
     /* ── Mobile sources FAB ── */
-    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 3, padding: "14px 20px", fontSize: FONT_SIZES.small, fontWeight: 600, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}, 0 2px 8px rgba(0,0,0,0.2)`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" },
+    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 8, padding: "14px 20px", fontSize: FONT_SIZES.small, fontWeight: 600, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}, 0 2px 8px rgba(0,0,0,0.2)`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" },
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", zIndex: 25 },
 
     /* ── Command palette ── */
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh", zIndex: 50 },
-    cmdBox: { width: 560, maxWidth: "92vw", background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 3, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden", fontFamily: font },
+    cmdBox: { width: 560, maxWidth: "92vw", background: P.dark ? P.surface : P.raised, border: glassBorder, borderRadius: 8, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden", fontFamily: font },
     cmdInputRow: { display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: `1px solid ${P.line}` },
     cmdInput: { flex: 1, border: "none", outline: "none", background: "transparent", fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-mono)" },
     cmdList: { maxHeight: 340, overflowY: "auto", padding: 8 },
-    cmdSection: { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, padding: "12px 14px 6px", fontFamily: "var(--cb-mono)" },
-    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: FONT_SIZES.small, color: P.ink, background: "transparent", border: "none", borderRadius: 3, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.15s" },
+    cmdSection: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, padding: "12px 14px 6px", fontFamily: "var(--cb-body)" },
+    cmdItem: { width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", fontSize: FONT_SIZES.small, color: P.ink, background: "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: font, textAlign: "left", transition: "background 0.15s" },
 
     /* ── Modals ── */
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
-    modal: { background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 3, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
+    modal: { background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
     modalTitle: { fontSize: FONT_SIZES.display, fontWeight: 400, color: P.ink, marginBottom: 24, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" },
     // v7.0 cleanup: setLabel/palRow/palCard/accentRow/accentDot/customDot
     // removed — leftovers from an older, untabbed Settings layout with an
     // inline palette/accent picker. The current tabbed Settings (Appearance
     // tab) has its own separate, actually-used markup for both; these six
     // were dead style objects with zero call sites anywhere in the file.
-    modalClose: { width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-display)" },
+    modalClose: { width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-display)" },
     soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 },
-    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
+    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)", fontWeight: 600 },
     soundBtnActive: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
   };
 }
@@ -10713,7 +10796,7 @@ function ToastHost({ P, accent }) {
     <div role="status" aria-live="polite" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
       {toasts.map((t) => (
         <div key={t.id} className="cb-toast-pop" style={{
-          background: "rgba(18,20,32,0.96)", color: "#fff", padding: "10px 16px", borderRadius: 3,
+          background: "rgba(18,20,32,0.96)", color: "#fff", padding: "10px 16px", borderRadius: 8,
           fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-mono)", boxShadow: "0 8px 28px rgba(0,0,0,0.3)",
           border: `1px solid ${t.tone === "error" ? STATUS.bad : withAlpha(accent, 0.45)}`,
           display: "flex", alignItems: "center", gap: 8, maxWidth: "min(90vw, 420px)",
@@ -10913,7 +10996,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
     }}>
       <div ref={panelRef} tabIndex={-1} className="cb-modal" style={{
         width: "100%", maxWidth: 560, background: P.bg, color: P.ink,
-        border: `1px solid ${P.line2}`, borderRadius: 18, outline: "none",
+        border: `1px solid ${P.line2}`, borderRadius: 16, outline: "none",
         boxShadow: "0 30px 90px rgba(0,0,0,0.55)",
         padding: isMobile ? "26px 20px 22px" : "32px 34px 26px",
         fontFamily: "var(--cb-body)", maxHeight: "94vh", overflowY: "auto",
@@ -12013,12 +12096,12 @@ function App() {
       cursor: "pointer",
     }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")} onClick={() => setDrawerSource(s)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrawerSource(s); } }}>
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
-        {s.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.type}</span>}
+        {s.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.1), padding: "2px 6px", borderRadius: 8, fontFamily: "var(--cb-body)" }}>{s.type}</span>}
         {/* v5: the "strong/partial/weak" word already existed (relLabel)
             but only ever reached a `title` tooltip — invisible to touch,
             keyboard, and screen-reader users, who only ever saw a bare
             color-coded percentage. Now it's always on screen. */}
-        {typeof s.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.1), padding: "2px 6px", borderRadius: 4, fontFamily: "var(--cb-mono)" }}>{s.relevance}% · {relLabel(s.relevance)}</span>}
+        {typeof s.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.1), padding: "2px 6px", borderRadius: 8, fontFamily: "var(--cb-mono)" }}>{s.relevance}% · {relLabel(s.relevance)}</span>}
         {s.year && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{s.year}</span>}
       </div>
       {/* v34 had simplified this to stripping <sub>/<sup>/<i>/<b> outright —
@@ -12042,8 +12125,8 @@ function App() {
   const SourcesInner = (
     <>
       <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
-      {pinnedSources.length > 0 && (<div style={{ padding: "7px 10px", margin: "0 0 8px", background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 3, fontSize: FONT_SIZES.caption, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-mono)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="pinFilled" size={11} />{pinnedSources.length} pinned</span><button onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
-      {corrections.length > 0 && (<div style={{ padding: "7px 10px", margin: "0 0 8px", background: withAlpha(STATUS.warn, 0.06), border: `1px solid ${withAlpha(STATUS.warn, 0.25)}`, borderRadius: 3, fontSize: FONT_SIZES.caption, color: STATUS.warn, display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", fontFamily: "var(--cb-mono)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="edit" size={11} />{corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><button onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: STATUS.warn, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
+      {pinnedSources.length > 0 && (<div style={{ padding: "7px 10px", margin: "0 0 8px", background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-mono)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="pinFilled" size={11} />{pinnedSources.length} pinned</span><button onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
+      {corrections.length > 0 && (<div style={{ padding: "7px 10px", margin: "0 0 8px", background: withAlpha(STATUS.warn, 0.06), border: `1px solid ${withAlpha(STATUS.warn, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: STATUS.warn, display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", fontFamily: "var(--cb-mono)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="edit" size={11} />{corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><button onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: STATUS.warn, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
       {allSources.length > 0 && (<>
         <div style={S.srcActions}>
           <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>RIS</button>
@@ -12202,8 +12285,8 @@ function App() {
               )}
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               {attachedImage && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 3, maxWidth: "fit-content" }}>
-                  <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: 3, objectFit: "cover" }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
+                  <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "cover" }} />
                   <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
@@ -12266,12 +12349,12 @@ function App() {
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
-                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.08em", textTransform: "uppercase" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} /></div>)}
-                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
+                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} /></div>)}
+                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
                   {attachedImage && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 3, maxWidth: "fit-content" }}>
-                      <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: 3, objectFit: "cover" }} />
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
+                      <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "cover" }} />
                       <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
                       <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                     </div>
@@ -12355,7 +12438,7 @@ function App() {
         </Reveal>
       )}
       </div>
-      {started && isMobile && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 3, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
+      {started && isMobile && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 8, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
       {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside role="dialog" aria-modal="true" aria-label="Sources" style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div role="dialog" aria-modal="true" aria-label="Command palette" style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={onCmdKeyDown} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s, i) => (<button key={s} style={{ ...S.cmdItem, background: cmdActive === i ? withAlpha(accent, 0.1) : "transparent" }} onClick={() => ask(s)} onMouseEnter={() => setCmdActive(i)}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c, i) => { const flatIdx = cmdSuggest.length + i; return (<button key={c.label} style={{ ...S.cmdItem, background: cmdActive === flatIdx ? withAlpha(accent, 0.1) : "transparent" }} onClick={c.run} onMouseEnter={() => setCmdActive(flatIdx)}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>); })}</div></div></div>)}
       {savedOpen && (
