@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "5.5.0";
+const APP_VERSION = "5.5.1";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -5858,6 +5858,13 @@ function newHuddleClientId() {
 // be fire-and-forget, which is why a call could ring on the caller's screen
 // while the ring POST was being rejected — nothing anywhere looked at the
 // result, so a 404 (endpoint not deployed) and a 200 were indistinguishable.
+// Commit 70 — returns `true` on success, or a short human-readable reason
+// on failure, so the caller can say what actually went wrong instead of
+// guessing. The old version returned a bare boolean, which is why a failed
+// ring rendered as "Calls aren't fully set up on the server" whether the
+// real cause was a missing table, a rate limit, a blocked user, an expired
+// session, or a dropped connection — five very different problems, one
+// misleading sentence, and no way to tell them apart from a screenshot.
 async function postCallSignal(threadId, clientId, type, payload) {
   try {
     const res = await fetch("/api/call-signal", {
@@ -5865,7 +5872,16 @@ async function postCallSignal(threadId, clientId, type, payload) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ threadId, clientId, type, payload }),
     });
-    return res.ok;
+    if (res.ok) return true;
+    let reason = "";
+    try { reason = (await res.json()).error || ""; } catch {}
+    if (!reason) {
+      reason = res.status === 401 ? "Your session expired — sign in again."
+        : res.status === 403 ? "You're not authorized to call in this conversation."
+        : res.status === 429 ? "Too many requests — wait a moment."
+        : `Server returned ${res.status}.`;
+    }
+    return reason;
   } catch {
     // Best-effort. A dropped offer/answer/ICE post is recoverable — the
     // sender's own retry logic or the next natural signal covers it, except
@@ -6151,16 +6167,26 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       // end will never know they're being called no matter how long we spin.
       // Better to say so immediately than to show "Calling…" forever.
       let ringFailures = 0;
+      let lastRingReason = "";
       const ring = async () => {
         if (cancelled || connected) return;
         const ok = await postSignal("ring", {});
-        if (ok === false) {
+        if (ok !== true) {
           ringFailures += 1;
+          if (typeof ok === "string" && ok) lastRingReason = ok;
           if (ringFailures >= 3 && !cancelled) {
-            setErrorReason("Calls aren't fully set up on the server — the ring couldn't be delivered, so the other person won't be notified. Check Settings → System status.");
+            // Commit 70 — say what the server actually said. Three failed
+            // heartbeats means the other person genuinely will not be
+            // notified, so the message still has to be blunt about that —
+            // but the reason is now the real one, which is the difference
+            // between a bug report someone can act on and a screenshot.
+            setErrorReason(
+              (lastRingReason || "The ring couldn't be delivered.") +
+              " The other person won't be notified until this is resolved."
+            );
             setStatus("error");
           }
-        } else ringFailures = 0;
+        } else { ringFailures = 0; lastRingReason = ""; }
       };
       ring();
       ringTimer = setInterval(ring, 3000);
@@ -8616,24 +8642,50 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
 function SystemStatus({ P, accent }) {
   const [rows, setRows] = useState(null);
   const check = useCallback(async () => {
+    // Commit 70 — these were all GETs, which only ever proved "the file is
+    // deployed". A user hit "Calls aren't set up on the server" while this
+    // panel cheerfully reported signaling as live, because the thing that
+    // was failing was the WRITE path and nothing here ever wrote.
+    //
+    // The signaling probe is now a POST with deliberately invalid ids. It
+    // exercises origin, session, rate limit, payload validation, the
+    // self-healing schema, and the thread-membership query — everything a
+    // real ring does except the final insert — and a healthy server answers
+    // 403 ("not authorized for this call"), which is a pass. A 500 here
+    // means the call path is genuinely broken, which is what we needed to
+    // be able to see.
     const probes = [
-      ["Calling — signaling", "/api/call-signal?threadId=probe&clientId=probe&since=0", "call-signal.js"],
+      ["Calling — signaling", "/api/call-signal", "call-signal.js", "POST"],
       ["Calling — ring delivery", "/api/data?resource=incoming-calls", "data.js"],
       ["Calling — network relay", "/api/ice-servers", "ice-servers.js"],
       ["Trending feed", "/api/trending", "trending.js"],
     ];
     const out = [];
-    for (const [label, url, file] of probes) {
+    for (const [label, url, file, method] of probes) {
       let state = "down", detail = "";
       try {
-        const res = await fetch(url);
+        const res = method === "POST"
+          ? await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ threadId: "__probe__", clientId: "__probe__", type: "bye", payload: {} }),
+            })
+          : await fetch(url);
         if (res.status === 404) { state = "missing"; detail = file + " isn't deployed"; }
         // 401/403 mean the endpoint EXISTS and answered — it just wants a
         // session or rejected this probe's fake ids. For "is it deployed?"
         // that is a pass, and treating it as a failure would be a false
         // alarm for every signed-out visitor.
         else if (res.ok || res.status === 401 || res.status === 403 || res.status === 400) { state = "ok"; }
-        else { state = "down"; detail = "HTTP " + res.status; }
+        else {
+          state = "down";
+          // Carry the server's own explanation through — "HTTP 500" tells
+          // nobody anything, and this panel is where someone is sent when
+          // a call fails.
+          let msg = "";
+          try { msg = (await res.json()).error || ""; } catch {}
+          detail = msg ? msg.slice(0, 90) : "HTTP " + res.status;
+        }
       } catch { state = "down"; detail = "no response"; }
       out.push({ label, state, detail, file });
     }
