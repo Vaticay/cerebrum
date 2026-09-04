@@ -4,7 +4,7 @@
 # a Workers-only feature, not something a Pages project can attach on its
 # own. Rather than stand up and maintain a second Cloudflare project just
 # to fetch a news feed once an hour, this workflow is the clock instead:
-# it does nothing but call functions/api/trending-refresh.js once an hour,
+# it does nothing but call functions/api/trendingrefresh.js once an hour,
 # and that endpoint does the actual work (fetch real articles, refresh the
 # D1 cache that functions/api/trending.js serves to visitors).
 #
@@ -39,8 +39,8 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      - name: Call trending-refresh endpoint
+      - name: Call trendingrefresh endpoint
         run: |
           curl --fail --silent --show-error \
-            -X POST "https://askcerebrum.org/api/trending-refresh" \
+            -X POST "https://askcerebrum.org/api/trendingrefresh" \
             -H "Authorization: Bearer ${{ secrets.TRENDING_REFRESH_SECRET }}"
