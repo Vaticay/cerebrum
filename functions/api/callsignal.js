@@ -32,7 +32,7 @@
 // AND thread membership AND that the two participants haven't blocked each
 // other — strictly more access control than what it replaces, not less.
 
-import { getSessionUser, isBlockedPair } from "../lib/authHelpers.js";
+import { getSessionUser, isBlockedPair, ensureSocialTables } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
 const ALLOWED_ORIGINS = [
@@ -105,7 +105,12 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Origin not allowed." }), { status: 403, headers: cors });
   }
   if (!env.DB) {
-    return new Response(JSON.stringify({ error: "Call signaling is not available right now." }), { status: 200, headers: cors });
+    // Commit 70 — this returned 200 with an error body, so every caller's
+    // `res.ok` check passed and a ring heartbeat that recorded nothing
+    // reported success. Settings -> System status probes this endpoint the
+    // same way, which is how it could show "live" while calls did not work
+    // at all. An unavailable dependency is a 503.
+    return new Response(JSON.stringify({ error: "Call signaling is not available right now." }), { status: 503, headers: cors });
   }
 
   const user = await getSessionUser(request, env);
@@ -115,6 +120,18 @@ export async function onRequest(context) {
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
 
   try {
+    // Commit 70 — this endpoint reads and writes call_signals,
+    // thread_participants and user_blocks, and was the ONLY endpoint
+    // touching them that never ran the self-healing schema. It worked
+    // whenever some earlier request in the same isolate had already run
+    // ensureSocialTables via /api/data — and threw a 500 on the INSERT when
+    // it hadn't. That is exactly the shape of "calling works sometimes":
+    // an isolate whose first request is a ring heartbeat has no tables.
+    // Memoized after the first real call, so this costs nothing. Inside the
+    // try so a schema failure reports as an error rather than an uncaught
+    // throw.
+    await ensureSocialTables(env);
+
     if (request.method === "GET") {
       if (!(await checkRateLimit(env, `call-signal-get:${user.id}:${clientIP}`, GET_LIMIT, WINDOW_MS))) {
         return new Response(JSON.stringify({ error: "Too many requests." }), { status: 429, headers: { ...cors, "Retry-After": "10" } });
@@ -171,9 +188,20 @@ export async function onRequest(context) {
         return new Response(JSON.stringify({ error: "Not authorized for this call." }), { status: 403, headers: cors });
       }
       const now = Date.now();
-      await env.DB.prepare(
-        "INSERT INTO call_signals (thread_id, sender_id, client_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-      ).bind(threadId, user.id, clientId, type, payloadStr, now).run();
+      try {
+        await env.DB.prepare(
+          "INSERT INTO call_signals (thread_id, sender_id, client_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+        ).bind(threadId, user.id, clientId, type, payloadStr, now).run();
+      } catch (e) {
+        // Commit 70 — a write failure here used to fall through to the
+        // endpoint's generic catch and surface as an opaque 500, which the
+        // client then rendered as a guess about what went wrong. Say what
+        // actually broke: the caller shows this string verbatim.
+        console.error("call-signal insert failed:", e);
+        return new Response(JSON.stringify({
+          error: "Couldn't record the call signal: " + String((e && e.message) || e).slice(0, 200),
+        }), { status: 500, headers: cors });
+      }
       // Opportunistic cleanup, scoped to this thread — cheap (indexed on
       // thread_id) and keeps the table from growing unbounded without
       // needing a cron trigger this project doesn't otherwise have.
