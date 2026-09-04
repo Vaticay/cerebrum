@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.3.0";
+const APP_VERSION = "6.4.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1733,6 +1733,103 @@ function ImageCredit({ image, style }) {
       {image.creditUrl
         ? <a href={image.creditUrl} target="_blank" rel="noopener noreferrer nofollow" title={text} style={{ textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>{body}</a>
         : body}
+    </div>
+  );
+}
+
+/* Commit 83 — ASK MODES.
+   ---------------------------------------------------------------------
+   The welcome screen used to offer four suggested questions. That is the
+   single most chatbot-shaped thing a product can do: it teaches people
+   that the way to use this is to type a sentence and read a paragraph.
+
+   These are verbs instead. Each one is a real operation — it changes the
+   enforced output contract on the server, so the answer comes back as a
+   verdict, a comparison, a map of a field or a reading list rather than
+   four paragraphs of prose in every case. The placeholder in the search
+   box changes with the verb, because what you should type is different
+   for each one.
+
+   `explain` stays the default and is exactly what the box did before, so
+   nobody who ignores all of this loses anything. */
+const ASK_MODES = [
+  {
+    key: "explain",
+    label: "Explain",
+    blurb: "How something works, from the literature",
+    placeholder: "Ask anything...",
+    icon: "sparkle",
+  },
+  {
+    key: "verify",
+    label: "Check a claim",
+    blurb: "Is this actually supported?",
+    placeholder: "Paste a claim to test against the evidence...",
+    icon: "check",
+  },
+  {
+    key: "compare",
+    label: "Compare",
+    blurb: "Two positions, side by side",
+    placeholder: "Compare two theories, methods or findings...",
+    icon: "compare",
+  },
+  {
+    key: "map",
+    label: "Map a field",
+    blurb: "The shape of a literature",
+    placeholder: "Name a field to map — who works on what, and what's open...",
+    icon: "network",
+  },
+  {
+    key: "readinglist",
+    label: "Reading list",
+    blurb: "What to read, in order",
+    placeholder: "A topic to build a reading list for...",
+    icon: "bookmark",
+  },
+];
+
+function AskModePicker({ mode, setMode, P, accent, isMobile }) {
+  return (
+    <div
+      role="group"
+      aria-label="What do you want to do?"
+      className="cb-scroll-x"
+      style={{
+        display: "flex", gap: 7, marginTop: 18, marginBottom: 4,
+        justifyContent: isMobile ? "flex-start" : "center",
+        overflowX: "auto", maxWidth: "100%", padding: "2px 0",
+        WebkitOverflowScrolling: "touch",
+      }}
+    >
+      {ASK_MODES.map((m) => {
+        const on = mode === m.key;
+        return (
+          <button
+            key={m.key}
+            onClick={() => setMode(m.key)}
+            title={m.blurb}
+            aria-pressed={on}
+            className="cb-press"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0,
+              padding: "8px 14px", borderRadius: 100, cursor: "pointer",
+              fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
+              fontFamily: "var(--cb-body)", letterSpacing: "-0.005em",
+              background: on ? withAlpha(accent, 0.14) : "transparent",
+              color: on ? P.ink : P.ink2,
+              border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
+              transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
+            }}
+          >
+            <span style={{ display: "inline-flex", color: on ? accent : P.faint }}>
+              <Icon name={m.icon} size={14} />
+            </span>
+            {m.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -11467,6 +11564,14 @@ function App() {
   const [drawerSource, setDrawerSource] = useState(null);
   const [focusedSourceIdx, setFocusedSourceIdx] = useState(-1);
   const [evidenceFilter, setEvidenceFilter] = useState("all");
+  /* Commit 83 — the instrument's operations.
+     `askMode` is the verb the person picked on the welcome screen. It is
+     sent with the query and changes the SHAPE of the answer server-side
+     (see MODE_STRUCTURES in functions/api/search.js), not just the
+     wording of the prompt — "compare" returns a comparison, "verify"
+     returns a verdict. A chatbot has one output shape; this is what
+     having more than one looks like. */
+  const [askMode, setAskMode] = useState("explain");
   const [dataDensity, setDataDensity] = useState(() => getCookie("cb_density") || "comfortable");
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -11664,7 +11769,7 @@ function App() {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
       const videosPromise = imageToSend ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections }) });
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections }) });
       if (!res.ok) {
         let errData = {};
         try { errData = await res.json(); } catch {}
@@ -12413,7 +12518,7 @@ function App() {
                 </div>
               )}
               <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Ask anything..." />
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
@@ -12437,13 +12542,10 @@ function App() {
                     }}>{label}</button>
                 ))}
               </div>
-              <div style={S.chips} className="cb-stagger" onMouseEnter={() => chipsPausedRef.current = true} onMouseLeave={() => chipsPausedRef.current = false} onFocus={() => chipsPausedRef.current = true} onBlur={() => chipsPausedRef.current = false}>
-                {/* On a phone, four full-sentence chips are most of the
-                    screen. When the deck is showing — i.e. this person
-                    already has somewhere to pick up — two is enough of a
-                    prompt, and the deck gets to be visible without a
-                    scroll. Desktop and first-time visitors keep all four. */}
-                {(isMobile && deckHasContent ? suggestions.slice(0, 2) : suggestions).map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
+              {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
+              <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 10, textAlign: "center", minHeight: 16 }}>
+                {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
               </div>
               {/* Commit 66 — the Home Deck replaces the loose stack of
                   cards that used to sit here. See HomeDeck. */}
@@ -12725,8 +12827,12 @@ function App() {
       )}
       {/* Commit 71 — see .cb-grain / .cb-vignette. Rendered near the end so
           they sit above the page but below modals and the consent gate. */}
-      <div className="cb-grain" aria-hidden="true" />
-      <div className="cb-vignette" aria-hidden="true" />
+      {/* Commit 82 — both texture layers now follow the Appearance >
+          Background animation setting. Someone who turns effects off was
+          still getting grain and a vignette over everything, which is not
+          what "off" means. */}
+      {animationMode !== "off" && <div className="cb-grain" aria-hidden="true" />}
+      {animationMode !== "off" && <div className="cb-vignette" aria-hidden="true" />}
       <ToastHost P={P} accent={accent} />
       {/* Commit 69 — rendered last so it sits above every other layer, and
           unconditionally blocking: no query runs, no data loads into view,
@@ -13614,7 +13720,10 @@ button, a, .cb-tap {
   z-index: 9998;
   pointer-events: none;
   contain: strict;
-  background: radial-gradient(ellipse 120% 90% at 50% 40%, transparent 40%, rgba(0,0,0,0.28) 100%);
+  /* Commit 82 — was 0.28, which crushed the corners hard enough that the
+     aurora behind the page read as flat: "the backgrounds are gone". A
+     vignette is meant to be felt, not seen. */
+  background: radial-gradient(ellipse 130% 100% at 50% 45%, transparent 55%, rgba(0,0,0,0.10) 100%);
 }
 /* On a light palette the same vignette reads as dirt rather than depth,
    so it lightens instead of darkening. */
