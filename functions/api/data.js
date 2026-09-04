@@ -157,6 +157,38 @@ const MAX_HISTORY_PER_USER = 500;
 const MAX_SOURCE_JSON_LEN = 20000;
 const MAX_TURNS_JSON_LEN = 500000;
 
+// Commit 74 — the founder's account.
+//
+// Driven entirely by the FOUNDER_EMAIL environment variable, never by a
+// hardcoded id and never by anything the client can send. The badge means
+// "this is the person who actually runs Cerebrum", so the only thing
+// allowed to confer it is a value the operator sets on the server. Anyone
+// who could claim it by editing a request would make it worthless.
+//
+// Idempotent: INSERT OR IGNORE, so the badges keep the timestamp of the
+// first time they were granted.
+async function ensureFounderBadges(env, userId, emailLower) {
+  const founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
+  if (!founderEmail || !emailLower || emailLower !== founderEmail) return false;
+  try {
+    for (const badge of ["founder", "verified"]) {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO accolades (id, user_id, badge_type, granted_at) VALUES (?, ?, ?, ?)"
+      ).bind(newId("acc"), userId, badge, Date.now()).run();
+    }
+  } catch {}
+  return true;
+}
+async function founderRow(env) {
+  const founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
+  if (!founderEmail) return null;
+  try {
+    return await env.DB.prepare(
+      "SELECT id, username, name, affiliation, degree, grad_year FROM users WHERE email_lower = ?"
+    ).bind(founderEmail).first();
+  } catch { return null; }
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
@@ -240,12 +272,16 @@ export async function onRequest(context) {
       // raise, so it's not being guessed at here.
       if (resource === "profile") {
         const row = await env.DB.prepare(
-          "SELECT id, email, username, name, affiliation, degree, grad_year, avatar_base64, terms_version, terms_accepted_at FROM users WHERE id = ?"
+          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, terms_version, terms_accepted_at FROM users WHERE id = ?"
         ).bind(user.id).first();
         if (!row) return new Response(JSON.stringify({ error: "Account not found." }), { status: 404, headers: cors });
         const followerCount = await env.DB.prepare(
           "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
         ).bind(user.id).first();
+        // Commit 74 — grant before reading, so the founder's badges exist
+        // the first time they open their own profile rather than needing a
+        // separate migration step.
+        const isFounder = await ensureFounderBadges(env, row.id, (row.email_lower || row.email || "").toLowerCase());
         const badgeRows = await env.DB.prepare(
           "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
         ).bind(user.id).all();
@@ -259,6 +295,7 @@ export async function onRequest(context) {
           // shouldn't lose a real acceptance.
           termsVersion: row.terms_version || null,
           termsAcceptedAt: row.terms_accepted_at || null,
+          isFounder,
         }), { status: 200, headers: cors });
       }
 
@@ -541,7 +578,37 @@ export async function onRequest(context) {
            LIMIT 8`
         ).bind(like).all();
         const hubs = (hubRows.results || []).map((h) => ({ name: h.affiliation, researcherCount: h.researcherCount || 0 }));
-        return new Response(JSON.stringify({ items, hubs }), { status: 200, headers: cors });
+
+        // Commit 74 — pin the founder to the top of Find People with an
+        // invitation to ask them something. A new user's biggest problem on
+        // an empty social graph is that there is nobody to talk to; the
+        // person who built the thing is a genuinely useful first contact,
+        // and unlike a suggested-follow algorithm this one is honest about
+        // who it is recommending and why.
+        let founder = null;
+        const fr = await founderRow(env);
+        if (fr && fr.id !== user.id) {
+          const fFollowers = await env.DB.prepare(
+            "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
+          ).bind(fr.id).first();
+          const fFollowing = await env.DB.prepare(
+            "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
+          ).bind(user.id, fr.id).first();
+          founder = {
+            id: fr.id, username: fr.username, name: fr.name || fr.username || "Founder",
+            affiliation: fr.affiliation || null, degree: fr.degree || null,
+            gradYear: fr.grad_year || null,
+            followers: (fFollowers && fFollowers.n) || 0,
+            isFollowing: !!fFollowing,
+            isFounder: true,
+            prompt: "Have a question for the owner?",
+          };
+          // Don't list them twice.
+          for (let i = items.length - 1; i >= 0; i--) {
+            if (items[i].id === fr.id) items.splice(i, 1);
+          }
+        }
+        return new Response(JSON.stringify({ items, hubs, founder }), { status: 200, headers: cors });
       }
       // One Hub's full roster — <InstitutionModal> loads this when opened,
       // either from a search result or a profile's affiliation link.
