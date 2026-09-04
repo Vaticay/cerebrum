@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "5.6.0";
+const APP_VERSION = "5.8.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1625,6 +1625,118 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
     </div>
   );
 }
+/* Commit 72 — real photography, with its credit attached.
+   ---------------------------------------------------------------------
+   Resolves a picture for a subject through /api/image, which tries the
+   operator's own licensed library, then open-access figures from the
+   actual papers, then NASA, Wikimedia Commons, Openverse, and finally
+   Unsplash/Pexels if a key is configured. See functions/api/image.js for
+   why that order.
+
+   Two rules this hook enforces on the client side:
+
+   1. An existing image always wins. If the item already came with a
+      picture from its own feed, no lookup happens at all — this is a
+      fallback for the surfaces that had nothing, not a replacement for
+      what already worked.
+
+   2. Nothing renders until the image has actually decoded. A broken URL
+      resolves to no picture rather than to a broken-image glyph, so the
+      generated cover stays as the floor and the card can never look
+      half-loaded. */
+function useResolvedImage(subject, existingUrl, category) {
+  const [resolved, setResolved] = useState(null);
+  useEffect(() => {
+    if (existingUrl || !subject) { setResolved(null); return; }
+    let cancelled = false;
+    const qs = new URLSearchParams({ q: String(subject).slice(0, 160) });
+    if (category) qs.set("category", category);
+    fetch(`/api/image?${qs.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d || !d.image || !d.image.url) return;
+        // Commit 73 — video skips the probe.
+        //
+        // This pre-decoded every result through `new Image()` so a dead URL
+        // could never render as a broken glyph. That is right for a still
+        // and completely wrong for a clip: an <img> cannot decode an mp4,
+        // so every video result failed the probe and was silently dropped.
+        // It survived my first test only because the test stub served the
+        // .mp4 with an image/png content type, which is exactly the kind of
+        // thing a stub will let you get away with and production will not.
+        //
+        // Video is handed straight to <video>, which reports its own
+        // failure through onError and falls back to the generated cover.
+        if (d.image.type === "video") { setResolved(d.image); return; }
+        const probe = new Image();
+        probe.onload = () => { if (!cancelled) setResolved(d.image); };
+        probe.onerror = () => {};
+        probe.src = d.image.url;
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [subject, existingUrl, category]);
+  return resolved;
+}
+
+/* The credit line. Non-negotiable for the CC-licensed sources — Commons
+   and Openverse images are free to use precisely BECAUSE they are
+   attributed, and an image whose licence the API couldn't state is never
+   returned in the first place (see image.js). Small, over the scrim, and
+   linked to the original. */
+/* Commit 73 — one component for "the visual on a card", whether that
+   visual turned out to be a photograph or a clip.
+   ---------------------------------------------------------------------
+   Video is muted, looping, playsInline and autoPlay, which is the only
+   combination browsers will start without a click. It carries the poster
+   frame when the source gave us one, so the card is never blank while the
+   clip buffers, and it honours prefers-reduced-motion by showing the
+   poster and not playing at all — a card that moves is a nice touch, a
+   card that moves at someone who asked their OS for no motion is not. */
+function CardMedia({ media, alt = "", onReady, onFail }) {
+  const reduce = cbMotionOff();
+  if (!media || !media.url) return null;
+  const common = {
+    style: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+    "aria-hidden": true,
+  };
+  if (media.type === "video") {
+    if (reduce && media.poster) {
+      return <img src={media.poster} alt={alt} loading="lazy" onLoad={onReady} onError={onFail} {...common} />;
+    }
+    return (
+      <video
+        src={media.url}
+        poster={media.poster || undefined}
+        autoPlay={!reduce} muted loop playsInline preload="metadata"
+        onLoadedData={onReady} onError={onFail}
+        {...common}
+      />
+    );
+  }
+  return <img src={media.url} alt={alt} loading="lazy" onLoad={onReady} onError={onFail} {...common} />;
+}
+
+function ImageCredit({ image, style }) {
+  if (!image || (!image.credit && !image.license)) return null;
+  const text = [image.credit, image.license].filter(Boolean).join(" · ");
+  const body = (
+    <span style={{
+      fontSize: 9.5, lineHeight: 1.3, color: "rgba(255,255,255,0.62)",
+      fontFamily: "var(--cb-mono)", textDecoration: "none",
+      maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      display: "block",
+    }}>{text}</span>
+  );
+  return (
+    <div style={{ position: "absolute", right: 10, bottom: 6, maxWidth: "72%", pointerEvents: "auto", ...style }}>
+      {image.creditUrl
+        ? <a href={image.creditUrl} target="_blank" rel="noopener noreferrer nofollow" title={text} style={{ textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>{body}</a>
+        : body}
+    </div>
+  );
+}
+
 function DailyScience({ P, accent, at, onAsk, deck = false }) {
   const [item, setItem] = useState(null);
   const [streak, setStreak] = useState(() => readStreak());
@@ -1660,7 +1772,12 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
     return () => { cancelled = true; window.removeEventListener("focus", onFocus); };
   }, []);
   useEffect(() => { setImgOk(false); }, [item && item.image_url]);
+  // Commit 72 — when the feed didn't supply a picture, go and find one.
+  const found = useResolvedImage(item && !item.image_url ? item.title : "", item && item.image_url, item && item.category);
   if (!item) return null;
+  // Commit 73 — a photograph if the feed had one, otherwise whatever the
+  // resolver found, which may be a still or a short clip.
+  const heroMedia = item.image_url ? { url: item.image_url, type: "image" } : found;
   const ask = () => onAsk(`Explain the science behind: ${String(item.title).slice(0, 160)}`);
   const shell = deck
     ? { width: "100%", textAlign: "left", borderRadius: 14, minWidth: 0, overflow: "hidden",
@@ -1684,12 +1801,11 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
           grew to ~400px tall and swallowed the card. A fixed height is
           deterministic at every card width. */}
       <div style={{ position: "relative", width: "100%", height: deck ? 176 : 148, flex: "0 0 auto", overflow: "hidden", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" }}>
-        {item.image_url && (
-          <img src={item.image_url} alt="" aria-hidden="true" loading="lazy"
-            onLoad={() => setImgOk(true)} onError={() => setImgOk(false)}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgOk ? 1 : 0, transition: "opacity 0.5s ease" }} />
-        )}
+        <div style={{ position: "absolute", inset: 0, opacity: imgOk ? 1 : 0, transition: "opacity 0.5s ease" }}>
+          <CardMedia media={heroMedia} onReady={() => setImgOk(true)} onFail={() => setImgOk(false)} />
+        </div>
         {!imgOk && <TrendCover item={item} P={P} />}
+        {imgOk && !item.image_url && <ImageCredit image={found} style={{ bottom: 34 }} />}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.05) 0%, transparent 35%, rgba(0,0,0,0.72) 100%)" }} />
         <div style={{ position: "absolute", left: 15, right: 15, bottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{
@@ -5005,7 +5121,13 @@ function TrendCover({ item, P, radius = 0 }) {
 }
 
 function TrendingHero({ P, accent, item, onExpand }) {
+  // Commit 72 — same resolver as TrendingCard. The hero is the biggest
+  // thing on the Trending page; a generated initials cover there is the
+  // single most template-looking element in the app.
+  const found = useResolvedImage(item.image_url ? "" : item.title, item.image_url, item.category);
+  const media = item.image_url ? { url: item.image_url, type: "image" } : found;
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
+  useEffect(() => { if (media && media.url) setImgStatus("loading"); }, [media && media.url]);
   return (
     <button
       type="button" onClick={() => onExpand(item)}
@@ -5017,11 +5139,13 @@ function TrendingHero({ P, accent, item, onExpand }) {
       }}
       className="cb-trend-hero"
     >
-      {imgStatus !== "error" && (
-        <img src={item.image_url} alt="" aria-hidden="true" loading="eager" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.5s ease" }} />
+      {media && media.url && imgStatus !== "error" && (
+        <div style={{ position: "absolute", inset: 0, opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.5s ease" }}>
+          <CardMedia media={media} onReady={() => setImgStatus("ready")} onFail={() => setImgStatus("error")} />
+        </div>
       )}
       {imgStatus !== "ready" && <TrendCover item={item} P={P} />}
+      {imgStatus === "ready" && !item.image_url && <ImageCredit image={found} />}
       {/* Always-on scrim (not opacity-gated to imgStatus) so the headline
           stays legible over the placeholder background too, not just once
           a real photo loads. */}
@@ -5045,7 +5169,15 @@ function TrendingHero({ P, accent, item, onExpand }) {
 }
 
 function TrendingCard({ P, accent, at, item, onExpand }) {
+  // Commit 72 — "there's like no photo being imported for thumbnails
+  // except for NASA" was reported back in Commit 62 and only half-solved
+  // then, by adding a generated cover. A generated cover is a floor, not a
+  // fix; this goes and finds a real, licensed picture for the ones the
+  // upstream feed left bare. See useResolvedImage / functions/api/image.js.
+  const found = useResolvedImage(item.image_url ? "" : item.title, item.image_url, item.category);
+  const media = item.image_url ? { url: item.image_url, type: "image" } : found;
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
+  useEffect(() => { if (media && media.url) setImgStatus("loading"); }, [media && media.url]);
   return (
     <button
       type="button" onClick={() => onExpand(item)}
@@ -5058,11 +5190,13 @@ function TrendingCard({ P, accent, at, item, onExpand }) {
       className="cb-trend-card"
     >
       <div style={{ position: "relative", aspectRatio: "16/10", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0 }}>
-        {imgStatus !== "error" && (
-          <img src={item.image_url} alt="" aria-hidden="true" loading="lazy" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }} />
+        {media && media.url && imgStatus !== "error" && (
+          <div style={{ position: "absolute", inset: 0, opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }}>
+            <CardMedia media={media} onReady={() => setImgStatus("ready")} onFail={() => setImgStatus("error")} />
+          </div>
         )}
         {imgStatus !== "ready" && <TrendCover item={item} P={P} />}
+        {imgStatus === "ready" && !item.image_url && <ImageCredit image={found} />}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />
         {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-mono)" }}>{item.source}</span>}
       </div>
@@ -7366,9 +7500,60 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
 // showing a badge nobody has actually earned). An unrecognized badge_type
 // is skipped, not guessed at, so a future badge type shows nothing instead
 // of broken chrome until this map is updated to know about it.
+/* Commit 74 — badges.
+
+   `verified` is a blue check and it means one specific, checkable thing:
+   the server matched this account's email against FOUNDER_EMAIL, an
+   environment variable only the operator can set. It is not for sale, it
+   cannot be requested, and no client-side value can produce it. A check
+   mark that anyone can obtain is decoration; this one is a fact.
+
+   `founder` is the same grant, said in words rather than a glyph. */
 const BADGE_DISPLAY = {
+  founder: { label: "Founder & Owner", icon: "sparkle", tint: "#c9a227" },
+  verified: { label: "Verified", icon: "check", tint: "#2f7fe6" },
   early_adopter: { label: "Early adopter", icon: "zap", tint: "#b45309" },
 };
+// Sort order for a profile's badge row: identity first, achievements after.
+const BADGE_ORDER = ["founder", "verified", "early_adopter"];
+
+/* The blue check. Its own component because it appears inline next to a
+   name in five different places, and a check that renders slightly
+   differently in each of them reads as a sticker rather than a system
+   mark. */
+function VerifiedCheck({ size = 15, title = "Verified — the owner of Cerebrum" }) {
+  return (
+    <span title={title} aria-label={title} role="img" style={{ display: "inline-flex", flexShrink: 0, verticalAlign: "middle" }}>
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="#2f7fe6" d="M12 1.6l2.6 2.05 3.3-.2.55 3.27 2.85 1.68-1.3 3.05 1.3 3.05-2.85 1.68-.55 3.27-3.3-.2L12 22.4l-2.6-2.05-3.3.2-.55-3.27L2.7 15.6 4 12.55 2.7 9.5l2.85-1.68.55-3.27 3.3.2z" />
+        <path fill="#fff" d="M10.9 15.4l-3-3 1.2-1.2 1.8 1.8 4.1-4.1 1.2 1.2z" />
+      </svg>
+    </span>
+  );
+}
+
+/* The founder's avatar frame. A rotating conic ring rather than a static
+   border: it is the one place in the app where a little ceremony is the
+   point, and it makes the account visually unmistakable in a list without
+   inventing a number to do it. */
+function FounderFrame({ size = 96, children, accent }) {
+  return (
+    <span className="cb-founder-frame" style={{
+      position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center",
+      width: size + 10, height: size + 10, borderRadius: "50%", flexShrink: 0,
+    }}>
+      <span aria-hidden="true" className="cb-founder-ring" style={{
+        position: "absolute", inset: 0, borderRadius: "50%",
+        background: "conic-gradient(from 0deg, #c9a227, #f4e2a1, #2f7fe6, #c9a227)",
+      }} />
+      <span aria-hidden="true" style={{
+        position: "absolute", inset: 3, borderRadius: "50%",
+        background: "var(--cb-bg, #0b0d0e)",
+      }} />
+      <span style={{ position: "relative", display: "inline-flex" }}>{children}</span>
+    </span>
+  );
+}
 
 // Reference list of universities for the affiliation field's filter-as-you-
 // type suggestions below — command-palette-style, not a live institution
@@ -7612,9 +7797,16 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     }
   }
   const followers = profileMeta?.followers || 0;
+  // Commit 74 — identity badges first, then achievements, then the plain
+  // "you are signed in" note last. It was leading with "Verified sign-in",
+  // which is the least interesting true thing about anybody.
+  const rawBadges = profileMeta?.badges || [];
+  const isFounder = rawBadges.includes("founder");
+  const isVerified = rawBadges.includes("verified");
   const badges = [
+    ...BADGE_ORDER.filter((k) => rawBadges.includes(k)).map((k) => BADGE_DISPLAY[k]),
+    ...rawBadges.filter((k) => !BADGE_ORDER.includes(k)).map((k) => BADGE_DISPLAY[k]).filter(Boolean),
     { label: "Verified sign-in", icon: "check", real: true },
-    ...(profileMeta?.badges || []).map((bt) => BADGE_DISPLAY[bt]).filter(Boolean),
   ];
 
   // Affiliation command-palette: filters UNIVERSITIES against whatever is
@@ -7676,7 +7868,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         }}>
         {/* Roster info: overlapping avatar + identity + institution crest */}
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 20, marginTop: isMobile ? -46 : -64, marginBottom: 24 }}>
-          <div style={{ position: "relative", width: isMobile ? 92 : 120, height: isMobile ? 92 : 120, flexShrink: 0 }}>
+          <div className={isFounder ? "cb-founder-avatar" : undefined} style={{ position: "relative", width: isMobile ? 92 : 120, height: isMobile ? 92 : 120, flexShrink: 0 }}>
             {/* Commit 54: the fallback is now the DEFAULT, not the error
                 path. This used to request a generated avatar from an
                 external service (api.dicebear.com) on every profile view,
@@ -7733,11 +7925,29 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </div>
 
           <div style={{ flex: 1, minWidth: 220, paddingBottom: 4 }}>
+            {/* Commit 74 — the founder's line. Said in words, once, where a
+                visitor is already reading the name. */}
+            {isFounder && (
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 8,
+                padding: "4px 12px", borderRadius: 100,
+                background: "linear-gradient(90deg, rgba(201,162,39,0.20), rgba(47,127,230,0.16))",
+                border: "1px solid rgba(201,162,39,0.45)",
+                fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.02em",
+                color: P.dark ? "#f0d98a" : "#8a6d12",
+              }}>
+                <Icon name="sparkle" size={13} /> Founder &amp; Owner of Cerebrum
+              </div>
+            )}
             {!editing ? (
               <div style={{
                 fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700,
                 color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
-              }}>{displayName}</div>
+                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+              }}>
+                {displayName}
+                {isVerified && <VerifiedCheck size={isMobile ? 20 : 26} />}
+              </div>
             ) : (
             <input
               value={profile.name || ""}
@@ -7992,6 +8202,8 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [hubs, setHubs] = useState([]);
+  // Commit 74 — the founder, pinned. See search-users in data.js.
+  const [founder, setFounder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [followBusy, setFollowBusy] = useState(() => new Set());
   const [messageBusy, setMessageBusy] = useState(() => new Set());
@@ -8018,6 +8230,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
       setLoading(false);
       setResults(data && Array.isArray(data.items) ? data.items : []);
       setHubs(data && Array.isArray(data.hubs) ? data.hubs : []);
+      setFounder((data && data.founder) || null);
     }, 300);
     return () => clearTimeout(searchTimer.current);
   }, [query]);
@@ -8093,6 +8306,50 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
           )}
           {trimmed.length >= 2 && !loading && results.length === 0 && hubs.length === 0 && (
             <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Nothing matches that search.</div>
+          )}
+          {/* Commit 74 — the founder's card, pinned above everything.
+              A new account lands on an empty social graph with nobody to
+              talk to. The person who built the thing is a genuinely useful
+              first contact, and unlike a suggested-follow algorithm this
+              card is honest about exactly who it is recommending and why. */}
+          {founder && (
+            <div className="cb-founder-card" style={{
+              marginBottom: 10, padding: "14px 15px", borderRadius: 14,
+              background: "linear-gradient(135deg, rgba(201,162,39,0.10), rgba(47,127,230,0.08))",
+              border: "1px solid rgba(201,162,39,0.35)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <FounderFrame size={42} accent={accent}>
+                  <span style={{
+                    width: 42, height: 42, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                    background: withAlpha(accent, 0.2), color: accent, fontWeight: 700, fontFamily: "var(--cb-mono)", fontSize: 17,
+                  }}>{(founder.name || "?").trim().charAt(0).toUpperCase()}</span>
+                </FounderFrame>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{founder.name}</span>
+                    <VerifiedCheck size={15} />
+                  </div>
+                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+                    @{founder.username} · Founder &amp; Owner
+                  </div>
+                </div>
+              </div>
+              <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5, margin: "11px 0 12px" }}>
+                {founder.prompt || "Have a question for the owner?"} Send a message — it goes straight to the person who builds this.
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => messageResearcher(founder)} disabled={messageBusy.has(founder.id)} className="cb-press" style={{
+                  padding: "8px 16px", borderRadius: 100, border: "none", cursor: "pointer",
+                  background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
+                }}>{messageBusy.has(founder.id) ? "Opening…" : "Ask a question"}</button>
+                <button onClick={() => toggleFollow(founder)} disabled={followBusy.has(founder.id)} className="cb-press" style={{
+                  padding: "8px 16px", borderRadius: 100, cursor: "pointer",
+                  background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
+                  fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+                }}>{founder.isFollowing ? "Following" : "Follow"}</button>
+              </div>
+            </div>
           )}
           {hubs.length > 0 && (
             <div style={{ marginBottom: 4 }}>
@@ -12968,6 +13225,37 @@ button, a, .cb-tap {
 }
 @media (prefers-reduced-transparency: reduce) {
   .cb-grain, .cb-vignette { display: none; }
+}
+
+
+/* ── Commit 74: the founder's frame ──
+   A slowly rotating conic ring around the avatar. Slow on purpose — 12
+   seconds, so it reads as a sheen catching the light rather than a
+   spinner, which would say "loading" instead of "this is the owner".
+   Honours reduced motion by simply not turning; the gradient ring is still
+   there and still unmistakable. */
+.cb-founder-ring { animation: cbFounderSpin 12s linear infinite; }
+@keyframes cbFounderSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cb-founder-ring { animation: none; } }
+
+/* The profile avatar's own frame: a gradient halo drawn behind the
+   existing photo/initial rather than replacing it, so nothing about the
+   upload flow changes. */
+.cb-founder-avatar::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, #c9a227, #f4e2a1, #2f7fe6, #c9a227);
+  animation: cbFounderSpin 12s linear infinite;
+  z-index: -1;
+}
+@media (prefers-reduced-motion: reduce) { .cb-founder-avatar::before { animation: none; } }
+
+.cb-founder-card { transition: border-color 0.3s ease, box-shadow 0.3s ease; }
+.cb-founder-card:hover {
+  border-color: rgba(201,162,39,0.6);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 14px 36px rgba(0,0,0,0.16);
 }
 
 `;
