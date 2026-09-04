@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "5.5.1";
+const APP_VERSION = "5.6.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1216,14 +1216,11 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
   };
   return (
     <div className={deck ? "cb-card cb-deck-card" : undefined} style={shell}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 11, flexWrap: "wrap" }}>
-        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Your watched topics</span>
-        {withNew.length > 0 && (
-          <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
-            {withNew.length} with new work
-          </span>
-        )}
-      </div>
+      <DeckLabel P={P} accent={accent} extra={withNew.length > 0 ? (
+        <span style={{ marginLeft: "auto", color: accent, fontWeight: 600 }}>
+          {withNew.length} with new work
+        </span>
+      ) : null}>Topics you're watching</DeckLabel>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         {/* In the deck a card is one grid cell among several — a 40-row
             watchlist would stretch the whole row. Show the four freshest and
@@ -1339,31 +1336,54 @@ function DeckStat({ label, shortLabel, value, accent, P, isMobile, suffix = "" }
         fontSize: FONT_SIZES.subhead, fontWeight: 700, color: value > 0 ? P.ink : P.faint,
         fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
       }}>{n}{suffix}</span>
+      {/* Commit 71 — was uppercase mono with wide tracking, matching the
+          four shouted card eyebrows above it. Sentence case in the body
+          face: the NUMBER is the thing worth seeing here, and a label
+          competing with it for attention just makes the row noisy. */}
       <span style={{
-        fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)",
-        letterSpacing: isMobile ? "0.05em" : "0.08em", textTransform: "uppercase",
-        lineHeight: 1.3,
+        fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)",
+        letterSpacing: "0.01em", lineHeight: 1.35, fontWeight: 500,
       }}>{isMobile ? (shortLabel || label) : label}</span>
     </div>
   );
 }
 
-function DeckCard({ P, accent, label, children, className = "" }) {
+/* Commit 71 — the eyebrow, rebuilt.
+   Every card on this deck carried the same tiny uppercase monospace label
+   in the accent colour: QUESTIONS ASKED, PICK UP WHERE YOU LEFT OFF,
+   MILESTONES, TODAY IN SCIENCE, YOUR WATCHED TOPICS. Five identical
+   shouted labels stacked down one screen is the single loudest "generated
+   dashboard" signal there is — it is what a template does when it has no
+   opinion about which thing matters most.
+
+   One small accent dot and sentence case in the body face instead. It
+   reads as a quiet section marker rather than a system log, and because
+   it is no longer visually screaming, real hierarchy (the question, the
+   headline, the photograph) can actually be seen. */
+function DeckLabel({ P, accent, children, extra }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
+      fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint,
+      fontFamily: "var(--cb-body)", letterSpacing: "0.01em", flexWrap: "wrap",
+    }}>
+      <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+      <span>{children}</span>
+      {extra}
+    </div>
+  );
+}
+
+function DeckCard({ P, accent, label, children, className = "", labelExtra, span }) {
   return (
     <div className={"cb-card cb-deck-card " + className} style={{
       display: "flex", flexDirection: "column", textAlign: "left",
-      padding: "16px 18px 15px", borderRadius: 14, minWidth: 0,
+      padding: "17px 19px 16px", borderRadius: 14, minWidth: 0,
       background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
       border: `1px solid ${P.line}`,
+      ...(span ? { gridColumn: span } : null),
     }}>
-      {label && (
-        <div style={{
-          fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent,
-          fontFamily: "var(--cb-mono)", letterSpacing: "0.09em",
-          textTransform: "uppercase", marginBottom: 11,
-          display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-        }}>{label}</div>
-      )}
+      {label && <DeckLabel P={P} accent={accent} extra={labelExtra}>{label}</DeckLabel>}
       {children}
     </div>
   );
@@ -1409,17 +1429,11 @@ function MilestoneCard({ P, accent, at, user, refreshKey, onOpenAll }) {
       background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
       border: `1px solid ${P.line}`,
     }}>
-      <div style={{
-        fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent,
-        fontFamily: "var(--cb-mono)", letterSpacing: "0.09em",
-        textTransform: "uppercase", marginBottom: 11,
-        display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-      }}>
-        <span>Milestones</span>
-        <span style={{ marginLeft: "auto", color: P.faint, letterSpacing: "0.05em" }}>
-          {data.earnedCount}/{data.total}
+      <DeckLabel P={P} accent={accent} extra={
+        <span style={{ marginLeft: "auto", fontFamily: "var(--cb-mono)" }}>
+          {data.earnedCount} of {data.total}
         </span>
-      </div>
+      }>How far you've got</DeckLabel>
 
       {next ? (
         <>
@@ -1441,7 +1455,10 @@ function MilestoneCard({ P, accent, at, user, refreshKey, onOpenAll }) {
         </div>
       )}
 
-      <div style={{ marginTop: "auto", paddingTop: 13, display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {/* Was marginTop:auto, which pinned the badges to the bottom of a
+          grid-stretched card and left a canyon of dead space in the middle
+          of it. They belong with the progress bar they relate to. */}
+      <div style={{ paddingTop: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
         {data.items.filter((i) => i.earned).slice(-6).map((i) => (
           <span key={i.key} title={`${i.label} — ${i.desc}`} style={{
             display: "inline-flex", alignItems: "center", gap: 5,
@@ -1476,9 +1493,26 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
   // with that predicts staying active, not being shown something new. So the
   // most recent unfinished investigation gets the most prominent card.
   const lastRun = history && history.length ? history[0] : null;
-  const lastQ = lastRun && lastRun.turns && lastRun.turns.length
-    ? lastRun.turns[lastRun.turns.length - 1].q
-    : (lastRun && lastRun.title) || "";
+  // Commit 71 — pick the last turn that is actually a question.
+  //
+  // This card is the largest thing on the screen and it was rendering
+  // whatever the final turn happened to be, which in a real session meant
+  // a headline that read, in full, "Saho". A stray keystroke, a
+  // half-typed name, an "ok" — any of them became the lead. Walk backwards
+  // to the most recent turn with real substance, and if the whole session
+  // is fragments, show nothing rather than something that looks broken.
+  const substantial = (q) => {
+    const t = String(q || "").trim();
+    return t.length >= 14 && /\s/.test(t);
+  };
+  const lastQ = (() => {
+    if (!lastRun) return "";
+    const turns = Array.isArray(lastRun.turns) ? lastRun.turns : [];
+    for (let i = turns.length - 1; i >= 0; i--) {
+      if (substantial(turns[i] && turns[i].q)) return turns[i].q;
+    }
+    return substantial(lastRun.title) ? lastRun.title : "";
+  })();
 
   // Papers saved but not looked at since the day they were saved. This is
   // the honest version of a "you have unread items" nudge: it's counted from
@@ -1530,32 +1564,40 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
         display: "grid", gap: 12,
         gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(310px, 1fr))",
       }}>
+        {/* Commit 71 — this is the lead, so it looks like the lead.
+            It was one of four identical boxes in an even grid, with the
+            question set at the same 13px as every caption around it. A
+            grid where nothing is bigger than anything else has made no
+            editorial decision, and a screen that has made no editorial
+            decision is exactly what "AI generated" looks like. It now
+            spans the full width and sets the question in the display face
+            at headline size — because the half-finished question you left
+            behind IS the most important thing on this screen. */}
         {lastQ && (
-          <DeckCard P={P} accent={accent} label="Pick up where you left off">
+          <DeckCard P={P} accent={accent} label="Where you left off" span={isMobile ? undefined : "1 / -1"}>
             <div style={{
-              fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45,
-              marginBottom: 12, display: "-webkit-box", WebkitLineClamp: 3,
+              fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
+              fontWeight: 600, color: P.ink, lineHeight: 1.28,
+              letterSpacing: "-0.02em", fontFamily: "var(--cb-display)",
+              marginBottom: 16, display: "-webkit-box", WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical", overflow: "hidden",
             }}>{lastQ}</div>
             <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Continue</DeckBtn>
-              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>All history</DeckBtn>
+              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Keep going</DeckBtn>
+              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>Everything else</DeckBtn>
             </div>
           </DeckCard>
         )}
 
         {revisit && (
-          <DeckCard P={P} accent={accent} label={
-            <>
-              <span>Saved, not revisited</span>
-              {stale.length > 1 && (
-                <span style={{
-                  padding: "2px 8px", borderRadius: 100, background: withAlpha(accent, 0.14),
-                  color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700,
-                }}>{stale.length}</span>
-              )}
-            </>
-          }>
+          <DeckCard P={P} accent={accent} label="Saved, still unread"
+            labelExtra={stale.length > 1 ? (
+              <span style={{
+                padding: "1px 7px", borderRadius: 100, background: withAlpha(accent, 0.14),
+                color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700,
+              }}>{stale.length}</span>
+            ) : null}
+          >
             <div style={{
               fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45,
               marginBottom: 4, display: "-webkit-box", WebkitLineClamp: 2,
@@ -1568,9 +1610,9 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
               <DeckBtn primary accent={accent} at={at} P={P}
                 onClick={() => onAsk(`What are the key findings and limitations of "${String(revisit.title).slice(0, 140)}"?`)}>
-                Dig into this
+                Break it down
               </DeckBtn>
-              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenSaved}>All saved</DeckBtn>
+              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenSaved}>Your library</DeckBtn>
             </div>
           </DeckCard>
         )}
@@ -1586,6 +1628,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 function DailyScience({ P, accent, at, onAsk, deck = false }) {
   const [item, setItem] = useState(null);
   const [streak, setStreak] = useState(() => readStreak());
+  const [imgOk, setImgOk] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/trending").then((r) => r.json()).then((d) => {
@@ -1604,47 +1647,81 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
       const cats = Array.from(new Set(items.map((x) => x.category).filter(Boolean)));
       const pool = cats.length ? items.filter((x) => x.category === cats[day % cats.length]) : items;
       const chosen = pool.length ? pool : items;
-      setItem(chosen[day % chosen.length]);
+      // Commit 71 — among the day's candidates, prefer one that has a
+      // photograph. The card is now a picture card, and the whole reason
+      // this screen felt machine-made was that it had no images anywhere
+      // while the Trending feed was already carrying good ones.
+      const withImage = chosen.filter((x) => x.image_url);
+      const finalPool = withImage.length ? withImage : chosen;
+      setItem(finalPool[day % finalPool.length]);
     }).catch(() => {});
     const onFocus = () => setStreak(readStreak());
     window.addEventListener("focus", onFocus);
     return () => { cancelled = true; window.removeEventListener("focus", onFocus); };
   }, []);
+  useEffect(() => { setImgOk(false); }, [item && item.image_url]);
   if (!item) return null;
   const ask = () => onAsk(`Explain the science behind: ${String(item.title).slice(0, 160)}`);
-  // Commit 66 — in `deck` mode this is a cell in the Home Deck's grid and
-  // must fill it; standalone it keeps its own width and top margin.
   const shell = deck
-    ? { width: "100%", textAlign: "left", padding: "16px 18px 15px", borderRadius: 14, minWidth: 0,
+    ? { width: "100%", textAlign: "left", borderRadius: 14, minWidth: 0, overflow: "hidden",
         display: "flex", flexDirection: "column",
         background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
         border: `1px solid ${P.line}` }
-    : { marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left",
-        padding: "16px 18px", borderRadius: 14,
+    : { marginTop: 28, width: "100%", maxWidth: 700, textAlign: "left", overflow: "hidden",
+        borderRadius: 14,
         background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
         border: `1px solid ${P.line}` };
   return (
     <div className={deck ? "cb-card cb-deck-card" : undefined} style={shell}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", letterSpacing: "0.09em", textTransform: "uppercase" }}>Today in science</span>
-        {streak.days > 1 && (
-          <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
-            {streak.days}-day streak
-          </span>
+      {/* Commit 71 — the photograph. Falls back to TrendCover's generated
+          cover (initials on a category-coloured field) when the item has no
+          image or the image fails, so the card never collapses to a grey
+          box — but a real picture is the default, and it is what stops this
+          screen reading as a template. */}
+      {/* An explicit height, not aspect-ratio. In a CSS grid the cards are
+          stretched to the tallest in their row, and an aspect-ratio box
+          inside a stretched flex column loses the argument — the picture
+          grew to ~400px tall and swallowed the card. A fixed height is
+          deterministic at every card width. */}
+      <div style={{ position: "relative", width: "100%", height: deck ? 176 : 148, flex: "0 0 auto", overflow: "hidden", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" }}>
+        {item.image_url && (
+          <img src={item.image_url} alt="" aria-hidden="true" loading="lazy"
+            onLoad={() => setImgOk(true)} onError={() => setImgOk(false)}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgOk ? 1 : 0, transition: "opacity 0.5s ease" }} />
         )}
+        {!imgOk && <TrendCover item={item} P={P} />}
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.05) 0%, transparent 35%, rgba(0,0,0,0.72) 100%)" }} />
+        <div style={{ position: "absolute", left: 15, right: 15, bottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{
+            padding: "3px 9px", borderRadius: 100, background: "rgba(255,255,255,0.16)",
+            backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+            color: "#fff", fontSize: FONT_SIZES.micro, fontWeight: 600,
+          }}>Today in science</span>
+          {item.category && (
+            <span style={{ color: "rgba(255,255,255,0.72)", fontSize: FONT_SIZES.micro, fontWeight: 600 }}>{item.category}</span>
+          )}
+          {streak.days > 1 && (
+            <span style={{ marginLeft: "auto", color: "rgba(255,255,255,0.72)", fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)" }}>
+              {streak.days}-day streak
+            </span>
+          )}
+        </div>
       </div>
-      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.5, marginBottom: 12, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.title}</div>
-      <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button onClick={ask} style={{
-          padding: "8px 16px", borderRadius: 100, border: "none", cursor: "pointer",
-          background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
-        }}>Explain this</button>
-        {item.url && (
-          <a href={item.url} target="_blank" rel="noopener noreferrer" style={{
-            padding: "8px 16px", borderRadius: 100, textDecoration: "none",
-            border: `1px solid ${P.line2}`, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
-          }}>Read source</a>
-        )}
+      <div style={{ padding: "14px 18px 16px", display: "flex", flexDirection: "column", flex: 1 }}>
+        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45, marginBottom: 13, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.title}</div>
+        <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={ask} className="cb-deck-btn" style={{
+            padding: "7px 15px", borderRadius: 100, border: "1px solid transparent", cursor: "pointer",
+            background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
+          }}>What's going on here?</button>
+          {item.url && (
+            <a href={item.url} target="_blank" rel="noopener noreferrer" className="cb-deck-btn" style={{
+              padding: "7px 15px", borderRadius: 100, textDecoration: "none",
+              border: `1px solid ${P.line2}`, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
+              display: "inline-flex", alignItems: "center",
+            }}>Read the source</a>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -11681,7 +11758,7 @@ function App() {
               {/* The tagline explains what Cerebrum is. Someone with a
                   watchlist and eleven saved papers has worked that out. */}
               {deckHasContent ? (
-                <p style={{ ...S.heroSub, ...S.heroSubCompact }}>Ask anything, or pick up below.</p>
+                <p style={{ ...S.heroSub, ...S.heroSubCompact }}>Pick up where you were, or start something new.</p>
               ) : (
                 <p style={S.heroSub}>Ask a real research question. We'll dig through the actual literature and give you a straight answer — every citation checkable, nothing invented.</p>
               )}
@@ -12004,6 +12081,10 @@ function App() {
           onClose={() => setActiveHuddle(null)}
         />
       )}
+      {/* Commit 71 — see .cb-grain / .cb-vignette. Rendered near the end so
+          they sit above the page but below modals and the consent gate. */}
+      <div className="cb-grain" aria-hidden="true" />
+      <div className="cb-vignette" aria-hidden="true" />
       <ToastHost P={P} accent={accent} />
       {/* Commit 69 — rendered last so it sits above every other layer, and
           unconditionally blocking: no query runs, no data loads into view,
@@ -12845,6 +12926,49 @@ button, a, .cb-tap {
   background: color-mix(in srgb, var(--cb-accent, #34d399) 6%, transparent);
 }
 .cb-row:hover::before { transform: scaleY(1); }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Commit 71 — texture.
+
+   The single strongest "this was generated" tell in a dark UI is that it
+   is perfectly, mathematically clean: flat fills, mathematically smooth
+   gradients, not one pixel of noise anywhere. Real screens photographed,
+   real print, real film all have grain, and the eye reads its absence as
+   synthetic long before it can say why.
+
+   This is a fixed, non-interactive film-grain layer at very low opacity
+   over the whole app, plus a soft vignette that stops the corners from
+   being the same value as the centre. Both are inline SVG turbulence and
+   a radial gradient — no image request, no bytes over the wire, no
+   layout cost. pointer-events:none so it can never eat a click.
+   ══════════════════════════════════════════════════════════════════ */
+.cb-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 160px 160px;
+}
+.cb-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: radial-gradient(ellipse 120% 90% at 50% 40%, transparent 40%, rgba(0,0,0,0.28) 100%);
+}
+/* On a light palette the same vignette reads as dirt rather than depth,
+   so it lightens instead of darkening. */
+:root[data-cb-light] .cb-vignette {
+  background: radial-gradient(ellipse 120% 90% at 50% 40%, transparent 45%, rgba(0,0,0,0.06) 100%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cb-grain, .cb-vignette { display: none; }
+}
 
 `;
 
