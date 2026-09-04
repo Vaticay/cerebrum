@@ -301,6 +301,14 @@ export async function ensureUserProfileColumns(env) {
     // account row is the durable record: if it is ever necessary to show
     // that a specific user accepted a specific version at a specific time,
     // this is the column that can show it.
+    // Commit 75 — real profile customization. A profile with a name, an
+    // avatar and an institution is an account record; a bio, a chosen
+    // cover and a link to your actual work is a profile.
+    "ALTER TABLE users ADD COLUMN bio TEXT",
+    "ALTER TABLE users ADD COLUMN cover TEXT",
+    "ALTER TABLE users ADD COLUMN link_site TEXT",
+    "ALTER TABLE users ADD COLUMN link_orcid TEXT",
+    "ALTER TABLE users ADD COLUMN link_scholar TEXT",
     "ALTER TABLE users ADD COLUMN terms_version TEXT",
     "ALTER TABLE users ADD COLUMN terms_accepted_at INTEGER",
   ];
