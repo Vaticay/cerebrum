@@ -5803,7 +5803,7 @@ const CEREBRUM_PERSONA = `You are Cerebrum — a free scientific literature sear
 
 IDENTITY:
 - Built by Vaticay (a 21-year-old developer from Knoxville, TN)
-- You search 14 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, and OpenAIRE (medRxiv is additionally used for direct author lookups)
+- You search 15 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, and OpenAIRE (medRxiv is additionally used for direct author lookups)
 - You use free-tier AI models (DeepSeek, Gemini Flash, Llama, Qwen, Mistral) — you race them and take the fastest good response
 - You mechanically strip any citation the AI fabricates — no fake DOIs ever
 - You have no account system, no ads, no paywall, no subscription
@@ -6077,6 +6077,11 @@ export async function onRequest(context) {
 
     const settings = body.settings || {};
     const answerLength = settings.answerLength || "medium";
+    // Commit 83 — the instrument's operations. See MODE_STRUCTURES.
+    // Anything unrecognized falls back to the default synthesis, so an old
+    // client or a hand-rolled request behaves exactly as before.
+    const ALLOWED_MODES = ["explain", "verify", "compare", "map", "readinglist"];
+    const mode = ALLOWED_MODES.includes(body.mode) ? body.mode : "explain";
     // Bumped from 800/1500/3000: the four-section STRUCTURE format (Core
     // Synthesis + Evidence & Mechanisms + Divergent Findings & Gaps +
     // Methodological Confidence) plus per-claim citations routinely ran past
@@ -7287,6 +7292,60 @@ export async function onRequest(context) {
     // for divergent/contradicting findings now, not just open questions —
     // its new title promises that in the guided tour, so it has to do that
     // rather than just having the right name on the same old content.
+    /* Commit 83 — MODES: the change that stops this being a chatbot.
+       ---------------------------------------------------------------
+       A chatbot has one output shape: you ask, it writes prose. An
+       instrument has operations, and each operation produces a different
+       KIND of thing. These modes are that difference, and they are real —
+       each one swaps the enforced section contract the model must fill,
+       so "compare two claims" genuinely returns a comparison and not an
+       essay that happens to mention two claims.
+
+       `explain` is the original four-section synthesis and stays the
+       default, so nothing about the plain search box changes. */
+    const MODE_STRUCTURES = {
+      verify:
+        "Format the ENTIRE answer as exactly these four Markdown H2 sections, in this order, verbatim:\n\n" +
+        "## The verdict\n" +
+        "Open with a direct judgement in the first sentence: supported, contradicted, mixed, or too thin to say. " +
+        "Never hedge in the opening line — the reader came for a ruling, and 'it depends' as an opener is a refusal. " +
+        "If the claim contains a false premise, say so plainly before anything else.\n\n" +
+        "## What supports it\n" +
+        "The strongest evidence FOR, with study design and size where the abstract gives them. If nothing supports it, say that in one line.\n\n" +
+        "## What argues against it\n" +
+        "The strongest evidence AGAINST, same treatment. If the literature is one-sided, say so — do not manufacture balance.\n\n" +
+        "## How confident to be\n" +
+        "What would have to be true for the verdict to flip, and what evidence is missing.\n",
+      compare:
+        "The user is comparing two things. Format as exactly these four Markdown H2 sections, verbatim:\n\n" +
+        "## Side by side\n" +
+        "State each position in one sentence each, in the terms its own proponents would use. Be fair to both.\n\n" +
+        "## Where they actually differ\n" +
+        "The real point of disagreement — often narrower than it looks. Separate genuine empirical disagreement from differences in definition or scope.\n\n" +
+        "## What the evidence says about each\n" +
+        "Weight of evidence on each side, with study size and date where known.\n\n" +
+        "## What would settle it\n" +
+        "The experiment, dataset or observation that would actually decide it.\n",
+      map:
+        "The user wants the SHAPE of a field, not an answer to a question. Format as exactly these four Markdown H2 sections, verbatim:\n\n" +
+        "## The landscape\n" +
+        "What this field is about and roughly how settled it is, in a short paragraph.\n\n" +
+        "## The major lines of work\n" +
+        "The distinct research programmes or schools within it, named, with who is doing them where the papers say so.\n\n" +
+        "## What is still open\n" +
+        "The live questions. Be specific — 'more research is needed' is not an open question.\n\n" +
+        "## Where to start reading\n" +
+        "Three to five papers in the order you would read them, and one line each on why that one.\n",
+      readinglist:
+        "The user wants a reading list. Format as exactly these three Markdown H2 sections, verbatim:\n\n" +
+        "## Start here\n" +
+        "Two or three papers that give the grounding, each as a bullet: title, then one sentence on what it gives you.\n\n" +
+        "## Then these\n" +
+        "The core papers, same bullet format, ordered so each one builds on the last.\n\n" +
+        "## If you go deeper\n" +
+        "Specialist or methodological papers, same format. If the retrieved literature cannot support a real list, say so rather than padding it.\n",
+    };
+
     const STRUCTURE =
       "═══ REQUIRED OUTPUT STRUCTURE (HARD-ENFORCED) ═══\n" +
       "Format the ENTIRE answer as exactly these four Markdown H2 sections, in this exact order, with these exact headers " +
@@ -7315,7 +7374,16 @@ export async function onRequest(context) {
       "## How solid is this?\n" +
       "Your actual confidence in the answer above and why — sample sizes, study designs (in vitro vs in vivo vs clinical), replication status, conflicting results, or papers too tangential to use. Be concrete, not a generic disclaimer.\n\n";
 
-    const ID = "You are Cerebrum, a scientific research engine. You search 14 open scholarly databases simultaneously and write cited, synthesis-grade answers. " +
+
+    /* One line, and it is the whole difference between a chatbot and an
+       instrument: which contract the model has to fill. */
+    const ACTIVE_STRUCTURE = MODE_STRUCTURES[mode]
+      ? "═══ REQUIRED OUTPUT STRUCTURE (HARD-ENFORCED) ═══\n" + MODE_STRUCTURES[mode] +
+        "\nEvery header MUST sit on its own line with a blank line before and after it. " +
+        "No extra sections, no renaming, nothing before the first header.\n\n"
+      : STRUCTURE;
+
+    const ID = "You are Cerebrum, a scientific research engine. You search 15 open scholarly databases simultaneously and write cited, synthesis-grade answers. " +
       "You were built by Vaticay. You are not a general assistant — you are a precision instrument for scientific literature. " +
       "ALWAYS respond in English regardless of the language of the source papers.\n\n";
 
@@ -7383,9 +7451,9 @@ export async function onRequest(context) {
         "Group related papers together thematically. Bold the paper topics. " +
         "End with a one-sentence synthesis of what these additional sources add to the picture.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
     } else if (useEvidence && speciesSearch) {
-      systemPrompt = ID + PERSONALITY + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
+      systemPrompt = ID + PERSONALITY + "Question is about species: **" + speciesSearch.full + "**. Talk about THIS species specifically.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else if (useEvidence && isNameSearch) {
-      systemPrompt = ID + PERSONALITY + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
+      systemPrompt = ID + PERSONALITY + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else if (useEvidence) {
       systemPrompt = ID + PERSONALITY +
         (evidenceIsWeak
@@ -7416,13 +7484,13 @@ export async function onRequest(context) {
         "  You are an expert. Give a COMPLETE answer using your scientific knowledge.\n" +
         "  Papers ANCHOR your answer but are NOT the ceiling.\n" +
         "  If all papers are weak/tangential, say so in ONE sentence, then answer from knowledge.\n" +
-        "  0 citations + correct science > 5 citations + wrong organisms.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
+        "  0 citations + correct science > 5 citations + wrong organisms.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else if (useWeb) {
       systemPrompt = ID + PERSONALITY + "No peer-reviewed papers matched this specific query, but reference sources were found. " +
         "IMPORTANT: Do NOT start with an apology or 'no papers found' disclaimer. Start with a direct, substantive answer. " +
         "Draw on both the reference sources below AND your scientific knowledge. " +
         "If you know relevant papers exist on this topic (from your training), mention the general findings and suggest " +
-        "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE + CITE_RULES;
+        "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else {
       systemPrompt = ID + PERSONALITY + "The literature search didn't surface papers for this specific phrasing, but you absolutely know this topic. " +
         "IMPORTANT: Do NOT start with 'no papers retrieved' or any disclaimer. Start with a direct, authoritative scientific answer. " +
