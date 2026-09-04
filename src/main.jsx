@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.1.0";
+const APP_VERSION = "6.3.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -88,8 +88,8 @@ const APP_VERSION = "6.1.0";
    the Terms deliberately leaves the governing jurisdiction generic; that
    and the liability cap are the two clauses most worth having a solicitor
    or attorney look at before you rely on them. */
-const LEGAL_VERSION = "2026-09-04";
-const LEGAL_UPDATED = "4 September 2026";
+const LEGAL_VERSION = "2026-09-05";
+const LEGAL_UPDATED = "5 September 2026";
 
 // ── Account API — thin wrappers around /api/auth and /api/data. Both
 // endpoints are same-origin (Cloudflare Pages Functions served from the same
@@ -1800,14 +1800,23 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
           inside a stretched flex column loses the argument — the picture
           grew to ~400px tall and swallowed the card. A fixed height is
           deterministic at every card width. */}
-      <div style={{ position: "relative", width: "100%", height: deck ? 176 : 148, flex: "0 0 auto", overflow: "hidden", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" }}>
+      <div style={{ position: "relative", width: "100%", height: imgOk ? (deck ? 176 : 148) : 6, flex: "0 0 auto", overflow: "hidden", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", transition: "height 0.35s cubic-bezier(0.16,1,0.3,1)" }}>
         <div style={{ position: "absolute", inset: 0, opacity: imgOk ? 1 : 0, transition: "opacity 0.5s ease" }}>
           <CardMedia media={heroMedia} onReady={() => setImgOk(true)} onFail={() => setImgOk(false)} />
         </div>
-        {!imgOk && <TrendCover item={item} P={P} />}
+        {/* Commit 80 — no more letter placeholders, anywhere.
+            TrendCover paints a colour field with the story's initials in
+            40px type. It was a reasonable stopgap and it looks exactly
+            like what it is: a slot where a picture failed to arrive. When
+            there is no photograph this card now behaves like the Trending
+            type cards — the media band collapses to a slim category strip
+            and the headline carries the card. */}
+        {!imgOk && (
+          <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background, opacity: 0.7 }} />
+        )}
         {imgOk && !item.image_url && <ImageCredit image={found} style={{ bottom: 34 }} />}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.05) 0%, transparent 35%, rgba(0,0,0,0.72) 100%)" }} />
-        <div style={{ position: "absolute", left: 15, right: 15, bottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ position: "absolute", left: 15, right: 15, bottom: 12, display: imgOk ? "flex" : "none", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{
             padding: "3px 9px", borderRadius: 100, background: "rgba(255,255,255,0.16)",
             backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
@@ -1824,6 +1833,12 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
         </div>
       </div>
       <div style={{ padding: "14px 18px 16px", display: "flex", flexDirection: "column", flex: 1 }}>
+        {!imgOk && (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, marginBottom: 9 }}>
+            <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+            <span>Today in science{item.category ? " · " + item.category : ""}</span>
+          </div>
+        )}
         <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45, marginBottom: 13, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.title}</div>
         <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={ask} className="cb-deck-btn" style={{
@@ -3383,7 +3398,7 @@ function InfoPage({ page }) {
       { h: "14. Disclaimer of warranties", p: "THE SERVICE, INCLUDING ALL CONTENT AND OUTPUT, IS PROVIDED \"AS IS\" AND \"AS AVAILABLE\", WITHOUT WARRANTIES OF ANY KIND, EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WITHOUT LIMITATION IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, AND ANY WARRANTIES ARISING FROM COURSE OF DEALING OR USAGE OF TRADE. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, SECURE, OR ERROR-FREE, THAT DEFECTS WILL BE CORRECTED, OR THAT ANY OUTPUT IS ACCURATE, COMPLETE, CURRENT, OR RELIABLE. Some jurisdictions do not allow the exclusion of implied warranties, so parts of this section may not apply to you." },
       { h: "15. Limitation of liability", p: "TO THE MAXIMUM EXTENT PERMITTED BY LAW, CEREBRUM AND ITS OPERATORS, CONTRIBUTORS, AND LICENSORS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL, RESEARCH TIME, OR BUSINESS OPPORTUNITY, ARISING OUT OF OR RELATING TO YOUR USE OF OR INABILITY TO USE THE SERVICE, INCLUDING ANY RELIANCE ON ITS OUTPUT, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. OUR TOTAL AGGREGATE LIABILITY FOR ALL CLAIMS RELATING TO THE SERVICE WILL NOT EXCEED ONE HUNDRED US DOLLARS (US$100), OR THE AMOUNT YOU PAID US IN THE TWELVE MONTHS BEFORE THE CLAIM, WHICHEVER IS GREATER. Nothing in these terms excludes or limits liability that cannot lawfully be excluded or limited, including liability for death or personal injury caused by negligence, or for fraud. Some jurisdictions do not allow certain limitations, so parts of this section may not apply to you." },
       { h: "16. Indemnification", p: "You agree to indemnify and hold harmless Cerebrum and its operators from any claim, demand, loss, liability, or expense (including reasonable legal fees) arising out of your use of the Service, your content, your breach of these terms, or your violation of any law or third-party right." },
-      { h: "17. Governing law and disputes", p: "These terms are governed by the laws of the jurisdiction in which the Service's operator is established, without regard to conflict-of-law rules, and you and we submit to the exclusive jurisdiction of the courts of that place. If you are a consumer resident in the European Economic Area or the United Kingdom, this does not deprive you of the protection of the mandatory consumer-protection laws of your country of residence, or of your right to bring proceedings there. Before filing any claim, please contact contact@askcerebrum.org so we can try to resolve it informally." },
+      { h: "17. Governing law and disputes", p: "These terms are governed by the laws of the State of Tennessee, United States, without regard to its conflict-of-law rules. You and we agree that the exclusive venue for any dispute arising out of or relating to these terms or the Service is the state or federal courts located in Knox County, Tennessee, and each of us consents to personal jurisdiction there. If you are a consumer resident in the European Economic Area or the United Kingdom, nothing here deprives you of the protection of the mandatory consumer-protection laws of your country of residence, or of your right to bring proceedings in your local courts. Before filing any claim, please email contact@askcerebrum.org and give us thirty days to try to resolve it informally — most things can be sorted out that way." },
       { h: "18. Changes to these terms", p: "We may update these terms. When we make a material change we will update the version identifier at the top of this page and ask you to review and accept the new version before continuing to use the Service. Continued use after a non-material update means you accept it. Prior versions are available on request." },
       { h: "19. General", p: "These terms, together with the Privacy Policy and the Disclosures page, are the entire agreement between you and us about the Service. If any provision is held unenforceable, the rest remains in effect and the unenforceable part is limited to the minimum extent necessary. Our failure to enforce a provision is not a waiver of it. You may not assign this agreement; we may assign it in connection with a merger, acquisition, or transfer of the Service." },
       { h: "20. Contact", email: "contact@askcerebrum.org", p: "Questions about these terms, or about anything on this page." }
@@ -5135,6 +5150,33 @@ function IllustrationModal({ P, accent, at, query, close }) {
    initials set large. It reads as a designed cover rather than a missing
    asset, and it never misrepresents a paper with an unrelated stock image —
    which is the thing a science tool must not do. */
+/* Commit 81 — person avatars that look chosen rather than defaulted.
+   ---------------------------------------------------------------------
+   An initial on a flat accent-tinted circle is what every product does
+   when it has no photograph, and it reads exactly that way: a fallback.
+   Keeping the initial is right — it is genuinely how you pick a name out
+   of a list — but the surface behind it does not have to be the same flat
+   wash for everybody.
+
+   This hashes the name to a stable hue and paints a two-stop gradient at
+   an angle derived from the same hash. Deterministic, so a person looks
+   the same everywhere in the app and on every device; no request, no
+   third-party avatar service (this app removed its Dicebear dependency in
+   Commit 54 for exactly that reason); and it makes a roster of people
+   look like a roster rather than a column of identical discs. */
+function avatarSkin(seed) {
+  const str = String(seed || "?");
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 100000;
+  const hue = h % 360;
+  const hue2 = (hue + 38) % 360;
+  const angle = 120 + (h % 110);
+  return {
+    background: `linear-gradient(${angle}deg, hsl(${hue} 58% 34%), hsl(${hue2} 52% 22%))`,
+    color: `hsl(${hue} 70% 88%)`,
+  };
+}
+
 function coverFor(item) {
   const seedStr = (item.title || item.url || "cerebrum");
   let h = 0;
@@ -5147,20 +5189,13 @@ function coverFor(item) {
   };
 }
 
-function TrendCover({ item, P, radius = 0 }) {
-  const c = coverFor(item);
-  return (
-    <div aria-hidden="true" style={{
-      position: "absolute", inset: 0, background: c.background, borderRadius: radius,
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, overflow: "hidden",
-    }}>
-      <span style={{ fontSize: 40, fontWeight: 800, letterSpacing: "0.06em", color: "rgba(255,255,255,0.9)", fontFamily: "var(--cb-display)" }}>{c.initials}</span>
-      {item.category && (
-        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-body)" }}>{item.category}</span>
-      )}
-    </div>
-  );
-}
+/* Commit 81 — TrendCover is gone.
+   It painted a colour field with a story's initials at 40px, and it was
+   the last "letter placeholder" in the product. Every surface that used it
+   now becomes a type card when there is no photograph instead (see
+   TrendingHero, TrendingCard and DailyScience), which is a design, not an
+   apology for a missing asset. coverFor() survives because the gradient
+   itself is still used for the slim category strips. */
 
 function TrendingHero({ P, accent, item, onExpand }) {
   // Commit 72 — same resolver as TrendingCard. The hero is the biggest
@@ -5582,7 +5617,11 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         <div style={{ marginBottom: 28 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Trending in Science</div>
-            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, background: withAlpha(accent, 0.12), padding: "3px 10px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>Preview</span>
+            {/* Commit 80 — out of preview. The label was honest while the
+                feed was new; it now refreshes on a real hourly clock from
+                fifteen sources and has been stable. Leaving a "Preview"
+                badge on a shipped feature stops being modesty and starts
+                being a reason for people not to trust it. */}
             {status === "ready" && (
               <span title="Refreshed automatically once an hour" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)" }}>
                 <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS.good, flexShrink: 0, animation: "cbHuddlePulse 1.6s ease-in-out infinite" }} />
@@ -6093,6 +6132,7 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
 function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
   useCallTone("incoming", true);
   const initial = (call.fromName || "?").trim().charAt(0).toUpperCase();
+  const skin = avatarSkin(call.fromName || call.fromId);
   const btn = (bg, color, label, icon, onClick) => (
     <button onClick={onClick} style={{
       display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
@@ -7257,7 +7297,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   background: activeId === t.id ? withAlpha(accent, 0.1) : "transparent",
                   display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-body)",
                 }}>
-                  <span style={{ width: 38, height: 38, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{initials}</span>
+                  <span style={{ width: 38, height: 38, borderRadius: "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{initials}</span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -8043,7 +8083,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             {!profile.avatar_base64 ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
-                background: withAlpha(accent, 0.18), color: accent, display: "flex", alignItems: "center", justifyContent: "center",
+                ...avatarSkin(displayName || user?.id), display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 38, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `4px solid ${P.surface}`,
                 boxShadow: `0 0 0 3px ${withAlpha(accent, 0.4)}, 0 10px 26px rgba(0,0,0,0.28)`,
               }}>{displayInitial}</div>
@@ -8565,7 +8605,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
                 <FounderFrame size={42} accent={accent}>
                   <span style={{
                     width: 42, height: 42, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                    background: withAlpha(accent, 0.2), color: accent, fontWeight: 700, fontFamily: "var(--cb-mono)", fontSize: 17,
+                    ...avatarSkin(founder.name || founder.id), fontWeight: 700, fontFamily: "var(--cb-mono)", fontSize: 17,
                   }}>{(founder.name || "?").trim().charAt(0).toUpperCase()}</span>
                 </FounderFrame>
                 <div style={{ minWidth: 0, flex: 1 }}>
