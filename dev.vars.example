@@ -5,3 +5,35 @@ OPENROUTER_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxx
 OPENALEX_KEY=
 NCBI_API_KEY=
 SEMANTIC_SCHOLAR_KEY=
+
+# ── Commit 72: illustration sources (all optional) ──────────────────────
+# Cerebrum finds pictures for stories and papers through /api/image. Five
+# of its six sources are keyless and need nothing here. These three unlock
+# the rest.
+#
+# CUSTOM_IMAGE_BASE — your OWN licensed library, and it beats every other
+# source. Point it at a folder of images named after a category, e.g.
+# https://askcerebrum.org/covers, containing neuroscience.jpg, physics.jpg,
+# genetics.jpg ... This is where properly licensed stock (Motion Array,
+# Envato, a commissioned set) belongs: drop the files in public/covers/ and
+# set this to https://askcerebrum.org/covers.
+CUSTOM_IMAGE_BASE=
+# Free keys, both instant to obtain. Only used as a last resort, after the
+# open-access and public-domain sources have been tried.
+UNSPLASH_KEY=
+PEXELS_KEY=
+
+# ── Commit 74: the founder's account ────────────────────────────────────
+# The email address that owns Cerebrum. The account matching it receives
+# the "Founder & Owner" badge and the verified check, and is pinned to the
+# top of Find People with an invitation to message you.
+#
+# This is a SERVER-side variable on purpose: the check mark means "the
+# server confirmed this is the operator", and a badge any client could
+# claim would be worth nothing. Leave it unset and none of it appears.
+#
+# Left blank ON PURPOSE. dev.vars.example is committed to the repo, and a
+# personal email address in a committed file is a gift to address scrapers.
+# Set the real value in Cloudflare Pages → Settings → Environment variables,
+# where it stays out of source control.
+FOUNDER_EMAIL=
