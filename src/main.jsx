@@ -67,7 +67,29 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "5.3.0";
+const APP_VERSION = "5.5.0";
+
+/* Commit 69 — the legal layer.
+   ---------------------------------------------------------------------
+   LEGAL_VERSION is the single source of truth for "which version of the
+   Terms, Privacy Policy and Disclosures has this person agreed to". It is
+   stamped on every legal page, written into the cb_legal cookie when a
+   person accepts, and recorded against their account row when they are
+   signed in.
+
+   BUMP IT whenever any of those three documents changes materially. Every
+   user is then asked to review and accept again, because an agreement
+   someone never saw is not an agreement. Do NOT bump it for a typo fix —
+   re-prompting people for nothing trains them to click through without
+   reading, which defeats the entire point of asking.
+
+   NOTE FOR THE OPERATOR: this content is a thorough, good-faith draft, not
+   legal advice, and it has not been reviewed by a lawyer. Section 17 of
+   the Terms deliberately leaves the governing jurisdiction generic; that
+   and the liability cap are the two clauses most worth having a solicitor
+   or attorney look at before you rely on them. */
+const LEGAL_VERSION = "2026-09-04";
+const LEGAL_UPDATED = "4 September 2026";
 
 // ── Account API — thin wrappers around /api/auth and /api/data. Both
 // endpoints are same-origin (Cloudflare Pages Functions served from the same
@@ -647,6 +669,7 @@ function Icon({ name, size = 17, className, style }) {
     case "brain": return <svg {...common}><circle cx="12" cy="5.2" r="1.9" /><circle cx="5.7" cy="16" r="1.9" /><circle cx="18.3" cy="16" r="1.9" /><path d="M12 7.1v3.3M12 10.4L7.1 14.4M12 10.4l4.9 4" /></svg>;
     case "partial": return <svg {...common}><path d="M4 13c1.6-2.6 3.2-2.6 4.8 0s3.2 2.6 4.8 0 3.2-2.6 4.8 0" /></svg>;
     case "printer": return <svg {...common}><path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="1.5" /><path d="M6 17v4h12v-4" /></svg>;
+    case "eye": return <svg {...common}><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>;
     case "user": return <svg {...common}><circle cx="12" cy="8" r="3.5" /><path d="M4.5 20.5a7.5 7.5 0 0115 0" /></svg>;
     case "folder": return <svg {...common}><path d="M3 6.5A1.5 1.5 0 014.5 5h4.5l2 2.5H19.5A1.5 1.5 0 0121 9v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18z" /></svg>;
     case "compare": return <svg {...common}><rect x="3" y="4" width="8" height="16" rx="1.5" /><rect x="13" y="4" width="8" height="16" rx="1.5" /></svg>;
@@ -902,9 +925,39 @@ function cbBlip(freq, dur = 0.07, gain = 0.05) {
 // Permission is requested lazily, on the first event worth notifying about,
 // never on page load: a permission prompt fired at someone who has not yet
 // used the feature is the fastest way to get permanently denied.
-function cbNotify(title, body, tag) {
+// Commit 67 — notification categories.
+//
+// Cerebrum can raise three genuinely different kinds of desktop
+// notification: an incoming call (someone is waiting on you right now), a
+// direct message, and a watched-topic literature alert. Shipping all three
+// behind a single browser permission prompt with no in-app control was the
+// gap: a person who wants to be reachable for calls but does not want a
+// paper alert at 2am had exactly one option, which was to deny
+// notifications entirely and lose the calls too.
+//
+// Stored as a cookie like every other preference in this file so it
+// survives without an account. Default "all" — the notifications that
+// exist are all ones the user opted into by making a call, opening a
+// conversation, or watching a topic, so none of them are unsolicited.
+const NOTIFY_KINDS = ["call", "message", "watch"];
+function notifyPref() {
+  const raw = getCookie("cb_notify");
+  if (raw === null || raw === "") return { call: true, message: true, watch: true };
+  if (raw === "off") return { call: false, message: false, watch: false };
+  const on = new Set(raw.split(","));
+  return { call: on.has("call"), message: on.has("message"), watch: on.has("watch") };
+}
+function setNotifyPref(next) {
+  const on = NOTIFY_KINDS.filter((k) => next[k]);
+  setCookie("cb_notify", on.length ? on.join(",") : "off");
+}
+function cbNotify(title, body, tag, kind) {
   try {
     if (!("Notification" in window)) return;
+    // An unrecognized/absent kind is always allowed through — a future
+    // caller that forgets to pass one should still reach the user rather
+    // than being silently swallowed by a preference it was never in.
+    if (kind && NOTIFY_KINDS.includes(kind) && !notifyPref()[kind]) return;
     // Only when the tab isn't the thing they're looking at — a notification
     // for a conversation already on screen is noise.
     if (document.visibilityState === "visible") return;
@@ -1127,7 +1180,8 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
       cbNotify(
         `${i.newCount} new paper${i.newCount === 1 ? "" : "s"} on ${i.topic}`,
         "Indexed since you last looked. Open Cerebrum to read them.",
-        "cb-watch-" + i.topic
+        "cb-watch-" + i.topic,
+        "watch"
       );
     }
     if (changed) { try { localStorage.setItem("cb_watch_notified", JSON.stringify(seen)); } catch {} }
@@ -1271,7 +1325,13 @@ function useCountUp(target, ms = 900) {
   return n;
 }
 
-function DeckStat({ label, value, accent, P, suffix = "" }) {
+// A stat's label has a long form and a short one. Four columns of
+// "QUESTIONS ASKED" do not fit across a phone at any tracking that still
+// looks like this app's mono label style — on a real 390px screen every
+// one of them truncated to "QUESTION…", which is a label that has stopped
+// being a label. On mobile the deck uses the short form in a 2x2 grid, so
+// the words stay whole.
+function DeckStat({ label, shortLabel, value, accent, P, isMobile, suffix = "" }) {
   const n = useCountUp(value);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
@@ -1281,9 +1341,9 @@ function DeckStat({ label, value, accent, P, suffix = "" }) {
       }}>{n}{suffix}</span>
       <span style={{
         fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)",
-        letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap",
-        overflow: "hidden", textOverflow: "ellipsis",
-      }}>{label}</span>
+        letterSpacing: isMobile ? "0.05em" : "0.08em", textTransform: "uppercase",
+        lineHeight: 1.3,
+      }}>{isMobile ? (shortLabel || label) : label}</span>
     </div>
   );
 }
@@ -1321,6 +1381,81 @@ function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
       border: primary ? "1px solid transparent" : `1px solid ${P.line2}`,
       whiteSpace: "nowrap",
     }}>{children}</button>
+  );
+}
+
+/* Commit 69 — milestones on the Home Deck.
+   Shows the nearest unearned milestone with real distance to it, plus how
+   many are done. The progress bar is the whole point: "3 of 10 papers
+   saved" is motivating in a way that a wall of grey locked badges is not.
+   Every number here is a row count from the database — see resource
+   "milestones" in functions/api/data.js. Renders nothing until there is
+   something true to show. */
+function MilestoneCard({ P, accent, at, user, refreshKey, onOpenAll }) {
+  const [data, setData] = useState(null);
+  const load = useCallback(async () => {
+    if (!user) { setData(null); return; }
+    const d = await apiDataGet("milestones");
+    if (d && Array.isArray(d.items)) setData(d);
+  }, [user]);
+  useEffect(() => { load(); }, [load, refreshKey]);
+  if (!user || !data) return null;
+  const next = data.next;
+  const pct = next ? Math.min(100, Math.round((next.have / next.need) * 100)) : 100;
+  return (
+    <div className="cb-card cb-deck-card" style={{
+      display: "flex", flexDirection: "column", textAlign: "left",
+      padding: "16px 18px 15px", borderRadius: 14, minWidth: 0,
+      background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
+      border: `1px solid ${P.line}`,
+    }}>
+      <div style={{
+        fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent,
+        fontFamily: "var(--cb-mono)", letterSpacing: "0.09em",
+        textTransform: "uppercase", marginBottom: 11,
+        display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+      }}>
+        <span>Milestones</span>
+        <span style={{ marginLeft: "auto", color: P.faint, letterSpacing: "0.05em" }}>
+          {data.earnedCount}/{data.total}
+        </span>
+      </div>
+
+      {next ? (
+        <>
+          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 2 }}>{next.label}</div>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 11, lineHeight: 1.5 }}>{next.desc}</div>
+          <div style={{ height: 6, borderRadius: 100, background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", overflow: "hidden", marginBottom: 7 }}>
+            <div style={{
+              height: "100%", width: pct + "%", borderRadius: 100, background: accent,
+              transition: "width 900ms cubic-bezier(0.16, 1, 0.3, 1)",
+            }} />
+          </div>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, fontFamily: "var(--cb-mono)" }}>
+            {next.have} of {next.need} {next.unit}{next.need === 1 ? "" : "s"}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
+          Every milestone earned. That is a real research habit — thank you for using this thing.
+        </div>
+      )}
+
+      <div style={{ marginTop: "auto", paddingTop: 13, display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {data.items.filter((i) => i.earned).slice(-6).map((i) => (
+          <span key={i.key} title={`${i.label} — ${i.desc}`} style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "4px 9px", borderRadius: 100,
+            background: withAlpha(accent, 0.13), color: accent,
+            fontSize: FONT_SIZES.micro, fontWeight: 700,
+            maxWidth: "100%", overflow: "hidden",
+          }}>
+            <Icon name="check" size={11} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.label}</span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1362,7 +1497,14 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
   return (
     <div ref={deckRef} style={{
-      width: "100%", maxWidth: 880, marginTop: 34, textAlign: "left",
+      width: "100%", maxWidth: 880, textAlign: "left",
+      // The mobile menu button is a fixed circle in the top-left corner. As
+      // the deck scrolls up under it, it landed squarely on top of the
+      // first stat's number — the value was unreadable behind the button.
+      // Extra top margin on mobile keeps the strip clear of it at rest, and
+      // the strip's own left padding keeps the first column out from under
+      // the button while scrolling.
+      marginTop: isMobile ? 20 : 34,
       display: "flex", flexDirection: "column", gap: 12,
     }}>
       {/* Stats strip — four real counts. Rendered only for signed-in users
@@ -1370,15 +1512,17 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           impression than no row at all. */}
       {user && (totalTurns > 0 || saved.length > 0) && (
         <div className="cb-deck-stats" style={{
-          display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 14,
-          padding: "13px 18px", borderRadius: 14,
+          display: "grid",
+          gridTemplateColumns: isMobile ? "repeat(2, minmax(0,1fr))" : "repeat(4, minmax(0,1fr))",
+          gap: isMobile ? "14px 12px" : 14,
+          padding: isMobile ? "15px 16px" : "13px 18px", borderRadius: 14,
           background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
           border: `1px solid ${P.line}`,
         }}>
-          <DeckStat label="Questions asked" value={totalTurns} P={P} accent={accent} />
-          <DeckStat label="Papers saved" value={(saved || []).length} P={P} accent={accent} />
-          <DeckStat label="Topics watched" value={watchCount} P={P} accent={accent} />
-          <DeckStat label="Day streak" value={streak.days} P={P} accent={accent} />
+          <DeckStat label="Questions asked" shortLabel="Questions" value={totalTurns} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Papers saved" shortLabel="Saved" value={(saved || []).length} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Topics watched" shortLabel="Watched" value={watchCount} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Day streak" shortLabel="Streak" value={streak.days} P={P} accent={accent} isMobile={isMobile} />
         </div>
       )}
 
@@ -1433,6 +1577,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
         <WatchList P={P} accent={accent} at={at} user={user} onAsk={onAsk}
           refreshKey={watchKey} deck onCount={setWatchCount} />
+        <MilestoneCard P={P} accent={accent} at={at} user={user} refreshKey={watchKey} />
         <DailyScience P={P} accent={accent} at={at} onAsk={onAsk} deck />
       </div>
     </div>
@@ -2482,7 +2627,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           textShadow: "0 2px 16px rgba(0,0,0,0.7)",
           opacity: animationMode === "off" ? 1 : 0,
         }}>
-          Cerebrum searches 14 scholarly databases in parallel and writes you
+          Cerebrum searches 15 scholarly databases in parallel and writes you
           an answer where every claim traces back to a real, citable source.
           One research instrument, not just a chatbot.
         </p>
@@ -2640,7 +2785,7 @@ function MicButton({ onTranscript, accent, P }) {
 /* ============================================================
    ANSWER PLAYER (TTS) — logic preserved
    ============================================================ */
-function AnswerPlayer({ text, accent, P, compact = false }) {
+function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
   const [status, setStatus] = useState("idle");
   const [progress, setProgress] = useState(0);
   const audioRef = useRef(null);
@@ -2686,6 +2831,27 @@ function AnswerPlayer({ text, accent, P, compact = false }) {
     } catch {}
     if (!key) return playBrowser(); setStatus("loading"); try { const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" }, body: JSON.stringify({ text, model_id: "eleven_flash_v2_5", voice_settings: { stability: 0.5, similarity_boost: 0.75 } }) }); if (!res.ok) throw new Error("ElevenLabs error " + res.status); const blob = await res.blob(); const url = URL.createObjectURL(blob); const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playCerebrum(); } };
   const playCerebrum = async () => { setStatus("loading"); try { let voicePref = ""; try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {} const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voicePref }) }); if (!res.ok) throw new Error("TTS " + res.status); const ct = res.headers.get("content-type") || ""; if (!ct.startsWith("audio/")) throw new Error("Non-audio response"); const blob = await res.blob(); const url = URL.createObjectURL(blob); const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playBrowser(); } };
+  // Commit 67 — "Auto-read answers" was a DEAD SWITCH. The preference
+  // existed, defaulted to ON, wrote its cookie, and was read by absolutely
+  // nothing: `autoplay` appeared in App's state, in the cookie effect, and
+  // in the Settings row, and nowhere else in the file. Every user who left
+  // it on believed answers would be read aloud and they never were.
+  //
+  // Now it does what it says. Two guards on top of the preference:
+  // browsers refuse to start audio without a prior user gesture, and
+  // pressing Ask is one — but a page restored from history has no gesture,
+  // so a failure here is swallowed rather than thrown. And it fires once
+  // per distinct answer, tracked by the text itself, so a re-render never
+  // restarts narration mid-sentence.
+  const autoFiredFor = useRef(null);
+  useEffect(() => {
+    if (!autoPlay || !text || status !== "idle") return;
+    if (autoFiredFor.current === text) return;
+    autoFiredFor.current = text;
+    try { if (useElevenLabs) playEleven(); else playCerebrum(); } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay, text, useElevenLabs]);
+
   const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch {} return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play(); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch {} return; } if (useElevenLabs) playEleven(); else playCerebrum(); };
   useEffect(() => () => stop(), []);
   const label = status === "loading" ? "Loading…" : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
@@ -2798,6 +2964,49 @@ function looksLikeFollowupText(q) {
 // element (a compositor hint, or isolating it in its own stacking context),
 // not global scroll again.
 
+/* Commit 69 — how far through a legal document you are.
+   Its own component rather than a hook inside InfoPage: InfoPage returns
+   early when the page slug is unknown, so any hook added above that return
+   would run conditionally on some renders and not others. A child mounted
+   only for legal pages keeps hook order stable and the rule unbroken. */
+/* Commit 69 — land on the right clause when a deep link is opened cold.
+   The browser resolves #limitation-of-liability at document load, which on
+   a client-rendered SPA is before any of these sections exist — so the
+   anchor silently did nothing and the reader arrived at the top of a
+   twenty-section document. This retries once the sections have actually
+   mounted. Mounted only on legal pages, alongside LegalProgress, for the
+   same hook-order reason. */
+function LegalHashScroll() {
+  useEffect(() => {
+    const hash = (window.location.hash || "").slice(1);
+    if (!hash) return;
+    let tries = 0;
+    const tick = () => {
+      const el = document.getElementById(hash);
+      if (el) { el.scrollIntoView({ block: "start", behavior: "auto" }); return; }
+      if (tries++ < 20) setTimeout(tick, 60);
+    };
+    tick();
+  }, []);
+  return null;
+}
+
+function LegalProgress({ accent }) {
+  const [pct, setPct] = useState(0);
+  useEffect(() => {
+    const onScroll = () => {
+      const doc = document.documentElement;
+      const max = (doc.scrollHeight - window.innerHeight) || 1;
+      setPct(Math.min(100, Math.max(0, (window.scrollY / max) * 100)));
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => { window.removeEventListener("scroll", onScroll); window.removeEventListener("resize", onScroll); };
+  }, []);
+  return <div className="cb-legal-progress" aria-hidden="true" style={{ width: pct + "%" }} />;
+}
+
 function InfoPage({ page }) {
   const paletteName = (() => { try { return getCookie("cb_palette") || "Sage"; } catch { return "Sage"; } })();
   const P = PALETTES[paletteName] || PALETTES.Sage;
@@ -2832,23 +3041,161 @@ function InfoPage({ page }) {
   const goHome = () => { window.location.href = "/"; };
   const PAGES = {
     about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
-    privacy: { eyebrow: "Privacy", title: "We collect as little as physically possible — and we can show our work", lede: "No tracking pixels. No third-party analytics. No ads. No selling data — there is nothing to sell. An account is entirely optional, and everything below is a specific, checkable claim, not a marketing line.", updated: "Last updated August 2026", blocks: [
-      { h: "Guest mode (the default, no account needed)", list: ["No tracking pixels, third-party analytics, or ad networks, ever, account or not.", "Nothing about you is stored on Cerebrum's servers — not your questions, not an identifier, nothing.", "Saved articles, history, and preferences (theme, motion, voice) live only in your browser's local storage. Clear your browser data and they're gone — we never had a copy."] },
-      { h: "What happens when you search (guest or signed in, identical either way)", list: ["Your question is sent to Cerebrum's server to run the search and generate an answer — this one round trip is unavoidable for the product to work at all.", "Search terms are forwarded to scholarly APIs (Europe PMC, PubMed, OpenAlex, and others) to retrieve papers.", "The question and retrieved abstracts are sent to a language-model provider (OpenRouter, Cloudflare Workers AI, or Pollinations) to write the summary.", "Your IP is visible to Cloudflare for rate limiting and abuse prevention — standard for any web request, not something Cerebrum adds on top.", "We do not permanently store your question text on the server unless you're signed in and it becomes part of your own account's history (see below)."] },
-      { h: "If you create an account (optional — here's exactly what changes)", p: "Signing in exists for one reason: so your saved articles, collections, and history follow you to another device instead of being trapped in one browser. Creating an account stores your email, and either a password hash or nothing at all if you only ever use an emailed sign-in link — never a recoverable copy of your password. That's it; no name, no phone number, no payment details, nothing else is asked for or collected." },
-      { h: "How the account data is actually protected — not just described", list: ["Passwords are hashed with PBKDF2-SHA256 at 100,000 iterations — the maximum a single request is allowed to spend on this before our hosting platform cuts it off — combined with a random salt generated fresh for every account, before either ever touches the database. A full copy of the database gives an attacker no usable password: every account's salt is different, so no precomputed table of hashes helps, and every guess still has to pay the full 100,000-iteration cost per account, per attempt.", "The sign-in cookie in your browser and the copy of it kept on the server are never the same value: the server stores only a one-way SHA-256 hash of it. A leaked database is useless for signing in as anyone, and the cookie itself is marked HttpOnly, so no script running on the page — including a successful attack against the page itself — can ever read it.", "A one-time email sign-in link works the same way: only its hash is stored, it expires in 15 minutes, and it stops working the instant it's used once.", "Deleting your account (Settings → Account → Delete account) is immediate and total — your email, password hash, saved articles, collections, and history are deleted from every table that references your account in that same request. Nothing is soft-deleted or kept 'just in case.'"] },
-      { h: "What an account does not change", p: "Guest mode keeps working exactly as it always has, forever — nobody is required to create an account to use Cerebrum, and nothing about the search itself (which databases are queried, how the answer is written, what's sent to the AI provider) is any different signed in versus signed out." },
-      { h: "Optional integrations", p: "If you paste a Zotero or ElevenLabs API key in Settings, that key is stored only in your browser's local storage and sent directly to that service when you use the relevant feature — it never passes through, or is stored on, Cerebrum's server." },
-      { h: "Children", p: "Cerebrum is not directed at children under 13." },
+    privacy: { eyebrow: "Privacy", title: "Privacy Policy", lede: "No advertising. No tracking pixels. No third-party analytics. No sale of personal information. This page explains exactly what is collected, why, who touches it, and how to get rid of it.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
+      { h: "1. The short version", list: [
+        "Guest mode needs no account and stores your work only in your own browser.",
+        "Your search question is sent to our server to run the search — it has to be, that is the search.",
+        "We run no advertising, no tracking pixels, no third-party analytics, and no ad networks, with or without an account.",
+        "We do not sell or share personal information, and we never have.",
+        "An account exists for one reason: so your saved work follows you to another device.",
+        "You can delete your account and its data from Settings, permanently, without emailing anyone."
+      ] },
+      { h: "2. Who is responsible for your data", p: "The operator of askcerebrum.org is the data controller for the information described here. For any privacy question, request, or complaint, contact contact@askcerebrum.org. If you are in the EEA or UK you also have the right to complain to your local supervisory authority." },
+      { h: "3. What we collect in guest mode", p: "Guest mode is the default and needs no account. Your saved articles, collections, conversation history, and preferences are written to your own browser's local storage and cookies. They are not sent to us, they are not readable by us, and clearing your browser data deletes them permanently — including from us, because we never had them." },
+      { h: "4. What happens when you search", list: [
+        "Your question is transmitted to our server so the search can run, and is sent onward to the scholarly databases and to the language-model provider that generates the summary.",
+        "Answers may be cached, keyed by the question text, so a repeated question is faster and costs the upstream providers less.",
+        "We keep short-lived request logs (timestamp, coarse endpoint, and an IP-derived value used for rate limiting) to keep the service up and to stop abuse.",
+        "We do not build a profile of you from your questions, and we do not link guest-mode queries to an identity.",
+        "Please do not put personal health information, identifying details about other people, or confidential material into a query — it leaves your device and reaches third-party providers."
+      ] },
+      { h: "5. What an account adds", p: "If you create an account we store your email address, a password hash if you set a password, and the content you explicitly choose to sync: saved sources, collections, conversation history, profile fields you fill in, watched topics, and — if you use the social features — your follows, direct messages, message attachments, and call signalling records. That is the whole list. Signing in changes nothing about how a search itself works." },
+      { h: "6. Direct messages and calls", p: "Direct messages and their attachments are stored on our servers so they can be delivered to the recipient and shown to both of you later. They are not end-to-end encrypted: treat them as you would email, not as a confidential channel. Calls are established peer-to-peer where the network allows and are relayed through a public TURN service when it does not; we store only the short-lived signalling records needed to connect a call, and we do not record call audio or video. Conduct reports you file are stored so they can be reviewed." },
+      { h: "7. Cookies and local storage", p: "We use no advertising or analytics cookies. Everything we set is functional — either your own preferences or your login session:", list: [
+        "cb_sess — your signed-in session token. Set only if you sign in.",
+        "cb_pal, cb_accent, cb_ca, cb_density, cb_fs, cb_ls, cb_hc, cb_rt, cb_df, cb_fh — appearance and accessibility preferences.",
+        "cb_len, cb_cite, cb_tw, cb_fc — response and citation preferences.",
+        "cb_muted, cb_snd, cb_ap — sound, ambience, and read-aloud preferences.",
+        "cb_anim2, cb_animS — motion preferences.",
+        "cb_notify — which desktop notifications you have allowed.",
+        "cb_legal — the version of these policies you have accepted, and when.",
+        "Local storage: cb_saved, cb_history, cb_collections, cb_streak, cb_profile, cb_watch_notified, cb_tour_done, and any optional third-party API key you choose to paste into Settings.",
+        "Because none of these are tracking cookies, there is no consent banner to dismiss — but you can clear them at any time from your browser, or reset preferences from Settings."
+      ] },
+      { h: "8. Legal bases for processing (EEA/UK)", list: [
+        "Performance of a contract — running searches, delivering messages, and keeping your account working.",
+        "Legitimate interests — security, abuse prevention, rate limiting, and keeping the service available, balanced against your rights.",
+        "Consent — optional extras such as desktop notifications and any third-party API key you supply. You can withdraw consent at any time in Settings.",
+        "Legal obligation — where we must retain or disclose something by law."
+      ] },
+      { h: "9. Who else processes your data", p: "We keep the list of third parties as short as the service allows. Each of them acts as a processor or independent controller for the narrow purpose described:", list: [
+        "Cloudflare — hosting, edge delivery, database, and the AI inference that generates answers.",
+        "Language-model providers reached through our server to generate summaries. Your question text reaches them; your identity does not.",
+        "Scholarly data providers — Europe PMC, PubMed/NCBI, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv/medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, OpenAIRE — which receive the search terms needed to answer your query.",
+        "A public STUN/TURN relay, used only to establish calls when a direct connection is impossible.",
+        "Optional and only if you enable them: ElevenLabs for premium narration and Zotero for reference export, using a key you supply and that stays in your browser.",
+        "We do not sell, rent, or share personal information with advertisers or data brokers. We have no advertising relationships of any kind."
+      ] },
+      { h: "10. International transfers", p: "The service runs on a global edge network, so processing may occur outside your country, including in the United States. Where data leaves the EEA or UK we rely on appropriate safeguards, such as standard contractual clauses entered into by our providers." },
+      { h: "11. How long we keep things", list: [
+        "Account data — until you delete your account, which removes it.",
+        "Saved sources, collections, history, watched topics — until you delete them or your account.",
+        "Direct messages — until you or the other participant deletes the conversation, or until the account is deleted.",
+        "Call signalling records — minutes; they exist only to connect a call.",
+        "Answer cache entries — a bounded period, keyed by question text rather than by user.",
+        "Rate-limit and security logs — a short rolling window.",
+        "Guest-mode data — for as long as you keep it in your own browser. We never receive it."
+      ] },
+      { h: "12. Your rights", p: "Depending on where you live you may have the right to access, correct, delete, restrict, or object to the processing of your personal information, and to receive it in a portable format. Cerebrum is built so you can exercise most of these yourself and immediately: Settings gives you a full JSON export of your workspace, per-item deletion, and permanent account deletion. For anything you cannot do in the app, email contact@askcerebrum.org and we will respond within the period your law requires.", list: [
+        "EEA/UK (GDPR): access, rectification, erasure, restriction, objection, portability, withdrawal of consent, and complaint to a supervisory authority.",
+        "California (CCPA/CPRA): know, delete, correct, and opt out of sale or sharing — we do not sell or share personal information, so there is nothing to opt out of, and we will not discriminate against you for exercising any right.",
+        "We honour Global Privacy Control and Do Not Track signals by default, because we run no tracking to disable in the first place."
+      ] },
+      { h: "13. Security", list: [
+        "Passwords are hashed with PBKDF2-SHA256 at 100,000 iterations with a per-user salt. We never store or transmit them in plaintext and cannot recover them.",
+        "Session tokens are opaque, random, expiring, and stored as HttpOnly, Secure, SameSite cookies, so page scripts cannot read them.",
+        "All traffic is served over HTTPS, and a strict Content Security Policy limits what the page may load or connect to.",
+        "Every account-scoped database query is scoped to your user id, not only to a row id, so one account cannot read another's rows by guessing.",
+        "No system is perfectly secure. If you find a vulnerability, please see the responsible-disclosure process on the Disclosures page."
+      ] },
+      { h: "14. Children", p: "The Service is not directed at children under 13, and we do not knowingly collect personal information from them. If you believe a child under 13 has given us personal information, email contact@askcerebrum.org and we will delete it. In the EEA and UK the minimum age is 16 without parental consent." },
+      { h: "15. Data breaches", p: "If a breach occurs that is likely to affect your rights, we will notify affected users and the relevant supervisory authority within the timeframes our law requires, and we will tell you what happened, what data was involved, and what to do about it." },
+      { h: "16. Changes to this policy", p: "We may update this policy. Material changes update the version identifier at the top of this page, and we will ask you to review and accept the new version before you continue using the Service. Prior versions are available on request." },
+      { h: "17. Contact", email: "contact@askcerebrum.org", p: "Privacy questions, data requests, and complaints." }
     ] },
-    terms: { eyebrow: "Terms", title: "The rules that keep this usable for everyone", lede: "Cerebrum is a free tool provided as-is. Using it means agreeing to a few common-sense terms.", updated: "Last updated August 2026", blocks: [ { h: "What Cerebrum is", p: "A free scientific literature search tool that returns AI-generated summaries of retrieved peer-reviewed papers, provided as-is with no warranty." }, { h: "Accuracy is not guaranteed", p: "Answers are generated by a language model from retrieved abstracts. Models can misread or misattribute. Verify anything important against the cited sources. Cerebrum is not a substitute for a qualified professional." }, { h: "Acceptable use", list: ["Don't disrupt, degrade, or circumvent the service or its rate limits.", "Don't systematically scrape, mirror, or resell answers.", "Don't generate content meant to defraud, defame, harass, or endanger.", "Don't violate the terms of the upstream scholarly APIs."] }, { h: "Third-party content", p: "Cerebrum links to papers hosted by publishers and repositories. We aren't responsible for their content, availability, or licensing — follow each publisher's terms." }, { h: "Availability & liability", p: "Cerebrum is free and comes with no availability guarantee. To the maximum extent allowed by law, we aren't liable for damages arising from your use of the service." } ] },
+    terms: { eyebrow: "Terms", title: "Terms of Service", lede: "These terms are a binding agreement between you and Cerebrum. Please read them — the sections on accuracy, professional advice, and liability affect your legal rights.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
+      { h: "1. Agreement to these terms", p: "By accessing or using Cerebrum (the \"Service\") at askcerebrum.org, you agree to be bound by these Terms of Service and by our Privacy Policy and Disclosures, which are incorporated here by reference. If you do not agree, do not use the Service. If you use the Service on behalf of an organization, you represent that you have authority to bind that organization, and \"you\" means that organization." },
+      { h: "2. What Cerebrum is — and is not", p: "Cerebrum is a free research instrument. It queries public scholarly databases, retrieves records and abstracts, and uses a large language model to summarize what it retrieved, with citations back to the source. It is a starting point for a literature search and a tool for finding papers you should read yourself." },
+      { h: "Cerebrum is NOT", list: [
+        "A source of medical, legal, financial, psychological, veterinary, engineering, or safety advice.",
+        "A substitute for reading the cited papers, or for a qualified professional.",
+        "A diagnostic tool, a clinical decision support system, or a medical device.",
+        "A publisher, peer reviewer, or verifier of the third-party research it indexes.",
+        "A guaranteed-accurate, guaranteed-complete, or guaranteed-available service."
+      ] },
+      { h: "3. Eligibility", p: "You must be at least 13 years old to use the Service. If you are in the European Economic Area or the United Kingdom, you must be at least 16, or have the consent of a parent or guardian. The Service is not directed at children under 13 and we do not knowingly collect their personal information — see the Privacy Policy. If you are under the age of majority where you live, you may use the Service only with the involvement of a parent or guardian." },
+      { h: "4. Accounts", p: "An account is optional; guest mode works fully without one. If you create one, you are responsible for the security of your account and for everything done through it. Provide accurate information, keep your credentials confidential, and tell us promptly at contact@askcerebrum.org if you believe your account has been compromised. You may delete your account at any time from Settings, which permanently removes your account data from our servers." },
+      { h: "5. Acceptable use", p: "You agree not to:", list: [
+        "Disrupt, degrade, overload, or circumvent the Service, its rate limits, or its security controls.",
+        "Systematically scrape, crawl, mirror, cache at scale, resell, or redistribute the Service's outputs, or use them to train a competing model.",
+        "Use automated means to access the Service except as expressly permitted.",
+        "Generate or distribute content intended to defraud, defame, harass, threaten, endanger, or discriminate against any person or group.",
+        "Present Cerebrum's output as peer-reviewed research, as your own original scholarship, or as professional advice from a licensed practitioner.",
+        "Use the Service to make decisions about a person's medical care, legal position, employment, credit, housing, or insurance.",
+        "Attempt to re-identify individuals, extract personal data, or use the messaging or calling features to send unsolicited bulk messages.",
+        "Upload, transmit, or link to malware, or to content you do not have the right to share.",
+        "Violate the terms of any upstream scholarly database, publisher, or repository the Service links to.",
+        "Reverse engineer, decompile, or attempt to derive the source of any non-public part of the Service, or probe it for vulnerabilities without following the disclosure process in our Disclosures page."
+      ] },
+      { h: "6. AI-generated content and accuracy", p: "Answers are generated by a large language model from records retrieved at query time. Language models can misread, over-generalize, conflate sources, misattribute findings, and state incorrect things fluently and confidently. Retrieval can miss relevant work or surface irrelevant work. Some indexed records are preprints that have not been peer reviewed. You are responsible for verifying anything you rely on against the cited primary sources. Cerebrum's accuracy indicators, confidence language, and fact-check pass are aids to judgment, not guarantees, and must not be read as certification that a statement is true." },
+      { h: "7. No professional advice, and no reliance", p: "Nothing produced by the Service is professional advice of any kind, and no professional relationship is created by using it. Never disregard, delay, or override advice from a qualified professional because of something Cerebrum said. If you may be experiencing a medical emergency, contact your local emergency number or a licensed clinician immediately. Reliance on the Service is at your sole risk." },
+      { h: "8. Third-party sources and content", p: "Cerebrum retrieves from, links to, and displays metadata and abstracts from independent third-party sources, including Europe PMC, PubMed/NCBI, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv and medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, OpenAIRE, and public feeds such as NASA APOD, and it may embed third-party video. Those materials belong to their authors, publishers, and providers. Cerebrum does not own, endorse, verify, or control them, is not affiliated with them, and is not responsible for their content, licensing, availability, or accuracy. Your use of any linked or embedded third-party material is governed by that third party's own terms and privacy policy. Where a source requires attribution, we display it; where a source's licence restricts reuse, that restriction travels with the content and binds you too." },
+      { h: "9. Intellectual property", p: "The Service's software, interface, design, and branding are owned by Cerebrum and its licensors and are protected by intellectual property law. These terms grant you a limited, personal, revocable, non-exclusive, non-transferable licence to use the Service as intended, and nothing more. Cited papers, abstracts, figures, and metadata remain the property of their respective rights holders. As between you and Cerebrum, you may use the Service's generated summaries for your own research, teaching, and internal work, subject to the restrictions in section 5 and to the rights of the underlying sources — but generated text may reproduce or closely paraphrase source material, so you remain responsible for citation and for any onward publication." },
+      { h: "10. Copyright complaints", p: "If you believe material accessible through the Service infringes your copyright, email contact@askcerebrum.org with: identification of the work, identification of the material and where it appears, your contact details, a statement that you have a good-faith belief the use is unauthorized, a statement under penalty of perjury that your notice is accurate and that you are the owner or authorized to act, and your physical or electronic signature. We will investigate and remove or disable access to infringing material where appropriate, and we may terminate the accounts of repeat infringers." },
+      { h: "11. Your content and communications", p: "The Service includes optional features that let you save sources, keep collections and history, publish a profile, send direct messages, share attachments, and place audio or video calls to other users. You retain ownership of what you create. You grant Cerebrum a limited licence to store, process, transmit, and display that content solely to operate the features you are using. You are responsible for what you send, and you must not use these features to harass, defraud, or distribute unlawful material. We may remove content and suspend accounts that breach these terms or that are reported to us and found to breach them. Calls are peer-to-peer where the network permits; we do not record calls." },
+      { h: "12. Privacy", p: "Our handling of personal information is described in the Privacy Policy, which forms part of this agreement. In short: no advertising, no tracking pixels, no sale of personal information, and the minimum data needed to run the features you use." },
+      { h: "13. Availability, changes, and termination", p: "The Service is provided free of charge and with no availability commitment. We may change, suspend, limit, or discontinue any part of it, including individual features and rate limits, at any time and without notice. We may suspend or terminate your access if you breach these terms, if we are required to by law, or if continuing would create risk for other users or for the Service. You may stop using the Service at any time and delete your account from Settings. Sections that by their nature should survive termination — including 6 through 11 and 14 through 19 — survive it." },
+      { h: "14. Disclaimer of warranties", p: "THE SERVICE, INCLUDING ALL CONTENT AND OUTPUT, IS PROVIDED \"AS IS\" AND \"AS AVAILABLE\", WITHOUT WARRANTIES OF ANY KIND, EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WITHOUT LIMITATION IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, AND ANY WARRANTIES ARISING FROM COURSE OF DEALING OR USAGE OF TRADE. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, SECURE, OR ERROR-FREE, THAT DEFECTS WILL BE CORRECTED, OR THAT ANY OUTPUT IS ACCURATE, COMPLETE, CURRENT, OR RELIABLE. Some jurisdictions do not allow the exclusion of implied warranties, so parts of this section may not apply to you." },
+      { h: "15. Limitation of liability", p: "TO THE MAXIMUM EXTENT PERMITTED BY LAW, CEREBRUM AND ITS OPERATORS, CONTRIBUTORS, AND LICENSORS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL, RESEARCH TIME, OR BUSINESS OPPORTUNITY, ARISING OUT OF OR RELATING TO YOUR USE OF OR INABILITY TO USE THE SERVICE, INCLUDING ANY RELIANCE ON ITS OUTPUT, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. OUR TOTAL AGGREGATE LIABILITY FOR ALL CLAIMS RELATING TO THE SERVICE WILL NOT EXCEED ONE HUNDRED US DOLLARS (US$100), OR THE AMOUNT YOU PAID US IN THE TWELVE MONTHS BEFORE THE CLAIM, WHICHEVER IS GREATER. Nothing in these terms excludes or limits liability that cannot lawfully be excluded or limited, including liability for death or personal injury caused by negligence, or for fraud. Some jurisdictions do not allow certain limitations, so parts of this section may not apply to you." },
+      { h: "16. Indemnification", p: "You agree to indemnify and hold harmless Cerebrum and its operators from any claim, demand, loss, liability, or expense (including reasonable legal fees) arising out of your use of the Service, your content, your breach of these terms, or your violation of any law or third-party right." },
+      { h: "17. Governing law and disputes", p: "These terms are governed by the laws of the jurisdiction in which the Service's operator is established, without regard to conflict-of-law rules, and you and we submit to the exclusive jurisdiction of the courts of that place. If you are a consumer resident in the European Economic Area or the United Kingdom, this does not deprive you of the protection of the mandatory consumer-protection laws of your country of residence, or of your right to bring proceedings there. Before filing any claim, please contact contact@askcerebrum.org so we can try to resolve it informally." },
+      { h: "18. Changes to these terms", p: "We may update these terms. When we make a material change we will update the version identifier at the top of this page and ask you to review and accept the new version before continuing to use the Service. Continued use after a non-material update means you accept it. Prior versions are available on request." },
+      { h: "19. General", p: "These terms, together with the Privacy Policy and the Disclosures page, are the entire agreement between you and us about the Service. If any provision is held unenforceable, the rest remains in effect and the unenforceable part is limited to the minimum extent necessary. Our failure to enforce a provision is not a waiver of it. You may not assign this agreement; we may assign it in connection with a merger, acquisition, or transfer of the Service." },
+      { h: "20. Contact", email: "contact@askcerebrum.org", p: "Questions about these terms, or about anything on this page." }
+    ] },
+    disclosures: { eyebrow: "Disclosures", title: "Disclosures", lede: "The things you should know about how Cerebrum works before you rely on it — stated plainly, in one place, rather than buried in the terms.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
+      { h: "AI-generated content", p: "Every answer on this site is written by a large language model, not by a person and not by the authors of the cited papers. The model summarizes records retrieved at the moment you asked. It can misread an abstract, merge two findings into one, attribute a result to the wrong study, or state something incorrect in completely fluent prose. Citations are inserted by the model and can point at the wrong source even when the sentence is right. Treat every answer as a lead to check, never as a finding to quote." },
+      { h: "Not medical advice", p: "Cerebrum is not a doctor, a clinical decision support system, or a medical device, and nothing it produces is medical advice, diagnosis, or treatment. Do not use it to diagnose yourself or anyone else, to choose or change a treatment, to set a dose, or to decide whether to seek care. Always consult a qualified clinician. If you may be having a medical emergency, call your local emergency number now." },
+      { h: "Not legal, financial, or safety advice", p: "Cerebrum does not give legal, financial, tax, engineering, chemical-safety, or biosafety advice, and no professional relationship is created by using it. Do not use its output to assess a legal position, make an investment, design a structure, or plan an experiment or procedure with safety implications, without a qualified professional." },
+      { h: "Preprints are not peer-reviewed", p: "Cerebrum deliberately indexes preprint servers — bioRxiv, medRxiv, arXiv, and others reached through Europe PMC — because important work often appears there first. Preprints have not been through peer review. Cerebrum labels them, and you should weight them accordingly." },
+      { h: "Coverage is incomplete", p: "Cerebrum queries fifteen sources. That is a lot, and it is still not all of the literature. Paywalled full texts, books, theses, non-English work, older material that was never digitized, and anything outside the indexed databases can be missed entirely. An absence of results in Cerebrum is not evidence that no research exists." },
+      { h: "Accuracy indicators are aids, not certificates", p: "Source-alignment scores, confidence language, evidence-tier filters, and the optional fact-check pass are heuristics designed to help you judge an answer faster. They are computed automatically, they can be wrong in both directions, and none of them is a certification that a statement is true." },
+      { h: "No affiliation or endorsement", p: "Cerebrum is independent. It is not affiliated with, endorsed by, sponsored by, or acting on behalf of any publisher, database, university, journal, funder, or the authors of any cited work. Names, logos, and trademarks belong to their owners and appear here for identification and attribution only." },
+      { h: "Data providers and attribution", p: "Cerebrum is built on public scholarly infrastructure and is grateful for it. Records come from Europe PMC, PubMed and NCBI E-utilities, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv and medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, and OpenAIRE. Daily-science items may come from public feeds including NASA's Astronomy Picture of the Day. Each provider's content remains under its own licence and terms; where a licence requires attribution we display it, and where it restricts reuse that restriction applies to you as well." },
+      { h: "Availability", p: "Cerebrum is free, provided as-is, and offered with no uptime commitment. Upstream databases go down, rate-limit us, or change their responses without notice, and features can be changed or withdrawn at any time. Do not build a workflow that cannot tolerate the service being unavailable." },
+      { h: "Rate limits", p: "Requests are rate limited per account or per network address to keep the service usable for everyone and to stay within what the upstream providers allow. Hitting a limit is not an error in your query; wait and try again." },
+      { h: "Messages and calls are not confidential", p: "Direct messages are stored on our servers so they can be delivered and are not end-to-end encrypted. Calls are peer-to-peer where the network allows and relayed otherwise; we do not record them, but we cannot promise the path is private. Do not use either for patient data, legal privilege, unpublished confidential results, or anything else that would harm you if disclosed." },
+      { h: "Accessibility", p: "Cerebrum aims to meet WCAG 2.1 Level AA. The interface offers high-contrast mode, adjustable text size and line spacing, a dyslexia-friendly typeface, reduced transparency, visible focus indicators, full keyboard navigation, and honours your operating system's reduced-motion setting. If something is unusable for you, email contact@askcerebrum.org and describe what you hit — accessibility reports are treated as bugs, not requests." },
+      { h: "Responsible security disclosure", p: "If you find a vulnerability, email contact@askcerebrum.org with enough detail to reproduce it, and please give us a reasonable chance to fix it before disclosing publicly. Do not access, modify, or delete other people's data, do not degrade the service for others, and do not run automated scanning that amounts to a denial-of-service. We will not pursue action against good-faith research that follows this process." },
+      { h: "Reporting a bad answer", p: "Wrong species, invented citation, misattributed finding, an answer that reads as medical advice? Report it in the app or email contact@askcerebrum.org with the exact question. Bad answers are the highest-priority bug class here." },
+      { h: "Contact", email: "contact@askcerebrum.org", p: "For anything on this page." }
+    ] },
     contact: { eyebrow: "Contact", title: "Tell us what's broken or missing", lede: "Bug reports, feature requests, feedback, security issues — all welcome.", blocks: [ { h: "Email", email: "contact@askcerebrum.org", p: "Include as much detail as you can. A bug report is far easier to act on with the exact query, your browser, and what you expected to see." }, { h: "Reporting a bad answer", p: "Found a wrong species, an invented citation, a misattributed finding? Email the exact question and a short description. This is how the system improves." }, { h: "Security", p: "Discovered a vulnerability? Email us with details and please hold off on public disclosure until we've had a chance to respond." }, { h: "Blocked at work?", p: "If your organization's web filter is blocking Cerebrum, email us — we can help get it recategorized correctly as Reference / Educational." } ] },
   };
   const data = PAGES[page]; if (!data) return null;
-  const NAV = [["about", "About"], ["privacy", "Privacy"], ["terms", "Terms"], ["contact", "Contact"]];
+
+  /* Commit 69 — long-document affordances.
+     The Terms and Privacy pages went from five short blocks to twenty
+     numbered sections. A wall of twenty headings with no way to see the
+     shape of the document, jump to a clause, or link someone to one, is
+     how a policy page becomes something nobody reads — which is exactly
+     the failure mode a policy page exists to avoid. Legal pages now get a
+     contents list, stable anchor ids, per-section deep links, and a
+     reading-progress bar. Short pages (About, Contact) get none of it,
+     because a table of contents for four sections is clutter. */
+  const slug = (h) => String(h).toLowerCase()
+    .replace(/^\d+\.\s*/, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim().replace(/\s+/g, "-").slice(0, 60);
+  const isLegal = page === "terms" || page === "privacy" || page === "disclosures";
+  const toc = isLegal ? data.blocks.map((b2) => ({ h: b2.h, id: slug(b2.h) })) : [];
+  const NAV = [["about", "About"], ["privacy", "Privacy"], ["terms", "Terms"], ["disclosures", "Disclosures"], ["contact", "Contact"]];
   return (
     <div style={{ minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: "var(--cb-body)", position: "relative", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
       <style>{`
+        .cb-info-block:hover .cb-anchor, .cb-anchor:focus-visible { opacity: 1; }
+        .cb-toc-link:hover { color: ${accent}; }
+        .cb-legal-progress { position: fixed; top: 0; left: 0; height: 2px; background: ${accent}; z-index: 30; transition: width 90ms linear; }
         .cb-info-block h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-display); }
         .cb-info-block p { font-size: 15.5px; line-height: 1.7; color: ${P.ink2}; margin: 0; }
         .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
@@ -2900,6 +3247,8 @@ function InfoPage({ page }) {
           </nav>
         </div>
       </header>
+      {isLegal && <LegalProgress accent={accent} />}
+      {isLegal && <LegalHashScroll />}
       <main style={{ flex: 1, position: "relative", zIndex: 1 }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "48px 20px 64px" : "72px 28px 80px" }}>
           <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
@@ -2908,10 +3257,34 @@ function InfoPage({ page }) {
             <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.65, color: P.ink2, marginBottom: 8 }}>{data.lede}</p>
             {data.updated && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginBottom: 0, fontFamily: "var(--cb-mono)" }}>{data.updated}</div>}
           </div>
+          {isLegal && (
+            <nav aria-label="Contents" className="cb-fadein" style={{
+              marginTop: 34, padding: "18px 20px", borderRadius: 14,
+              background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+              border: `1px solid ${P.line}`,
+            }}>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: accent, fontFamily: "var(--cb-mono)", marginBottom: 12 }}>Contents</div>
+              <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "2px 22px" }}>
+                {toc.map((t) => (
+                  <li key={t.id}>
+                    <a href={`#${t.id}`} className="cb-toc-link" style={{ display: "block", padding: "5px 0", fontSize: FONT_SIZES.small, color: P.ink2, textDecoration: "none", lineHeight: 1.4 }}>{t.h}</a>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
           <div style={{ marginTop: 48, display: "flex", flexDirection: "column", gap: 40 }}>
             {data.blocks.map((block, i) => (
-              <div key={i} className="cb-info-block cb-fadein" style={{ animationDelay: `${(i + 1) * 80}ms` }}>
-                <h2>{block.h}</h2>
+              <div key={i} id={isLegal ? slug(block.h) : undefined} className="cb-info-block cb-fadein" style={{ animationDelay: `${(i + 1) * 80}ms`, scrollMarginTop: 90 }}>
+                <h2>
+                  {block.h}
+                  {isLegal && (
+                    /* A deep link per clause. "See section 15" is useless
+                       in an email; a URL that lands on section 15 is not. */
+                    <a href={`#${slug(block.h)}`} className="cb-anchor" aria-label={`Link to “${block.h}”`} title="Link to this section"
+                      style={{ marginLeft: 8, color: accent, textDecoration: "none", fontSize: "0.72em", opacity: 0, transition: "opacity 0.2s ease" }}>#</a>
+                  )}
+                </h2>
                 {block.p && <p>{block.p}</p>}
                 {block.email && <a href={`mailto:${block.email}`} style={{ fontSize: FONT_SIZES.body, color: accent, textDecoration: "none", fontFamily: "var(--cb-mono)", display: "inline-block", marginBottom: 8 }}>{block.email}</a>}
                 {block.list && <ul>{block.list.map((li, j) => <li key={j}>{li}</li>)}</ul>}
@@ -3163,7 +3536,7 @@ const TOUR_STEPS = [
   {
     title: "Command Line",
     icon: "⌘",
-    text: "Type any scientific question into the search bar. Cerebrum queries 14 scholarly databases in parallel — PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more — then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
+    text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel — PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more — then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
     hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to focus the search bar from anywhere.`,
   },
   {
@@ -3388,7 +3761,7 @@ function buildAcademicPaperBlocks(answer) {
   return { abstract, bodyBlocks, conclusion };
 }
 
-function Turn({ t, P, accent, at, S, typewriter, last = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true, user = null, onWatchChanged = () => {} }) {
+function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true, user = null, onWatchChanged = () => {} }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   // Only fires once the text has stopped changing (see the comment at the
@@ -3531,7 +3904,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, hoverCite, setHov
                     setTimeout(() => { setGeneratingPaper(false); setPaperReady(true); }, 650);
                   }}
                 />
-                {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact />}
+                {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact autoPlay={autoRead && last && done} />}
                 {done && <ToolbarBtn title="Illustrate this answer" icon="wand" accent={accent} P={P} onClick={() => onIllustrate(t.q)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
@@ -3813,7 +4186,7 @@ function HowItWorksModal({ P, accent, close }) {
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
         <div style={{ padding: "24px 24px 32px" }}>
-          <Section title="The retrieval layer">Every query fans out to 14 scholarly databases in parallel, all free and keyless.
+          <Section title="The retrieval layer">Every query fans out to 15 scholarly databases in parallel, all free and keyless.
             <List items={[<><strong>Europe PMC</strong> — biomedical, includes preprints</>,<><strong>PubMed</strong> (NCBI E-utilities) — biomedical, automatic term mapping</>,<><strong>OpenAlex</strong> — cross-disciplinary, concept graph</>,<><strong>Crossref</strong> — DOI-registered works, checked for retraction status</>,<><strong>arXiv</strong> — physics, math, CS, quantitative biology</>,<><strong>Semantic Scholar</strong> — includes auto-generated TL;DR summaries</>,<><strong>bioRxiv</strong> preprints (via OpenAlex)</>,<><strong>DOAJ, PLOS, Zenodo</strong> — additional open-access coverage</>,<><strong>CORE, BASE, PMC full-text, OpenAIRE</strong> — additional aggregator/repository coverage</>]} />
           </Section>
           <Section title="Query intelligence"><List items={[<><strong>Species queries</strong> are wrapped in quoted phrases with strict species-level filtering.</>,<><strong>Author queries</strong> hit OpenAlex's author disambiguation endpoint.</>,<><strong>Acronym expansion</strong> for common scientific abbreviations.</>,<><strong>Fallback ladder</strong>: if a strict query returns nothing, we retry looser, then plain.</>]} /></Section>
@@ -6371,7 +6744,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               const fresh = nextMsgs[nextMsgs.length - 1];
               if (fresh && !fresh.mine) {
                 cbBlip(660, 0.07, 0.045);
-                cbNotify(fresh.who || next.name || "New message", (fresh.text || "Sent an attachment").slice(0, 140), "cb-msg-" + activeId);
+                cbNotify(fresh.who || next.name || "New message", (fresh.text || "Sent an attachment").slice(0, 140), "cb-msg-" + activeId, "message");
               }
             }
           } catch {}
@@ -8298,6 +8671,74 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState("");
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  // Commit 67
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState("");
+  const [notify, setNotify] = useState(() => notifyPref());
+  const [notifPerm, setNotifPerm] = useState(() => {
+    try { return "Notification" in window ? Notification.permission : "unsupported"; } catch { return "unsupported"; }
+  });
+  const [confirmReset, setConfirmReset] = useState(false);
+  const setNotifyKind = (k, v) => {
+    const next = { ...notify, [k]: v };
+    setNotify(next); setNotifyPref(next); sfx();
+  };
+
+  // Commit 67 — watched-topic management on the History & Data tab.
+  const [watchlist, setWatchlist] = useState([]);
+  const [wlLoading, setWlLoading] = useState(false);
+  const loadWatchlist = useCallback(async () => {
+    if (!user) { setWatchlist([]); return; }
+    setWlLoading(true);
+    const d = await apiDataGet("watchlist");
+    setWlLoading(false);
+    setWatchlist(d && Array.isArray(d.items) ? d.items : []);
+  }, [user]);
+  // Only fetched when the tab is actually open — this costs a live
+  // literature query per topic upstream, and paying for it on every visit
+  // to Settings regardless of which tab you wanted would be rude to both
+  // the user and Europe PMC.
+  useEffect(() => { if (tab === "data") loadWatchlist(); }, [tab, loadWatchlist]);
+
+  // Commit 67 — reset every preference to its default.
+  //
+  // Deliberately drives the React setters rather than deleting the cb_*
+  // cookies and reloading: each setter is already wired to write its own
+  // cookie AND apply its live effect (font swap, density, contrast class),
+  // so going through them means the page reflects the reset instantly and
+  // there is exactly one place that knows how each preference is stored.
+  // A cookie-wipe-and-reload would drift the moment a preference gains a
+  // side effect.
+  function resetAllSettings() {
+    // Every value below is copied from that preference's own useState
+    // initializer in App() — the cookie-absent default. Getting one wrong
+    // would make "reset" quietly set a NEW value rather than restore the
+    // original, which is worse than having no reset at all.
+    setPaletteName("Sage");         // cb_pal
+    setAccentName("Sage");          // cb_accent
+    setCustomAccent("");            // cb_ca
+    setAnswerLength("medium");      // cb_len
+    setFactCheck(true);             // not persisted
+    setMuted(false);                // cb_muted !== "1"
+    setTypewriter(true);            // cb_tw !== "0"
+    setSoundMode("pulse");          // cb_snd
+    setAnimationMode("cinematic");  // cb_anim2
+    setAnimSpeed(1);                // cb_animS
+    setHighContrast(false);         // cb_hc !== "1"
+    setFontSize("medium");          // cb_fs
+    setReducedTransparency(false);  // cb_rt !== "1"
+    setAutoplay(false);             // cb_ap === "1"
+    setDyslexicFont(false);         // cb_df !== "1"
+    setLineSpacing("normal");       // cb_ls
+    setFocusHighlight(false);       // cb_fh !== "1"
+    setCitationStyle("vancouver");  // cb_cite
+    setDataDensity("comfortable");  // cb_density
+    const allOn = { call: true, message: true, watch: true };
+    setNotify(allOn); setNotifyPref(allOn);
+    setConfirmReset(false);
+    sfx();
+    toast("Settings reset to defaults.");
+  }
   const [delBusy, setDelBusy] = useState(false);
   // v6.7: the tab bar's sliding underline used to assume all 6 tabs were
   // equal width (`left`/`width` as `index/count` and `1/count` percentages)
@@ -8336,14 +8777,90 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     catch (err) { setPwMsg(err.message || "Couldn't delete account."); setDelBusy(false); }
   }
 
+  // Commit 67 — Notifications is new. Cerebrum raises three kinds of
+  // desktop notification (calls, messages, watched-topic alerts) and until
+  // now had no in-app control over any of them; see notifyPref/cbNotify.
+  // Each tab carries an icon because the desktop layout below is a vertical
+  // rail, and a rail of bare words reads as a list of links rather than as
+  // navigation.
   const TABS = [
-    ["account", "Account"],
-    ["general", "General"],
-    ["appearance", "Appearance"],
-    ["accessibility", "Accessibility"],
-    ["audio", "Audio & Voice"],
-    ["data", "History & Data"],
+    ["account", "Account", "user"],
+    ["general", "General", "settings"],
+    ["appearance", "Appearance", "sparkle"],
+    ["notifications", "Notifications", "bell"],
+    ["accessibility", "Accessibility", "eye"],
+    ["audio", "Audio & Voice", "volumeOn"],
+    ["data", "History & Data", "history"],
   ];
+
+  // Commit 67 — settings search.
+  //
+  // Seven tabs is past the point where someone can be expected to guess
+  // which one holds "reduce transparency". This index is maintained by
+  // hand rather than derived from the rendered tree: deriving it would mean
+  // rendering every tab's contents on every keystroke to read the labels
+  // back out, and a hand-list is honest about the fact that a new setting
+  // has to be registered here to be findable.
+  const SETTINGS_INDEX = [
+    ["Answer length", "general", "concise standard detailed response verbosity"],
+    ["Fact-check pass", "general", "verify verification accuracy claims"],
+    ["Animated typing", "general", "typewriter reveal progressive"],
+    ["Citation format", "general", "apa mla chicago vancouver bibtex reference style"],
+    ["Theme", "appearance", "dark light palette colour color"],
+    ["Accent color", "appearance", "colour highlight brand"],
+    ["Background animation", "appearance", "motion particles effects reduce"],
+    ["Data density", "appearance", "compact comfortable spacing padding layout"],
+    ["Desktop notifications", "notifications", "permission browser alerts push"],
+    ["Incoming calls", "notifications", "ring call video audio"],
+    ["Direct messages", "notifications", "inbox dm chat message"],
+    ["Watched topics", "notifications", "papers literature alerts new research"],
+    ["High contrast", "accessibility", "contrast vision legibility"],
+    ["Text size", "accessibility", "font size larger bigger zoom"],
+    ["Line spacing", "accessibility", "leading line height readability"],
+    ["Reduce transparency", "accessibility", "glass blur frosted solid"],
+    ["Focus indicators", "accessibility", "keyboard ring outline focus"],
+    ["Dyslexia-friendly font", "accessibility", "opendyslexic typeface reading"],
+    ["Auto-read answers", "accessibility", "speech tts read aloud voice"],
+    ["Sound effects", "audio", "mute clicks sfx sounds"],
+    ["Search ambience", "audio", "tone background ambient sound"],
+    ["Text to speech", "audio", "elevenlabs voice narration tts"],
+    ["Saved conversations", "data", "history conversations clear delete"],
+    ["Saved articles", "data", "papers sources saved storage"],
+    ["Watched topics list", "data", "watchlist unwatch topics manage"],
+    ["Export workspace", "data", "backup download json export"],
+    ["Import workspace", "data", "restore upload json import"],
+    ["Reset all settings", "data", "defaults restore factory reset"],
+    ["Keyboard shortcuts", "data", "hotkeys keys shortcuts"],
+    ["System status", "data", "health uptime api diagnostics"],
+    ["Sign out", "account", "logout leave session"],
+    ["Delete account", "account", "remove erase danger"],
+  ];
+  const searchHits = query.trim().length < 2 ? [] : (() => {
+    const q = query.trim().toLowerCase();
+    return SETTINGS_INDEX
+      .map(([label, tabId, kw]) => {
+        const l = label.toLowerCase();
+        // Rank a prefix match on the label itself above a hit that only
+        // matched a keyword, so typing "text" surfaces "Text size" before
+        // "Text to speech"'s keyword blob.
+        const score = l.startsWith(q) ? 0 : l.includes(q) ? 1 : kw.includes(q) ? 2 : -1;
+        return { label, tabId, score };
+      })
+      .filter((h) => h.score >= 0)
+      .sort((a2, b2) => a2.score - b2.score)
+      .slice(0, 7);
+  })();
+  const tabLabel = (id) => (TABS.find((t) => t[0] === id) || [null, id])[1];
+  const jumpTo = (hit) => {
+    sfx();
+    setTab(hit.tabId);
+    setQuery("");
+    // Flash the row so the eye lands on it — arriving on a tab of twenty
+    // controls with no indication which one you searched for is barely
+    // better than not searching.
+    setHighlight(hit.label);
+    setTimeout(() => setHighlight(""), 2400);
+  };
 
   /* ── Building blocks — restyled to match Cerebrum's own glass/editorial
      language (the version this replaced was a literal iOS Settings clone:
@@ -8363,8 +8880,17 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     </div>
   );
 
-  const Row = ({ icon, label, desc, control, onClick, last, destructive }) => (
-    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: onClick ? "pointer" : "default", borderBottom: last ? "none" : `1px solid ${divider}` }}>
+  // Commit 67 — `highlight` is the label that settings-search just jumped
+  // to. The row gets a ring and a wash for a couple of seconds so the eye
+  // lands on it; without that, search drops you on a tab of twenty controls
+  // with no idea which one you were looking for.
+  const Row = ({ icon, label, desc, control, onClick, last, destructive }) => {
+    const lit = highlight && highlight === label;
+    return (
+    <div onClick={onClick} className={onClick ? "cb-row" : undefined} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: onClick ? "pointer" : "default", borderBottom: last ? "none" : `1px solid ${divider}` , ...(lit ? {
+      background: withAlpha(accent, 0.16),
+      boxShadow: `inset 0 0 0 1px ${withAlpha(accent, 0.6)}, inset 3px 0 0 ${accent}`,
+    } : null), transition: "background-color 0.35s ease, box-shadow 0.35s ease" }}>
       {icon && <span style={{ fontSize: FONT_SIZES.heading, width: 28, height: 28, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: FONT_SIZES.body, color: destructive ? STATUS.bad : P.ink, fontWeight: 500, fontFamily: "var(--cb-body)", letterSpacing: "-0.01em" }}>{label}</div>
@@ -8373,12 +8899,26 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
       {onClick && !control && <span style={{ color: P.faint, fontSize: FONT_SIZES.subhead }}>›</span>}
     </div>
-  );
+    );
+  };
 
+  // Commit 67 (mobile fix) — the switch is now a transparent 44px-tall
+  // button wrapping a 26px visual track, rather than the button BEING the
+  // track.
+  //
+  // Why: the stylesheet's mobile tap-target rule is `@media (max-width:
+  // 900px) { button { min-height: 44px } }`. It applied to this button, so
+  // on a phone the 44x26 pill was forced to 44x44 — a circle with a 22px
+  // knob rattling around inside it. Every switch in Settings rendered as a
+  // wrong-shaped blob on mobile and nowhere else, which is why it survived
+  // desktop review. Separating the hit area from the painted track gives
+  // the correct 44px touch target AND the correct pill at every width.
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
-      style={{ width: 44, height: 26, borderRadius: 3, position: "relative", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", border: "none", cursor: "pointer", padding: 0, transition: "background 220ms ease" }}>
-      <span style={{ position: "absolute", top: 2, left: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)", transition: "transform 220ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 2px 6px rgba(0,0,0,0.25)" }} />
+      style={{ width: 52, height: 44, background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 100, position: "relative", flexShrink: 0, display: "block", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", transition: "background 220ms ease" }}>
+        <span style={{ position: "absolute", top: 2, left: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)", transition: "transform 220ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+      </span>
     </button>
   );
 
@@ -8395,33 +8935,107 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     // against LivingBackground's absolutely-positioned canvas, opaque
     // background or not, past the first screenful of scroll.
     <div role="region" aria-label="Settings" style={{ flex: 1, minHeight: "100%", background: P.bg, display: "flex", flexDirection: "column", overflowY: "auto", position: "relative", zIndex: 1 }}>
-      <div style={{ width: "100%", maxWidth: 760, margin: "0 auto", padding: isMobile ? "22px 18px 60px" : "44px 32px 90px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)" }}>
+      {/* 62px of top padding on mobile clears the fixed menu button — see
+          pageViewInner's comment; Settings sets its own padding and so
+          needed the same correction independently. */}
+      <div style={{ width: "100%", maxWidth: isMobile ? 760 : 1020, margin: "0 auto", padding: isMobile ? "62px 18px 60px" : "44px 32px 90px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-body)" }}>
 
-        {/* Header — a page title now, not a dialog: no backdrop, no close
-            button. Leaving this screen means picking another Sidebar
-            destination, not dismissing an overlay. */}
+        {/* Header. Settings became a full page (not a dialog) in Commit 62,
+            but kept the dialog's horizontally-scrolling tab strip — a
+            control that exists because a modal is short on width, on a page
+            that has 1020px of it. Desktop now gets a vertical rail; mobile,
+            where width really is scarce, keeps the strip. */}
         <div style={{ flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
             <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>Settings</div>
+
+            {/* Commit 67 — search. See SETTINGS_INDEX. */}
+            <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 1 320px", minWidth: 200 }}>
+              <span aria-hidden="true" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: P.faint, display: "inline-flex", pointerEvents: "none" }}>
+                <Icon name="search" size={15} />
+              </span>
+              <input
+                value={query} onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") { setQuery(""); e.currentTarget.blur(); }
+                  if (e.key === "Enter" && searchHits.length) jumpTo(searchHits[0]);
+                }}
+                placeholder="Search settings"
+                aria-label="Search settings"
+                style={{
+                  width: "100%", padding: "9px 12px 9px 34px", borderRadius: 100,
+                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                  border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
+                }}
+              />
+              {query.trim().length >= 2 && (
+                <div className="cb-fade" style={{
+                  position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 20,
+                  background: P.bg, border: `1px solid ${P.line2}`, borderRadius: 12,
+                  boxShadow: "0 18px 48px rgba(0,0,0,0.35)", overflow: "hidden",
+                }}>
+                  {searchHits.length === 0 ? (
+                    <div style={{ padding: "12px 14px", fontSize: FONT_SIZES.small, color: P.faint }}>
+                      Nothing matches that.
+                    </div>
+                  ) : searchHits.map((h) => (
+                    <button key={h.tabId + h.label} onClick={() => jumpTo(h)} className="cb-row" style={{
+                      display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", gap: 10,
+                      padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer",
+                      textAlign: "left", fontFamily: "var(--cb-body)",
+                    }}>
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 600 }}>{h.label}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", textTransform: "uppercase", letterSpacing: "0.07em", whiteSpace: "nowrap" }}>{tabLabel(h.tabId)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Tab bar — a sliding underline indicator instead of the filled
-              segmented-pill look this used to share with the command
-              palette/dropdown chrome elsewhere. Same pattern as AuthModal's
-              tab bar now uses, so the two places in the app with real
-              client-side tabs read as one deliberate system rather than
-              each having invented its own. */}
-          <div className="cb-scroll-x" style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}`, marginBottom: 18, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-            {TABS.map(([id, label]) => (
-              <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
-                style={{ flexShrink: 0, padding: isMobile ? "8px 10px 10px" : "9px 4px 11px", fontSize: isMobile ? FONT_SIZES.caption : FONT_SIZES.small, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
-            ))}
-            <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: tabUnderline.left, width: tabUnderline.width, height: 2, background: accent, borderRadius: 2, transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1), width 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
-          </div>
+          {isMobile && (
+            <div className="cb-scroll-x" style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}`, marginBottom: 18, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+              {TABS.map(([id, label]) => (
+                <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
+                  style={{ flexShrink: 0, padding: "8px 10px 10px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
+              ))}
+              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: tabUnderline.left, width: tabUnderline.width, height: 2, background: accent, borderRadius: 2, transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1), width 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
+            </div>
+          )}
         </div>
 
+        <div style={{ display: "flex", gap: 30, alignItems: "flex-start" }}>
+          {/* Desktop rail. Sticky, so the navigation stays reachable on the
+              long tabs (Appearance and Accessibility both scroll well past
+              a viewport) instead of scrolling away and forcing a trip back
+              to the top to change section. */}
+          {!isMobile && (
+            <nav aria-label="Settings sections" style={{ position: "sticky", top: 44, flex: "0 0 208px", display: "flex", flexDirection: "column", gap: 2 }}>
+              {TABS.map(([id, label, icon]) => (
+                <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
+                  aria-current={tab === id ? "page" : undefined}
+                  className="cb-row"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 11, width: "100%",
+                    padding: "10px 12px", borderRadius: 9, border: "none", cursor: "pointer",
+                    textAlign: "left", fontFamily: "var(--cb-body)",
+                    fontSize: FONT_SIZES.small, fontWeight: tab === id ? 700 : 500,
+                    letterSpacing: "-0.01em",
+                    background: tab === id ? withAlpha(accent, 0.11) : "transparent",
+                    color: tab === id ? P.ink : P.ink2,
+                  }}>
+                  <span style={{ display: "inline-flex", color: tab === id ? accent : P.faint, flexShrink: 0 }}>
+                    <Icon name={icon} size={16} />
+                  </span>
+                  {label}
+                </button>
+              ))}
+            </nav>
+          )}
+
         {/* Content */}
-        <div key={tab} className="cb-fade" style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1, WebkitOverflowScrolling: "touch" }}>
+        <div key={tab} className="cb-fade" style={{ flex: 1, minWidth: 0, padding: isMobile ? "0 0 16px" : "0 0 16px", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
 
           {tab === "account" && (<>
             {!user ? (
@@ -8544,6 +9158,85 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
           </>)}
 
+          {tab === "notifications" && (<>
+            {/* Commit 67. Cerebrum was raising three kinds of desktop
+                notification with no way to turn any of them off short of
+                revoking the browser permission for all three — see
+                notifyPref/cbNotify. */}
+            <Section
+              title="Desktop notifications"
+              footer={
+                notifPerm === "unsupported" ? "This browser doesn't support desktop notifications."
+                : notifPerm === "denied" ? "Your browser is blocking notifications for this site. Re-allow them in the padlock menu in the address bar — Cerebrum can't undo that from here."
+                : notifPerm === "granted" ? "Cerebrum only notifies you while this tab is in the background. Nothing is sent while you're looking at it."
+                : "Cerebrum will ask your browser for permission the first time it has something to tell you."
+              }
+            >
+              <Row
+                label="Desktop notifications"
+                desc={
+                  notifPerm === "granted" ? "Allowed by this browser"
+                  : notifPerm === "denied" ? "Blocked by this browser"
+                  : notifPerm === "unsupported" ? "Not available here"
+                  : "Not yet requested"
+                }
+                control={
+                  notifPerm === "default" ? (
+                    <button onClick={() => {
+                      sfx();
+                      try {
+                        Notification.requestPermission().then((perm) => setNotifPerm(perm));
+                      } catch { setNotifPerm("unsupported"); }
+                    }} style={{ padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                      Allow
+                    </button>
+                  ) : (
+                    <span style={{
+                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", letterSpacing: "0.07em",
+                      textTransform: "uppercase", padding: "4px 10px", borderRadius: 100,
+                      color: notifPerm === "granted" ? STATUS.good : P.faint,
+                      background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
+                    }}>{notifPerm === "granted" ? "On" : notifPerm === "denied" ? "Blocked" : "Unavailable"}</span>
+                  )
+                }
+                last
+              />
+            </Section>
+
+            <Section
+              title="What to notify me about"
+              footer="These are per-browser, like every other preference here. Turning one off stops the notification only — the call still rings in the app, the message still arrives in your Inbox, and the papers still appear on your watchlist."
+            >
+              <Row label="Incoming calls" desc="Someone is calling you right now" control={
+                <Switch on={notify.call} onChange={(v) => setNotifyKind("call", v)} label="Notify me about incoming calls" />
+              } />
+              <Row label="Direct messages" desc="A new message in a conversation you're part of" control={
+                <Switch on={notify.message} onChange={(v) => setNotifyKind("message", v)} label="Notify me about direct messages" />
+              } />
+              <Row label="Watched topics" desc="New papers indexed on a topic you're watching" control={
+                <Switch on={notify.watch} onChange={(v) => setNotifyKind("watch", v)} label="Notify me about watched topics" />
+              } last />
+            </Section>
+
+            {notifPerm === "granted" && (
+              <Section title="Test" footer="Switch to another tab or window after pressing this — a browser suppresses notifications for the page you're actually looking at, and so does Cerebrum.">
+                <Row
+                  label="Send a test notification"
+                  desc="Confirms notifications actually reach your desktop"
+                  onClick={() => {
+                    sfx();
+                    // No `kind`, so this is never filtered by the toggles
+                    // above — a test that silently does nothing because of
+                    // a setting is worse than no test.
+                    setTimeout(() => cbNotify("Cerebrum", "Notifications are working.", "cb-test"), 2500);
+                    toast("Switch away from this tab — the test fires in a few seconds.");
+                  }}
+                  last
+                />
+              </Section>
+            )}
+          </>)}
+
           {tab === "accessibility" && (<>
             <Section title="Vision" footer="All changes apply immediately and persist across sessions.">
               <Row label="High contrast" desc="Maximum contrast between text and background" control={<Switch on={highContrast} onChange={(v) => { sfx(); setHighContrast(v); }} label="High contrast" />} />
@@ -8602,6 +9295,42 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               } last />
             </Section>
 
+            {/* Commit 67 — watched topics were manageable only from the
+                home screen's deck card, which meant no way to review or
+                prune them once the deck stopped showing them all. */}
+            {user && (
+              <Section title="Watched topics" footer="Cerebrum checks these against the literature index and tells you when new papers are actually indexed. Nothing is sent when nothing has been published.">
+                {wlLoading ? (
+                  <Row label="Loading your watchlist…" last />
+                ) : watchlist.length === 0 ? (
+                  <Row label="You're not watching any topics" desc="Finish an answer and press 'Watch this topic' to start." last />
+                ) : (
+                  watchlist.map((w, i) => (
+                    <Row
+                      key={w.id}
+                      label={w.topic}
+                      desc={
+                        w.newCount > 0
+                          ? `${w.newCount} new paper${w.newCount === 1 ? "" : "s"} since you looked`
+                          : (w.live ? "Nothing new yet" : "Couldn't check just now")
+                      }
+                      control={
+                        <button onClick={async () => {
+                          sfx();
+                          setWatchlist((prev) => prev.filter((x) => x.id !== w.id));
+                          try { await apiDataAction("unwatch-topic", { topic: w.topic }); }
+                          catch { loadWatchlist(); }
+                        }} style={{ padding: "5px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                          Unwatch
+                        </button>
+                      }
+                      last={i === watchlist.length - 1}
+                    />
+                  ))
+                )}
+              </Section>
+            )}
+
             <Section title="Workspace" footer="Export all saved articles, history, and preferences as a portable JSON file you can reimport on any device.">
               <Row label="Export workspace" desc="Download all your data as JSON" control={
                 <button onClick={() => {
@@ -8644,6 +9373,24 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               } last />
             </Section>
 
+            {/* Commit 67 — there was no way back. Every control on the
+                Appearance and Accessibility tabs writes a cookie, and a
+                person who changed eight of them experimenting had to
+                remember and reverse each one by hand. */}
+            <Section title="Preferences" footer="Restores appearance, accessibility, audio and response preferences to their defaults on this browser. Your account, saved articles, collections and history are not touched.">
+              {!confirmReset ? (
+                <Row label="Reset all settings" desc="Puts every preference back to its default" onClick={() => setConfirmReset(true)} last />
+              ) : (
+                <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>Reset every preference to its default? Your data stays.</span>
+                  <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                    <button onClick={() => setConfirmReset(false)} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Cancel</button>
+                    <button onClick={resetAllSettings} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: at, border: "none", borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Reset</button>
+                  </span>
+                </div>
+              )}
+            </Section>
+
             <Section title="Keyboard shortcuts">
               <div style={{ padding: "4px 0" }}>
                 {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], [kbdLabel("D"), "Toggle light / dark"], ["Esc", "Back to search"]].map(([key, desc], i, arr) => (
@@ -8669,6 +9416,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
           </>)}
 
+        </div>
         </div>
       </div>
     </div>
@@ -8955,7 +9703,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // z-index above the canvas's is the actual fix; the header above uses
     // the same trick at zIndex 20 for the same reason.
     pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100%", position: "relative", zIndex: 1 },
-    pageViewInner: { maxWidth: 920, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "40px 32px 80px" },
+    // Commit 67 (mobile fix) — the floating menu button is fixed at
+    // top:14 left:14 and is 38px square, so it occupies the first ~52px of
+    // both axes. Page content started at 24px from the top and 18px from
+    // the left, which put every page's H1 directly underneath it:
+    // "Settings" rendered as "ttings" with a hamburger over the S. Content
+    // now starts below the button on mobile.
+    pageViewInner: { maxWidth: 920, width: "100%", margin: "0 auto", padding: isMobile ? "62px 18px 60px" : "40px 32px 80px" },
     pageViewTitle: { fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" },
 
     /* ── Scroll area ── */
@@ -9514,6 +10268,180 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   );
 });
 
+/* Commit 69 — the consent gate.
+   ---------------------------------------------------------------------
+   Nobody uses Cerebrum without having been shown, and having actively
+   accepted, the Terms, Privacy Policy and Disclosures.
+
+   Three deliberate choices about how this is built:
+
+   1. It BLOCKS. It is not a dismissible banner and not a "by continuing
+      you agree" footer, because neither of those is acceptance — they are
+      a claim that silence is consent. There is a checkbox, it starts
+      unticked, and the Accept button does nothing until it is ticked.
+
+   2. It SUMMARIZES the parts that actually change someone's behaviour —
+      AI-generated answers, not medical advice, verify against sources —
+      instead of only linking out. A gate whose entire content is "I agree
+      to the terms" teaches people to click through without reading. The
+      full documents are one tap away and open in a new tab so nobody
+      loses their place.
+
+   3. It is KEYED TO A VERSION, not to a boolean. Bumping LEGAL_VERSION
+      re-asks everyone, because an agreement to a document someone never
+      saw is not an agreement.
+
+   Acceptance is stored in the cb_legal cookie (gates the UI) and, for a
+   signed-in account, written to the users row (the durable record — a
+   cookie is deletable by the person it is meant to bind). */
+function readLegalAccepted() {
+  try {
+    const raw = getCookie("cb_legal");
+    if (!raw) return null;
+    const [version, ts] = raw.split("|");
+    return { version, acceptedAt: Number(ts) || 0 };
+  } catch { return null; }
+}
+function writeLegalAccepted(version) {
+  setCookie("cb_legal", version + "|" + Date.now());
+}
+
+function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
+  const [checked, setChecked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [declined, setDeclined] = useState(false);
+  const isMobile = useIsMobile();
+  const panelRef = useRef(null);
+  useEffect(() => { try { panelRef.current?.focus(); } catch {} }, []);
+  // Nothing behind the gate should scroll while it's up.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const accept = async () => {
+    if (!checked || busy) return;
+    setBusy(true);
+    writeLegalAccepted(LEGAL_VERSION);
+    // The server record is best-effort: a signed-in user whose network
+    // blips still gets through, because the cookie is what gates the UI
+    // and blocking someone out of the app over a failed audit write would
+    // be the wrong trade. The next profile load re-syncs it.
+    if (user) {
+      try { await apiDataAction("accept-terms", { version: LEGAL_VERSION }); } catch {}
+    }
+    setBusy(false);
+    onAccepted();
+  };
+
+  const link = (href, label) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: "underline", textUnderlineOffset: 3 }}>{label}</a>
+  );
+
+  const point = (title, body) => (
+    <li style={{ padding: "11px 0", borderTop: `1px solid ${P.line}`, listStyle: "none" }}>
+      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 3 }}>{title}</div>
+      <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55 }}>{body}</div>
+    </li>
+  );
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="cb-consent-title" style={{
+      position: "fixed", inset: 0, zIndex: 9000,
+      background: P.dark ? "rgba(0,0,0,0.86)" : "rgba(20,24,28,0.72)",
+      backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: isMobile ? 16 : 28, overflowY: "auto",
+    }}>
+      <div ref={panelRef} tabIndex={-1} className="cb-modal" style={{
+        width: "100%", maxWidth: 560, background: P.bg, color: P.ink,
+        border: `1px solid ${P.line2}`, borderRadius: 18, outline: "none",
+        boxShadow: "0 30px 90px rgba(0,0,0,0.55)",
+        padding: isMobile ? "26px 20px 22px" : "32px 34px 26px",
+        fontFamily: "var(--cb-body)", maxHeight: "94vh", overflowY: "auto",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 18 }}>
+          <Mark size={26} accent={accent} glow={P.dark} />
+          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em" }}>Cerebrum</span>
+        </div>
+
+        {declined ? (
+          <>
+            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", margin: "0 0 12px", fontFamily: "var(--cb-display)" }}>
+              That's completely fine
+            </h2>
+            <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 20px" }}>
+              Cerebrum can't be used without agreeing to these terms — that isn't a pressure tactic, it's just what the agreement is for. Nothing has been stored, and you can come back any time. If something in the documents is the reason you said no, {link("mailto:contact@askcerebrum.org", "tell us which part")} — that's genuinely useful feedback.
+            </p>
+            <button onClick={() => setDeclined(false)} className="cb-press" style={{
+              width: "100%", padding: "12px 18px", borderRadius: 100, cursor: "pointer",
+              background: "transparent", color: P.ink, border: `1px solid ${P.line2}`,
+              fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-body)",
+            }}>Back</button>
+          </>
+        ) : (
+          <>
+            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", margin: "0 0 8px", fontFamily: "var(--cb-display)", lineHeight: 1.2 }}>
+              {serverVersion ? "We've updated our terms" : "Before you start"}
+            </h2>
+            <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 4px" }}>
+              {serverVersion
+                ? "Our Terms, Privacy Policy and Disclosures have changed materially since you last accepted them. Please review and accept the new version to continue."
+                : "Cerebrum is free and collects as little as it can. Three things are worth knowing before your first search — they take fifteen seconds and they matter."}
+            </p>
+
+            <ul style={{ margin: "16px 0 0", padding: 0 }}>
+              {point("Answers are written by AI, not by scientists",
+                "A language model summarizes papers it retrieved a moment ago. It can misread a study, merge two findings, or cite the wrong source in fluent, confident prose. Every claim is a lead to check, not a finding to quote.")}
+              {point("This is not medical, legal, or financial advice",
+                "Cerebrum is not a doctor, a lawyer, or an adviser, and no professional relationship is created by using it. Never delay or override professional advice because of something you read here. In an emergency, call your local emergency number.")}
+              {point("Verify against the cited sources",
+                "Every answer links to the papers behind it. Those links are the point of the product — if something matters, open it and read the original.")}
+            </ul>
+
+            <div style={{ borderTop: `1px solid ${P.line}`, marginTop: 4, paddingTop: 16 }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 11, cursor: "pointer" }}>
+                <input
+                  type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)}
+                  style={{ width: 18, height: 18, minHeight: 18, marginTop: 2, accentColor: accent, cursor: "pointer", flexShrink: 0 }}
+                />
+                <span style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.6 }}>
+                  I have read and agree to the {link("/terms", "Terms of Service")}, the {link("/privacy", "Privacy Policy")}, and the {link("/disclosures", "Disclosures")}, and I understand that Cerebrum's answers are AI-generated and are not professional advice.
+                </span>
+              </label>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
+              <button
+                onClick={accept} disabled={!checked || busy}
+                className="cb-press"
+                style={{
+                  flex: 1, minWidth: 180, padding: "13px 20px", borderRadius: 100,
+                  border: "none", cursor: checked && !busy ? "pointer" : "not-allowed",
+                  background: checked ? accent : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)"),
+                  color: checked ? at : P.faint,
+                  fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-body)",
+                  transition: "background 0.22s ease, color 0.22s ease",
+                }}
+              >{busy ? "Saving…" : "Agree and continue"}</button>
+              <button onClick={() => setDeclined(true)} className="cb-press" style={{
+                padding: "13px 18px", borderRadius: 100, cursor: "pointer",
+                background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
+                fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+              }}>Decline</button>
+            </div>
+
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", marginTop: 14, textAlign: "center" }}>
+              Version {LEGAL_VERSION} · You must be 13 or older (16 in the EEA and UK)
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
@@ -9626,6 +10554,31 @@ function App() {
         avatar_base64: profileRes.user.avatar_base64 || "",
       }));
       setProfileMeta({ followers: profileRes.followers || 0, badges: profileRes.badges || [] });
+      // Accepted on another device? Don't ask again here — write the
+      // cookie so this browser matches the account's real state. The
+      // reverse (cookie accepted, account not) is handled when the gate
+      // itself posts accept-terms.
+      if (profileRes.termsVersion === LEGAL_VERSION) {
+        try { writeLegalAccepted(LEGAL_VERSION); } catch {}
+        setLegalOk(true);
+      } else {
+        // Reconciliation, and it matters more than it looks.
+        //
+        // The gate can be accepted BEFORE the session has resolved — on a
+        // cold load the dialog is interactive within a frame or two, while
+        // whoami is still in flight, so `user` is null when accept-terms
+        // would have been posted and the durable record is silently never
+        // written. It also covers the ordinary case of someone accepting
+        // as a guest and signing in afterwards.
+        //
+        // So: whenever a profile loads and the account's recorded version
+        // is behind what this browser has already accepted, write it. The
+        // cookie is the claim; this is what makes it evidence.
+        const local = readLegalAccepted();
+        if (local && local.version === LEGAL_VERSION) {
+          apiDataAction("accept-terms", { version: LEGAL_VERSION }).catch(() => {});
+        }
+      }
     }
     setThreads(inboxRes?.items || []);
     if (serverSaved.length > 0 || serverHist.length > 0) {
@@ -9840,7 +10793,12 @@ function App() {
   const [highContrast, setHighContrast] = useState(() => getCookie("cb_hc") === "1");
   const [fontSize, setFontSize] = useState(() => getCookie("cb_fs") || "medium");
   const [reducedTransparency, setReducedTransparency] = useState(() => getCookie("cb_rt") === "1");
-  const [autoplay, setAutoplay] = useState(() => getCookie("cb_ap") !== "0");
+  // Commit 67 — default flipped to OFF. It read `!== "0"` (default ON), which
+  // was harmless only because nothing consumed it (see AnswerPlayer's
+  // autoPlay comment). Now that the switch actually works, shipping it ON
+  // would mean every existing user suddenly has answers read aloud at them
+  // without ever having asked for it.
+  const [autoplay, setAutoplay] = useState(() => getCookie("cb_ap") === "1");
   const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
   const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
@@ -9852,6 +10810,13 @@ function App() {
   // Commit 65 — bumped whenever a topic is watched or unwatched, so the
   // home-screen watchlist reflects it without a page reload.
   const [watchKey, setWatchKey] = useState(0);
+  // Commit 69 — the consent gate. `legalOk` is true once this browser has
+  // accepted the current LEGAL_VERSION. It is seeded from the cookie so a
+  // returning user never sees a flash of the gate before it resolves.
+  const [legalOk, setLegalOk] = useState(() => {
+    const a2 = readLegalAccepted();
+    return !!(a2 && a2.version === LEGAL_VERSION);
+  });
   // Commit 66 — true once this account has anything of its own to show on
   // the Home Deck. Drives the compact hero; see the comment at its
   // <Reveal>. Deliberately does NOT include the watchlist: that loads
@@ -10159,7 +11124,7 @@ function App() {
         // poll runs every 3s and a notification per poll would be abuse.
         setIncomingCall((prev) => {
           if (call && (!prev || prev.threadId !== call.threadId)) {
-            cbNotify("Incoming call", `${call.fromName} is calling you on Cerebrum`, "cb-call");
+            cbNotify("Incoming call", `${call.fromName} is calling you on Cerebrum`, "cb-call", "call");
           }
           return call;
         });
@@ -10436,7 +11401,23 @@ function App() {
   const grouped = useMemo(() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; }, [sortedSources, srcSort]);
 
   if (!entered) {
-    return <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} animationMode={animationMode} />;
+    // Commit 69 — the gate rides above the Intro too. The Intro is a
+    // landing screen rather than "use of the Service", but there is no
+    // reason to let someone press START EXPLORING and land in the app a
+    // frame before being asked; showing it here means the first
+    // interactive thing anyone sees is the agreement.
+    return (
+      <>
+        <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} animationMode={animationMode} />
+        {!legalOk && (
+          <ConsentGate
+            P={P} accent={accent} at={at} user={user}
+            serverVersion={!!(readLegalAccepted() || {}).version}
+            onAccepted={() => setLegalOk(true)}
+          />
+        )}
+      </>
+    );
   }
 
   const started = turns.length > 0 || busy;
@@ -10546,7 +11527,14 @@ function App() {
       <div style={S.grain} />
       <GuidedTour P={P} accent={accent} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
-      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{ position: "fixed", bottom: isMobile ? 80 : 24, left: 24, width: 36, height: 36, borderRadius: "50%", background: P.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", border: "none", color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(8px)", fontSize: FONT_SIZES.subhead }}>↑</button>}
+      {/* Back to top. Two mobile fixes: it sat at 10% white over the page,
+          so the Home Deck's rows read straight through it (a watchlist
+          entry's status line was legible *inside* the button); and on the
+          left it landed on the deck cards' text column, while the right
+          edge of a card is its quiet side. Opaque, shadowed, and on the
+          right on mobile — desktop keeps the left, where nothing collides
+          and the right is the sources panel's territory. */}
+      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? 80 : 24) /* clears the Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? 16 : 24, width: 38, height: 38, borderRadius: "50%", background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95), border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -10584,9 +11572,14 @@ function App() {
             position: "fixed", top: 14, left: 14, zIndex: 21,
             width: 38, height: 38, borderRadius: "50%",
             display: "flex", alignItems: "center", justifyContent: "center",
-            background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85),
+            // Was 0.75/0.85 — translucent enough that the Home Deck's first
+            // stat read straight through the button as it scrolled under.
+            // A control that content shows through isn't glass, it's a
+            // smudge.
+            background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95),
             border: `1px solid ${P.line}`,
-            backdropFilter: "blur(14px) saturate(1.3)", WebkitBackdropFilter: "blur(14px) saturate(1.3)",
+            backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)",
+            boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)",
             color: P.ink, cursor: "pointer",
           }}
         >
@@ -10674,7 +11667,12 @@ function App() {
                 ))}
               </div>
               <div style={S.chips} className="cb-stagger" onMouseEnter={() => chipsPausedRef.current = true} onMouseLeave={() => chipsPausedRef.current = false} onFocus={() => chipsPausedRef.current = true} onBlur={() => chipsPausedRef.current = false}>
-                {suggestions.map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
+                {/* On a phone, four full-sentence chips are most of the
+                    screen. When the deck is showing — i.e. this person
+                    already has somewhere to pick up — two is enough of a
+                    prompt, and the deck gets to be visible without a
+                    scroll. Desktop and first-time visitors keep all four. */}
+                {(isMobile && deckHasContent ? suggestions.slice(0, 2) : suggestions).map((s, i) => (<button key={s} className="cb-fade cb-chip-hover" style={{ ...S.chip, ...(hover === "c" + i ? S.chipHover : {}) }} onMouseEnter={() => setHover("c" + i)} onMouseLeave={() => setHover("")} onClick={() => ask(s)}>{s}</button>))}
               </div>
               {/* Commit 66 — the Home Deck replaces the loose stack of
                   cards that used to sit here. See HomeDeck. */}
@@ -10700,7 +11698,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
+                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.08em", textTransform: "uppercase" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 3, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
@@ -10749,6 +11747,7 @@ function App() {
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/about" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>About</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/privacy" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/terms" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/disclosures" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Disclosures</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/contact" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Contact</a>
               <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>© {new Date().getFullYear()} Cerebrum™ · v{APP_VERSION}
             </div>
@@ -10954,6 +11953,16 @@ function App() {
         />
       )}
       <ToastHost P={P} accent={accent} />
+      {/* Commit 69 — rendered last so it sits above every other layer, and
+          unconditionally blocking: no query runs, no data loads into view,
+          and nothing is written to an account until this is accepted. */}
+      {!legalOk && (
+        <ConsentGate
+          P={P} accent={accent} at={at} user={user}
+          serverVersion={!!(readLegalAccepted() || {}).version}
+          onAccepted={() => setLegalOk(true)}
+        />
+      )}
     </div>
   );
 }
@@ -11824,6 +12833,7 @@ function Root() {
   if (p === "/about") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="about" /></>;
   if (p === "/privacy") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="privacy" /></>;
   if (p === "/terms") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="terms" /></>;
+  if (p === "/disclosures") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="disclosures" /></>;
   if (p === "/contact") return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><InfoPage page="contact" /></>;
   return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><App /></>;
 }
