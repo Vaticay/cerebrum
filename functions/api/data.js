@@ -21,6 +21,15 @@ const MAX_USERNAME_LEN = 40;
 const MAX_AFFILIATION_LEN = 200;
 const MAX_DEGREE_LEN = 120;
 const MAX_GRAD_YEAR_LEN = 9; // "2024" or a range like "2020-2024"
+// Commit 75 — profile fields.
+const MAX_BIO_LEN = 400;
+const MAX_LINK_LEN = 300;
+// Covers are a fixed set of named designs, not free input — a profile
+// cover is rendered on a public page, so the value has to be something the
+// client can only choose from, never something it can compose.
+const ALLOWED_COVERS = new Set([
+  "aurora", "graphite", "ember", "abyss", "moss", "violet", "sandstone", "signal",
+]);
 const MAX_REPORT_REASON_LEN = 100;
 const MAX_REPORT_NOTE_LEN = 1000;
 // A 256x256 JPEG comes back from the client-side canvas compressor at
@@ -183,9 +192,15 @@ async function founderRow(env) {
   const founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
   if (!founderEmail) return null;
   try {
+    // Commit 75 — match on lower(email) as well as email_lower.
+    // email_lower is backfilled by ensureUserProfileColumns, but that runs
+    // on /api/data and this lookup can be the thing that needs it before
+    // any code path has. Matching both means a row that has not been
+    // backfilled yet still resolves instead of the founder silently not
+    // existing.
     return await env.DB.prepare(
-      "SELECT id, username, name, affiliation, degree, grad_year FROM users WHERE email_lower = ?"
-    ).bind(founderEmail).first();
+      "SELECT id, username, name, affiliation, degree, grad_year FROM users WHERE email_lower = ? OR LOWER(email) = ?"
+    ).bind(founderEmail, founderEmail).first();
   } catch { return null; }
 }
 
@@ -272,7 +287,7 @@ export async function onRequest(context) {
       // raise, so it's not being guessed at here.
       if (resource === "profile") {
         const row = await env.DB.prepare(
-          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, terms_version, terms_accepted_at FROM users WHERE id = ?"
+          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, bio, cover, link_site, link_orcid, link_scholar, terms_version, terms_accepted_at FROM users WHERE id = ?"
         ).bind(user.id).first();
         if (!row) return new Response(JSON.stringify({ error: "Account not found." }), { status: 404, headers: cors });
         const followerCount = await env.DB.prepare(
@@ -286,7 +301,7 @@ export async function onRequest(context) {
           "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
         ).bind(user.id).all();
         return new Response(JSON.stringify({
-          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, degree: row.degree || null, grad_year: row.grad_year || null, avatar_base64: row.avatar_base64 || null },
+          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, degree: row.degree || null, grad_year: row.grad_year || null, avatar_base64: row.avatar_base64 || null, bio: row.bio || null, cover: row.cover || null, link_site: row.link_site || null, link_orcid: row.link_orcid || null, link_scholar: row.link_scholar || null },
           followers: followerCount?.n || 0,
           badges: (badgeRows.results || []).map((b) => b.badge_type),
           // Commit 69 — lets the consent gate ask the ACCOUNT, not just
@@ -783,6 +798,42 @@ export async function onRequest(context) {
         }), { status: 200, headers: cors });
       }
 
+      // Commit 75 — why the founder badge isn't showing, answered in the
+      // app instead of over a screenshot.
+      //
+      // The badge depends on a Cloudflare environment variable, and an
+      // environment variable is NOT part of a git push — which is exactly
+      // the failure this endpoint exists to make visible. It reports
+      // whether FOUNDER_EMAIL is set at all, whether a user row matches it,
+      // and (masked) what this account's own email actually is, so a
+      // mismatched address is obvious at a glance rather than being
+      // guessed at.
+      if (resource === "founder-status") {
+        const configured = !!(env.FOUNDER_EMAIL || "").trim();
+        const mask = (e) => {
+          const str = String(e || "");
+          const at = str.indexOf("@");
+          if (at < 1) return str ? "(set)" : "";
+          const name = str.slice(0, at);
+          return name.slice(0, 2) + "•".repeat(Math.max(1, name.length - 2)) + str.slice(at);
+        };
+        let matchedUser = null;
+        if (configured) {
+          const fr = await founderRow(env);
+          matchedUser = fr ? (fr.username || fr.id) : null;
+        }
+        const me = await env.DB.prepare("SELECT email, email_lower FROM users WHERE id = ?").bind(user.id).first();
+        const myEmail = ((me && (me.email_lower || me.email)) || "").toLowerCase();
+        const target = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
+        return new Response(JSON.stringify({
+          configured,
+          configuredValue: configured ? mask(target) : null,
+          matchedUser,
+          yourEmail: mask(myEmail),
+          youAreFounder: !!(configured && myEmail && myEmail === target),
+        }), { status: 200, headers: cors });
+      }
+
       return new Response(JSON.stringify({ error: "Unknown resource." }), { status: 400, headers: cors });
     }
 
@@ -912,8 +963,43 @@ export async function onRequest(context) {
         }
         avatarBase64 = body.avatar_base64;
       }
+      // Commit 75 — bio, cover and links.
+      //
+      // The links are stored as free text but validated as URLs on the way
+      // in: they are rendered as anchors on a public profile, so a
+      // "javascript:" or "data:" value here would be a stored XSS vector
+      // handed to every visitor. Only http/https is accepted, and an empty
+      // string clears the field.
+      let bio = typeof body.bio === "string" ? body.bio.trim().slice(0, MAX_BIO_LEN) : undefined;
+      if (bio === "") bio = null;
+      let cover = typeof body.cover === "string" ? body.cover.trim().slice(0, 40) : undefined;
+      if (cover !== undefined && cover !== "" && !ALLOWED_COVERS.has(cover)) {
+        return new Response(JSON.stringify({ error: "Unknown cover." }), { status: 400, headers: cors });
+      }
+      if (cover === "") cover = null;
+      const safeUrl = (v) => {
+        if (typeof v !== "string") return undefined;
+        const t = v.trim();
+        if (!t) return null;
+        let u;
+        try { u = new URL(t.startsWith("http") ? t : "https://" + t); } catch { return false; }
+        if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+        return u.toString().slice(0, MAX_LINK_LEN);
+      };
+      const linkSite = safeUrl(body.link_site);
+      const linkOrcid = safeUrl(body.link_orcid);
+      const linkScholar = safeUrl(body.link_scholar);
+      if (linkSite === false || linkOrcid === false || linkScholar === false) {
+        return new Response(JSON.stringify({ error: "That doesn't look like a web address." }), { status: 400, headers: cors });
+      }
+
       const sets = [];
       const binds = [];
+      if (bio !== undefined) { sets.push("bio = ?"); binds.push(bio); }
+      if (cover !== undefined) { sets.push("cover = ?"); binds.push(cover); }
+      if (linkSite !== undefined) { sets.push("link_site = ?"); binds.push(linkSite); }
+      if (linkOrcid !== undefined) { sets.push("link_orcid = ?"); binds.push(linkOrcid); }
+      if (linkScholar !== undefined) { sets.push("link_scholar = ?"); binds.push(linkScholar); }
       if (name !== undefined) { sets.push("name = ?"); binds.push(name); }
       if (username !== undefined) { sets.push("username = ?"); binds.push(username); }
       if (affiliation !== undefined) { sets.push("affiliation = ?"); binds.push(affiliation); }
