@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.8.0";
+const APP_VERSION = "6.9.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -656,6 +656,7 @@ function Icon({ name, size = 17, className, style }) {
     case "copy": return <svg {...common}><rect x="8" y="8" width="12" height="12" rx="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0014.5 4h-9A1.5 1.5 0 004 5.5v9A1.5 1.5 0 005.5 16H8" /></svg>;
     case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
     case "chevronDown": return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
+    case "chevronRight": return <svg {...common}><path d="M9 6l6 6-6 6" /></svg>;
     // Commit 87 — used by EvidenceFilter's disclosure trigger.
     case "filter": return <svg {...common}><path d="M3 5h18M7 12h10M11 19h2" /></svg>;
     case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
@@ -5057,22 +5058,53 @@ function ImportLocalDataPrompt({ P, accent, at, savedCount, historyCount, onImpo
 // source in or out of one via a plain <select> rather than drag-and-drop —
 // drag-and-drop is a lot of extra surface for what's fundamentally a filing
 // operation people do occasionally, not constantly.
-function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollection, onRenameCollection, onDeleteCollection, onMoveSource, close }) {
+function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollection, onRenameCollection, onDeleteCollection, onMoveSource, close, page = false, narrow = false }) {
   const [newName, setNewName] = useState("");
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
   const [activeId, setActiveId] = useState("all"); // "all" | "uncategorized" | collection id
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  // Commit 88 — Escape dismisses a dialog. In page mode there is nothing
+  // to dismiss, and stealing Escape from a page is how you lose a
+  // half-typed collection name.
+  useEffect(() => { if (page) return; const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close, page]);
   const trapRef = useFocusTrap();
 
   const countFor = (id) => id === "all" ? saved.length : id === "uncategorized" ? saved.filter((s) => !s.collectionId).length : saved.filter((s) => s.collectionId === id).length;
   const visible = activeId === "all" ? saved : activeId === "uncategorized" ? saved.filter((s) => !s.collectionId) : saved.filter((s) => s.collectionId === activeId);
 
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="Collections" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }} className="cb-modal">
-        <div style={{ width: 210, flexShrink: 0, borderRight: `1px solid ${P.line}`, padding: 16, overflowY: "auto" }}>
+    /* Commit 88 — the same component now renders either as the dialog it
+       used to be (still reachable from the command palette and from a
+       source's "add to collection" action, where interrupting you IS the
+       right behaviour) or as a full page when it is the destination the
+       sidebar navigated to. One implementation, two containers, so the two
+       can never drift apart. */
+    <div
+      onClick={page ? undefined : close}
+      role={page ? undefined : "dialog"}
+      aria-modal={page ? undefined : "true"}
+      aria-label={page ? undefined : "Collections"}
+      style={page
+        ? { width: "100%" }
+        : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+      className={page ? undefined : "cb-backdrop"}
+    >
+      <div ref={trapRef} tabIndex={-1} onClick={page ? undefined : ((e) => e.stopPropagation())}
+        style={page
+          /* Commit 88 — the two-column dialog cannot survive 390px. Its
+             210px fixed rail plus a content column left about 120px for
+             paper titles, which wrapped to one word — often one letter —
+             per line. On a narrow page it stacks: the collection list on
+             top at natural height, its contents below. */
+          ? (narrow
+              ? { background: P.surface, borderRadius: RADIUS.lg, width: "100%", display: "flex", flexDirection: "column", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }
+              : { background: P.surface, borderRadius: RADIUS.lg, width: "100%", height: "min(640px, 68vh)", display: "flex", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" })
+          : { background: P.bg, borderRadius: 8, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }}
+        className={page ? undefined : "cb-modal"}>
+        <div style={narrow
+          ? { width: "100%", flexShrink: 0, borderBottom: `1px solid ${P.line}`, padding: 16 }
+          : { width: 210, flexShrink: 0, borderRight: `1px solid ${P.line}`, padding: 16, overflowY: "auto" }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 12 }}>Collections</div>
           {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Uncategorized" }, ...collections].map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
@@ -5103,7 +5135,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "16px 20px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{activeId === "all" ? "All saved" : activeId === "uncategorized" ? "Uncategorized" : collections.find((c) => c.id === activeId)?.name || "Collection"}</div>
-            <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+            {!page && <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>}
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
             {visible.length === 0 ? (
@@ -6129,6 +6161,91 @@ function VideoPlayerModal({ P, accent, at, video, close }) {
 // refresh land without having to manually reload.
 const TRENDING_POLL_MS = 5 * 60 * 1000;
 
+/* ══════════════════════════════════════════════════════════════════
+   Commit 88 — WorkspacePage.
+
+   Cerebrum had two kinds of destination wearing one kind of sidebar row.
+   Trending, Inbox, Settings and Profile were pages. Investigations, Saved,
+   Collections and Find People were centred modal dialogs floating over
+   whatever search happened to be underneath, dismissed by Escape or a
+   click on the backdrop.
+
+   That split is most of why the product read as a chatbot with features
+   bolted on rather than an instrument. A modal is a thing that interrupts
+   you; a page is a place you go. Your library of saved papers, your
+   investigations, your collections and the people you follow are not
+   interruptions — they are the work, and half the app's actual content
+   lived in dialogs you could lose by pressing the wrong key. They were
+   also capped at 520-560px wide with an internal 56vh scroll, so a
+   forty-paper library was read through a letterbox on a 1440px screen.
+
+   This is the shell all four now use, and it deliberately matches
+   TrendingView's proportions so that every destination in the rail has the
+   same margins, the same title size and the same rhythm. One page shape,
+   used everywhere.
+   ══════════════════════════════════════════════════════════════════ */
+function WorkspacePage({ P, accent, isMobile, title, count, description, actions, children, wide = false }) {
+  return (
+    <div style={{ flex: 1, minHeight: 0 }}>
+      <div style={{
+        maxWidth: wide ? 1180 : 900, width: "100%", margin: "0 auto",
+        // Commit 88 — the mobile menu button is fixed at top:14 left:14 and
+        // is 38px square, so a page title starting at 24px from the top ran
+        // straight underneath it. TrendingView already carried this offset;
+        // every new page needs it too.
+        padding: isMobile ? "66px 18px 60px" : "44px 32px 90px",
+      }}>
+        <div style={{ marginBottom: 26 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <h1 style={{
+              margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700,
+              letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", lineHeight: 1.1,
+            }}>{title}</h1>
+            {count != null && count > 0 && (
+              <span style={{
+                fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)",
+                color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+                padding: "3px 10px", borderRadius: RADIUS.pill,
+              }}>{count}</span>
+            )}
+            {actions && <div style={{ marginLeft: isMobile ? 0 : "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>{actions}</div>}
+          </div>
+          {description && (
+            <p style={{
+              margin: "10px 0 0", maxWidth: 620, fontSize: FONT_SIZES.small,
+              color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-body)",
+            }}>{description}</p>
+          )}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* One empty state for the whole workspace, so Library, Investigations and
+   Collections agree with each other and with the profile tabs. */
+function WorkspaceEmpty({ P, accent, icon, title, body, action }) {
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center",
+      padding: "56px 24px", borderRadius: RADIUS.lg,
+      border: `1px dashed ${P.line2}`,
+      background: P.dark ? "rgba(255,255,255,0.018)" : "rgba(0,0,0,0.012)",
+    }}>
+      <span aria-hidden="true" style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 46, height: 46, borderRadius: RADIUS.md, marginBottom: 15,
+        color: accent, background: withAlpha(accent, 0.1),
+        border: `1px solid ${withAlpha(accent, 0.22)}`,
+      }}><Icon name={icon} size={20} /></span>
+      <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>{title}</div>
+      <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 8, maxWidth: 400, fontFamily: "var(--cb-body)" }}>{body}</div>
+      {action && <div style={{ marginTop: 18 }}>{action}</div>}
+    </div>
+  );
+}
+
 function TrendingView({ P, accent, at, isMobile, onAsk }) {
   const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
   const [items, setItems] = useState([]);
@@ -6206,7 +6323,10 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
       <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "44px 32px 90px" }}>
         <div style={{ marginBottom: 28 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Trending in Science</div>
+            {/* Commit 88 — an h1, like every other page title. This was a div,
+                so Trending was the one destination a screen reader could not
+                announce and the only one that broke the heading outline. */}
+            <h1 style={{ margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", lineHeight: 1.1 }}>Trending in Science</h1>
             {/* Commit 80 — out of preview. The label was honest while the
                 feed was new; it now refreshes on a real hourly clock from
                 fifteen sources and has been stable. Leaving a "Preview"
@@ -9459,8 +9579,8 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 // this stays explicitly labeled as a preview: Follow toggles local-only
 // state that resets next time the modal opens, and Message is honest about
 // not being a real conversation before it hands off to the (real) Inbox.
-function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page = false }) {
+  useEffect(() => { if (page) return; const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close, page]);
   const trapRef = useFocusTrap();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -9530,23 +9650,43 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub }) {
 
   const trimmed = query.trim();
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="Find researchers" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 214, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+    /* Commit 88 — dialog when composing a message (that genuinely is an
+       interruption), page when Find People is the destination. */
+    <div
+      onClick={page ? undefined : close}
+      role={page ? undefined : "dialog"}
+      aria-modal={page ? undefined : "true"}
+      aria-label={page ? undefined : "Find researchers"}
+      style={page
+        ? { width: "100%" }
+        : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 214, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+      className={page ? undefined : "cb-backdrop"}
+    >
+      <div ref={trapRef} tabIndex={-1} onClick={page ? undefined : ((e) => e.stopPropagation())} style={page ? {
+        background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg,
+        width: "100%", maxHeight: "none", display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
+      } : {
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
         backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 12, maxWidth: 480, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
-      }} className="cb-modal">
-        <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)" }}>
-          <div>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Find people</div>
-            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>Search Cerebrum researchers</div>
+      }} className={page ? undefined : "cb-modal"}>
+        {/* Commit 88 — in page mode WorkspacePage already renders the title
+            and the standfirst, so this header would print "Find people"
+            twice, ten pixels apart, with a close button for a page that
+            cannot be closed. */}
+        {!page && (
+          <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)" }}>
+            <div>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Find people</div>
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>Search Cerebrum researchers</div>
+            </div>
+            <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
           </div>
-          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
-        </div>
+        )}
 
-        <div style={{ padding: "14px 20px 0" }}>
+        <div style={{ padding: page ? "0 0 0" : "14px 20px 0" }}>
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: P.faint, display: "inline-flex" }}><Icon name="search" size={15} /></span>
             <input
@@ -10351,7 +10491,7 @@ function SystemStatus({ P, accent }) {
 
 function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns }) {
   const isMobile = useIsMobile();
-  const [tab, setTab] = useState(initialTab || "general");
+  const [tab, setTab] = useState(initialTab || "answers");
   const [confirmClear, setConfirmClear] = useState(false);
   const [pw1, setPw1] = useState("");
   const [pw2, setPw2] = useState("");
@@ -10478,14 +10618,32 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // Each tab carries an icon because the desktop layout below is a vertical
   // rail, and a rail of bare words reads as a list of links rather than as
   // navigation.
+  /* ══════════════════════════════════════════════════════════════
+     Commit 88 — four tabs, not seven.
+
+     Seven sections held about twenty-five settings, so every single one
+     was thin: General was four rows, Audio & Voice was three. On a 1000px
+     window that rendered as a small block of controls with six hundred
+     pixels of empty black beneath it, sitting beside a SECOND vertical
+     navigation column immediately to the right of the app's primary one.
+     Two rails and a void is what an unfinished settings screen looks
+     like, and no amount of alignment fixes a page that has nothing on it.
+
+     Regrouped by the question being asked rather than by the mechanism:
+     Answers (what comes back, and how it is read aloud), Appearance (how
+     it looks, including everything that was under Accessibility — the
+     split between "appearance" and "accessibility" was ours, not the
+     user's; someone turning up contrast is doing the same job as someone
+     picking a theme), Notifications & data, and Account.
+
+     Nothing was removed. SETTINGS_INDEX below still maps every individual
+     row to its tab, so search jumps to the right place.
+     ══════════════════════════════════════════════════════════════ */
   const TABS = [
     ["account", "Account", "user"],
-    ["general", "General", "settings"],
+    ["answers", "Answers", "settings"],
     ["appearance", "Appearance", "sparkle"],
-    ["notifications", "Notifications", "bell"],
-    ["accessibility", "Accessibility", "eye"],
-    ["audio", "Audio & Voice", "volumeOn"],
-    ["data", "History & Data", "history"],
+    ["data", "Notifications & data", "bell"],
   ];
 
   // Commit 67 — settings search.
@@ -10497,28 +10655,28 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // back out, and a hand-list is honest about the fact that a new setting
   // has to be registered here to be findable.
   const SETTINGS_INDEX = [
-    ["Answer length", "general", "concise standard detailed response verbosity"],
-    ["Fact-check pass", "general", "verify verification accuracy claims"],
-    ["Animated typing", "general", "typewriter reveal progressive"],
-    ["Citation format", "general", "apa mla chicago vancouver bibtex reference style"],
+    ["Answer length", "answers", "concise standard detailed response verbosity"],
+    ["Fact-check pass", "answers", "verify verification accuracy claims"],
+    ["Animated typing", "answers", "typewriter reveal progressive"],
+    ["Citation format", "answers", "apa mla chicago vancouver bibtex reference style"],
     ["Theme", "appearance", "dark light palette colour color"],
     ["Accent color", "appearance", "colour highlight brand"],
     ["Background animation", "appearance", "motion particles effects reduce"],
     ["Data density", "appearance", "compact comfortable spacing padding layout"],
-    ["Desktop notifications", "notifications", "permission browser alerts push"],
-    ["Incoming calls", "notifications", "ring call video audio"],
-    ["Direct messages", "notifications", "inbox dm chat message"],
-    ["Watched topics", "notifications", "papers literature alerts new research"],
-    ["High contrast", "accessibility", "contrast vision legibility"],
-    ["Text size", "accessibility", "font size larger bigger zoom"],
-    ["Line spacing", "accessibility", "leading line height readability"],
-    ["Reduce transparency", "accessibility", "glass blur frosted solid"],
-    ["Focus indicators", "accessibility", "keyboard ring outline focus"],
-    ["Dyslexia-friendly font", "accessibility", "opendyslexic typeface reading"],
-    ["Auto-read answers", "accessibility", "speech tts read aloud voice"],
-    ["Sound effects", "audio", "mute clicks sfx sounds"],
-    ["Search ambience", "audio", "tone background ambient sound"],
-    ["Text to speech", "audio", "elevenlabs voice narration tts"],
+    ["Desktop notifications", "data", "permission browser alerts push"],
+    ["Incoming calls", "data", "ring call video audio"],
+    ["Direct messages", "data", "inbox dm chat message"],
+    ["Watched topics", "data", "papers literature alerts new research"],
+    ["High contrast", "appearance", "contrast vision legibility"],
+    ["Text size", "appearance", "font size larger bigger zoom"],
+    ["Line spacing", "appearance", "leading line height readability"],
+    ["Reduce transparency", "appearance", "glass blur frosted solid"],
+    ["Focus indicators", "appearance", "keyboard ring outline focus"],
+    ["Dyslexia-friendly font", "appearance", "opendyslexic typeface reading"],
+    ["Auto-read answers", "appearance", "speech tts read aloud voice"],
+    ["Sound effects", "answers", "mute clicks sfx sounds"],
+    ["Search ambience", "answers", "tone background ambient sound"],
+    ["Text to speech", "answers", "elevenlabs voice narration tts"],
     ["Saved conversations", "data", "history conversations clear delete"],
     ["Saved articles", "data", "papers sources saved storage"],
     ["Watched topics list", "data", "watchlist unwatch topics manage"],
@@ -10816,7 +10974,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </>)}
           </>)}
 
-          {tab === "general" && (<>
+          {tab === "answers" && (<>
             <Section title="Responses">
               <Row label="Answer length" control={
                 <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} />
@@ -10897,7 +11055,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
           </>)}
 
-          {tab === "notifications" && (<>
+          {tab === "data" && (<>
             {/* Commit 67. Cerebrum was raising three kinds of desktop
                 notification with no way to turn any of them off short of
                 revoking the browser permission for all three — see
@@ -10976,7 +11134,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             )}
           </>)}
 
-          {tab === "accessibility" && (<>
+          {/* Commit 88 — folded into Appearance. */}
+          {tab === "appearance" && (<>
             <Section title="Vision" footer="All changes apply immediately and persist across sessions.">
               <Row label="High contrast" desc="Maximum contrast between text and background" control={<Switch on={highContrast} onChange={(v) => { sfx(); setHighContrast(v); }} label="High contrast" />} />
               <Row label="Text size" control={
@@ -10993,12 +11152,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Dyslexia-friendly font" desc="Uses OpenDyslexic typeface for body text" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); if (v) ensureDyslexicFont(); setDyslexicFont(v); }} label="Dyslexic font" />} last />
             </Section>
 
-            <Section title="Audio assistance" footer="Voice and playback options live on the Audio & Voice tab.">
+            <Section title="Audio assistance" footer="Voice selection and playback speed are on the Answers tab.">
               <Row label="Auto-read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto-read" />} last />
             </Section>
           </>)}
 
-          {tab === "audio" && (<>
+          {/* Commit 88 — folded into Answers: how an answer is spoken is part
+              of what an answer is. */}
+          {tab === "answers" && (<>
             <Section title="Interface sounds">
               <Row label="Sound effects" desc="Click sounds and ambient tones while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
               <Row label="Search ambience" desc="Background tone while a search runs" control={
@@ -11928,23 +12089,44 @@ function ToastHost({ P, accent }) {
 // recreates) re-rendered on every App state change, including something as
 // frequent as a keystroke in the search box, even though almost none of
 // those actually change anything Sidebar shows.
-const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, threads, muted, onToggleMute, onLogoClick }) {
-  const NAV = [
-    ["new", "New investigation", "plus", null],
-    ["search", "Search", "search", null],
-    ["document", "Document Mode", "bookOpen", null],
-    ["trending", "Trending", "chart", null],
-    ["history", "Investigations", "history", history.length || null],
-    ["saved", "Saved", "bookmark", saved.length || null],
-    // Commit 46: promoted from a header icon button (opening a centered
-    // InboxModal) to a first-class nav destination — see InboxView and the
-    // "inbox" case in App's handleSidebarNavigate.
-    // Commit 47: badge is now a real unread-thread count, not just "you have
-    // conversations" — get-inbox returns a genuine per-thread `unread` flag
-    // backed by thread_participants.last_read_at (see functions/api/data.js
-    // and the ALTER TABLE self-heal in authHelpers.js's ensureSocialTables).
-    ["inbox", "Inbox", "mail", threads.filter((t) => t.unread).length || null],
+const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, collections, threads, muted, onToggleMute, onLogoClick }) {
+  /* ══════════════════════════════════════════════════════════════
+     Commit 88 — the rail is grouped, and its keys match the router.
+
+     Two problems, one edit. First: this was a flat list of nine items in
+     which "New investigation", "Trending", "Saved" and "Settings" carried
+     identical weight — no grouping at all, so nothing in the navigation
+     told you that three of these are places to work, three hold your own
+     material, and two are other people. A flat list is what a nav looks
+     like before anybody has thought about it, and at nine items it is past
+     the point where scanning is free.
+
+     Second, and load-bearing: the row keys used to be "history", "saved"
+     and "findPeople" while the views they opened were modals with no view
+     name at all. Now that they navigate, the key IS the view id, so the
+     active-row highlight works by construction instead of by a lookup
+     table that would silently rot the next time a view was renamed.
+     ══════════════════════════════════════════════════════════════ */
+  const NAV_GROUPS = [
+    { label: null, items: [
+      ["new", "New investigation", "plus", null],
+      ["search", "Search", "search", null],
+    ] },
+    { label: "Explore", items: [
+      ["document", "Document Mode", "bookOpen", null],
+      ["trending", "Trending", "chart", null],
+    ] },
+    { label: "Your work", items: [
+      ["investigations", "Investigations", "history", history.length || null],
+      ["library", "Library", "bookmark", saved.length || null],
+      ...(user ? [["collections", "Collections", "folder", (collections && collections.length) || null]] : []),
+    ] },
+    ...(user ? [{ label: "People", items: [
+      ["inbox", "Inbox", "mail", threads.filter((t) => t.unread).length || null],
+      ["people", "Find people", "network", null],
+    ] }] : []),
   ];
+
   const hoverIn = (e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); };
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
   const itemStyle = (key) => ({ ...S.sidebarItem, ...(view === key ? S.sidebarItemActive : {}) });
@@ -11963,37 +12145,95 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         <span style={{ fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-display)" }}>Cerebrum</span>
       </div>
       <div style={S.sidebarNav}>
-        {NAV.map(([key, label, icon, badge]) => (
-          <button key={key} onClick={() => onNavigate(key)} style={itemStyle(key)} aria-current={view === key ? "page" : undefined}
-            onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
-            <Icon name={icon} size={17} />
-            <span>{label}</span>
-            {!!badge && <span style={S.sidebarItemBadge}>{badge}</span>}
-          </button>
+        {NAV_GROUPS.map((group, gi) => (
+          <React.Fragment key={group.label || `g${gi}`}>
+            {group.label && <div style={S.sidebarSectionLabel}>{group.label}</div>}
+            {group.items.map(([key, label, icon, badge]) => (
+              <button key={key} onClick={() => onNavigate(key)} style={itemStyle(key)} aria-current={view === key ? "page" : undefined}
+                onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
+                <Icon name={icon} size={17} />
+                <span>{label}</span>
+                {!!badge && <span style={S.sidebarItemBadge}>{badge}</span>}
+              </button>
+            ))}
+          </React.Fragment>
         ))}
-        {user && (
-          <button onClick={() => onNavigate("collections")} style={itemStyle("collections")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("collections")}>
-            <Icon name="folder" size={17} /><span>Collections</span>
+        {/* Settings is deliberately outside the groups and pushed to the
+            bottom of the scrolling area: it is the one row that is not a
+            place you work, and it was previously sandwiched between Find
+            People and the mute toggle as though it were peer to both. */}
+        <div style={{ marginTop: "auto", paddingTop: 10 }}>
+          <button onClick={() => onNavigate("settings")} style={{ ...itemStyle("settings"), width: "100%" }} onMouseEnter={hoverIn} onMouseLeave={hoverOut("settings")}>
+            <Icon name="settings" size={17} /><span>Settings</span>
           </button>
-        )}
-        {user && (
-          <button onClick={() => onNavigate("findPeople")} style={itemStyle("findPeople")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("findPeople")}>
-            <Icon name="network" size={17} /><span>Find People</span>
-          </button>
-        )}
-        <button onClick={() => onNavigate("settings")} style={itemStyle("settings")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("settings")}>
-          <Icon name="settings" size={17} /><span>Settings</span>
-        </button>
+        </div>
       </div>
+      {/* ══════════════════════════════════════════════════════════
+          Commit 88 — the account is an identity, not a menu row.
+
+          For a product that wants profiles, follows and messages, the
+          signed-in person was a 20px circle and the word "Profile" in a
+          row styled exactly like Mute directly above it — the two most
+          different things in the rail, rendered identically. Every app
+          with an account puts the account at one end of the navigation
+          and shows you WHO you are signed in as, because the answer to
+          "am I in the right account" should never require a click.
+
+          Signed out, the same block is the sign-in call to action rather
+          than a row you might not notice.
+          ══════════════════════════════════════════════════════════ */}
       <div style={S.sidebarFooter}>
-        <button onClick={onToggleMute} style={S.sidebarItem} title={muted ? "Unmute" : "Mute"} onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}>
+        <button onClick={onToggleMute} style={{ ...S.sidebarItem, marginBottom: 6 }} title={muted ? "Unmute" : "Mute"} onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}>
           <Icon name={muted ? "volumeOff" : "volumeOn"} size={17} />
           <span>{muted ? "Unmute" : "Mute"}</span>
         </button>
-        <button onClick={() => onNavigate("profile")} style={itemStyle("profile")} onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}>
-          {user ? <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", background: withAlpha(accent, 0.18), color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--cb-mono)", flexShrink: 0 }}>{(user.email || "?")[0].toUpperCase()}</span> : <Icon name="user" size={17} />}
-          <span>{user ? "Profile" : "Sign in"}</span>
-        </button>
+        {user ? (
+          <button
+            onClick={() => onNavigate("profile")}
+            aria-current={view === "profile" ? "page" : undefined}
+            title="Your profile"
+            onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}
+            style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+              padding: "9px 10px", borderRadius: RADIUS.md, cursor: "pointer",
+              border: `1px solid ${view === "profile" ? withAlpha(accent, 0.35) : P.line}`,
+              background: view === "profile" ? withAlpha(accent, 0.1) : "transparent",
+              transition: "background 150ms ease, border-color 150ms ease",
+            }}
+          >
+            <span aria-hidden="true" style={{
+              width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)",
+              ...avatarSkin(user.email || user.id || "cerebrum"),
+            }}>{(user.email || "?")[0].toUpperCase()}</span>
+            <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+              <span style={{
+                fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.ink,
+                fontFamily: "var(--cb-body)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>{user.name || (user.email || "").split("@")[0] || "Your profile"}</span>
+              <span style={{
+                fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>{user.email || "Signed in"}</span>
+            </span>
+            <span aria-hidden="true" style={{ color: P.faint, display: "inline-flex", flexShrink: 0 }}><Icon name="chevronRight" size={14} /></span>
+          </button>
+        ) : (
+          <button
+            onClick={() => onNavigate("profile")}
+            onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%",
+              padding: "10px 12px", borderRadius: RADIUS.md, cursor: "pointer",
+              border: `1px solid ${withAlpha(accent, 0.4)}`, background: withAlpha(accent, 0.1),
+              color: P.ink, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+            }}
+          >
+            <Icon name="user" size={15} />
+            <span>Sign in</span>
+          </button>
+        )}
       </div>
     </nav>
   );
@@ -12402,7 +12642,6 @@ function App() {
   // Declared up here (rather than down by newSession()) because the
   // scroll-lock effect below reads historyOpen in its dependency array.
   const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_history") || "[]"); } catch { return []; } });
-  const [historyOpen, setHistoryOpen] = useState(false);
   // v5: destructive-delete confirmation used to be inconsistent three ways —
   // Settings' "Clear all data" had a real inline confirm, Saved's "Clear
   // all" popped a jarring unstyled native browser confirm() (the only place
@@ -12410,6 +12649,8 @@ function App() {
   // per-item "Delete" had no confirmation at all. One pattern now: an
   // inline Cancel/Delete swap, same as Settings already had.
   const [confirmClearSaved, setConfirmClearSaved] = useState(false);
+  // Commit 88 — library page state. A modal that showed everything at once
+  // never needed these; a page that can hold a few hundred papers does.
   const [historyConfirmId, setHistoryConfirmId] = useState(null);
   // Attached image (a figure, a screenshot of a chart, a photo of a
   // specimen) sent alongside the next question — see describeImage() on
@@ -12436,12 +12677,37 @@ function App() {
   const [error, setError] = useState("");
   const [allSources, setAllSources] = useState([]);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
-  const [savedOpen, setSavedOpen] = useState(false);
+
+  /* Commit 88 — these derive from `history` and `saved`, so they must be
+     declared after both. Placing them next to confirmClearSaved (which is
+     above the `saved` useState) put `saved` in its own temporal dead zone
+     and the whole app threw on mount. */
+  const [historyQuery, setHistoryQuery] = useState("");
+  const visibleHistory = useMemo(() => {
+    const q = historyQuery.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter((h) => String(h.title || "").toLowerCase().includes(q)
+      || (h.turns || []).some((t) => String(t.q || "").toLowerCase().includes(q)));
+  }, [history, historyQuery]);
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const [librarySort, setLibrarySort] = useState("recent");
+  const visibleSaved = useMemo(() => {
+    const q = libraryQuery.trim().toLowerCase();
+    const list = q
+      ? saved.filter((sv) => [sv.title, sv.authors, sv.journal].filter(Boolean).join(" ").toLowerCase().includes(q))
+      : saved.slice();
+    if (librarySort === "title") return list.sort((x, y) => String(x.title || "").localeCompare(String(y.title || "")));
+    if (librarySort === "year") return list.sort((x, y) => (Number(y.year) || 0) - (Number(x.year) || 0));
+    // "recent" = when YOU saved it. savedAt was added in Commit 67; anything
+    // predating that falls back to createdAt so old libraries still order.
+    return list.sort((x, y) => (y.savedAt || y.createdAt || 0) - (x.savedAt || x.createdAt || 0));
+  }, [saved, libraryQuery, librarySort]);
+
   const [sessions, setSessions] = useState([]);
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
   const chipsPausedRef = useRef(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState("general");
+  const [settingsInitialTab, setSettingsInitialTab] = useState("answers");
   const [drawerSource, setDrawerSource] = useState(null);
   const [focusedSourceIdx, setFocusedSourceIdx] = useState(-1);
   const [evidenceFilter, setEvidenceFilter] = useState("all");
@@ -12735,7 +13001,7 @@ function App() {
     const onNav = (e) => {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (view !== "search" || cmdOpen || savedOpen || historyOpen || authOpen || collectionsOpen) return;
+      if (view !== "search" || cmdOpen || authOpen || collectionsOpen) return;
       const srcCount = allSources.length;
       if (e.key === "j" || e.key === "J") {
         e.preventDefault();
@@ -12755,7 +13021,7 @@ function App() {
     };
     window.addEventListener("keydown", onNav);
     return () => window.removeEventListener("keydown", onNav);
-  }, [allSources, focusedSourceIdx, drawerSource, view, cmdOpen, savedOpen, historyOpen, authOpen, collectionsOpen]);
+  }, [allSources, focusedSourceIdx, drawerSource, view, cmdOpen, authOpen, collectionsOpen]);
 
   // Auto-attribution clipboard: when text containing citation brackets
   // [N] is copied from an answer card, append full references to the
@@ -12859,7 +13125,7 @@ function App() {
   // (the standard robust scroll-lock pattern) and restore that exact
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
-    const anyOverlayOpen = cmdOpen || savedOpen || howItWorksOpen || mobilePanel || historyOpen
+    const anyOverlayOpen = cmdOpen || howItWorksOpen || mobilePanel
       || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
@@ -12880,7 +13146,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [cmdOpen, savedOpen, howItWorksOpen, mobilePanel, historyOpen, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
+  }, [cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -12969,11 +13235,15 @@ function App() {
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
-      else if (e.key === "Escape") { setCmdOpen(false); setMobilePanel(false); setSavedOpen(false); setHistoryOpen(false); setConfirmClearSaved(false); setHistoryConfirmId(null); setView((v) => (v === "search" ? v : "search")); }
+      // Commit 88 — Escape used to close the saved/history dialogs AND
+      // reset the view. Those are pages now, so it just returns you to
+      // search, and the two confirm-states are cleared so a half-armed
+      // "delete everything" never survives a navigation.
+      else if (e.key === "Escape") { setCmdOpen(false); setMobilePanel(false); setConfirmClearSaved(false); setHistoryConfirmId(null); setView((v) => (v === "search" ? v : "search")); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setView((v) => (v === "settings" ? "search" : "settings")); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "d") { e.preventDefault(); setPaletteName(P.dark ? "Light" : "Dark"); }
-      else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setSavedOpen((v) => !v); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setView((v) => (v === "library" ? "search" : "library")); }
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -13056,7 +13326,6 @@ function App() {
     setTurns(entry.turns || []);
     setAllSources(entry.allSources || []);
     setPinnedSources([]); setCorrections([]); setError("");
-    setHistoryOpen(false);
     setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, left: 0, behavior: "instant" }), 60);
   }
   // Single dispatch point for every Sidebar item. Four destinations (search,
@@ -13071,11 +13340,19 @@ function App() {
       case "search": setView("search"); break;
       case "document": setNotebookOpen(true); break;
       case "trending": setView("trending"); break;
-      case "history": setHistoryOpen(true); break;
-      case "saved": setSavedOpen(true); break;
-      case "collections": if (user) setCollectionsOpen(true); break;
-      case "settings": setSettingsInitialTab("general"); setView("settings"); break;
-      case "findPeople": if (user) setNetworkSearchOpen(true); break;
+      /* Commit 88 — these four were setHistoryOpen(true), setSavedOpen(true),
+         setCollectionsOpen(true) and setNetworkSearchOpen(true): four modal
+         dialogs opened from rows that sat in the same rail, at the same
+         weight, as four real pages. Half the app's content lived in
+         overlays you could lose by pressing Escape. They are destinations
+         now. The modal state below still exists because the command
+         palette and the "add to collection" action on a source open the
+         dialog form deliberately — there, interrupting you is correct. */
+      case "investigations": setView("investigations"); break;
+      case "library": setView("library"); break;
+      case "collections": if (user) setView("collections"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
+      case "settings": setSettingsInitialTab("answers"); setView("settings"); break;
+      case "people": if (user) setView("people"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "inbox": if (user) setView("inbox"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "profile": if (user) setView("profile"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       default: break;
@@ -13129,12 +13406,12 @@ function App() {
 
   const commands = [
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
-    { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
-    { label: "Open your investigations", run: () => { setCmdOpen(false); setHistoryOpen(true); } },
+    { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
+    { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
     // Collections' header button is desktop-only (there's no room for it in
     // the mobile header), but this palette is available on every viewport —
     // it's a signed-in-only feature, hence gated on `user` here.
-    ...(user ? [{ label: "Open collections", run: () => { setCmdOpen(false); setCollectionsOpen(true); } }] : []),
+    ...(user ? [{ label: "Open collections", run: () => { setCmdOpen(false); setView("collections"); } }] : []),
     { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setView("settings"); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Toggle light / dark", hint: kbdLabel("D"), run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
@@ -13336,7 +13613,7 @@ function App() {
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
         isMobile={isMobile} mobileOpen={sidebarMobileOpen} onCloseMobile={handleSidebarCloseMobile}
-        user={user} history={history} saved={saved} threads={threads} muted={muted}
+        user={user} history={history} saved={saved} collections={collections} threads={threads} muted={muted}
         onToggleMute={handleToggleMute}
         onLogoClick={handleLogoClick}
       />
@@ -13530,8 +13807,8 @@ function App() {
                 history={history} saved={saved} sessions={sessions}
                 watchKey={watchKey}
                 onAsk={(q) => ask(q)}
-                onOpenHistory={() => setHistoryOpen(true)}
-                onOpenSaved={() => setSavedOpen(true)}
+                onOpenHistory={() => setView("investigations")}
+                onOpenSaved={() => setView("library")}
               />
               <div style={S.trustRow}>
                 {/* Bug: this said "+ 10 more" after 6 named databases (implying
@@ -13640,6 +13917,202 @@ function App() {
       {view === "trending" && (
         <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} onAsk={(q) => { setView("search"); ask(q); }} /></Reveal>
       )}
+      {/* ══════════════════════════════════════════════════════════
+          Commit 88 — the library is a page.
+
+          This was a 520px modal with a 56vh internal scroll, so a library
+          of forty papers was read through a letterbox on a 1440px screen,
+          and Escape threw the whole thing away. It is now a real
+          destination with a grid, a search field and a sort — the things
+          you need when a library is large, which is exactly the case the
+          modal handled worst.
+          ══════════════════════════════════════════════════════════ */}
+      {view === "library" && (
+        <Reveal style={S.pageView} deps={[view]}>
+          <WorkspacePage
+            P={P} accent={accent} isMobile={isMobile} wide
+            title="Your library" count={saved.length}
+            description="Every paper you've saved, across every investigation. Exports carry the full record, not just the link."
+            actions={saved.length > 0 ? (
+              <>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>RIS</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>BibTeX</UIButton>
+                {confirmClearSaved ? (
+                  <>
+                    <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setConfirmClearSaved(false)}>Cancel</UIButton>
+                    <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setSaved([]); setConfirmClearSaved(false); sfx(); }}>Delete everything</UIButton>
+                  </>
+                ) : (
+                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setConfirmClearSaved(true)}>Clear all</UIButton>
+                )}
+              </>
+            ) : null}
+          >
+            {saved.length === 0 ? (
+              <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
+                title="Nothing saved yet"
+                body="Save a paper from any answer and it lands here, with its authors, journal and year intact so an export is citable straight away."
+                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Start an investigation</UIButton>} />
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
+                  <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+                    <UIField P={P} accent={accent} value={libraryQuery} onChange={setLibraryQuery}
+                      placeholder="Filter by title, author or journal…" ariaLabel="Filter your library" />
+                  </div>
+                  {/* A library sorts by when you saved it or by how old the
+                      work is — two genuinely different questions, and the
+                      modal could answer neither. */}
+                  <div style={{ display: "inline-flex", flexShrink: 0, padding: 3, borderRadius: RADIUS.pill, background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", border: `1px solid ${P.line}` }}>
+                    {[["recent", "Recently saved"], ["year", "Newest research"], ["title", "A-Z"]].map(([key, label]) => (
+                      <button key={key} onClick={() => setLibrarySort(key)} aria-pressed={librarySort === key}
+                        style={{
+                          padding: "6px 13px", borderRadius: RADIUS.pill, border: "none", cursor: "pointer",
+                          fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)", whiteSpace: "nowrap",
+                          background: librarySort === key ? (P.dark ? "rgba(255,255,255,0.10)" : "#fff") : "transparent",
+                          color: librarySort === key ? P.ink : P.faint,
+                          transition: "background 0.22s ease, color 0.22s ease",
+                        }}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                {visibleSaved.length === 0 ? (
+                  <WorkspaceEmpty P={P} accent={accent} icon="search"
+                    title="No matches"
+                    body={`Nothing in your library matches "${libraryQuery}". Try an author surname or part of the journal name.`} />
+                ) : (
+                  <div style={{ display: "grid", gap: 12, gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(320px, 1fr))", alignItems: "start" }}>
+                    {visibleSaved.map((sv, i) => (
+                      <UICard key={sourceKey(sv) || i} P={P}>
+                        <a href={safeHref(sv.url)} target="_blank" rel="noreferrer"
+                          style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, textDecoration: "none", lineHeight: 1.4, letterSpacing: "-0.01em" }}>
+                          {sv.title ? renderCleanTitle(sv.title) : sv.url}
+                        </a>
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.5, fontFamily: "var(--cb-body)" }}>
+                          {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                          {typeof sv.citations === "number" && ` · ${sv.citations.toLocaleString()} citations`}
+                        </div>
+                        <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
+                          {sv.authors && <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }}>More by these authors</UIButton>}
+                          <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(sv)))}>Remove</UIButton>
+                        </div>
+                      </UICard>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </WorkspacePage>
+        </Reveal>
+      )}
+      {/* Commit 88 — investigations are a page. Same reasoning as the
+          library: a 560px dialog with a 60vh internal scroll is the wrong
+          container for the record of everything you have ever looked
+          into. It now also gets a filter, because the moment this list is
+          useful it is long. */}
+      {view === "investigations" && (
+        <Reveal style={S.pageView} deps={[view]}>
+          <WorkspacePage
+            P={P} accent={accent} isMobile={isMobile} wide
+            title="Investigations" count={history.length}
+            description="Every question you've asked, with the papers each one turned up. Open one to keep going from where you stopped."
+            actions={history.length >= 2 ? (
+              <UIButton P={P} accent={accent} at={at} size="sm" icon="compare" onClick={() => setCompareOpen(true)}>Compare two</UIButton>
+            ) : null}
+          >
+            {history.length === 0 ? (
+              <WorkspaceEmpty P={P} accent={accent} icon="history"
+                title="No investigations yet"
+                body="Ask a research question and one starts itself — the thread, the papers it found, and anything you save from it are kept together."
+                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask something</UIButton>} />
+            ) : (
+              <>
+                {history.length > 6 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <UIField P={P} accent={accent} value={historyQuery} onChange={setHistoryQuery}
+                      placeholder="Filter investigations…" ariaLabel="Filter investigations" />
+                  </div>
+                )}
+                {visibleHistory.length === 0 ? (
+                  <WorkspaceEmpty P={P} accent={accent} icon="search" title="No matches"
+                    body={`No investigation matches "${historyQuery}".`} />
+                ) : (
+                  /* Commit 88 — the PAGE is wide so that every destination in
+                     the rail starts at the same left edge; the READING measure
+                     is set here. A row of body text 1100px across is not a
+                     list, it is a scan line. */
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 840 }}>
+                    {visibleHistory.map((h) => (
+                      <UICard key={h.id} P={P}>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                          <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit" }}>
+                            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em" }}>{h.title}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-body)" }}>
+                              <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
+                              {(h.allSources || []).length > 0 && (<>
+                                <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+                                <span style={{ color: accent, fontWeight: 600 }}>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
+                              </>)}
+                              {h.ts && (<>
+                                <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+                                <span>{relativeTime(h.ts)}</span>
+                              </>)}
+                            </div>
+                          </button>
+                          {historyConfirmId === h.id ? (
+                            <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                              <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setHistoryConfirmId(null)}>Cancel</UIButton>
+                              <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); setHistoryConfirmId(null); }}>Confirm</UIButton>
+                            </span>
+                          ) : (
+                            <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Delete ${h.title}`} onClick={() => setHistoryConfirmId(h.id)}>Delete</UIButton>
+                          )}
+                        </div>
+                      </UICard>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </WorkspacePage>
+        </Reveal>
+      )}
+      {view === "collections" && (
+        <Reveal style={S.pageView} deps={[view]}>
+          <WorkspacePage
+            P={P} accent={accent} isMobile={isMobile} wide
+            title="Collections" count={collections.length}
+            description="Group saved papers by the question they answer rather than by the day you found them."
+          >
+            <CollectionsModal
+              page narrow={isMobile}
+              P={P} accent={accent} at={at} S={S} saved={saved} collections={collections}
+              onCreateCollection={createCollection} onRenameCollection={renameCollection}
+              onDeleteCollection={deleteCollection} onMoveSource={moveSourceToCollection}
+              close={() => setView("search")}
+            />
+          </WorkspacePage>
+        </Reveal>
+      )}
+      {view === "people" && (
+        <Reveal style={S.pageView} deps={[view]}>
+          <WorkspacePage
+            P={P} accent={accent} isMobile={isMobile} wide
+            title="Find people"
+            description="Researchers on Cerebrum, and the authors behind the papers you've been reading."
+          >
+            <div style={{ maxWidth: 620 }}>
+            <NetworkSearchModal
+              page
+              P={P} accent={accent} at={at}
+              close={() => setView("search")}
+              onMessage={(researcher, threadId) => { setPendingThreadId(threadId); setView("inbox"); }}
+              onOpenHub={(name) => { setActiveHubName(name); setHubOpen(true); }}
+            />
+            </div>
+          </WorkspacePage>
+        </Reveal>
+      )}
       {view === "inbox" && (
         <Reveal style={S.pageView} deps={[view]}>
           <InboxView
@@ -13657,107 +14130,6 @@ function App() {
       {started && isMobile && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 8, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
       {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside role="dialog" aria-modal="true" aria-label="Sources" style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div role="dialog" aria-modal="true" aria-label="Command palette" style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={onCmdKeyDown} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s, i) => (<button key={s} style={{ ...S.cmdItem, background: cmdActive === i ? withAlpha(accent, 0.1) : "transparent" }} onClick={() => ask(s)} onMouseEnter={() => setCmdActive(i)}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c, i) => { const flatIdx = cmdSuggest.length + i; return (<button key={c.label} style={{ ...S.cmdItem, background: cmdActive === flatIdx ? withAlpha(accent, 0.1) : "transparent" }} onClick={c.run} onMouseEnter={() => setCmdActive(flatIdx)}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>); })}</div></div></div>)}
-      {savedOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Saved articles" style={S.modalWrap} onClick={() => { setSavedOpen(false); setConfirmClearSaved(false); }} className="cb-backdrop">
-          <div style={{ ...S.modal, width: 520 }} onClick={(e) => e.stopPropagation()} className="cb-modal">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}><div style={S.modalTitle}>Saved articles</div><span style={S.srcCount}>{saved.length}</span></div>
-            {saved.length === 0 ? (
-              <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>
-                No saved articles yet.<br />
-                <span style={{ fontSize: FONT_SIZES.small, color: P.faint, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 4 }}><Icon name="bookmark" size={11} /> Save any source to keep it here.</span>
-              </div>
-            ) : (
-              <>
-                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                  <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Export RIS</button>
-                  <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</button>
-                  {confirmClearSaved ? (
-                    <span style={{ display: "inline-flex", gap: 8, marginLeft: "auto" }}>
-                      <button style={S.sBtn} onClick={() => setConfirmClearSaved(false)}>Cancel</button>
-                      <button style={{ ...S.sBtn, background: STATUS.bad, color: "#fff", borderColor: STATUS.bad }} onClick={() => { setSaved([]); setConfirmClearSaved(false); sfx(); }}>Confirm delete</button>
-                    </span>
-                  ) : (
-                    <button style={{ ...S.sBtn, marginLeft: "auto", color: STATUS.bad, borderColor: withAlpha(STATUS.bad, 0.35) }} onClick={() => setConfirmClearSaved(true)}>Clear all</button>
-                  )}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "56vh", overflowY: "auto" }}>
-                  {saved.map((s, i) => (
-                    <div key={sourceKey(s) || i} className="cb-row" style={{ padding: "12px 10px 12px 14px", margin: "0 -10px", borderBottom: `1px solid ${P.line}` }}>
-                      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" style={{ ...S.srcTitle, fontSize: FONT_SIZES.body }}>{s.title ? renderCleanTitle(s.title) : s.url}</a>
-                      <div style={S.srcMeta}>{[s.authors, s.journal, s.year].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
-                      <div style={S.srcRow}>
-                        <button style={{ ...S.chipMini, color: STATUS.bad, borderColor: withAlpha(STATUS.bad, 0.35) }} onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(s)))}>Remove</button>
-                        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={() => { setSavedOpen(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-            <button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => { setSavedOpen(false); setConfirmClearSaved(false); }}>Done</button>
-          </div>
-        </div>
-      )}
-      {historyOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Your investigations" style={S.modalWrap} onClick={() => { setHistoryOpen(false); setHistoryConfirmId(null); }} className="cb-backdrop">
-          <div style={{ ...S.modal, width: 560 }} onClick={(e) => e.stopPropagation()} className="cb-modal">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <div style={S.modalTitle}>Your investigations</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {history.length >= 2 && <button onClick={() => { setHistoryOpen(false); setCompareOpen(true); }} style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="compare" size={11} /> Compare</button>}
-                <span style={S.srcCount}>{history.length}</span>
-              </div>
-            </div>
-            {history.length === 0 ? (
-              <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No investigations yet.<br /><span style={{ color: P.faint, fontSize: FONT_SIZES.small }}>Ask something and one starts itself.</span></div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "60vh", overflowY: "auto" }}>
-                {history.map((h) => (
-                  <div key={h.id} style={{ padding: "13px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-                    <button onClick={() => openHistoryItem(h)} style={{ flex: 1, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-                      {/* Commit 84 — an investigation, not a transcript.
-                          This said "3 exchanges" — a chat count, which
-                          tells a researcher nothing about what they built.
-                          What matters is how much ground it covers: how
-                          many questions deep, how many distinct papers it
-                          has accumulated, and when it was last worked. */}
-                      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{h.title}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: FONT_SIZES.small, color: P.faint, marginTop: 4 }}>
-                        <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
-                        {(h.allSources || []).length > 0 && (
-                          <>
-                            <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-                            <span style={{ color: accent, fontWeight: 600 }}>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
-                          </>
-                        )}
-                        {h.ts && (
-                          <>
-                            <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-                            <span>{relativeTime(h.ts)}</span>
-                          </>
-                        )}
-                      </div>
-                    </button>
-                    {historyConfirmId === h.id ? (
-                      <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                        <button onClick={() => setHistoryConfirmId(null)} style={S.chipMini}>Cancel</button>
-                        <button onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); setHistoryConfirmId(null); }} style={{ ...S.chipMini, background: STATUS.bad, color: "#fff", borderColor: STATUS.bad }}>Confirm</button>
-                      </span>
-                    ) : (
-                      <button onClick={() => setHistoryConfirmId(h.id)} aria-label="Delete investigation" style={{ ...S.chipMini, color: STATUS.bad, borderColor: withAlpha(STATUS.bad, 0.35), flexShrink: 0 }}>Delete</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            <button style={{ ...S.modalClose, marginTop: 20 }} onClick={() => { setHistoryOpen(false); setHistoryConfirmId(null); }}>Done</button>
-          </div>
-        </div>
-      )}
-      {howItWorksOpen && <HowItWorksModal P={P} accent={accent} close={() => setHowItWorksOpen(false)} />}
-      {v5Open && <V5AnnouncementModal P={P} accent={accent} at={at} close={() => { try { localStorage.setItem("cb_seen_v6", "1"); } catch {} setV5Open(false); }} />}
-      {authOpen && <AuthModal P={P} accent={accent} at={at} close={() => setAuthOpen(false)} onAuthed={(u) => handleAuthed(u, { checkImport: true })} />}
-      {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
       {networkSearchOpen && (
         <NetworkSearchModal
           P={P} accent={accent} at={at}
