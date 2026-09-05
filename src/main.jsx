@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.9.0";
+const APP_VERSION = "6.10.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -10489,6 +10489,128 @@ function SystemStatus({ P, accent }) {
   );
 }
 
+/* Commit 91 — the configuration panel.
+
+   Companion to SystemStatus. That one answers "is the code deployed";
+   this one answers "did the variables land", which is the question that
+   has actually been costing time. Founder-only, presence-only — the
+   endpoint never returns a value, only whether one is there.
+
+   The whitespace warning is the important row. A key pasted with a
+   trailing newline looks completely correct in the Cloudflare dashboard
+   and fails every request, which is exactly how the first TURN attempt
+   went. */
+function ConfigStatus({ P, accent }) {
+  const [state, setState] = useState({ status: "loading", data: null });
+  const load = useCallback(async () => {
+    setState({ status: "loading", data: null });
+    try {
+      const r = await fetch("/api/config", { credentials: "include" });
+      if (r.status === 403) return setState({ status: "forbidden", data: null });
+      if (!r.ok) return setState({ status: "error", data: null });
+      const ct = r.headers.get("content-type") || "";
+      if (!ct.includes("json")) return setState({ status: "missing", data: null });
+      setState({ status: "ready", data: await r.json() });
+    } catch {
+      setState({ status: "error", data: null });
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  if (state.status === "loading") {
+    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "10px 0" }}>Checking configuration…</div>;
+  }
+  if (state.status === "forbidden") {
+    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "10px 0", lineHeight: 1.6 }}>
+      Configuration is visible to the account listed in FOUNDER_EMAIL. If that should be you, check that the variable is set in Cloudflare and matches the address you signed in with.
+    </div>;
+  }
+  if (state.status === "missing") {
+    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "10px 0", lineHeight: 1.6 }}>
+      /api/config isn't answering — functions/api/config.js may not be deployed yet.
+    </div>;
+  }
+  if (state.status !== "ready" || !state.data) {
+    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "10px 0" }}>
+      Couldn't read the configuration just now. <button onClick={load} style={{ background: "none", border: "none", color: accent, cursor: "pointer", font: "inherit", textDecoration: "underline", padding: 0 }}>Try again</button>
+    </div>;
+  }
+
+  const groups = [];
+  for (const v of state.data.vars || []) {
+    let g = groups.find((x) => x.name === v.group);
+    if (!g) { g = { name: v.group, items: [] }; groups.push(g); }
+    g.items.push(v);
+  }
+  const padded = (state.data.vars || []).filter((v) => v.trimmedDiffers);
+  const bindings = state.data.bindings || {};
+
+  const pill = (ok, label) => (
+    <span style={{
+      flexShrink: 0, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-mono)",
+      padding: "2px 9px", borderRadius: RADIUS.pill,
+      color: ok ? accent : P.faint,
+      background: ok ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+      border: `1px solid ${ok ? withAlpha(accent, 0.3) : P.line}`,
+    }}>{label}</span>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {padded.length > 0 && (
+        <div style={{
+          padding: "12px 14px", borderRadius: RADIUS.md,
+          border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, background: withAlpha(STATUS.bad, 0.08),
+          fontSize: FONT_SIZES.caption, color: P.ink, lineHeight: 1.6, fontFamily: "var(--cb-body)",
+        }}>
+          <strong>{padded.map((v) => v.name).join(", ")}</strong> {padded.length === 1 ? "has" : "have"} a space or newline around the value. That is invisible in the Cloudflare dashboard and will fail every request — re-paste without the trailing character.
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {[["Database", bindings.DB], ["Workers AI", bindings.AI], ["Shared rate limit", bindings.RATE_LIMIT_KV]].map(([label, ok]) => (
+          <span key={label} style={{
+            display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.caption,
+            padding: "5px 11px", borderRadius: RADIUS.pill, fontFamily: "var(--cb-body)",
+            color: ok ? P.ink : P.faint,
+            border: `1px solid ${ok ? withAlpha(accent, 0.3) : P.line}`,
+            background: ok ? withAlpha(accent, 0.08) : "transparent",
+          }}>
+            <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: ok ? accent : P.faint }} />
+            {label}
+          </span>
+        ))}
+      </div>
+
+      {groups.map((g) => (
+        <div key={g.name}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 6 }}>{g.name}</div>
+          {g.items.map((v, i) => (
+            <div key={v.name} style={{
+              display: "flex", alignItems: "flex-start", gap: 12, padding: "9px 0",
+              borderTop: i > 0 ? `1px solid ${P.line}` : "none",
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: v.present ? P.ink : P.ink2, fontFamily: "var(--cb-mono)" }}>{v.name}</div>
+                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 3, lineHeight: 1.5, fontFamily: "var(--cb-body)" }}>
+                  {v.present ? v.does : v.breaks}
+                </div>
+              </div>
+              {pill(v.present, v.present ? "set" : "not set")}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <button onClick={load} style={{
+        alignSelf: "flex-start", background: "none", border: `1px solid ${P.line2}`,
+        color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)",
+        padding: "6px 14px", borderRadius: RADIUS.pill,
+      }}>Re-check</button>
+    </div>
+  );
+}
+
 function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
@@ -11308,6 +11430,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 it into the repo, and until now the only symptom was silence. */}
             <Section title="System status">
               <SystemStatus P={P} accent={accent} />
+            </Section>
+
+            {/* Commit 91 — presence of every environment variable the app
+                reads, in one place. Founder-only. */}
+            <Section title="Configuration" footer="Which environment variables Cloudflare is actually serving. Values are never shown — only whether one is present.">
+              <ConfigStatus P={P} accent={accent} />
             </Section>
 
             <Section title="About">
