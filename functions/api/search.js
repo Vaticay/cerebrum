@@ -7868,6 +7868,104 @@ export async function onRequest(context) {
       }
     };
 
+    /* ══════════════════════════════════════════════════════════════
+       Commit 86 — MORE PROVIDERS, NOT MORE MODEL NAMES.
+
+       The reported symptom is "all the models keep getting rate limited",
+       and the instinct is to add more model names. On OpenRouter that does
+       nothing at all: every ":free" model on the platform draws from ONE
+       account-level bucket keyed to your API key. The twenty-five names in
+       OR_WAVE1 + OR_WAVE2 are not twenty-five chances — the moment that
+       bucket is throttled they are twenty-five labels on a single 429, and
+       a twenty-sixth changes nothing. The same is true of Workers AI (one
+       account allocation) and of Pollinations (one shared per-IP pool).
+
+       Three buckets is what this app has actually had. So what follows is
+       not more models; it is more BUCKETS. Every provider below is a
+       separate company, a separate account and a separate quota, and each
+       one is opt-in through its own environment variable — set none and
+       behaviour is exactly as before, set all six and a wave fans out
+       across nine independent rate limits instead of three.
+
+       All of them speak the OpenAI chat-completions shape, so one adapter
+       covers the lot. Adding another later is one row in PROVIDERS.
+
+       Keys, all free, no card, ~2 minutes each:
+         GROQ_KEY        console.groq.com        30 req/min, 14.4k/day
+         CEREBRAS_KEY    cloud.cerebras.ai       30 req/min, 60k tok/min
+         GEMINI_KEY      aistudio.google.com     15 req/min, 1500/day
+         MISTRAL_KEY     console.mistral.ai      1 req/sec, 1B tok/month
+         GITHUB_MODELS_KEY  a GitHub PAT         10-15 req/min
+         NVIDIA_KEY      build.nvidia.com        40 req/min
+
+       Put each in Pages -> Settings -> Variables and Secrets, as a Secret.
+       Groq and Cerebras are the two worth doing first: the largest free
+       allowances of the six, and both are fast enough to routinely win the
+       race outright.
+       ══════════════════════════════════════════════════════════════ */
+    const PROVIDERS = [
+      { id: "groq",     key: env.GROQ_KEY,          url: "https://api.groq.com/openai/v1/chat/completions" },
+      { id: "cerebras", key: env.CEREBRAS_KEY,      url: "https://api.cerebras.ai/v1/chat/completions" },
+      { id: "gemini",   key: env.GEMINI_KEY,        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
+      { id: "mistral",  key: env.MISTRAL_KEY,       url: "https://api.mistral.ai/v1/chat/completions" },
+      { id: "github",   key: env.GITHUB_MODELS_KEY, url: "https://models.inference.ai.azure.com/chat/completions" },
+      { id: "nvidia",   key: env.NVIDIA_KEY,        url: "https://integrate.api.nvidia.com/v1/chat/completions" },
+    ];
+    const activeProviders = PROVIDERS.filter((p) => typeof p.key === "string" && p.key.trim().length > 8);
+
+    // One adapter for all six. Labelled "<provider>:<model>" so the attempt
+    // trail in the logs, and the model_perf table, can tell which BUCKET
+    // won — which is the number that matters when the complaint is rate
+    // limiting, not which model name did.
+    const callCompat = (provider) => async (model, msgs, maxTok, timeoutMs = 18000) => {
+      const tag = provider.id + ":" + model;
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), timeoutMs);
+      try {
+        const r = await fetch(provider.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + provider.key },
+          body: JSON.stringify({ model, temperature: 0.3, max_tokens: maxTok, messages: msgs }),
+          signal: c.signal,
+        });
+        clearTimeout(t);
+        if (!r.ok) {
+          let bodyText = "";
+          try { bodyText = (await r.text()).slice(0, 100); } catch {}
+          throw new Error(tag + ": HTTP " + r.status + (bodyText ? " — " + bodyText : ""));
+        }
+        const j = await r.json();
+        const txt = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
+        const cleaned = cleanAIResponse(txt);
+        if (cleaned.length < minAnswerLen) throw new Error(tag + ": response too short (" + cleaned.length + " chars)");
+        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(tag + ": missing required **bold** formatting");
+        return { answer: cleaned, model: tag };
+      } catch (e) {
+        clearTimeout(t);
+        if (e && e.name === "AbortError") throw new Error(tag + ": timed out");
+        throw e;
+      }
+    };
+
+    // Two tiers per provider: one strong model for wave 1, a couple of
+    // cheaper/faster ones for wave 2. Kept deliberately short — the point
+    // of this commit is breadth across buckets, and piling extra names onto
+    // a single provider is the exact mistake described at the top.
+    const PROVIDER_MODELS = {
+      groq:     { w1: ["llama-3.3-70b-versatile"], w2: ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.1-8b-instant"] },
+      cerebras: { w1: ["llama-3.3-70b"],           w2: ["qwen-3-32b", "llama3.1-8b"] },
+      gemini:   { w1: ["gemini-2.0-flash"],        w2: ["gemini-2.0-flash-lite", "gemini-1.5-flash"] },
+      mistral:  { w1: ["mistral-small-latest"],    w2: ["open-mistral-nemo"] },
+      github:   { w1: ["gpt-4o-mini"],             w2: ["Llama-3.3-70B-Instruct"] },
+      nvidia:   { w1: ["meta/llama-3.3-70b-instruct"], w2: ["qwen/qwen2.5-7b-instruct"] },
+    };
+    const compatLegs = (waveNo, which, msgs, maxTok, timeoutMs) =>
+      activeProviders.flatMap((p) => {
+        const names = (PROVIDER_MODELS[p.id] || {})[which] || [];
+        const call = callCompat(p);
+        return names.map((m) => raceEntry(waveNo, p.id + ":" + m, call(m, msgs, maxTok, timeoutMs)));
+      });
+
     const callCF = async (model, msgs, maxTok, timeoutMs = 18000) => {
       if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding (env.AI missing)");
       try {
@@ -7988,7 +8086,19 @@ export async function onRequest(context) {
 
     const aiAttempts = []; // diagnostic trail — surfaced in _aiAttempts for debugging
     const recordWin = (model) => {
-      if (!env.DB || !model || model.startsWith("pollinations:") || model.startsWith("@cf/")) return;
+      // Commit 86 — model_perf feeds a fast path that calls callOR() with the
+      // stored name, so only names OpenRouter can actually resolve may be
+      // written here. Previously this excluded pollinations: and @cf/ ; every
+      // independent provider added in this commit labels its wins
+      // "<provider>:<model>" too, and storing one of those would have made
+      // the fast path fire a guaranteed 400 against OpenRouter on every
+      // subsequent query in that domain. Exclude anything carrying a
+      // provider prefix.
+      // NB: OpenRouter's own free names end in ":free", so a blanket
+      // "contains a colon" test would exclude every model this path exists
+      // to remember. Match the provider prefix specifically.
+      if (!env.DB || !model || model.startsWith("@cf/")) return;
+      if (/^(?:pollinations|groq|cerebras|gemini|mistral|github|nvidia):/.test(model)) return;
       env.DB.prepare(
         "INSERT INTO model_perf (domain, model, wins) VALUES (?, ?, 1) ON CONFLICT(domain, model) DO UPDATE SET wins = wins + 1"
       ).bind(domainKey, model).run().catch(() => {});
@@ -8051,16 +8161,31 @@ export async function onRequest(context) {
       "gryphe/mythomax-l2-13b:free",
       "cognitivecomputations/dolphin3.0-mistral-24b:free",
     ];
+    /* Commit 86 — four of the seven Workers AI models listed here were
+       dead weight. Cloudflare has since marked llama-3.1-8b-instruct,
+       mistral-7b-instruct-v0.2 and phi-2 DEPRECATED, and
+       qwen1.5-14b-chat-awq is no longer in the catalogue at all — so a
+       "five model" wave 2 was really two working models and three
+       guaranteed errors padding out the attempt log. Replaced with what
+       Workers AI actually serves now, which is a much stronger bench than
+       when this list was written: gpt-oss-120b and llama-4-scout in
+       particular are a different class of model from what they replace.
+
+       This still all draws on one account allocation — it is one bucket,
+       not seven. It is here because the models are better, not because it
+       adds capacity. Capacity comes from PROVIDERS above. */
     const CF_WAVE1 = [
+      "@cf/openai/gpt-oss-120b",
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
     ];
     const CF_WAVE2 = [
+      "@cf/openai/gpt-oss-20b",
+      "@cf/mistralai/mistral-small-3.1-24b-instruct",
+      "@cf/qwen/qwen3-30b-a3b-fp8",
+      "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
       "@cf/meta/llama-3.1-8b-instruct-fp8",
-      "@cf/meta/llama-3.1-8b-instruct",
-      "@cf/mistral/mistral-7b-instruct-v0.2",
-      "@cf/qwen/qwen1.5-14b-chat-awq",
-      "@cf/microsoft/phi-2",
+      "@cf/meta/llama-3.2-3b-instruct",
     ];
     // Commit 41: wave 1 previously staked its entire non-OpenRouter,
     // non-Workers-AI coverage on a SINGLE Pollinations model. Since OpenRouter's
@@ -8085,6 +8210,10 @@ export async function onRequest(context) {
     if (!aiOK) {
       const wave1Calls = [
         ...(token ? OR_WAVE1.map((m) => raceEntry(1, m, callOR(m, messages, maxTokens))) : []),
+        // Commit 86 — the independent buckets go in from the very first
+        // wave, not as a fallback. A wave that is 80% OpenRouter is one
+        // 429 away from being no wave at all.
+        ...compatLegs(1, "w1", messages, maxTokens),
         ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, messages, maxTokens))) : []),
         ...POLLINATIONS_WAVE1.map((m) => raceEntry(1, "pollinations:" + m, pollinationsCall(m, messages, maxTokens))),
       ];
@@ -8102,6 +8231,7 @@ export async function onRequest(context) {
     if (!aiOK) {
       const wave2Calls = [
         ...(token ? OR_WAVE2.map((m) => raceEntry(2, m, callOR(m, messages, maxTokens))) : []),
+        ...compatLegs(2, "w2", messages, maxTokens),
         ...(cfBound ? CF_WAVE2.map((m) => raceEntry(2, m, callCF(m, messages, maxTokens))) : []),
         ...POLLINATIONS_WAVE2.map((m) => raceEntry(2, "pollinations:" + m, pollinationsCall(m, messages, maxTokens))),
       ];
@@ -8189,6 +8319,12 @@ export async function onRequest(context) {
       // Racing all three together means the fastest surviving provider wins
       // instead of waiting out a provider that's already known to be down.
       const bulletproofLegs = [
+        // Commit 86 — waves 1 and 2 failing together used to mean the
+        // OpenRouter bucket was throttled and this tier had almost nothing
+        // structurally different left to try. With independent providers
+        // configured it does: each one below is a quota that had nothing to
+        // do with whatever just failed, given the longer 24s runway.
+        ...compatLegs(3, "w1", bulletproofMessages, bulletproofMaxTok, 24000),
         ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, 24000))) : []),
         ...["openai", "mistral"].map((m) => raceEntry(3, "pollinations:" + m, pollinationsCall(m, bulletproofMessages, bulletproofMaxTok))),
         ...(token ? ["meta-llama/llama-3.2-3b-instruct:free", "google/gemma-2-9b-it:free"].map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, 18000))) : []),
@@ -8207,7 +8343,15 @@ export async function onRequest(context) {
     // repro from the user. This will show the ACTUAL reason — rate limit,
     // missing binding, provider outage — not a guess.
     if (!aiOK) {
-      aiAttempts.push({ diagnostics: { hasOpenRouterKey: !!token, workersAIBound: cfBound } });
+      aiAttempts.push({ diagnostics: {
+        hasOpenRouterKey: !!token,
+        workersAIBound: cfBound,
+        // Commit 86 — which independent buckets were actually available.
+        // "Every model rate limited" and "only one provider is configured"
+        // look identical from the outside; this tells them apart.
+        independentProviders: activeProviders.map((p) => p.id),
+        independentProviderCount: activeProviders.length,
+      } });
       try { console.log("Cerebrum: ALL AI PROVIDERS FAILED", JSON.stringify(aiAttempts)); } catch {}
       // Every wave above (including the "bulletproof" wave 3) failed, and
       // nothing downstream ever sets `answer` in that case — it was left as
