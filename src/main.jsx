@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.7.0";
+const APP_VERSION = "6.8.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -656,6 +656,8 @@ function Icon({ name, size = 17, className, style }) {
     case "copy": return <svg {...common}><rect x="8" y="8" width="12" height="12" rx="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0014.5 4h-9A1.5 1.5 0 004 5.5v9A1.5 1.5 0 005.5 16H8" /></svg>;
     case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
     case "chevronDown": return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
+    // Commit 87 — used by EvidenceFilter's disclosure trigger.
+    case "filter": return <svg {...common}><path d="M3 5h18M7 12h10M11 19h2" /></svg>;
     case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
     case "history": return <svg {...common}><path d="M3 12a9 9 0 109-9 9 9 0 00-9 9z" /><path d="M12 7v5l3 3" /><path d="M3 3v6h6" /><path d="M3 9a9 9 0 011.5-3.5" /></svg>;
     case "image": return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="2.5" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>;
@@ -1033,6 +1035,28 @@ function useCallTone(kind, active) {
    because that is the behavior worth reinforcing, it never scolds, and
    breaking it costs nothing but the number. That's the line between a habit
    that serves the person and a slot machine. */
+/* Commit 87 — greeting + date line for the returning-user hero.
+   Deliberately time-of-day rather than a fixed "Welcome back": the second
+   is a string, the first is the app noticing something true about right
+   now, and that is most of the difference between software that feels
+   inhabited and software that feels generated. */
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 5) return "Still up";
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  if (h < 22) return "Good evening";
+  return "Late one";
+}
+
+function todayLabel() {
+  try {
+    return new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+  } catch {
+    return "";
+  }
+}
+
 function readStreak() {
   try {
     const raw = JSON.parse(localStorage.getItem("cb_streak") || "{}");
@@ -1195,6 +1219,16 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
   }, [load]);
   if (!user || (!items.length && !loading)) return null;
   const withNew = items.filter((i) => i.newCount > 0);
+  /* Commit 87 — one notice, not one per row.
+
+     When the literature index can't be reached, every row reported it
+     independently, so a three-topic watchlist rendered "Couldn't check
+     just now" three times in a stack ten pixels apart. Repeating the same
+     error once per item makes a transient upstream blip look like three
+     broken things, and it is the loudest text in the card. If NOTHING
+     could be checked it is one condition, so it gets one line, at the
+     bottom, in the quietest colour on the palette. */
+  const allOffline = items.length > 0 && items.every((i) => !i.live && !(i.newCount > 0));
   const shell = deck
     ? { width: "100%", textAlign: "left", padding: "16px 18px 15px", borderRadius: 12, minWidth: 0,
         display: "flex", flexDirection: "column",
@@ -1243,7 +1277,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
                     is better than presenting a stale number as current. */}
                 {item.newCount > 0
                   ? `${item.newCount} new paper${item.newCount === 1 ? "" : "s"} since you looked${item.live ? "" : " (last check)"}`
-                  : (item.live ? "Nothing new yet" : "Couldn't check just now")}
+                  : (item.live ? "Nothing new yet" : (allOffline ? "\u00a0" : "Couldn't check just now"))}
               </span>
             </button>
             {item.newCount > 0 && (
@@ -1259,6 +1293,11 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
             </button>
           </div>
         ))}
+        {allOffline && (
+          <div style={{ marginTop: 10, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>
+            Couldn't reach the literature index just now — counts will refresh on the next check.
+          </div>
+        )}
       </div>
       {deck && items.length > 4 && (
         <div style={{ marginTop: 9, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
@@ -1521,8 +1560,19 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
         </div>
       )}
 
+      {/* Commit 87 — alignItems: start.
+
+          A CSS grid stretches every cell in a row to the height of the
+          tallest one. The watchlist card carries three rows; the saved
+          card carries one paper and two buttons — so the saved card was
+          being inflated to match and its actions were left floating under
+          ~120px of nothing. Four cards, four different amounts of content,
+          all forced to one height, is where the ragged empty voids on this
+          screen came from. Each card is now as tall as what is in it, and
+          the row bottoms are allowed to differ, which is what an edited
+          page looks like. */}
       <div style={{
-        display: "grid", gap: 12,
+        display: "grid", gap: 12, alignItems: "start",
         gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(310px, 1fr))",
       }}>
         {/* Commit 71 — this is the lead, so it looks like the lead.
@@ -1778,6 +1828,90 @@ function useEdgeMask() {
         ? "linear-gradient(90deg, transparent 0, #000 26px)"
         : "none";
   return [ref, { WebkitMaskImage: mask, maskImage: mask }];
+}
+
+const EVIDENCE_TIERS = [
+  ["all", "All evidence", "Everything the databases return"],
+  ["systematic-review", "Systematic reviews", "Syntheses of many studies"],
+  ["rct", "Randomised trials", "Controlled human experiments"],
+  ["in-vivo-vitro", "In vivo / in vitro", "Lab and animal work"],
+];
+
+function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
+  const [open, setOpen] = useState(false);
+  const active = EVIDENCE_TIERS.find((t) => t[0] === value) || EVIDENCE_TIERS[0];
+  const isDefault = value === "all";
+  const [scrollRef, maskStyle] = useEdgeMask();
+  return (
+    <div style={{ marginTop: 14, display: "flex", flexDirection: "column", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          alignSelf: isMobile ? "flex-start" : "center",
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "6px 12px", borderRadius: RADIUS.pill, cursor: "pointer",
+          fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)",
+          fontWeight: isDefault ? 500 : 600,
+          // The non-default state is the one worth seeing from across the
+          // room: it changes what the search will return.
+          color: isDefault ? P.faint : P.ink,
+          background: isDefault ? "transparent" : withAlpha(accent, 0.12),
+          border: `1px solid ${isDefault ? "transparent" : withAlpha(accent, 0.4)}`,
+          transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
+        }}
+      >
+        <Icon name="filter" size={12} />
+        {isDefault ? "Narrow by evidence type" : active[1]}
+        <span aria-hidden="true" style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.22s cubic-bezier(0.16,1,0.3,1)" }}>
+          <Icon name="chevronDown" size={12} />
+        </span>
+      </button>
+      <div style={{
+        display: "grid",
+        gridTemplateRows: open ? "1fr" : "0fr",
+        transition: "grid-template-rows 0.32s cubic-bezier(0.16,1,0.3,1), opacity 0.24s ease",
+        opacity: open ? 1 : 0,
+        width: "100%",
+      }}>
+        <div style={{ overflow: "hidden", minHeight: 0 }}>
+          <div
+            ref={scrollRef}
+            className="cb-filter-row cb-scroll-x"
+            style={{
+              display: "flex", gap: 6, paddingTop: 2, paddingBottom: 2,
+              justifyContent: isMobile ? "flex-start" : "center",
+              flexWrap: isMobile ? "nowrap" : "wrap",
+              overflowX: isMobile ? "auto" : "visible", maxWidth: "100%",
+              WebkitOverflowScrolling: "touch",
+              ...(isMobile ? maskStyle : null),
+            }}
+          >
+            {EVIDENCE_TIERS.map(([val, label, blurb]) => {
+              const on = value === val;
+              return (
+                <button
+                  key={val} type="button" title={blurb}
+                  onClick={() => { onChange(val); setOpen(false); }}
+                  aria-pressed={on}
+                  style={{
+                    fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", fontWeight: 600,
+                    letterSpacing: "0.005em", flexShrink: 0, whiteSpace: "nowrap",
+                    padding: "6px 14px", borderRadius: RADIUS.pill, cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    background: on ? withAlpha(accent, 0.14) : "transparent",
+                    color: on ? P.ink : P.ink2,
+                    border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
+                  }}
+                >{label}</button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AskModePicker({ mode, setMode, P, accent, isMobile }) {
@@ -2288,8 +2422,18 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)
           fontSize: 11, color: P.ink, verticalAlign: "baseline",
           textDecoration: "none", fontWeight: 600,
           fontFamily: "var(--cb-body)",
-          margin: "0 2px", padding: "2px 8px",
-          borderRadius: 12,
+          /* Commit 87 — "minutes 2 ." The renderer strips the space BEFORE
+             a citation and pulls following punctuation up against it, but
+             the badge then added 2px of margin plus 8px of internal
+             padding on its right, so roughly 10px of air still separated
+             the marker from the full stop. Every sentence ending in a
+             citation read as a typo. Margin now only on the left, tighter
+             padding, and nudged up a hair so it sits like the superscript
+             it is standing in for rather than a button dropped into the
+             middle of a sentence. */
+          margin: "0 0 0 2px", padding: "1px 6px",
+          transform: "translateY(-1px)",
+          borderRadius: RADIUS.sm,
           background: hoverCite === n ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.07)") : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
           border: "1px solid " + P.line,
           transition: "background 0.15s ease", cursor: "pointer",
@@ -3868,7 +4012,14 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
 
 function BibEntry({ source, index, P, accent, style, className, last }) {
   const [hover, setHover] = useState(false);
-  const formatted = formatCitation(source, style, index);
+  /* Commit 87 — "1. 1. Grgic J et al. …"
+     Vancouver puts the reference number inside the citation string, which
+     is correct for an exported bibliography, and this list ALSO paints the
+     number in its own left gutter — so on screen every Vancouver entry was
+     numbered twice. Export keeps the number (formatCitation is untouched);
+     the on-screen string drops the leading marker, because the gutter is
+     already doing that job. */
+  const formatted = formatCitation(source, style, index).replace(/^\s*\d+\.\s+/, "");
   const domain = source.url ? source.url.replace(/^https?:\/\//, "").replace(/^www\./, "").slice(0, 42) : "";
   return (
     <li id={`ref-${index}`} className={className}
@@ -5542,27 +5693,68 @@ function IllustrationModal({ P, accent, at, query, close }) {
    third-party avatar service (this app removed its Dicebear dependency in
    Commit 54 for exactly that reason); and it makes a roster of people
    look like a roster rather than a column of identical discs. */
-function avatarSkin(seed) {
-  const str = String(seed || "?");
+/* ══════════════════════════════════════════════════════════════════
+   Commit 87 — the tonal palette.
+
+   avatarSkin() and coverFor() both used to hash a string into a FREE hue:
+   `const hue = h % 360`. That one line is responsible for most of what
+   reads as amateur in this app. A free hue guarantees that some fraction
+   of content comes out neon magenta, mustard, or — the one that actually
+   got reported — blood red, and it does so inside a product whose entire
+   identity is a single sage green. A 620px red gradient at the top of
+   Trending is not a design decision anybody made; it is a hash landing on
+   hue 0, and it looks like an error state.
+
+   Replaced with a hand-authored set of twelve tones that all sit in the
+   same cool/earthy register as the brand: moss, teal, slate, indigo,
+   steel, plum, clay, sand, pine, denim, fern, stone. No pure reds, no
+   neons, nothing above 44% saturation. The hash now picks an INDEX into
+   that set rather than a point on the colour wheel, so every generated
+   surface is still stable and distinct per item, but every possible
+   outcome was chosen by a person and belongs to the same family.
+
+   Chroma stays low on purpose. These are backdrops for white text and for
+   photography; they are meant to sit behind content, never to compete with
+   the accent, which remains the only saturated colour in the product.
+   ══════════════════════════════════════════════════════════════════ */
+const TONES = [
+  { h: 152, s: 26 }, // moss
+  { h: 186, s: 30 }, // teal
+  { h: 210, s: 22 }, // slate
+  { h: 232, s: 28 }, // indigo
+  { h: 200, s: 18 }, // steel
+  { h: 288, s: 20 }, // plum
+  { h: 22,  s: 26 }, // clay
+  { h: 40,  s: 24 }, // sand
+  { h: 138, s: 22 }, // pine
+  { h: 220, s: 32 }, // denim
+  { h: 108, s: 24 }, // fern
+  { h: 250, s: 14 }, // stone
+];
+
+function toneIndex(seed) {
+  const str = String(seed == null || seed === "" ? "cerebrum" : seed);
   let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 100000;
-  const hue = h % 360;
-  const hue2 = (hue + 38) % 360;
-  const angle = 120 + (h % 110);
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h % TONES.length;
+}
+
+function avatarSkin(seed) {
+  const t = TONES[toneIndex(seed)];
   return {
-    background: `linear-gradient(${angle}deg, hsl(${hue} 58% 34%), hsl(${hue2} 52% 22%))`,
-    color: `hsl(${hue} 70% 88%)`,
+    // Two stops from the same hue rather than a hue + 38deg jump: a single
+    // hue reads as a considered surface, two unrelated hues read as a
+    // gradient generator.
+    background: `linear-gradient(140deg, hsl(${t.h} ${t.s}% 36%), hsl(${t.h} ${Math.max(10, t.s - 8)}% 21%))`,
+    color: `hsl(${t.h} 34% 90%)`,
   };
 }
 
 function coverFor(item) {
-  const seedStr = (item.title || item.url || "cerebrum");
-  let h = 0;
-  for (let i = 0; i < seedStr.length; i++) h = (h * 31 + seedStr.charCodeAt(i)) >>> 0;
-  const hue = h % 360;
-  const hue2 = (hue + 38) % 360;
+  const t = TONES[toneIndex(item && (item.title || item.url))];
   return {
-    background: `linear-gradient(135deg, hsl(${hue} 42% 22%) 0%, hsl(${hue2} 38% 13%) 100%)`,
+    background: `linear-gradient(135deg, hsl(${t.h} ${t.s}% 20%) 0%, hsl(${t.h} ${Math.max(8, t.s - 10)}% 11%) 100%)`,
+    tone: `hsl(${t.h} ${t.s}% 46%)`,
     initials: (item.source || item.category || "CB").replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "CB",
   };
 }
@@ -5595,7 +5787,13 @@ function TrendingHero({ P, accent, item, onExpand }) {
            gradient with a headline adrift in it, which is precisely what
            made Trending read as chunky. With a photo it stays cinematic;
            without one it is a type hero and the words set the height. */
-        ...(hasPhoto ? { aspectRatio: "16/9" } : { minHeight: 190 }),
+        /* Commit 87 — a bare 16/9 is 630px at desktop width, so the lead
+           story ate the entire fold and the headline sat alone at the
+           bottom of a colour field. Capped: still cinematic, still the
+           biggest thing on the page, but the grid underneath it is now
+           visible without scrolling, which is what makes Trending read as
+           a publication rather than a slideshow. */
+        ...(hasPhoto ? { aspectRatio: "16/9", maxHeight: 420 } : { minHeight: 190 }),
         background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
         textDecoration: "none", color: "inherit", border: `1px solid ${P.line}`, padding: 0,
         font: "inherit", cursor: "pointer", textAlign: "left",
@@ -5672,29 +5870,43 @@ function TrendingCard({ P, accent, at, item, onExpand }) {
       }}
       className="cb-trend-card"
     >
-      <div style={{ position: "relative", ...(hasPhoto ? { aspectRatio: "16/10" } : { height: 6 }), background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0, overflow: "hidden" }}>
+      {/* Commit 87 — the media band is now a CONSTANT height whether or not
+          a photograph resolved. It used to be a 16:10 image on cards that
+          found one and a 6px stripe on cards that did not, so a single row
+          of three could contain a 200px picture, a hairline, and a
+          hairline — three different objects wearing the same border. The
+          summary then flexed to fill the difference and left a hole in the
+          middle of the bare cards. With the tonal palette there is now
+          something worth showing in that band when there is no photo (a
+          quiet duotone field, still no monogram), so reserving it costs
+          nothing and the row finally scans as one row. */}
+      <div style={{ position: "relative", aspectRatio: "16/10", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0, overflow: "hidden" }}>
         {media && media.url && imgStatus !== "error" && (
           <div style={{ position: "absolute", inset: 0, opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }}>
             <CardMedia media={media} onReady={() => setImgStatus("ready")} onFail={() => setImgStatus("error")} />
           </div>
         )}
         {!hasPhoto && (
-          /* The slim strip. Category colour, no monogram, no empty field. */
-          <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background }} />
+          /* A duotone field from the tonal palette plus one hairline rule —
+             enough to read as a designed surface, not enough to pretend it
+             is a photograph. Deliberately no monogram: initials in a
+             coloured square is the single clearest "no asset found" tell
+             in any feed UI. */
+          <>
+            <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background }} />
+            <div aria-hidden="true" style={{ position: "absolute", left: 16, right: 16, bottom: 16, height: 1, background: `linear-gradient(90deg, ${withAlpha(coverFor(item).tone, 0.55)}, transparent)` }} />
+          </>
         )}
         {hasPhoto && !item.image_url && <ImageCredit image={found} />}
         {hasPhoto && <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />}
-        {hasPhoto && item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>{item.source}</span>}
+        {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>{item.source}</span>}
       </div>
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
         {/* On a photo card the source sits on the image; on a type card
             there is no image to sit on, so it leads the text instead. */}
-        {!hasPhoto && (item.source || item.category) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint }}>
-            <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
-            <span>{item.source || item.category}</span>
-          </div>
-        )}
+        {/* Commit 87 — the source used to appear here on bare cards and on
+            the image on photo cards, i.e. in two different places in one
+            grid. It now always sits on the band. */}
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{item.title}</div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55, flex: 1, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
         <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
@@ -6069,34 +6281,59 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         )}
         {status === "ready" && (
           <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-              {["All", ...Array.from(new Set(deduped.map((x) => x.category).filter(Boolean)))].map((cat) => (
-                <button key={cat} onClick={() => setTrendCat(cat)}
-                  style={{
-                    padding: "6px 13px", borderRadius: 100, cursor: "pointer",
-                    fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
-                    background: trendCat === cat ? withAlpha(accent, 0.16) : "transparent",
-                    color: trendCat === cat ? P.ink : P.ink2,
-                    border: `1px solid ${trendCat === cat ? withAlpha(accent, 0.4) : P.line}`,
-                  }}>{cat}</button>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-              {[["cards", "Browse"], ["digest", "Digest"]].map(([key, label]) => (
-                <button key={key} onClick={() => setTrendTab(key)}
-                  style={{
-                    padding: "7px 16px", borderRadius: 100, cursor: "pointer",
-                    // Commit 76 — was uppercase mono. Two tabs shouting
-                    // BROWSE / DIGEST next to a sentence-case headline is
-                    // the same eyebrow disease Commit 71 cleared out of the
-                    // deck; Trending never got the same pass.
-                    fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
-                    letterSpacing: "0.01em",
-                    background: trendTab === key ? withAlpha(accent, 0.14) : "transparent",
-                    color: trendTab === key ? P.ink : P.faint,
-                    border: `1px solid ${trendTab === key ? withAlpha(accent, 0.35) : P.line}`,
-                  }}>{label}</button>
-              ))}
+            {/* ══════════════════════════════════════════════════════
+                Commit 87 — one control row, not two.
+
+                A category filter and a view switcher were stacked as two
+                separate full-width rows of pills, one above the other,
+                identically styled — so the page opened with four lines of
+                chrome (title, standfirst, filters, tabs) before the first
+                story, and nothing in the styling told you that the top row
+                narrows WHAT you see while the bottom row changes HOW you
+                see it. They are different kinds of control and they now
+                look it: subjects on the left as filters, view mode on the
+                right as a segmented control, on one line.
+                ══════════════════════════════════════════════════════ */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 12, marginBottom: 20,
+              flexWrap: "wrap", justifyContent: "space-between",
+            }}>
+              <div className="cb-scroll-x" style={{ display: "flex", gap: 6, flexWrap: isMobile ? "nowrap" : "wrap", overflowX: isMobile ? "auto" : "visible", minWidth: 0, maxWidth: "100%" }}>
+                {["All", ...Array.from(new Set(deduped.map((x) => x.category).filter(Boolean)))].map((cat) => (
+                  <button key={cat} onClick={() => setTrendCat(cat)}
+                    style={{
+                      padding: "6px 13px", borderRadius: RADIUS.pill, cursor: "pointer", flexShrink: 0,
+                      whiteSpace: "nowrap",
+                      fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+                      background: trendCat === cat ? withAlpha(accent, 0.16) : "transparent",
+                      color: trendCat === cat ? P.ink : P.ink2,
+                      border: `1px solid ${trendCat === cat ? withAlpha(accent, 0.4) : P.line}`,
+                      transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
+                    }}>{cat}</button>
+                ))}
+              </div>
+              {/* A real segmented control: one track, one moving fill.
+                  Two separate outlined pills read as two independent
+                  toggles, which is exactly the wrong mental model for a
+                  pair of mutually exclusive views. */}
+              <div style={{
+                display: "inline-flex", flexShrink: 0, padding: 3, borderRadius: RADIUS.pill,
+                background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+                border: `1px solid ${P.line}`,
+              }}>
+                {[["cards", "Browse"], ["digest", "Digest"]].map(([key, label]) => (
+                  <button key={key} onClick={() => setTrendTab(key)}
+                    aria-pressed={trendTab === key}
+                    style={{
+                      padding: "6px 16px", borderRadius: RADIUS.pill, cursor: "pointer", border: "none",
+                      fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+                      background: trendTab === key ? (P.dark ? "rgba(255,255,255,0.10)" : "#fff") : "transparent",
+                      color: trendTab === key ? P.ink : P.faint,
+                      boxShadow: trendTab === key ? (P.dark ? "none" : "0 1px 3px rgba(0,0,0,0.10)") : "none",
+                      transition: "background 0.22s ease, color 0.22s ease",
+                    }}>{label}</button>
+                ))}
+              </div>
             </div>
             {trendTab === "digest" ? (
               /* One line per story: headline, source, age. The whole day
@@ -7400,6 +7637,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [hoverMsgId, setHoverMsgId] = useState(null);
   // Commit 56 — attachments. `attachBusy` covers both the compression pass
   // and the upload, so the composer can't fire twice on a slow phone.
+  const msgPaneRef = useRef(null);
   const imageInputRef = useRef(null);
   const [attachBusy, setAttachBusy] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -7825,7 +8063,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 You've blocked {activeThread.name}. Neither of you can message or call here until you unblock.
               </div>
             )}
-            <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Commit 87 — messages sat at the TOP of the pane.
+                A conversation with four messages rendered them in the top
+                quarter of a 900px column with the rest empty below, which
+                is how no messaging app anywhere behaves and is most of why
+                this screen read as a mock-up. `justifyContent: flex-end`
+                keeps a short thread resting on the composer, exactly as it
+                does everywhere else, and has no effect once the thread is
+                long enough to scroll. */}
+            <div ref={msgPaneRef} style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0 }}>
               {activeThread.messages.length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet — say hello.</div>
               )}
@@ -8480,6 +8726,33 @@ const DEGREES = [
 // how a wallet ID card does — a wide cover banner, a large overlapping
 // avatar, and a two-column body once there's real content to put in a
 // second column.
+/* Commit 87 — one empty state, designed.
+
+   The profile used to show three different "nothing here" strings at once,
+   each a bare grey sentence inside its own card. An empty state is the
+   screen a new account sees FIRST, so it is worth more than a grey
+   sentence: an icon, a plain title, and one line explaining what will fill
+   this space and how. Same component for every tab, so they agree. */
+function ProfileEmpty({ P, accent, icon, title, body }) {
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center",
+      padding: "44px 24px", borderRadius: RADIUS.lg,
+      border: `1px dashed ${P.line2}`,
+      background: P.dark ? "rgba(255,255,255,0.018)" : "rgba(0,0,0,0.012)",
+    }}>
+      <span aria-hidden="true" style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 44, height: 44, borderRadius: RADIUS.md, marginBottom: 14,
+        color: accent, background: withAlpha(accent, 0.1),
+        border: `1px solid ${withAlpha(accent, 0.22)}`,
+      }}><Icon name={icon} size={19} /></span>
+      <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>{title}</div>
+      <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 7, maxWidth: 380, fontFamily: "var(--cb-body)" }}>{body}</div>
+    </div>
+  );
+}
+
 function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, collections, onOpenHistory, onManageAccount }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
@@ -8507,6 +8780,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   // read, only blanks to fill. Display by default, edit on request.
   const [editing, setEditing] = useState(false);
   const [profileTab, setProfileTab] = useState("investigations");
+  const [tabScrollRef, tabMask] = useEdgeMask();
 
   // Center-crops whatever aspect ratio was uploaded to a square, then
   // downsamples it onto a fixed 256x256 canvas and re-encodes as JPEG —
@@ -8615,7 +8889,12 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           it's the same accent-tinted gradient wash the rest of the app
           already uses for depth, just at full page width. */}
       <div aria-hidden="true" style={{
-        height: isMobile ? 150 : 230, width: "100%",
+        // Commit 87 — 230px of empty banner pushed the name, the stats and
+        // the tabs so far down that a 1000px-tall window showed the header
+        // and almost none of the work. A cover is a band of colour behind a
+        // name, not a hero image; 168px is enough to read as one and leaves
+        // the first tab's content above the fold.
+        height: isMobile ? 128 : 168, width: "100%",
         // Commit 75 — the chosen cover, or the accent wash for anyone who
         // hasn't picked one yet.
         background: PROFILE_COVERS[profile.cover]
@@ -8708,20 +8987,26 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </div>
 
           <div style={{ flex: 1, minWidth: 220, paddingBottom: 4 }}>
-            {/* Commit 74 — the founder's line. Said in words, once, where a
-                visitor is already reading the name. */}
-            {isFounder && (
-              <div style={{
-                display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 8,
-                padding: "4px 12px", borderRadius: 100,
-                background: "linear-gradient(90deg, rgba(201,162,39,0.20), rgba(47,127,230,0.16))",
-                border: "1px solid rgba(201,162,39,0.45)",
-                fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.02em",
-                color: P.dark ? "#f0d98a" : "#8a6d12",
-              }}>
-                <Icon name="sparkle" size={13} /> Founder &amp; Owner of Cerebrum
-              </div>
-            )}
+            {/* ══════════════════════════════════════════════════════
+                Commit 87 — the profile said the same thing five times.
+
+                Counted on the founder account: a gold "Founder & Owner of
+                Cerebrum" banner above the name; a blue verified check
+                beside the name; a green "Founder & Owner" pill on the
+                handle line; a gold "Founder & Owner" pill in an Accolades
+                card below; and a "Verified" pill next to it. One fact —
+                this person runs Cerebrum and the server confirmed it —
+                announced five times inside four hundred pixels.
+
+                Repetition does not make a credential more credible; past
+                about the second time it makes the page look like it is
+                trying to convince you. Every real social product states
+                identity ONCE and moves on. So: the check stays beside the
+                name (that is where a reader looks for it), one role chip
+                sits on the handle line, and the banner and the Accolades
+                card are gone. Anything genuinely additional — early
+                adopter, say — still shows on the About tab.
+                ══════════════════════════════════════════════════════ */}
             {!editing ? (
               <div style={{
                 fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700,
@@ -8766,8 +9051,23 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   {[profile.degree, profile.affiliation, profile.grad_year].filter(Boolean).join(" · ")}
                 </div>
               ) : (
-                <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6 }}>
-                  No research details yet — add your degree and institution so collaborators know who they're reading.
+                /* Commit 87 — this prompt sat at the same size and in the
+                   same flow position as the bio directly beneath it, so a
+                   profile opened with two full paragraphs where only one
+                   was written by the person. A prompt addressed to the
+                   owner is not profile content: it is smaller, quieter,
+                   and marked as a suggestion. */
+                <div style={{
+                  marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint,
+                  lineHeight: 1.5, display: "inline-flex", alignItems: "center", gap: 7,
+                  // RADIUS.md rather than pill: at 390px this wraps to two
+                  // lines, and a stadium shape around two lines of text is
+                  // the shape of a mistake.
+                  padding: "7px 12px", borderRadius: RADIUS.md,
+                  border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-body)",
+                }}>
+                  <Icon name="sparkle" size={12} />
+                  Add your degree and institution so people know who they're reading
                 </div>
               )
             )}
@@ -8857,12 +9157,19 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 previously mentioned a follower count mid-sentence in a
                 metadata line and showed nothing else countable at all. */}
             <div style={{ display: "flex", flexWrap: "wrap", gap: isMobile ? 20 : 34, marginTop: 16 }}>
+              {/* Commit 87 — a stat that reads 0 is an accusation, not a
+                  number. "0 Collections / 0 Followers" set in the same
+                  weight as real counts made every new profile open with
+                  two zeros, which is the single most discouraging thing a
+                  profile can show its owner. Investigations and Saved
+                  always render because they are the work; the social
+                  counts appear once there is something to count. */}
               {[
-                ["Investigations", history.length],
-                ["Saved", saved.length],
-                ["Collections", collections.length],
-                ["Followers", followers],
-              ].map(([label, value]) => (
+                ["Investigations", history.length, true],
+                ["Saved", saved.length, true],
+                ["Collections", collections.length, false],
+                ["Followers", followers, false],
+              ].filter(([, value, always]) => always || value > 0).map(([label, value]) => (
                 <div key={label}>
                   <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", lineHeight: 1.1 }}>{value}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.01em", fontWeight: 500, marginTop: 3 }}>{label}</div>
@@ -8975,73 +9282,165 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           )}
         </div>)}
 
-        {/* Two-column body: Accolades/Affiliations on the left, Recent
-            Investigations/Saved Collections — real data, not placeholder
-            copy — on the right. */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0,1fr) minmax(0,1.4fr)", gap: 16, alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {badges.length > 1 && (<div style={cardStyle}>
-              <div style={cardLabel}>Accolades</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {badges.map((b) => (
-                  <span key={b.label} style={{
-                    display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
-                    padding: "6px 12px", borderRadius: 100,
-                    color: b.real ? accent : (b.tint || P.ink2),
-                    background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
-                    border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
+        {/* ══════════════════════════════════════════════════════════
+            Commit 87 — tabs, because this is a profile.
+
+            The body was a two-column stack of loose cards: Affiliations
+            (three lines) on the left, Recent Investigations and Saved
+            Collections on the right. The columns had nothing to do with
+            each other, they ended at wildly different heights, and the
+            short one left a ~250px hole at the bottom-left of the page.
+            Worse, three of the five panels on a new account were empty
+            states, so the first thing a profile told its owner was three
+            different versions of "there is nothing here."
+
+            A profile in every product this one is trying to stand beside
+            is a header and a set of tabs. That is not decoration: tabs
+            mean exactly one section is on screen, so the page cannot be
+            ragged and an empty section costs one empty state instead of
+            three simultaneously. `profileTab` state already existed in
+            this component and was never rendered — it has been sitting
+            unused since the day it was added.
+            ══════════════════════════════════════════════════════════ */}
+        <div ref={tabScrollRef} role="tablist" aria-label="Profile sections" className="cb-scroll-x" style={{
+          display: "flex", gap: 4, marginBottom: 18, overflowX: "auto",
+          borderBottom: `1px solid ${P.line}`, WebkitOverflowScrolling: "touch",
+          // Four tabs do not fit 390px; without the fade the row looks like
+          // it ends at "Collection" and About is never found.
+          ...(isMobile ? tabMask : null),
+        }}>
+          {[
+            ["investigations", "Investigations", history.length],
+            ["saved", "Saved", saved.length],
+            ["collections", "Collections", collections.length],
+            ["about", "About", null],
+          ].map(([key, label, count]) => {
+            const on = profileTab === key;
+            return (
+              <button
+                key={key} role="tab" aria-selected={on}
+                onClick={() => setProfileTab(key)}
+                style={{
+                  position: "relative", flexShrink: 0, whiteSpace: "nowrap",
+                  padding: "10px 16px", border: "none", background: "transparent",
+                  cursor: "pointer", fontFamily: "var(--cb-body)",
+                  fontSize: FONT_SIZES.small, fontWeight: on ? 700 : 500,
+                  color: on ? P.ink : P.faint,
+                  borderBottom: `2px solid ${on ? accent : "transparent"}`,
+                  marginBottom: -1,
+                  transition: "color 0.2s ease, border-color 0.2s ease",
+                }}
+              >
+                {label}
+                {count > 0 && (
+                  <span style={{ marginLeft: 7, fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", color: on ? accent : P.faint }}>{count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {profileTab === "investigations" && (
+          recentHistory.length === 0 ? (
+            <ProfileEmpty P={P} accent={accent} icon="history"
+              title="No investigations yet"
+              body="Every question you ask is kept as an investigation — the thread, the papers it found, and what you saved from it." />
+          ) : (
+            <div style={cardStyle}>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {recentHistory.map((h, i) => (
+                  <button key={h.id} onClick={() => onOpenHistory(h)} className="cb-row" style={{
+                    textAlign: "left", background: "transparent", border: "none", cursor: "pointer",
+                    padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
                   }}>
-                    <Icon name={b.icon} size={13} style={b.tint ? { filter: `drop-shadow(0 0 3px ${withAlpha(b.tint, 0.7)})` } : undefined} />
-                    {b.label}
-                  </span>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{h.title}</div>
+                    {/* Commit 87 — Commit 84 renamed this language everywhere
+                        else and missed this one call site, so the profile was
+                        still counting "exchanges" while the rest of the app
+                        counted questions and papers. */}
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-body)" }}>
+                      {(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}
+                      {(h.allSources || []).length > 0 && ` · ${(h.allSources || []).length} paper${(h.allSources || []).length === 1 ? "" : "s"}`}
+                      {h.ts ? ` · ${new Date(h.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
+                    </div>
+                  </button>
                 ))}
               </div>
-            </div>)}
+            </div>
+          )
+        )}
+
+        {profileTab === "saved" && (
+          saved.length === 0 ? (
+            <ProfileEmpty P={P} accent={accent} icon="bookmark"
+              title="Nothing saved yet"
+              body="Save a paper from any answer and it lands here, with the investigation that found it." />
+          ) : (
             <div style={cardStyle}>
-              <div style={cardLabel}>Affiliations</div>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {saved.slice(0, 12).map((sv, i) => (
+                  <div key={sv.id || i} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{renderCleanTitle(sv.title)}</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-body)" }}>
+                      {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        )}
+
+        {profileTab === "collections" && (
+          collectionCounts.length === 0 ? (
+            <ProfileEmpty P={P} accent={accent} icon="folder"
+              title="No collections yet"
+              body="Collections group saved papers by question rather than by date. Make one from any paper you have saved." />
+          ) : (
+            <div style={cardStyle}>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {collectionCounts.map((c, i) => (
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                    <span style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon name="folder" size={14} style={{ color: P.faint }} />{c.name}</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{c.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        )}
+
+        {profileTab === "about" && (
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
+            <div style={cardStyle}>
+              <div style={cardLabel}>Affiliation</div>
               {profile.affiliation && profile.affiliation.trim() ? (
                 <div style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>{profile.affiliation}</div>
               ) : (
-                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>No affiliation yet. One per profile for now.</div>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>Not set yet — add one from Edit profile.</div>
               )}
             </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={cardStyle}>
-              <div style={cardLabel}>Recent Investigations</div>
-              {recentHistory.length === 0 ? (
-                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>Nothing here yet — questions you ask get saved to History and show up here.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column" }}>
-                  {recentHistory.map((h, i) => (
-                    <button key={h.id} onClick={() => onOpenHistory(h)} style={{
-                      textAlign: "left", background: "transparent", border: "none", cursor: "pointer",
-                      padding: "10px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
+            {badges.length > 1 && (
+              <div style={cardStyle}>
+                <div style={cardLabel}>Badges</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {badges.map((b) => (
+                    <span key={b.label} style={{
+                      display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
+                      padding: "6px 12px", borderRadius: RADIUS.pill,
+                      color: b.real ? accent : (b.tint || P.ink2),
+                      background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                      border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
                     }}>
-                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{h.title}</div>
-                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{(h.turns || []).length} exchange{(h.turns || []).length === 1 ? "" : "s"} · {new Date(h.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</div>
-                    </button>
+                      <Icon name={b.icon} size={13} />
+                      {b.label}
+                    </span>
                   ))}
                 </div>
-              )}
-            </div>
-            <div style={cardStyle}>
-              <div style={cardLabel}>Saved Collections</div>
-              {collectionCounts.length === 0 ? (
-                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>No collections yet. Make one from any saved paper.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column" }}>
-                  {collectionCounts.map((c, i) => (
-                    <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
-                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon name="folder" size={14} style={{ color: P.faint }} />{c.name}</span>
-                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{c.count}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        </div>
+        )}
         </div>
         {/* /Profile panel */}
 
@@ -10290,7 +10689,16 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 30, alignItems: "flex-start" }}>
+        {/* Commit 87 — the settings page used to be a 208px rail and a
+            content column pinned to the left of a 1180px workspace, so the
+            General tab (four rows) rendered as a small block of controls
+            with roughly 600px of empty black to its right and below. Two
+            vertical navigation columns side by side, then a void. Capping
+            the pair and centring it makes the remaining space read as
+            margin rather than as a page that failed to load. The real
+            long-term fix is fewer, denser tabs — seven sections for about
+            twenty-five settings is why any one of them looks empty. */}
+        <div style={{ display: "flex", gap: 30, alignItems: "flex-start", maxWidth: 1000, margin: "0 auto", width: "100%" }}>
           {/* Desktop rail. Sticky, so the navigation stays reachable on the
               long tabs (Appearance and Accessibility both scroll well past
               a viewport) instead of scrolling away and forcing a trip back
@@ -12192,6 +12600,15 @@ function App() {
   // asynchronously inside WatchList, and keying the hero's height on it
   // would make the whole page jump a second after paint.
   const deckHasContent = !!(user && ((history && history.length) || (saved && saved.length)));
+  // Commit 87 — the greeting hero. A display name is whatever the person
+  // actually put in their profile; falling back to the email local-part
+  // would greet someone as "dustybreen2", which is worse than no name.
+  const firstName = (() => {
+    const raw = (profile && (profile.display_name || profile.displayName)) || (user && user.name) || "";
+    const first = String(raw).trim().split(/\s+/)[0] || "";
+    return first.length > 1 && first.length <= 18 ? first : "";
+  })();
+  const streakDays = (() => { try { return readStreak().days || 0; } catch { return 0; } })();
   const inputRef = useRef(null);
   const cmdRef = useRef(null);
   // A quiet tribute, not a feature: the version badge used to read "DP" —
@@ -13005,17 +13422,56 @@ function App() {
                with nothing on the deck still gets the full curtain-raise. */
             <Reveal style={{ ...S.hero, ...(deckHasContent ? S.heroCompact : null) }} deps={[started, deckHasContent]} y={18} stagger={0.07} duration={1.05} descend={false}>
               <div style={S.heroGlow} className="cb-hero-glow" data-cb-no-reveal="" />
-              <div style={{ ...S.heroMark, ...(deckHasContent ? { marginBottom: 14 } : null), display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-                <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
-                <Mark size={44} accent={accent} glow={P.dark} />
-              </div>
-              <h1 style={{ ...S.heroTitle, ...(deckHasContent ? S.heroTitleCompact : null) }} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
-              {/* The tagline explains what Cerebrum is. Someone with a
-                  watchlist and eleven saved papers has worked that out. */}
+              {/* ══════════════════════════════════════════════════════
+                  Commit 87 — the returning-user hero was still a brand
+                  panel.
+
+                  Commit 66 shrank it, but shrinking was the wrong move: it
+                  was still a logo, the word "Cerebrum" at 50px, and a line
+                  of copy, sitting directly beneath a sidebar whose first
+                  element is a logo and the word "Cerebrum". Two logos and
+                  two wordmarks on one screen, ~200px of vertical space,
+                  spent telling a signed-in person the name of the app they
+                  are already inside.
+
+                  A workspace greets you; a marketing page introduces
+                  itself. So for someone with work in progress this is now
+                  a greeting and their standing — the same move every tool
+                  that wants to feel like a place makes — and the brand
+                  block is kept for the first-time visitor, who genuinely
+                  has not been introduced yet.
+                  ══════════════════════════════════════════════════════ */}
               {deckHasContent ? (
-                <p style={{ ...S.heroSub, ...S.heroSubCompact }}>Pick up where you were, or start something new.</p>
+                <div style={{ marginBottom: 26, position: "relative" }}>
+                  <h1 style={{
+                    fontSize: isMobile ? 30 : 40, fontWeight: 700, letterSpacing: "-0.03em",
+                    lineHeight: 1.1, color: P.ink, margin: "0 0 8px", fontFamily: "var(--cb-display)",
+                  }}>
+                    {greeting()}{firstName ? <>, <span style={{ color: accent }}>{firstName}</span></> : null}
+                  </h1>
+                  <p style={{
+                    fontSize: FONT_SIZES.small, color: P.faint, margin: 0,
+                    fontFamily: "var(--cb-body)", display: "flex", flexWrap: "wrap",
+                    alignItems: "center", gap: 10, letterSpacing: "-0.005em",
+                  }}>
+                    <span>{todayLabel()}</span>
+                    {streakDays > 0 && (
+                      <>
+                        <span aria-hidden="true" style={{ opacity: 0.4 }}>·</span>
+                        <span style={{ color: P.ink2 }}>{streakDays}-day streak</span>
+                      </>
+                    )}
+                  </p>
+                </div>
               ) : (
-                <p style={S.heroSub}>Ask a real research question. Every claim traces to a paper you can open.</p>
+                <>
+                  <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+                    <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
+                    <Mark size={44} accent={accent} glow={P.dark} />
+                  </div>
+                  <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
+                  <p style={S.heroSub}>Ask a real research question. Every claim traces to a paper you can open.</p>
+                </>
               )}
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               {attachedImage && (
@@ -13040,25 +13496,32 @@ function App() {
               <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 10, textAlign: "center", minHeight: 16 }}>
                 {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
               </div>
-              {/* Evidence tier filter — pre-search constraint for study type */}
-              <div ref={evidenceScrollRef} className="cb-filter-row cb-scroll-x" style={{ display: "flex", gap: 6, justifyContent: isMobile ? "flex-start" : "center", marginTop: 14, flexWrap: isMobile ? "nowrap" : "wrap", overflowX: isMobile ? "auto" : "visible", maxWidth: "100%", WebkitOverflowScrolling: "touch", ...(isMobile ? evidenceMask : null) }}>
-                {[["all", "All Evidence"], ["systematic-review", "Systematic Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo / In Vitro"]].map(([val, label]) => (
-                  <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
-                    style={{
-                      /* Commit 84 — body face, not mono. These sit directly under the
-                         verb pills now and two different type systems in
-                         adjacent rows is the inconsistency this whole pass
-                         exists to kill. */
-                      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", fontWeight: 600,
-                      letterSpacing: "0.005em", flexShrink: 0, whiteSpace: "nowrap",
-                      padding: "6px 14px", borderRadius: 100, cursor: "pointer",
-                      transition: "all 0.2s ease",
-                      background: evidenceFilter === val ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)") : "transparent",
-                      color: evidenceFilter === val ? P.ink : P.faint,
-                      border: evidenceFilter === val ? "1px solid " + P.line2 : "1px solid " + P.line,
-                    }}>{label}</button>
-                ))}
-              </div>
+              {/* ══════════════════════════════════════════════════════
+                  Commit 87 — the evidence filter is a disclosure now.
+
+                  Counting the chrome a signed-in person met before seeing
+                  a single thing of their own: search bar, five verb pills,
+                  a line of explanatory text under them, and then four
+                  evidence chips. Four stacked rows of controls, roughly
+                  190px, before the first card. Three of those rows are
+                  things you use on most searches. This one is not: an
+                  evidence-tier constraint is set BEFORE typing, which
+                  almost nobody does, and it was holding prime vertical
+                  space on every visit for a rare action.
+
+                  It is not gone — narrowing to systematic reviews is one
+                  of the genuinely instrument-like things this app can do,
+                  and hiding it entirely would be worse. It is one line
+                  that states the current setting and opens the chips when
+                  you want them, and it announces itself when the filter is
+                  NOT the default, which is the state that actually needs
+                  to be visible.
+                  ══════════════════════════════════════════════════════ */}
+              <EvidenceFilter
+                value={evidenceFilter}
+                onChange={(v) => { sfx(); setEvidenceFilter(v); }}
+                P={P} accent={accent} isMobile={isMobile}
+              />
 
               {/* Commit 66 — the Home Deck replaces the loose stack of
                   cards that used to sit here. See HomeDeck. */}
