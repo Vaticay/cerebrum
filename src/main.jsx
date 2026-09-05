@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.4.0";
+const APP_VERSION = "6.6.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1360,58 +1360,37 @@ function DeckStat({ label, shortLabel, value, accent, P, isMobile, suffix = "" }
    reads as a quiet section marker rather than a system log, and because
    it is no longer visually screaming, real hierarchy (the question, the
    headline, the photograph) can actually be seen. */
+/* Commit 84 — now a thin wrapper over UILabel. Kept as a name because
+   the deck calls it everywhere, but there is one implementation. */
 function DeckLabel({ P, accent, children, extra }) {
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
-      fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint,
-      fontFamily: "var(--cb-body)", letterSpacing: "0.01em", flexWrap: "wrap",
-    }}>
-      <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
-      <span>{children}</span>
-      {extra}
-    </div>
-  );
+  return <UILabel P={P} accent={accent} right={extra}>{children}</UILabel>;
 }
 
+/* Commit 84 — delegates to UICard. */
 function DeckCard({ P, accent, label, children, className = "", labelExtra, span }) {
   return (
-    <div className={"cb-card cb-deck-card " + className} style={{
-      display: "flex", flexDirection: "column", textAlign: "left",
-      padding: "17px 19px 16px", borderRadius: 12, minWidth: 0,
-      background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
-      border: `1px solid ${P.line}`,
-      ...(span ? { gridColumn: span } : null),
-    }}>
-      {label && <DeckLabel P={P} accent={accent} extra={labelExtra}>{label}</DeckLabel>}
+    <UICard P={P} className={"cb-deck-card " + className}
+      style={{ display: "flex", flexDirection: "column", textAlign: "left", ...(span ? { gridColumn: span } : null) }}>
+      {label && <UILabel P={P} accent={accent} right={labelExtra}>{label}</UILabel>}
       {children}
-    </div>
+    </UICard>
   );
 }
 
-// A card's primary action. Filled when it's the thing to do, outlined when
-// it's a secondary path — one filled button per card, never two.
+/* Commit 84 — delegates to UIButton. One button implementation. */
 function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
   return (
-    <button onClick={onClick} title={title} className="cb-deck-btn" style={{
-      padding: "7px 15px", borderRadius: 100, cursor: "pointer",
-      fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
-      background: primary ? accent : "transparent",
-      color: primary ? at : P.ink2,
-      border: primary ? "1px solid transparent" : `1px solid ${P.line2}`,
-      whiteSpace: "nowrap",
-    }}>{children}</button>
+    <UIButton onClick={onClick} title={title} P={P} accent={accent} at={at}
+      variant={primary ? "primary" : "secondary"} size="sm">{children}</UIButton>
   );
 }
 
-/* Commit 69 — milestones on the Home Deck.
-   Shows the nearest unearned milestone with real distance to it, plus how
-   many are done. The progress bar is the whole point: "3 of 10 papers
-   saved" is motivating in a way that a wall of grey locked badges is not.
-   Every number here is a row count from the database — see resource
-   "milestones" in functions/api/data.js. Renders nothing until there is
-   something true to show. */
-function MilestoneCard({ P, accent, at, user, refreshKey, onOpenAll }) {
+/* Commit 69 — milestones on the Home Deck, rebuilt on the primitives.
+   Shows the nearest unearned milestone with real distance to it. The
+   progress bar is the point: "2 of 5 topics" is motivating in a way a
+   wall of grey locked badges is not. Every number is a row count from
+   the database — see resource "milestones" in functions/api/data.js. */
+function MilestoneCard({ P, accent, at, user, refreshKey }) {
   const [data, setData] = useState(null);
   const load = useCallback(async () => {
     if (!user) { setData(null); return; }
@@ -1423,27 +1402,14 @@ function MilestoneCard({ P, accent, at, user, refreshKey, onOpenAll }) {
   const next = data.next;
   const pct = next ? Math.min(100, Math.round((next.have / next.need) * 100)) : 100;
   return (
-    <div className="cb-card cb-deck-card" style={{
-      display: "flex", flexDirection: "column", textAlign: "left",
-      padding: "16px 18px 15px", borderRadius: 12, minWidth: 0,
-      background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
-      border: `1px solid ${P.line}`,
-    }}>
-      <DeckLabel P={P} accent={accent} extra={
-        <span style={{ marginLeft: "auto", fontFamily: "var(--cb-mono)" }}>
-          {data.earnedCount} of {data.total}
-        </span>
-      }>How far you've got</DeckLabel>
-
+    <DeckCard P={P} accent={accent} label="How far you've got"
+      labelExtra={<span style={{ fontFamily: "var(--cb-mono)" }}>{data.earnedCount} of {data.total}</span>}>
       {next ? (
         <>
           <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 2 }}>{next.label}</div>
           <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 11, lineHeight: 1.5 }}>{next.desc}</div>
-          <div style={{ height: 6, borderRadius: 100, background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", overflow: "hidden", marginBottom: 7 }}>
-            <div style={{
-              height: "100%", width: pct + "%", borderRadius: 100, background: accent,
-              transition: "width 900ms cubic-bezier(0.16, 1, 0.3, 1)",
-            }} />
+          <div style={{ height: 6, borderRadius: RADIUS.pill, background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", overflow: "hidden", marginBottom: 7 }}>
+            <div style={{ height: "100%", width: pct + "%", borderRadius: RADIUS.pill, background: accent, transition: "width 900ms cubic-bezier(0.16, 1, 0.3, 1)" }} />
           </div>
           <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, fontFamily: "var(--cb-mono)" }}>
             {next.have} of {next.need} {next.unit}{next.need === 1 ? "" : "s"}
@@ -1451,28 +1417,23 @@ function MilestoneCard({ P, accent, at, user, refreshKey, onOpenAll }) {
         </>
       ) : (
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
-          Every milestone earned. That is a real research habit — thank you for using this thing.
+          Every milestone earned. That's a real research habit.
         </div>
       )}
-
-      {/* Was marginTop:auto, which pinned the badges to the bottom of a
-          grid-stretched card and left a canyon of dead space in the middle
-          of it. They belong with the progress bar they relate to. */}
       <div style={{ paddingTop: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
         {data.items.filter((i) => i.earned).slice(-6).map((i) => (
           <span key={i.key} title={`${i.label} — ${i.desc}`} style={{
             display: "inline-flex", alignItems: "center", gap: 5,
-            padding: "4px 9px", borderRadius: 100,
+            padding: "4px 9px", borderRadius: RADIUS.pill,
             background: withAlpha(accent, 0.13), color: accent,
-            fontSize: FONT_SIZES.micro, fontWeight: 700,
-            maxWidth: "100%", overflow: "hidden",
+            fontSize: FONT_SIZES.micro, fontWeight: 700, maxWidth: "100%", overflow: "hidden",
           }}>
             <Icon name="check" size={11} />
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.label}</span>
           </span>
         ))}
       </div>
-    </div>
+    </DeckCard>
   );
 }
 
@@ -1790,9 +1751,40 @@ const ASK_MODES = [
   },
 ];
 
+// Commit 84 — a horizontally scrolling row with no visible edge reads as a
+// row that ends there. This returns a mask that fades whichever side still
+// has content behind it, and nothing at all when the row fits.
+function useEdgeMask() {
+  const ref = useRef(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const more = el.scrollWidth - el.clientWidth;
+      setEdges({ left: el.scrollLeft > 4, right: more > 4 && el.scrollLeft < more - 4 });
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (ro) ro.observe(el);
+    return () => { el.removeEventListener("scroll", measure); if (ro) ro.disconnect(); };
+  }, []);
+  const mask = edges.left && edges.right
+    ? "linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%)"
+    : edges.right
+      ? "linear-gradient(90deg, #000 calc(100% - 26px), transparent 100%)"
+      : edges.left
+        ? "linear-gradient(90deg, transparent 0, #000 26px)"
+        : "none";
+  return [ref, { WebkitMaskImage: mask, maskImage: mask }];
+}
+
 function AskModePicker({ mode, setMode, P, accent, isMobile }) {
+  const [scrollRef, maskStyle] = useEdgeMask();
   return (
     <div
+      ref={scrollRef}
       role="group"
       aria-label="What do you want to do?"
       className="cb-scroll-x"
@@ -1801,6 +1793,7 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
         justifyContent: isMobile ? "flex-start" : "center",
         overflowX: "auto", maxWidth: "100%", padding: "2px 0",
         WebkitOverflowScrolling: "touch",
+        ...maskStyle,
       }}
     >
       {ASK_MODES.map((m) => {
@@ -2954,6 +2947,21 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         padding: isMobile ? "0 24px 60px" : "0 clamp(48px, 8vw, 140px) 80px",
         position: "relative", zIndex: 10, pointerEvents: "auto", maxWidth: 820,
       }}>
+        {/* Commit 84 — the aurora ribbon sweeps straight through the lede on
+            wide viewports, and a text-shadow alone is not enough contrast
+            against the bright part of it. This is a soft scrim anchored to
+            the copy column: it darkens what is behind the words without
+            putting a visible panel on the page or dimming the artwork
+            anywhere else. */}
+        <div aria-hidden="true" style={{
+          position: "absolute", zIndex: -1,
+          top: -60, bottom: -40, left: isMobile ? -24 : "-8vw", right: isMobile ? -24 : -120,
+          background: isMobile
+            ? "linear-gradient(180deg, rgba(6,8,10,0.55) 0%, rgba(6,8,10,0.62) 55%, rgba(6,8,10,0) 100%)"
+            : "linear-gradient(100deg, rgba(6,8,10,0.78) 0%, rgba(6,8,10,0.66) 45%, rgba(6,8,10,0.24) 72%, rgba(6,8,10,0) 100%)",
+          pointerEvents: "none",
+        }} />
+
         <div ref={logoRef} style={{ marginBottom: 32, opacity: animationMode === "off" ? 1 : 0 }}>
           <Mark size={36} accent={introAccent} glow />
         </div>
@@ -4108,6 +4116,113 @@ function buildAcademicPaperBlocks(answer) {
   return { abstract, bodyBlocks, conclusion };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Commit 84 — DISAGREEMENT AS A VIEW.
+
+   "Where researchers disagree" has always been a paragraph. A paragraph
+   about disagreement is a chatbot answer: you have to read it, hold both
+   sides in your head, and go dig out the study sizes yourself.
+
+   A researcher reading a contested literature wants to see the shape of
+   the fight — who says what, how big their study was, and how recent.
+   That is a table, not prose, and building it is an operation a chatbot
+   does not perform.
+
+   This reads the section the model already produces, pulls the citation
+   markers out of each sentence, and lines the cited papers up against the
+   claims they were cited for. It invents nothing: every row is a sentence
+   the model wrote and a paper it pointed at. If a section has no
+   citations to hang on, the panel does not render and the prose stands
+   on its own — a half-empty table is worse than a paragraph.
+   ═══════════════════════════════════════════════════════════════════════ */
+function extractDisagreement(answer, sources) {
+  if (!answer || !Array.isArray(sources) || sources.length < 2) return null;
+  // The heading text is fixed by the STRUCTURE contract in search.js.
+  const m = answer.match(/##\s*(?:Where researchers disagree|Where they actually differ)\s*\n([\s\S]*?)(?=\n##\s|$)/i);
+  if (!m) return null;
+  const body = m[1].trim();
+  if (body.length < 60) return null;
+
+  const claims = [];
+  for (const raw of body.split(/(?<=[.!?])\s+(?=[A-Z])/)) {
+    const sentence = raw.trim();
+    if (sentence.length < 40) continue;
+    const refs = [...sentence.matchAll(/\[(\d{1,2})\]/g)].map((x) => parseInt(x[1], 10));
+    if (!refs.length) continue;
+    const cited = refs
+      .map((n) => sources[n - 1])
+      .filter(Boolean)
+      .map((src, k) => ({
+        n: refs[k],
+        title: src.title || "Untitled",
+        year: src.year || "",
+        journal: src.journal || "",
+        // Sample size is only shown when the abstract actually states one.
+        // Guessing at n is worse than omitting it.
+        n_size: (() => {
+          const t = `${src.abstract || ""}`;
+          const mm = t.match(/\b(?:n\s*=\s*|sample of\s+|total of\s+)(\d{2,6})\b/i);
+          return mm ? parseInt(mm[1], 10) : null;
+        })(),
+      }));
+    if (cited.length) claims.push({ text: sentence.replace(/\[\d{1,2}\]/g, "").replace(/\s+([.,;])/g, "$1").trim(), cited });
+  }
+  return claims.length >= 2 ? claims : null;
+}
+
+function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
+  const claims = useMemo(() => extractDisagreement(answer, sources), [answer, sources]);
+  const [open, setOpen] = useState(true);
+  if (!claims) return null;
+  return (
+    <UICard P={P} style={{ marginTop: SP.xl }}>
+      <UILabel P={P} accent={accent} right={
+        <button onClick={() => setOpen((v) => !v)} style={{
+          background: "none", border: "none", color: P.faint, cursor: "pointer",
+          fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-body)", fontWeight: 600, padding: 0,
+        }}>{open ? "Hide" : "Show"}</button>
+      }>The disagreement, laid out</UILabel>
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", gap: SP.md }}>
+          {claims.map((c, i) => (
+            <div key={i} style={{
+              display: "flex", flexDirection: isMobile ? "column" : "row",
+              gap: isMobile ? SP.sm : SP.lg, alignItems: "flex-start",
+              paddingTop: i ? SP.md : 0,
+              borderTop: i ? `1px solid ${P.line}` : "none",
+            }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
+                {c.text}
+              </div>
+              <div style={{ flexShrink: 0, width: isMobile ? "100%" : 210, display: "flex", flexDirection: "column", gap: 5 }}>
+                {c.cited.map((s2, k) => (
+                  <div key={k} style={{
+                    fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)",
+                    display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+                  }}>
+                    <span style={{
+                      padding: "1px 6px", borderRadius: RADIUS.pill,
+                      background: withAlpha(accent, 0.14), color: accent, fontWeight: 700,
+                    }}>{s2.n}</span>
+                    {s2.year && <span>{s2.year}</span>}
+                    {s2.n_size && <span style={{ color: P.ink2 }}>n={s2.n_size.toLocaleString()}</span>}
+                    {s2.journal && (
+                      <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s2.journal}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2 }}>
+            Sample sizes shown only where the abstract states one.
+          </div>
+        </div>
+      )}
+    </UICard>
+  );
+}
+
 function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true, user = null, onWatchChanged = () => {} }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
@@ -4360,6 +4475,11 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
         </div>
       )}
       {openVideo && <VideoPlayerModal P={P} accent={accent} at={at} video={openVideo} close={() => setOpenVideo(null)} />}
+      {/* Commit 84 — the disagreement, as a reading rather than a
+          paragraph. See DisagreementPanel. */}
+      {interactive && done && (
+        <DisagreementPanel answer={t.answer} sources={t.sources} P={P} accent={accent} isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+      )}
       {/* Commit 65 — "Watch this topic", placed at the end of a finished
           answer because that is the one moment we know the reader cares
           about this subject. Only on the LAST turn: repeating it under
@@ -4571,7 +4691,7 @@ function V5AnnouncementModal({ P, accent, at, close }) {
             <Icon name="sparkle" size={12} /> V5 · NOW LIVE
           </div>
           <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", marginBottom: 8 }}>Cerebrum is now an all-in-one research instrument.</div>
-          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>Not just a question box anymore — compare investigations, map and time-trace your sources, and generate a concept illustration, all without leaving the app.</div>
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>Compare investigations, map your sources, trace them through time — without leaving your results.</div>
         </div>
         <div style={{ padding: "0 28px" }}>
           {items.map((it, i) => (
@@ -5084,7 +5204,7 @@ function SourceNetworkGraph({ P, accent, at, sources, close }) {
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Source network</div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2 }}>Node size = relevance. Lines = shared journal, or a link to the strongest match.</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2 }}>Bigger node, closer match. Lines share a journal.</div>
           </div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
@@ -5198,7 +5318,7 @@ function IllustrationModal({ P, accent, at, query, close }) {
           {status === "error" && (
             <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: P.faint, padding: 20, textAlign: "center" }}>
               <Icon name="warning" size={20} />
-              <span style={{ fontSize: FONT_SIZES.small }}>Couldn't generate an illustration right now — the image service may be busy. Try again in a moment.</span>
+              <span style={{ fontSize: FONT_SIZES.small }}>Couldn't draw that one. Try again in a moment.</span>
             </div>
           )}
         </div>
@@ -5727,7 +5847,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             )}
           </div>
           <div style={{ fontSize: FONT_SIZES.body, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
-            Real science journalism, refreshed automatically every hour — not editorially curated by Cerebrum, and not run through Cerebrum's fact-check pass the way a single search answer is. Read the source before citing anything here.
+            Refreshed hourly from real science press. Not curated by us, not fact-checked like an answer — read the source before you cite it.
           </div>
         </div>
         {status === "loading" && (
@@ -7752,6 +7872,154 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
    mark that anyone can obtain is decoration; this one is a fact.
 
    `founder` is the same grant, said in words rather than a glyph. */
+/* ═══════════════════════════════════════════════════════════════════════
+   Commit 84 — THE PRIMITIVE LAYER.
+
+   The honest diagnosis of why this app kept "feeling AI-coded" no matter
+   how many times its surfaces were polished: there were no shared
+   components. Thirteen thousand lines, inline styles on nearly every
+   element, and no <Button>, no <Card>, no <Label>. So every surface
+   invented its own padding, its own radius, its own hover, its own type
+   scale — and every polish pass was a manual sweep that the next feature
+   silently undid.
+
+   That is not a metaphor for machine-written code. It is literally its
+   signature: locally correct everywhere, globally inconsistent.
+
+   These five primitives are where the design system now lives. They are
+   deliberately small and unclever — no variant explosion, no styled-
+   components, no theme provider. Each takes the palette it is handed and
+   returns one well-made thing. New surfaces should reach for these first;
+   a one-off inline style is now a decision to justify, not the default.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Type scale — one place, four steps, so a heading is never "18px because
+   that looked right here". */
+const TYPE = {
+  display: { fontFamily: "var(--cb-display)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.15 },
+  heading: { fontFamily: "var(--cb-display)", fontWeight: 700, letterSpacing: "-0.015em", lineHeight: 1.25 },
+  body:    { fontFamily: "var(--cb-body)", fontWeight: 400, letterSpacing: "0", lineHeight: 1.6 },
+  label:   { fontFamily: "var(--cb-body)", fontWeight: 600, letterSpacing: "0.01em", lineHeight: 1.35 },
+  mono:    { fontFamily: "var(--cb-mono)", fontWeight: 500, letterSpacing: "0.01em", lineHeight: 1.4 },
+};
+
+/* Spacing — a 4px scale. Referenced by name so "a bit more room" is a
+   step, not a new number nobody else knows about. */
+const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
+
+/* ── Button ──────────────────────────────────────────────────────────
+   Three kinds, one shape language, press feedback for free. Everything
+   in the app that is a button should be this. */
+function UIButton({
+  children, onClick, variant = "secondary", size = "md",
+  P, accent, at, icon, disabled, title, ariaLabel, full, type = "button", style,
+}) {
+  const pad = size === "sm" ? "6px 13px" : size === "lg" ? "12px 22px" : "9px 17px";
+  const fs = size === "sm" ? FONT_SIZES.caption : FONT_SIZES.small;
+  const skins = {
+    primary:     { background: accent, color: at, border: "1px solid transparent" },
+    secondary:   { background: "transparent", color: P.ink, border: `1px solid ${P.line2}` },
+    ghost:       { background: "transparent", color: P.ink2, border: "1px solid transparent" },
+    destructive: { background: "transparent", color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}` },
+  };
+  return (
+    <button
+      type={type} onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel}
+      className="cb-press"
+      style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center", gap: SP.sm,
+        padding: pad, borderRadius: RADIUS.pill, cursor: disabled ? "not-allowed" : "pointer",
+        fontSize: fs, ...TYPE.label, fontWeight: 700,
+        width: full ? "100%" : undefined,
+        opacity: disabled ? 0.5 : 1,
+        ...skins[variant],
+        ...style,
+      }}
+    >
+      {icon && <Icon name={icon} size={size === "sm" ? 13 : 15} />}
+      {children}
+    </button>
+  );
+}
+
+/* ── Card ────────────────────────────────────────────────────────────
+   The surface everything sits on. `pad={false}` for media that must go
+   edge to edge. */
+function UICard({ children, P, pad = true, className = "", style, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      className={"cb-card " + className}
+      style={{
+        borderRadius: RADIUS.md,
+        background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
+        border: `1px solid ${P.line}`,
+        padding: pad ? `${SP.lg}px ${SP.lg + 3}px ${SP.lg - 1}px` : 0,
+        overflow: "hidden", minWidth: 0,
+        cursor: onClick ? "pointer" : undefined,
+        ...style,
+      }}
+    >{children}</div>
+  );
+}
+
+/* ── Label ───────────────────────────────────────────────────────────
+   The section marker. Sentence case, body face, one accent dot — the
+   pattern that replaced five different shouted uppercase-mono eyebrows.
+   There is exactly one of these now, so it can never drift again. */
+function UILabel({ children, P, accent, right, style }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: SP.sm, marginBottom: SP.md,
+      fontSize: FONT_SIZES.micro, ...TYPE.label, color: P.faint, ...style,
+    }}>
+      <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+      <span>{children}</span>
+      {right && <span style={{ marginLeft: "auto" }}>{right}</span>}
+    </div>
+  );
+}
+
+/* ── Row ─────────────────────────────────────────────────────────────
+   A line item in a list: label, optional description, optional control.
+   Inbox threads, settings rows, saved papers and watched topics were all
+   hand-built versions of this with slightly different padding. */
+function UIRow({ label, desc, control, onClick, P, accent, last, tone, style }) {
+  return (
+    <div
+      onClick={onClick}
+      className={onClick ? "cb-row" : undefined}
+      style={{
+        display: "flex", alignItems: "center", gap: SP.md,
+        padding: `${SP.md}px ${SP.lg}px ${SP.md}px ${SP.lg - 2}px`,
+        borderBottom: last ? "none" : `1px solid ${P.line}`,
+        cursor: onClick ? "pointer" : "default", minWidth: 0, ...style,
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 500, color: tone === "bad" ? STATUS.bad : P.ink }}>{label}</div>
+        {desc && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.45, marginTop: 2 }}>{desc}</div>}
+      </div>
+      {control && <div style={{ flexShrink: 0 }}>{control}</div>}
+    </div>
+  );
+}
+
+/* ── Field ───────────────────────────────────────────────────────────
+   Text input and textarea, one look. Every form in the app had its own. */
+function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3, ariaLabel, maxLength, style, onKeyDown }) {
+  const base = {
+    width: "100%", padding: `${SP.md - 2}px ${SP.md}px`, borderRadius: RADIUS.sm,
+    background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+    border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+    fontSize: FONT_SIZES.small, ...TYPE.body, minWidth: 0, ...style,
+  };
+  const common = { value, onChange, placeholder, "aria-label": ariaLabel || placeholder, maxLength, onKeyDown, style: base };
+  return multiline
+    ? <textarea rows={rows} {...common} style={{ ...base, resize: "vertical" }} />
+    : <input {...common} />;
+}
+
 /* Commit 77 — the radius scale.
    ---------------------------------------------------------------------
    An audit of this file found TWELVE different corner radii in use: 3
@@ -8518,7 +8786,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               {profile.affiliation && profile.affiliation.trim() ? (
                 <div style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>{profile.affiliation}</div>
               ) : (
-                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>No affiliation set yet — add one above. Cerebrum only tracks one affiliation per profile right now, not a full institutional history.</div>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>No affiliation yet. One per profile for now.</div>
               )}
             </div>
           </div>
@@ -8544,7 +8812,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             <div style={cardStyle}>
               <div style={cardLabel}>Saved Collections</div>
               {collectionCounts.length === 0 ? (
-                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>No collections yet — create one from any saved article to start organizing your library.</div>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>No collections yet. Make one from any saved paper.</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column" }}>
                   {collectionCounts.map((c, i) => (
@@ -9270,7 +9538,7 @@ function NotebookMode({ P, accent, at, close }) {
                     const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
                     const hasLimitations = !!(summary.limitations && summary.limitations.trim());
                     if (!hasFindings && !hasLimitations) {
-                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out Key Findings or Limitations as distinct sections — see Executive Summary for the full analysis.</div>;
+                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time — it's all in the summary.</div>;
                     }
                     return (
                       <>
@@ -9294,7 +9562,7 @@ function NotebookMode({ P, accent, at, close }) {
                 })()}
                 {rightTab === "qa" && (
                   <>
-                    {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Ask a question below and Cerebrum will answer strictly from this document's text.</div>}
+                    {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
                     {qaHistory.map((h, i) => (
                       <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
                         <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
@@ -9696,35 +9964,24 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // to. The row gets a ring and a wash for a couple of seconds so the eye
   // lands on it; without that, search drops you on a tab of twenty controls
   // with no idea which one you were looking for.
+  /* Commit 84 — delegates to UIRow. The only thing this still owns is
+     the search-jump highlight, which is Settings-specific. */
   const Row = ({ icon, label, desc, control, onClick, last, destructive }) => {
     const lit = highlight && highlight === label;
     return (
-    <div onClick={onClick} className={onClick ? "cb-row" : undefined} style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", cursor: onClick ? "pointer" : "default", borderBottom: last ? "none" : `1px solid ${divider}` , ...(lit ? {
-      background: withAlpha(accent, 0.16),
-      boxShadow: `inset 0 0 0 1px ${withAlpha(accent, 0.6)}, inset 3px 0 0 ${accent}`,
-    } : null), transition: "background-color 0.35s ease, box-shadow 0.35s ease" }}>
-      {icon && <span style={{ fontSize: FONT_SIZES.heading, width: 28, height: 28, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT_SIZES.body, color: destructive ? STATUS.bad : P.ink, fontWeight: 500, fontFamily: "var(--cb-body)", letterSpacing: "-0.01em" }}>{label}</div>
-        {desc && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.4, marginTop: 2 }}>{desc}</div>}
-      </div>
-      {control && <div style={{ flexShrink: 0 }}>{control}</div>}
-      {onClick && !control && <span style={{ color: P.faint, fontSize: FONT_SIZES.subhead }}>›</span>}
-    </div>
+      <UIRow
+        P={P} accent={accent} label={label} desc={desc} last={last}
+        onClick={onClick} tone={destructive ? "bad" : undefined}
+        control={control || (onClick ? <span style={{ color: P.faint, fontSize: FONT_SIZES.subhead }}>›</span> : null)}
+        style={lit ? {
+          background: withAlpha(accent, 0.16),
+          boxShadow: `inset 0 0 0 1px ${withAlpha(accent, 0.6)}, inset 3px 0 0 ${accent}`,
+          transition: "background-color 0.35s ease, box-shadow 0.35s ease",
+        } : { transition: "background-color 0.35s ease, box-shadow 0.35s ease" }}
+      />
     );
   };
 
-  // Commit 67 (mobile fix) — the switch is now a transparent 44px-tall
-  // button wrapping a 26px visual track, rather than the button BEING the
-  // track.
-  //
-  // Why: the stylesheet's mobile tap-target rule is `@media (max-width:
-  // 900px) { button { min-height: 44px } }`. It applied to this button, so
-  // on a phone the 44x26 pill was forced to 44x44 — a circle with a 22px
-  // knob rattling around inside it. Every switch in Settings rendered as a
-  // wrong-shaped blob on mobile and nowhere else, which is why it survived
-  // desktop review. Separating the hit area from the painted track gives
-  // the correct 44px touch target AND the correct pill at every width.
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
       style={{ width: 52, height: 44, background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
@@ -9851,7 +10108,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
           {tab === "account" && (<>
             {!user ? (
-              <Section title="Account" footer="Signing in moves your saved articles, collections, and history to your account so they follow you to any device. Guest mode — everything you're using right now — keeps working exactly as-is if you never sign in.">
+              <Section title="Account" footer="An account syncs your library across devices. Guest mode keeps working forever if you'd rather not.">
                 <Row label="You're browsing as a guest" desc="Nothing here leaves this browser." control={
                   <button onClick={() => onOpenAuth("login")} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer" }}>Sign in</button>
                 } last />
@@ -9919,7 +10176,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Section title="Session">
                 <Row label="Sign out" desc="Switches this browser back to guest mode." onClick={() => { onSignOut(); close(); }} last />
               </Section>
-              <Section title="Danger zone" footer="Deleting your account permanently removes your email, password, saved articles, collections, and history from Cerebrum's servers immediately — this cannot be undone.">
+              <Section title="Danger zone" footer="Deletes your email, password, library and history from our servers. Immediately, and for good.">
                 {!confirmDeleteAccount ? (
                   <Row label="Delete account" destructive onClick={() => setConfirmDeleteAccount(true)} last />
                 ) : (
@@ -9988,7 +10245,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 (`lastAnimModeRef`) never passed into this component, which
                 threw a ReferenceError the instant anyone touched it. One
                 control, one place, no crash. */}
-            <Section title="Motion" footer="Off disables the background entirely — the same effect the Accessibility tab's old 'Reduce motion' toggle was meant to give you.">
+            <Section title="Motion" footer="Off kills the background entirely.">
               <Row label="Background animation" desc="Particles and entrance effects" control={
                 <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
               } last={animationMode === "off"} />
@@ -10009,7 +10266,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
             {/* v31: the "Background style" picker is gone — one field per screen now. */}
 
-            <Section title="Layout density" footer="Compact mode reduces padding throughout the interface — useful when reviewing many sources at once.">
+            <Section title="Layout density" footer="Tighter spacing. Good for long source lists.">
               <Row label="Data density" control={
                 <Picker value={dataDensity} options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} onChange={(v) => { sfx(); setDataDensity(v); }} />
               } last />
@@ -10077,7 +10334,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
 
             {notifPerm === "granted" && (
-              <Section title="Test" footer="Switch to another tab or window after pressing this — a browser suppresses notifications for the page you're actually looking at, and so does Cerebrum.">
+              <Section title="Test" footer="Switch tabs after pressing it. Notifications never fire on the page you're looking at.">
                 <Row
                   label="Send a test notification"
                   desc="Confirms notifications actually reach your desktop"
@@ -10108,7 +10365,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Focus indicators" desc="Shows a visible ring around the focused element" control={<Switch on={focusHighlight} onChange={(v) => { sfx(); setFocusHighlight(v); }} label="Focus indicators" />} last />
             </Section>
 
-            <Section title="Reading" footer="OpenDyslexic is a typeface designed to increase readability for readers with dyslexia.">
+            <Section title="Reading" footer="OpenDyslexic, designed for easier reading with dyslexia.">
               <Row label="Dyslexia-friendly font" desc="Uses OpenDyslexic typeface for body text" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); if (v) ensureDyslexicFont(); setDyslexicFont(v); }} label="Dyslexic font" />} last />
             </Section>
 
@@ -10125,14 +10382,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               } last />
             </Section>
 
-            <Section title="Text to speech" footer="Default voice uses Cerebrum's free servers. Add an ElevenLabs key for premium narration.">
+            <Section title="Text to speech" footer="Free voice by default. Add an ElevenLabs key for a better one.">
               <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
               <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
             </Section>
           </>)}
 
           {tab === "data" && (<>
-            <Section title="Conversation history" footer="Previous investigations are stored locally in your browser and never leave your device unless you open them.">
+            <Section title="Conversation history" footer="Kept in this browser. They never leave your device.">
               <Row label="Saved conversations" desc={`${(history || []).length} conversation${(history || []).length === 1 ? "" : "s"} kept`} />
               {(history || []).length > 0 && (
                 <Row label="Clear conversation history" destructive control={
@@ -10141,7 +10398,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               )}
             </Section>
 
-            <Section title="Storage" footer="Saved articles and preferences are stored locally in your browser. Your search queries are sent to Cerebrum's server to run the search — see the Privacy page for details.">
+            <Section title="Storage" footer="Stored in this browser. Queries go to our server to run the search — details in Privacy.">
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} />
               <Row label="Clear all data" destructive control={
                 confirmClear
@@ -10157,7 +10414,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 home screen's deck card, which meant no way to review or
                 prune them once the deck stopped showing them all. */}
             {user && (
-              <Section title="Watched topics" footer="Cerebrum checks these against the literature index and tells you when new papers are actually indexed. Nothing is sent when nothing has been published.">
+              <Section title="Watched topics" footer="You'll hear when new papers land. Silence means nothing was published.">
                 {wlLoading ? (
                   <Row label="Loading your watchlist…" last />
                 ) : watchlist.length === 0 ? (
@@ -10189,7 +10446,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               </Section>
             )}
 
-            <Section title="Workspace" footer="Export all saved articles, history, and preferences as a portable JSON file you can reimport on any device.">
+            <Section title="Workspace" footer="Everything, as JSON. Reimport it anywhere.">
               <Row label="Export workspace" desc="Download all your data as JSON" control={
                 <button onClick={() => {
                   const workspace = {
@@ -10235,7 +10492,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 Appearance and Accessibility tabs writes a cookie, and a
                 person who changed eight of them experimenting had to
                 remember and reverse each one by hand. */}
-            <Section title="Preferences" footer="Restores appearance, accessibility, audio and response preferences to their defaults on this browser. Your account, saved articles, collections and history are not touched.">
+            <Section title="Preferences" footer="Preferences only. Your library and history are untouched.">
               {!confirmReset ? (
                 <Row label="Reset all settings" desc="Puts every preference back to its default" onClick={() => setConfirmReset(true)} last />
               ) : (
@@ -11053,7 +11310,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ["search", "Search", "search", null],
     ["document", "Document Mode", "bookOpen", null],
     ["trending", "Trending", "chart", null],
-    ["history", "History", "history", history.length || null],
+    ["history", "Investigations", "history", history.length || null],
     ["saved", "Saved", "bookmark", saved.length || null],
     // Commit 46: promoted from a header icon button (opening a centered
     // InboxModal) to a first-class nav destination — see InboxView and the
@@ -11572,6 +11829,7 @@ function App() {
      returns a verdict. A chatbot has one output shape; this is what
      having more than one looks like. */
   const [askMode, setAskMode] = useState("explain");
+  const [evidenceScrollRef, evidenceMask] = useEdgeMask();
   const [dataDensity, setDataDensity] = useState(() => getCookie("cb_density") || "comfortable");
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -12209,7 +12467,7 @@ function App() {
   const commands = [
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
     { label: "Open saved articles", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setSavedOpen(true); } },
-    { label: "Open previous conversations", run: () => { setCmdOpen(false); setHistoryOpen(true); } },
+    { label: "Open your investigations", run: () => { setCmdOpen(false); setHistoryOpen(true); } },
     // Collections' header button is desktop-only (there's no room for it in
     // the mobile header), but this palette is available on every viewport —
     // it's a signed-in-only feature, hence gated on `user` here.
@@ -12369,7 +12627,7 @@ function App() {
       {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
       {zoteroOpen && (<div style={S.zBox}><input style={S.zIn} aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} /><input style={S.zIn} aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)} /><button style={S.sBtnP} onClick={doZotero}>Save {exportList.length}</button>{zMsg && <div style={S.zMsg}>{zMsg}</div>}</div>)}
       <div style={S.srcList} className="cb-stagger">
-        {allSources.length === 0 ? <div style={S.empty} className="cb-fade">Sources appear here as you research.</div> :
+        {allSources.length === 0 ? <div style={S.empty} className="cb-fade">Sources land here as you go.</div> :
           sortedSources.length === 0 ? <div style={S.empty} className="cb-fade">No sources match "{srcFilter}".</div> :
           grouped ? grouped.map(([label, items]) => (<div key={label} className="cb-fade"><div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>{items.map((s) => SourceCard(s, sourceIndexMap.get(s)))}</div>)) : sortedSources.map((s) => SourceCard(s, sourceIndexMap.get(s)))}
       </div>
@@ -12507,7 +12765,7 @@ function App() {
               {deckHasContent ? (
                 <p style={{ ...S.heroSub, ...S.heroSubCompact }}>Pick up where you were, or start something new.</p>
               ) : (
-                <p style={S.heroSub}>Ask a real research question. We'll dig through the actual literature and give you a straight answer — every citation checkable, nothing invented.</p>
+                <p style={S.heroSub}>Ask a real research question. Every claim traces to a paper you can open.</p>
               )}
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               {attachedImage && (
@@ -12527,13 +12785,22 @@ function App() {
                     onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
                   ><Icon name="arrowRight" size={17} /></button>
               </div>
+              {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
+              <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 10, textAlign: "center", minHeight: 16 }}>
+                {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
+              </div>
               {/* Evidence tier filter — pre-search constraint for study type */}
-              <div className="cb-filter-row" style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 16, flexWrap: "wrap", maxWidth: 700 }}>
+              <div ref={evidenceScrollRef} className="cb-filter-row cb-scroll-x" style={{ display: "flex", gap: 6, justifyContent: isMobile ? "flex-start" : "center", marginTop: 14, flexWrap: isMobile ? "nowrap" : "wrap", overflowX: isMobile ? "auto" : "visible", maxWidth: "100%", WebkitOverflowScrolling: "touch", ...(isMobile ? evidenceMask : null) }}>
                 {[["all", "All Evidence"], ["systematic-review", "Systematic Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo / In Vitro"]].map(([val, label]) => (
                   <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
                     style={{
-                      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", fontWeight: 600,
-                      letterSpacing: "0.03em",
+                      /* Commit 84 — body face, not mono. These sit directly under the
+                         verb pills now and two different type systems in
+                         adjacent rows is the inconsistency this whole pass
+                         exists to kill. */
+                      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", fontWeight: 600,
+                      letterSpacing: "0.005em", flexShrink: 0, whiteSpace: "nowrap",
                       padding: "6px 14px", borderRadius: 100, cursor: "pointer",
                       transition: "all 0.2s ease",
                       background: evidenceFilter === val ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)") : "transparent",
@@ -12542,11 +12809,7 @@ function App() {
                     }}>{label}</button>
                 ))}
               </div>
-              {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
-              <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 10, textAlign: "center", minHeight: 16 }}>
-                {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
-              </div>
+
               {/* Commit 66 — the Home Deck replaces the loose stack of
                   cards that used to sit here. See HomeDeck. */}
               <HomeDeck
@@ -12614,15 +12877,32 @@ function App() {
             </div>
           )}
           <div style={S.foot}>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Answers are assembled from real papers by AI. Always check the cited sources.</div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>
-              <button onClick={() => setHowItWorksOpen(true)} style={{ color: P.faint, textDecoration: "none", background: "none", border: "none", borderBottom: `1px dotted ${P.faint}`, padding: 0, cursor: "pointer", font: "inherit" }}>How it works</button>
-              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/about" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>About</a>
-              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/privacy" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Privacy</a>
-              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/terms" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Terms</a>
-              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/disclosures" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Disclosures</a>
-              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span><a href="/contact" style={{ color: P.faint, textDecoration: "none", borderBottom: `1px dotted ${P.faint}` }}>Contact</a>
-              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>© {new Date().getFullYear()} Cerebrum™ · v{APP_VERSION}
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: "8px 14px", maxWidth: 620, margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
+              {[
+                ["how", "How it works"],
+                ["/about", "About"],
+                ["/privacy", "Privacy"],
+                ["/terms", "Terms"],
+                ["/disclosures", "Disclosures"],
+                ["/contact", "Contact"],
+              ].map(([href, label], i2) => {
+                const st = {
+                  color: P.faint, background: "none", border: "none", padding: 0, margin: 0,
+                  cursor: "pointer", font: "inherit", lineHeight: "inherit", whiteSpace: "nowrap",
+                  // The mobile tap-target rule forces min-height:44px on links
+                  // and buttons alike, but a block <a> puts its text at the top
+                  // of that box while a <button> centres it — which is why this
+                  // row used to render one link lower than its neighbours.
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  textDecoration: "underline", textDecorationStyle: "dotted",
+                  textDecorationColor: withAlpha(P.faint, 0.55), textUnderlineOffset: "3px",
+                };
+                return href === "how"
+                  ? <button key={label} type="button" onClick={() => setHowItWorksOpen(true)} style={st}>{label}</button>
+                  : <a key={label} href={href} style={st}>{label}</a>;
+              })}
+              <span style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · v{APP_VERSION}</span>
             </div>
           </div>
         </div>
@@ -12706,24 +12986,44 @@ function App() {
         </div>
       )}
       {historyOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Previous conversations" style={S.modalWrap} onClick={() => { setHistoryOpen(false); setHistoryConfirmId(null); }} className="cb-backdrop">
+        <div role="dialog" aria-modal="true" aria-label="Your investigations" style={S.modalWrap} onClick={() => { setHistoryOpen(false); setHistoryConfirmId(null); }} className="cb-backdrop">
           <div style={{ ...S.modal, width: 560 }} onClick={(e) => e.stopPropagation()} className="cb-modal">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <div style={S.modalTitle}>Previous conversations</div>
+              <div style={S.modalTitle}>Your investigations</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {history.length >= 2 && <button onClick={() => { setHistoryOpen(false); setCompareOpen(true); }} style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="compare" size={11} /> Compare</button>}
                 <span style={S.srcCount}>{history.length}</span>
               </div>
             </div>
             {history.length === 0 ? (
-              <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>Nothing here yet.<br /><span style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Starting a new investigation keeps the last one here so you can come back to it.</span></div>
+              <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, padding: "20px 0 28px", textAlign: "center" }}>No investigations yet.<br /><span style={{ color: P.faint, fontSize: FONT_SIZES.small }}>Ask something and one starts itself.</span></div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "60vh", overflowY: "auto" }}>
                 {history.map((h) => (
                   <div key={h.id} style={{ padding: "13px 10px", margin: "0 -10px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
                     <button onClick={() => openHistoryItem(h)} style={{ flex: 1, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-                      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>{h.title}</div>
-                      <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 3 }}>{(h.turns || []).length} exchange{(h.turns || []).length === 1 ? "" : "s"} · {new Date(h.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</div>
+                      {/* Commit 84 — an investigation, not a transcript.
+                          This said "3 exchanges" — a chat count, which
+                          tells a researcher nothing about what they built.
+                          What matters is how much ground it covers: how
+                          many questions deep, how many distinct papers it
+                          has accumulated, and when it was last worked. */}
+                      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{h.title}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: FONT_SIZES.small, color: P.faint, marginTop: 4 }}>
+                        <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
+                        {(h.allSources || []).length > 0 && (
+                          <>
+                            <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+                            <span style={{ color: accent, fontWeight: 600 }}>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
+                          </>
+                        )}
+                        {h.ts && (
+                          <>
+                            <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+                            <span>{relativeTime(h.ts)}</span>
+                          </>
+                        )}
+                      </div>
                     </button>
                     {historyConfirmId === h.id ? (
                       <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
@@ -12731,7 +13031,7 @@ function App() {
                         <button onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); setHistoryConfirmId(null); }} style={{ ...S.chipMini, background: STATUS.bad, color: "#fff", borderColor: STATUS.bad }}>Confirm</button>
                       </span>
                     ) : (
-                      <button onClick={() => setHistoryConfirmId(h.id)} aria-label="Delete conversation" style={{ ...S.chipMini, color: STATUS.bad, borderColor: withAlpha(STATUS.bad, 0.35), flexShrink: 0 }}>Delete</button>
+                      <button onClick={() => setHistoryConfirmId(h.id)} aria-label="Delete investigation" style={{ ...S.chipMini, color: STATUS.bad, borderColor: withAlpha(STATUS.bad, 0.35), flexShrink: 0 }}>Delete</button>
                     )}
                   </div>
                 ))}
