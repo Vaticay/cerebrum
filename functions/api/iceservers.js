@@ -67,40 +67,99 @@ export async function onRequest(context) {
     ] },
   ];
 
+  /* ------------------------------------------------------------------
+     Commit 85 — calls ring, connect signalling, and then never establish
+     media.
+
+     That failure shape is diagnostic. If the ring arrives and
+     /api/callsignal is returning 200 with a rising `since` cursor, then
+     offer, answer and ICE candidates are all crossing the wire correctly —
+     the handshake is fine and the problem is the media path. Two ordinary
+     consumer endpoints (an iPhone on a carrier network and a machine
+     behind a home router) frequently have no direct path between them:
+     carrier-grade NAT on the mobile side means STUN can discover an
+     address but nothing can dial into it. The call then needs a relay, and
+     if the relay is unreachable ICE simply runs out of candidate pairs and
+     the connection sits at "connecting" until it fails.
+
+     The fallback this shipped with was Metered's free openrelay.metered.ca
+     with the public "openrelayproject" credentials. That service has been
+     progressively locked behind an account and an API key, so those
+     credentials no longer reliably authenticate — a TURN server that 401s
+     produces exactly this symptom, because the browser reports the failure
+     only through onicecandidateerror, which nothing was listening to.
+
+     So: Cloudflare's own Realtime TURN is now the first choice, minted
+     server-side as short-lived credentials. It is the right relay for this
+     project — same platform, same dashboard, no third party, and TURN is
+     only used at all when a direct path could not be found. Set two
+     variables in Pages → Settings → Variables and Secrets:
+
+       TURN_KEY_ID          the TURN key's ID
+       TURN_KEY_API_TOKEN   its API token  (mark as a Secret)
+
+     Create the key at Cloudflare dashboard → Realtime → TURN Keys. It is
+     metered at $0.05 per real-time GB relayed, which for one-to-one calls
+     is fractions of a cent apiece, and nothing is billed for calls that
+     connect directly — which is most of them.
+     ------------------------------------------------------------------ */
+  if (env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 5000);
+      let res;
+      try {
+        res = await fetch(
+          `https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.TURN_KEY_ID)}/credentials/generate-ice-servers`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${env.TURN_KEY_API_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            // Short-lived on purpose: these reach the browser, so a leaked
+            // pair is worth an hour of relay, not forever.
+            body: JSON.stringify({ ttl: 3600 }),
+          }
+        );
+      } finally { clearTimeout(t); }
+      if (res && res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.iceServers) && data.iceServers.length) {
+          // Cloudflare returns its own STUN entries alongside TURN; keep
+          // the STUN block above too so a single provider being blocked on
+          // a given network cannot stop candidate gathering outright.
+          for (const entry of data.iceServers) iceServers.push(entry);
+          return new Response(JSON.stringify({ iceServers, relay: "cloudflare" }), { status: 200, headers: cors });
+        }
+      }
+    } catch { /* fall through to the static options below */ }
+  }
+
   if (env.TURN_URLS && env.TURN_USERNAME && env.TURN_CREDENTIAL) {
-    // Operator-configured TURN always wins: it's the one with a known owner,
-    // known capacity and a support path.
+    // Operator-configured TURN: a known owner, known capacity, support path.
     iceServers.push({
       urls: env.TURN_URLS.split(",").map((s) => s.trim()).filter(Boolean),
       username: env.TURN_USERNAME,
       credential: env.TURN_CREDENTIAL,
     });
-  } else {
-    // Commit 56 — a public TURN fallback, because "no TURN configured" was
-    // not a theoretical limitation: STUN alone only works when at least one
-    // side's NAT is permissive enough to accept an inbound path. Two people
-    // on ordinary consumer networks — home Wi-Fi to phone LTE, or anything
-    // behind carrier-grade NAT — routinely have no such path, and the call
-    // fails at ICE with both sides showing a connecting spinner. That is
-    // the reported "we still can't connect."
-    //
-    // Open Relay is a free, no-signup TURN service run by Metered for
-    // exactly this case. Being honest about what this is: it is a shared
-    // public relay with no capacity guarantee and no SLA, so it is the
-    // FALLBACK, listed after STUN (which the browser still prefers, since
-    // ICE only relays when a direct path can't be found) and superseded the
-    // moment TURN_URLS is set. Port 443 over TCP/TLS is included because
-    // that is the variant that survives restrictive corporate and campus
-    // firewalls, which block UDP wholesale.
-    iceServers.push({
-      urls: [
-        "turn:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-      ],
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    });
+    return new Response(JSON.stringify({ iceServers, relay: "static" }), { status: 200, headers: cors });
   }
-  return new Response(JSON.stringify({ iceServers }), { status: 200, headers: cors });
+
+  /* No relay is configured. Say so in the payload rather than silently
+     serving STUN-only ICE and letting the call fail as a mystery — the
+     client uses this to tell the caller what is actually wrong instead of
+     "couldn't establish a connection". The Open Relay entry stays as a
+     last resort because when it does work it is better than nothing, but
+     it is explicitly no longer treated as a working relay. */
+  iceServers.push({
+    urls: [
+      "turn:openrelay.metered.ca:80",
+      "turn:openrelay.metered.ca:443",
+      "turn:openrelay.metered.ca:443?transport=tcp",
+    ],
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  });
+  return new Response(JSON.stringify({ iceServers, relay: "none" }), { status: 200, headers: cors });
 }
