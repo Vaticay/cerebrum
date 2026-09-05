@@ -103,18 +103,33 @@ export async function onRequest(context) {
      is fractions of a cent apiece, and nothing is billed for calls that
      connect directly — which is most of them.
      ------------------------------------------------------------------ */
-  if (env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN) {
+  /* Commit 90 — "relay":"none" was one answer to three different
+     questions: no key configured, a key configured but rejected, or the
+     mint call never completing. Those need three different fixes and the
+     payload could not tell them apart, so the first live attempt at this
+     produced a dead end. `reason` now says which one it is. It carries no
+     secret material — only whether each variable is present, and the HTTP
+     status Cloudflare replied with. */
+  let relayReason = "not-configured";
+  const haveId = typeof env.TURN_KEY_ID === "string" && env.TURN_KEY_ID.trim().length > 0;
+  const haveToken = typeof env.TURN_KEY_API_TOKEN === "string" && env.TURN_KEY_API_TOKEN.trim().length > 0;
+  if (haveId !== haveToken) relayReason = haveId ? "missing-TURN_KEY_API_TOKEN" : "missing-TURN_KEY_ID";
+
+  if (haveId && haveToken) {
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 5000);
       let res;
       try {
         res = await fetch(
-          `https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.TURN_KEY_ID)}/credentials/generate-ice-servers`,
+          `https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.TURN_KEY_ID.trim())}/credentials/generate-ice-servers`,
           {
             method: "POST",
             headers: {
-              "Authorization": `Bearer ${env.TURN_KEY_API_TOKEN}`,
+              // .trim() is load-bearing: copying a token out of the dashboard
+              // very often brings a trailing newline with it, and a Bearer
+              // header with a newline in it is rejected as malformed.
+              "Authorization": `Bearer ${env.TURN_KEY_API_TOKEN.trim()}`,
               "Content-Type": "application/json",
             },
             // Short-lived on purpose: these reach the browser, so a leaked
@@ -123,8 +138,16 @@ export async function onRequest(context) {
           }
         );
       } finally { clearTimeout(t); }
+      if (!res) {
+        relayReason = "mint-no-response";
+      } else if (!res.ok) {
+        // 401/403 => the token is wrong or has no Realtime permission.
+        // 404 => the key id is wrong. Both are worth saying out loud.
+        relayReason = "mint-http-" + res.status;
+      }
       if (res && res.ok) {
         const data = await res.json();
+        if (!data || !Array.isArray(data.iceServers) || !data.iceServers.length) relayReason = "mint-empty";
         if (data && Array.isArray(data.iceServers) && data.iceServers.length) {
           // Cloudflare returns its own STUN entries alongside TURN; keep
           // the STUN block above too so a single provider being blocked on
@@ -133,7 +156,9 @@ export async function onRequest(context) {
           return new Response(JSON.stringify({ iceServers, relay: "cloudflare" }), { status: 200, headers: cors });
         }
       }
-    } catch { /* fall through to the static options below */ }
+    } catch (e) {
+      relayReason = "mint-threw";
+    }
   }
 
   if (env.TURN_URLS && env.TURN_USERNAME && env.TURN_CREDENTIAL) {
@@ -161,5 +186,5 @@ export async function onRequest(context) {
     username: "openrelayproject",
     credential: "openrelayproject",
   });
-  return new Response(JSON.stringify({ iceServers, relay: "none" }), { status: 200, headers: cors });
+  return new Response(JSON.stringify({ iceServers, relay: "none", reason: relayReason }), { status: 200, headers: cors });
 }
