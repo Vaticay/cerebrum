@@ -37,3 +37,35 @@ PEXELS_KEY=
 # Set the real value in Cloudflare Pages → Settings → Environment variables,
 # where it stays out of source control.
 FOUNDER_EMAIL=
+
+# ── Commit 86: independent inference providers ──────────────────────────
+# "All the models keep getting rate limited" is not fixed by more model
+# names. Every OpenRouter ":free" model draws from ONE account-level bucket
+# keyed to OPENROUTER_KEY, so the twenty-five names in OR_WAVE1 + OR_WAVE2
+# are twenty-five labels on a single 429 the moment that bucket throttles.
+# Workers AI is likewise one account allocation, and Pollinations one shared
+# public pool. Three buckets total.
+#
+# Each key below is a SEPARATE company, account and quota. Every one you set
+# adds a real, independent chance for a query to succeed; set none and the
+# app behaves exactly as it did before. All six are free, need no card, and
+# take about two minutes each.
+#
+# Start with GROQ_KEY and CEREBRAS_KEY — the largest free allowances of the
+# six, and both fast enough to routinely win the race outright.
+#
+#   GROQ_KEY           console.groq.com        30 req/min · 14,400/day
+#   CEREBRAS_KEY       cloud.cerebras.ai       30 req/min · 60k tokens/min
+#   GEMINI_KEY         aistudio.google.com     15 req/min · 1,500/day
+#   MISTRAL_KEY        console.mistral.ai      1 req/sec  · 1B tokens/month
+#   GITHUB_MODELS_KEY  a GitHub PAT            10-15 req/min
+#   NVIDIA_KEY         build.nvidia.com        40 req/min
+#
+# Set the real values in Cloudflare Pages → Settings → Variables and
+# Secrets, marked as Secrets, not here — this file is committed.
+GROQ_KEY=
+CEREBRAS_KEY=
+GEMINI_KEY=
+MISTRAL_KEY=
+GITHUB_MODELS_KEY=
+NVIDIA_KEY=
