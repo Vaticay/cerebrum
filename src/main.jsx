@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.6.0";
+const APP_VERSION = "6.7.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1992,6 +1992,50 @@ function normalizeSectionHeaders(text) {
     .trim();
 }
 
+/* Commit 85 — every place a stray markdown hash could reach the page.
+   The renderer promoted "## X" and "### X" only when the marker line was
+   its own paragraph. Models very often emit the marker glued to the body
+   ("### Mechanism" + newline + "The enzyme..."), which is ONE paragraph by
+   the blank-line split, so the regexes below it failed and the characters
+   rendered literally. Three separate cleanups existed for this and each
+   matched "#{2,3}" only, so a single "#" or a "####" slipped past all
+   three. This is the one place that decision now lives. A lone "#" in the
+   middle of a line is deliberately left alone -- "#1 in its class", a hex
+   colour and a hashtag are all likelier than a heading there. */
+function stripStrayHashes(s) {
+  return String(s == null ? "" : s)
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, "")
+    .replace(/#{2,6}[ \t]*/g, "")
+    .trim();
+}
+
+/* The section masthead -- an accent rule, the title, and a hairline running
+   to the right margin. Lifted out of renderAnswer so the three code paths
+   that can produce a section heading (its own paragraph, glued to the body
+   text below it, or a bare unmarked first line) all render identically
+   instead of drifting apart. */
+function h2Block(text, key, P, accent) {
+  return (
+    <div key={key} style={{ margin: "46px 0 18px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <span aria-hidden="true" style={{ width: 3, height: 22, borderRadius: 8, background: accent, flexShrink: 0 }} />
+        <h3 style={{
+          fontSize: 24, fontWeight: 700, color: P.ink, margin: 0,
+          letterSpacing: "-0.02em", fontFamily: "var(--cb-display)", lineHeight: 1.2,
+        }}>{text}</h3>
+        <span aria-hidden="true" style={{
+          flex: 1, height: 1, minWidth: 12,
+          background: `linear-gradient(90deg, ${withAlpha(accent, 0.35)}, transparent)`,
+        }} />
+      </div>
+    </div>
+  );
+}
+
+function h3Block(text, key, P) {
+  return <h4 key={key} style={{ fontSize: 19, fontWeight: 700, color: P.ink, margin: "32px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{text}</h4>;
+}
+
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
   let clean = normalizeSectionHeaders(text || "")
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
@@ -2055,23 +2099,29 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     // heavy frame line v30 removed, and it reads as designed rather than as
     // default markdown, which was the gap on a screen that carries the
     // whole product's credibility.
-    if (h2) return (
-      <div key={pi} style={{ margin: "46px 0 18px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <span aria-hidden="true" style={{ width: 3, height: 22, borderRadius: 8, background: accent, flexShrink: 0 }} />
-          <h3 style={{
-            fontSize: 24, fontWeight: 700, color: P.ink, margin: 0,
-            letterSpacing: "-0.02em", fontFamily: "var(--cb-display)", lineHeight: 1.2,
-          }}>{h2[1]}</h3>
-          <span aria-hidden="true" style={{
-            flex: 1, height: 1, minWidth: 12,
-            background: `linear-gradient(90deg, ${withAlpha(accent, 0.35)}, transparent)`,
-          }} />
-        </div>
-      </div>
-    );
+    if (h2) return h2Block(h2[1], pi, P, accent);
     const h3 = para.match(/^###\s+(.+)$/);
-    if (h3) return <h4 key={pi} style={{ fontSize: 19, fontWeight: 700, color: P.ink, margin: "32px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-display)", lineHeight: 1.3 }}>{h3[1]}</h4>;
+    if (h3) return h3Block(h3[1], pi, P);
+
+    /* Commit 85 -- a heading marker glued to the body text under it. This is
+       the actual source of the "###" reaching the page: the two regexes
+       above carry no /m flag, so "### Mechanism" + newline + "The enzyme..."
+       matches neither, and the conservative first-line heuristic further
+       down stripped "**" but never "#", so it rendered the hashes as part
+       of the heading text. An explicit marker is a stronger signal than any
+       heuristic, so this runs before that heuristic and skips its length
+       and punctuation guards entirely -- the author already said "this is a
+       heading". */
+    const markedHead = para.match(/^[ \t]*(#{1,6})[ \t]+([^\n]+)(?:\n([\s\S]*))?$/);
+    if (markedHead) {
+      const title = stripStrayHashes(markedHead[2].replace(/\*\*/g, "")).replace(/[ \t]*#+[ \t]*$/, "").trim();
+      const below = (markedHead[3] || "").trim();
+      const head = markedHead[1].length <= 2 ? h2Block(title, pi + "-h", P, accent) : h3Block(title, pi + "-h", P);
+      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite)}</React.Fragment> : null;
+      return below
+        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite)}</div>
+        : <React.Fragment key={pi}>{head}</React.Fragment>;
+    }
     // Bold-line headers (e.g., "**Mechanism**")
     //
     // Commit 56: this used to promote ANY paragraph that was entirely
@@ -2119,7 +2169,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     if (nlIdx > 0) {
       const firstLine = para.slice(0, nlIdx).trim();
       const rest = para.slice(nlIdx + 1).trim();
-      const bare = firstLine.replace(/\*\*/g, "").trim();
+      const bare = stripStrayHashes(firstLine.replace(/\*\*/g, ""));
       const isHeadingLine =
         rest.length > 0 &&
         bare.length > 0 && bare.length <= 60 &&
@@ -2146,7 +2196,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
       // it was reaching the page as literal hash characters). Safe here
       // because by definition this line already matched as a bullet, not a
       // header, so any "#" left in it is stray, not a marker.
-      const items = para.split("\n").filter(l => /^[•\-]\s+/.test(l)).map(l => l.replace(/^[•\-]\s+/, "").replace(/#{2,3}\s*/g, ""));
+      const items = para.split("\n").filter(l => /^[•\-]\s+/.test(l)).map(l => stripStrayHashes(l.replace(/^[•\-]\s+/, "")));
       return (
         <ul key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none" }}>
           {items.map((item, ii) => (
@@ -2163,7 +2213,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     const numberedMatch = para.match(/^(?:\d+\.\s+.+\n?)+$/m);
     if (numberedMatch) {
       // Same stray-hash cleanup as the bullet-list branch above.
-      const items = para.split("\n").filter(l => /^\d+\.\s+/.test(l)).map(l => l.replace(/^\d+\.\s+/, "").replace(/#{2,3}\s*/g, ""));
+      const items = para.split("\n").filter(l => /^\d+\.\s+/.test(l)).map(l => stripStrayHashes(l.replace(/^\d+\.\s+/, "")));
       return (
         <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
           {items.map((item, ii) => (
@@ -2187,7 +2237,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     // characters either, so they were still reaching the page as visible
     // "##" text. Safe to strip unconditionally here since real headers
     // never reach this branch in the first place.
-    const paraClean = para.replace(/#{2,3}\s*/g, "");
+    const paraClean = stripStrayHashes(para);
     return (
     <p key={pi} style={{ fontSize: 16, lineHeight: 1.7, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 400 }}>
       {paraClean.split("\n").map((line, li) => (
@@ -3137,6 +3187,88 @@ function MicButton({ onTranscript, accent, P }) {
   );
 }
 
+/* Commit 85 -- the replacement for double-click-to-search.
+
+   Selecting text is a reading gesture, not a command, so the app no longer
+   treats it as one. When a reader selects a phrase inside an answer this
+   offers a single button near the selection; nothing happens until they
+   press it. It only appears for a selection that plausibly IS a question
+   worth asking -- more than two characters, under eighty, on one line, and
+   inside an answer card rather than in their own typed question -- and it
+   gets out of the way on scroll, on Escape, and the moment the selection
+   collapses. */
+function SelectionAsk({ onAsk, P, accent, containerRef }) {
+  const [pos, setPos] = useState(null);
+  const [text, setText] = useState("");
+  useEffect(() => {
+    let raf = 0;
+    const clear = () => { setPos(null); setText(""); };
+    const measure = () => {
+      const sel = window.getSelection && window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return clear();
+      const value = sel.toString().trim();
+      if (value.length < 3 || value.length > 80 || value.includes("\n")) return clear();
+      const node = sel.anchorNode;
+      const el = node && (node.nodeType === 1 ? node : node.parentElement);
+      if (!el || !el.closest) return clear();
+      // Only inside a rendered answer -- not the composer, not the source
+      // list, not the person's own question bubble.
+      if (!el.closest(".cb-answer-enter")) return clear();
+      const host = containerRef && containerRef.current;
+      if (host && !host.contains(el)) return clear();
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      if (!rect || (!rect.width && !rect.height)) return clear();
+      setText(value);
+      setPos({
+        top: Math.max(56, rect.top - 46),
+        left: Math.min(Math.max(12, rect.left + rect.width / 2), window.innerWidth - 12),
+      });
+    };
+    const onChange = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measure); };
+    const onKey = (e) => { if (e.key === "Escape") clear(); };
+    document.addEventListener("selectionchange", onChange);
+    window.addEventListener("scroll", clear, true);
+    window.addEventListener("resize", clear);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("selectionchange", onChange);
+      window.removeEventListener("scroll", clear, true);
+      window.removeEventListener("resize", clear);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [containerRef]);
+
+  if (!pos || !text) return null;
+  return (
+    <button
+      type="button"
+      // onMouseDown would clear the selection before onClick ever fires.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => {
+        const q = text;
+        try { window.getSelection().removeAllRanges(); } catch {}
+        setPos(null); setText("");
+        onAsk(q);
+      }}
+      style={{
+        position: "fixed", top: pos.top, left: pos.left, transform: "translateX(-50%)",
+        zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7,
+        padding: "8px 14px", borderRadius: RADIUS.pill, cursor: "pointer",
+        fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+        color: P.ink, whiteSpace: "nowrap",
+        background: P.dark ? "rgba(20,24,22,0.94)" : "rgba(255,255,255,0.96)",
+        border: `1px solid ${withAlpha(accent, 0.45)}`,
+        backdropFilter: "blur(14px) saturate(1.3)", WebkitBackdropFilter: "blur(14px) saturate(1.3)",
+        boxShadow: P.dark ? "0 8px 26px rgba(0,0,0,0.55)" : "0 8px 26px rgba(0,0,0,0.16)",
+      }}
+    >
+      <span style={{ display: "inline-flex", color: accent }}><Icon name="sparkle" size={13} /></span>
+      Ask about this
+    </button>
+  );
+}
+
 /* ============================================================
    ANSWER PLAYER (TTS) — logic preserved
    ============================================================ */
@@ -3152,7 +3284,11 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1.0; utter.pitch = 1.0;
+    // Commit 85 — 1.0/1.0 is the setting that makes every browser voice
+    // sound like a browser voice. A fraction under natural speed, with the
+    // pitch nudged down, is the difference between "announcement" and
+    // "someone reading to you", and costs nothing.
+    utter.rate = 0.96; utter.pitch = 0.98; utter.lang = "en-US";
     const voices = window.speechSynthesis.getVoices();
     // Bug: this ignored the user's saved Male/Female preference
     // (`cb_tts_voice`, set via TtsVoiceSetting and honored by
@@ -3161,13 +3297,38 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     // was silently dropped for a fixed, gender-blind name guess.
     let voicePref = "";
     try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {}
-    const femaleNames = /Samantha|Karen|Victoria|Female/i;
-    const maleNames = /Alex|Daniel|David|Fred|Male/i;
-    const genderRe = voicePref === "male" ? maleNames : voicePref === "female" ? femaleNames : null;
-    const pref =
-      (genderRe && voices.find((v) => genderRe.test(v.name) && /en/i.test(v.lang))) ||
-      voices.find((v) => /Google.*(US|English)|Samantha|Alex|Karen|Daniel/i.test(v.name)) ||
-      voices.find((v) => /en/i.test(v.lang));
+
+    /* Commit 85 — the old picker's first choice list included Alex and
+       Fred, which are 1990s formant-synthesis voices still shipped by
+       macOS, and it had no notion that some installed voices are far
+       better than others. Modern platforms ship genuinely good neural
+       voices under predictable names ("… (Natural)" on Windows, "Siri" and
+       "Google US English" elsewhere), and a pile of novelty voices that
+       should never be chosen automatically. Rank rather than first-match. */
+    const NOVELTY = /Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Fred|Good News|Jester|Junior|Kathy|Organ|Ralph|Superstar|Trinoids|Whisper|Wobble|Zarvox|Grandma|Grandpa|Rocko|Shelley|Sandy|Eddy|Flo|Reed|Rishi/i;
+    const FEMALE = /Samantha|Karen|Moira|Tessa|Fiona|Serena|Allison|Ava|Susan|Zoe|Joanna|Amy|Aria|Jenny|Michelle|Sonia|Female|\bZira\b/i;
+    const MALE = /Daniel|Oliver|Thomas|Aaron|Arthur|Tom|Guy|Ryan|Brian|Matthew|Male|\bDavid\b|\bMark\b/i;
+    const wantFemale = voicePref === "female";
+    const wantMale = voicePref === "male";
+    const score = (v) => {
+      const n = v.name || "";
+      if (NOVELTY.test(n)) return -100;
+      if (!/^en/i.test(v.lang || "")) return -50;
+      let sc = 0;
+      if (/Natural|Neural|Premium|Enhanced/i.test(n)) sc += 40;
+      if (/Siri/i.test(n)) sc += 36;
+      if (/^Google/i.test(n)) sc += 30;
+      if (/Samantha|Daniel|Karen|Moira|Tessa|Serena|Allison|Ava/i.test(n)) sc += 18;
+      if (/en[-_]US/i.test(v.lang || "")) sc += 6;
+      if (v.localService === false) sc += 4; // cloud voices are usually the better ones
+      if (wantFemale && FEMALE.test(n)) sc += 25;
+      if (wantMale && MALE.test(n)) sc += 25;
+      if (wantFemale && MALE.test(n)) sc -= 25;
+      if (wantMale && FEMALE.test(n)) sc -= 25;
+      return sc;
+    };
+    const ranked = voices.filter((v) => score(v) > -50).sort((a, b) => score(b) - score(a));
+    const pref = ranked[0] || voices.find((v) => /^en/i.test(v.lang || ""));
     if (pref) utter.voice = pref;
     utter.onstart = () => setStatus("playing"); utter.onend = () => { setStatus("idle"); setProgress(0); }; utter.onerror = () => { setStatus("idle"); setProgress(0); }; utter.onboundary = (e) => { if (e.charIndex && text.length) setProgress(e.charIndex / text.length); }; utterRef.current = utter; window.speechSynthesis.speak(utter);
   };
@@ -6697,9 +6858,38 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       let iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
       const iceData = await icePromise;
       if (iceData && Array.isArray(iceData.iceServers) && iceData.iceServers.length) iceServers = iceData.iceServers;
+      // "none" means /api/iceservers has no working relay configured. Held
+      // here so the failure message below can say that instead of blaming
+      // the network. See functions/api/iceservers.js.
+      const relayKind = (iceData && iceData.relay) || "unknown";
       if (cancelled) return;
 
+      let iceRestarted = false;
       pc = new RTCPeerConnection({ iceServers });
+
+      /* Commit 85 — calls that ring, exchange signalling cleanly, and then
+         never connect.
+
+         Everything up to media was already observable: the ring arrives,
+         /api/callsignal returns 200, the message cursor climbs. What was
+         invisible was ICE. A relay that rejects its credentials reports
+         that ONLY through onicecandidateerror, which nothing listened to,
+         and a connection with no relay candidate on either side simply
+         runs out of pairs and fails with no explanation. Both are now
+         observed: `sawRelay` records whether a relay candidate was ever
+         gathered, and the failure message distinguishes "your networks
+         need a relay and none is configured" from a genuine network
+         problem. That is the difference between a bug report saying "calls
+         don't work" and one naming the variable to set. */
+      let sawRelay = false;
+      let iceErr = null;
+      pc.onicecandidateerror = (e) => {
+        // 701 is "STUN/TURN server unreachable"; 401/403 are credential
+        // rejections. Anything in that range means the relay is the fault.
+        if (e && (e.errorCode === 401 || e.errorCode === 403 || e.errorCode === 701)) {
+          iceErr = { code: e.errorCode, url: e.url || "" };
+        }
+      };
       pcRef.current = pc;
       localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
       pc.ontrack = (e) => {
@@ -6707,7 +6897,11 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         if (!cancelled) setHasRemote(true);
         assignVideos(mainIsSelfRef.current);
       };
-      pc.onicecandidate = (e) => { if (e.candidate) postSignal("ice", e.candidate.toJSON()); };
+      pc.onicecandidate = (e) => {
+        if (!e.candidate) return;
+        if (e.candidate.type === "relay" || /\btyp relay\b/.test(e.candidate.candidate || "")) sawRelay = true;
+        postSignal("ice", e.candidate.toJSON());
+      };
       pc.onconnectionstatechange = () => {
         if (cancelled || !pc) return;
         if (pc.connectionState === "connected") {
@@ -6715,9 +6909,31 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
           setStatus("ready");
         }
+        else if (pc.connectionState === "disconnected") {
+          // A transient drop (a phone changing cell, Wi-Fi to LTE) recovers
+          // on its own most of the time. Re-gather once rather than tearing
+          // the call down on the first blip.
+          connected = false;
+          if (!iceRestarted) {
+            iceRestarted = true;
+            try { pc.restartIce(); } catch {}
+          }
+        }
         else if (pc.connectionState === "failed") {
           connected = false;
-          setErrorReason("Couldn't establish a direct connection to the other person — this can happen on some restrictive networks.");
+          if (!iceRestarted) {
+            // One ICE restart before giving up — this alone recovers a
+            // meaningful share of failures, and costs a couple of seconds.
+            iceRestarted = true;
+            try { pc.restartIce(); return; } catch {}
+          }
+          setErrorReason(
+            relayKind === "none" || !sawRelay
+              ? "This call needs a relay server and none is available. Two networks like a phone on mobile data and a computer behind a home router usually can't reach each other directly, so the call needs somewhere to bounce through. Set TURN_KEY_ID and TURN_KEY_API_TOKEN in the Cloudflare Pages environment to fix this for everyone."
+              : iceErr
+                ? `The relay server rejected the connection (code ${iceErr.code}). The TURN credentials in the Cloudflare Pages environment look wrong or expired.`
+                : "Couldn't establish a connection to the other person — this can happen on some restrictive networks."
+          );
           setStatus("error");
         }
       };
@@ -11927,7 +12143,31 @@ function App() {
   // autoPlay comment). Now that the switch actually works, shipping it ON
   // would mean every existing user suddenly has answers read aloud at them
   // without ever having asked for it.
-  const [autoplay, setAutoplay] = useState(() => getCookie("cb_ap") === "1");
+  /* Commit 85 — a one-time reset of "Auto-read answers".
+
+     Before Commit 67 this preference defaulted to ON and wrote cb_ap=1 on
+     first load, but nothing read it: it was a dead switch, so nobody ever
+     heard anything and nobody ever turned it off. Commit 67 wired it up.
+     The result is that every person who had opened Cerebrum even once
+     before that was carrying cb_ap=1, and the moment narration started
+     working they got answers read aloud at them unprompted, with no idea
+     which setting was doing it.
+
+     cb_ap_v marks a cb_ap value that was actually chosen by a human under
+     the working switch. Without it the stored value is an artifact of the
+     dead switch, not a preference, so it is discarded and auto-read starts
+     off. Anyone who genuinely wants it turns it on once and it sticks. */
+  const [askedThisSession, setAskedThisSession] = useState(false);
+  const [autoplay, setAutoplay] = useState(() => {
+    try {
+      if (getCookie("cb_ap_v") !== "2") {
+        setCookie("cb_ap", "0");
+        setCookie("cb_ap_v", "2");
+        return false;
+      }
+    } catch {}
+    return getCookie("cb_ap") === "1";
+  });
   const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
   const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
@@ -12019,6 +12259,12 @@ function App() {
     const question = (q ?? input).trim();
     const imageToSend = attachedImage;
     if ((!question && !imageToSend) || busy) return;
+    // Commit 85 — auto-read is for an answer the reader just asked for, not
+    // for one restored from history. Reopening a saved investigation was
+    // enough to start narrating its last answer at you, unprompted, which
+    // is most of what "it is also automatically playing TTS" is. Narration
+    // now requires an ask in THIS session.
+    setAskedThisSession(true);
     if (!mutedRef.current) Audio.click();
     setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
@@ -12284,7 +12530,7 @@ function App() {
   useEffect(() => { setCookie("cb_hc", highContrast ? "1" : "0"); }, [highContrast]);
   useEffect(() => { setCookie("cb_fs", fontSize); }, [fontSize]);
   useEffect(() => { setCookie("cb_rt", reducedTransparency ? "1" : "0"); }, [reducedTransparency]);
-  useEffect(() => { setCookie("cb_ap", autoplay ? "1" : "0"); }, [autoplay]);
+  useEffect(() => { setCookie("cb_ap", autoplay ? "1" : "0"); setCookie("cb_ap_v", "2"); }, [autoplay]);
   useEffect(() => { setCookie("cb_df", dyslexicFont ? "1" : "0"); }, [dyslexicFont]);
   useEffect(() => { setCookie("cb_ls", lineSpacing); }, [lineSpacing]);
   useEffect(() => { setCookie("cb_fh", focusHighlight ? "1" : "0"); }, [focusHighlight]);
@@ -12721,12 +12967,16 @@ function App() {
         </button>
       )}
       {view === "search" && (
-      <div style={S.scroll} ref={threadRef} onDoubleClick={(e) => {
-        const sel = window.getSelection()?.toString()?.trim();
-        if (sel && sel.length > 3 && sel.length < 80 && !sel.includes("\n")) {
-          ask(sel);
-        }
-      }}>
+      /* Commit 85 -- this container used to carry
+         onDoubleClick={() => ask(selection)}. Double-click is how everyone
+         selects a word to read it, copy it, or look it up, so the app fired
+         a brand-new search on top of the answer being read every time
+         someone did the most ordinary thing you can do with text. It is
+         gone. Selecting text now does what selecting text does everywhere
+         else; SelectionAsk offers the search as a button the reader has to
+         actually press. */
+      <div style={S.scroll} ref={threadRef}>
+        <SelectionAsk onAsk={(q) => ask(q)} P={P} accent={accent} containerRef={threadRef} />
         <div style={S.container}>
           {!started ? (
             /* The home hero is the first thing anyone sees after the Intro
@@ -12834,7 +13084,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
+                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
