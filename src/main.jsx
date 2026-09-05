@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.10.0";
+const APP_VERSION = "6.11.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -657,6 +657,8 @@ function Icon({ name, size = 17, className, style }) {
     case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
     case "chevronDown": return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
     case "chevronRight": return <svg {...common}><path d="M9 6l6 6-6 6" /></svg>;
+    // Commit 92 — the evidence table's toolbar button.
+    case "table": return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>;
     // Commit 87 — used by EvidenceFilter's disclosure trigger.
     case "filter": return <svg {...common}><path d="M3 5h18M7 12h10M11 19h2" /></svg>;
     case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
@@ -3094,7 +3096,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       .to(navRef.current, { y: -15, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.4);
   };
 
-  const FEATURE_TAGS = ["Cited answers", "Compare investigations", "Source network", "Literature timeline", "AI illustrations"];
+  // Commit 92 — "AI illustrations" was removed; the landing page should not
+// advertise a feature that no longer exists, and the replacement is a
+// better thing to advertise anyway.
+const FEATURE_TAGS = ["Cited answers", "Compare investigations", "Source network", "Literature timeline", "Evidence table"];
 
   return (
     <div id="cb-intro-wrap" style={{
@@ -4536,7 +4541,7 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
   );
 }
 
-function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onIllustrate = () => {}, interactive = true, user = null, onWatchChanged = () => {} }) {
+function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, interactive = true, user = null, onWatchChanged = () => {} }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   // Only fires once the text has stopped changing (see the comment at the
@@ -4680,7 +4685,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                   }}
                 />
                 {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact autoPlay={autoRead && last && done} />}
-                {done && <ToolbarBtn title="Illustrate this answer" icon="wand" accent={accent} P={P} onClick={() => onIllustrate(t.q)} />}
+                {done && interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="The evidence, side by side" icon="table" accent={accent} P={P} onClick={() => onEvidenceTable(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
                 <ToolbarBtn title="Report bad answer" icon="flag" accent={STATUS.bad} P={P} onClick={() => setShowReport(true)} />
@@ -4981,49 +4986,12 @@ function HowItWorksModal({ P, accent, close }) {
   );
 }
 
-// v5: the "what's new" launch modal. Shows once per browser (gated by
-// cb_seen_v5 in localStorage — see App's mount effect) the first time
-// someone lands on the app after this ships, and is reachable again any
-// time afterward from the small "V5" badge next to the wordmark.
-function V5AnnouncementModal({ P, accent, at, close }) {
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
-  const trapRef = useFocusTrap();
-  const items = [
-    { icon: "wand", title: "AI concept illustrations", body: "Any answer can now generate a clean, textbook-style visual sketch of the concept it's explaining — a quick way to see the idea, not just read it." },
-    { icon: "timeline", title: "Literature timeline", body: "See where a topic's sources actually sit in time — an established, decades-deep body of work, or something that only emerged in the last two years." },
-    { icon: "network", title: "Source network", body: "A visual map of how an answer's sources relate to each other, sized by relevance." },
-    { icon: "compare", title: "Compare investigations", body: "Put two past investigations side by side and read their answers and sources in parallel." },
-    { icon: "bookmarkFilled", title: "Collections", body: "Sort saved sources into named collections instead of one flat list — signed-in accounts only." },
-    { icon: "history", title: "Accounts that follow you", body: "An optional account syncs saved sources, collections, and past investigations across every device — guest mode still works exactly as before, with nothing stored on our servers." },
-  ];
-  return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="What's new in Cerebrum V5" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 210, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 520, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
-        <div style={{ padding: "28px 28px 8px" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", borderRadius: 8, background: withAlpha(accent, 0.12), color: accent, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", marginBottom: 16 }}>
-            <Icon name="sparkle" size={12} /> V5 · NOW LIVE
-          </div>
-          <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)", marginBottom: 8 }}>Cerebrum is now an all-in-one research instrument.</div>
-          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>Compare investigations, map your sources, trace them through time — without leaving your results.</div>
-        </div>
-        <div style={{ padding: "0 28px" }}>
-          {items.map((it, i) => (
-            <div key={i} style={{ display: "flex", gap: 14, padding: "14px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
-              <span style={{ flexShrink: 0, width: 34, height: 34, borderRadius: 8, background: withAlpha(accent, 0.1), color: accent, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name={it.icon} size={16} /></span>
-              <div>
-                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 3 }}>{it.title}</div>
-                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55 }}>{it.body}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div style={{ padding: "20px 28px 28px" }}>
-          <button onClick={close} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Got it</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+/* Commit 92 — V5AnnouncementModal deleted.
+   Nothing rendered it (see the note where v5Open used to live), it
+   advertised the concept-illustration feature that this commit removed,
+   and it was the last thing referencing that feature. A dead component
+   describing a dead feature is how a file gets to fourteen thousand
+   lines. */
 
 // Shown once, right after a successful sign-in/sign-up, if the browser
 // already had guest-mode saved articles or history sitting in localStorage.
@@ -5590,89 +5558,187 @@ function SourceNetworkGraph({ P, accent, at, sources, close }) {
   );
 }
 
-/* ════════════════════════════════════════════════════════════════
-   AI-GENERATED CONCEPT ILLUSTRATIONS
-   The literal "illustrations" feature: a quick, free, keyless visual
-   sketch of the concept a question is about. Deliberately NOT presented
-   as a data figure or anything derived from the cited papers — it's an
-   image model's interpretation of the topic, said so plainly in the
-   modal itself, right next to the image. Uses Pollinations' free, keyless
-   image-generation endpoint (image.pollinations.ai) — already the same
-   provider the backend races for text — via a plain <img src>, so this
-   needed zero backend changes and no new API key.
-   ════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════
+   Commit 92 — the concept illustrations are gone.
 
-// Deterministic (per-query) seed — reopening the illustration for the same
-// answer shows the same image instead of a fresh random one every time,
-// while two different questions land on two different images. Tiny,
-// non-cryptographic; only needs to spread inputs across a wide range.
-function hashSeed(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
-  return Math.abs(h) % 1000000;
+   That feature sent the question to a text-to-image endpoint and showed
+   whatever came back. It was labelled honestly ("not a data figure from
+   the cited papers"), but the label was doing a lot of work: what it
+   actually produced was a decorative picture with no relationship to the
+   evidence, on a screen whose entire claim is that everything on it
+   traces to a real source. On a research instrument that is worse than
+   nothing — it is the one element that could make a careful answer look
+   unserious.
+
+   Replaced with the thing a reader of a cited answer actually wants and
+   could not previously get: the studies behind the answer laid out side
+   by side, so you can see at a glance that three of the four are reviews,
+   or that the one disagreeing result is also the smallest.
+
+   Every column is derived from data already retrieved — nothing is
+   generated, nothing is inferred, nothing is fetched. A sample size is
+   shown ONLY where the abstract states one in a form that can be read
+   literally; a design is shown only where the abstract names it. Blank
+   is a legitimate answer and appears as an em dash, because "we could not
+   determine this" is information and guessing would defeat the purpose.
+   ══════════════════════════════════════════════════════════════════ */
+
+// Design vocabulary, strongest evidence first — the first match wins, so
+// "systematic review of randomized trials" is classified as the review it
+// is rather than as a trial.
+const STUDY_DESIGNS = [
+  [/\bmeta-?analys/i, "Meta-analysis", 6],
+  [/\bsystematic review/i, "Systematic review", 6],
+  [/\bscoping review\b|\bnarrative review\b|\bliterature review\b|\breview\b/i, "Review", 3],
+  [/\brandomi[sz]ed controlled trial\b|\bRCT\b|\brandomi[sz]ed[, ]/i, "Randomised trial", 5],
+  [/\bcrossover (trial|design|study)\b/i, "Crossover trial", 5],
+  [/\bcohort (study|design)\b|\bprospective cohort\b|\blongitudinal study\b/i, "Cohort", 4],
+  [/\bcase[- ]control\b/i, "Case-control", 4],
+  [/\bcross[- ]sectional\b|\bsurvey (of|study)\b/i, "Cross-sectional", 2],
+  [/\bcase (report|series)\b/i, "Case report", 1],
+  [/\bin vivo\b|\bmouse\b|\bmurine\b|\brat\b|\bmice\b|\bzebrafish\b|\bprimate\b/i, "Animal", 2],
+  [/\bin vitro\b|\bcell (line|culture)\b|\bassay\b/i, "In vitro", 2],
+  [/\bmodel(ling|ing)\b|\bsimulation\b|\bcomputational\b/i, "Modelling", 2],
+];
+
+function studyDesign(source) {
+  const hay = [source && source.abstract, source && source.title].filter(Boolean).join(" ");
+  if (!hay) return null;
+  for (const [re, label, rank] of STUDY_DESIGNS) {
+    if (re.test(hay)) return { label, rank };
+  }
+  return null;
 }
 
-// Turns a research question into an image-generation prompt. Explicitly
-// asks for no text/words/labels/watermark — image models reliably render
-// garbled fake text when asked for a "diagram" or "labeled figure," and
-// that reads as broken rather than illustrative. Better to let Cerebrum's
-// own caption do the labeling than have the model attempt real typography.
-function buildIllustrationPrompt(query) {
-  const cleaned = (query || "").replace(/[?!]+/g, "").trim().slice(0, 220);
-  return `${cleaned}. Cinematic abstract scientific 3D render, microscopic macro photography, glowing ethereal structures, deep depth of field, high-end octane render. NO TEXT, NO WORDS, NO DIAGRAMS, pure abstract visual art.`;
+/* Sample size, read literally or not at all.
+
+   The patterns below each require the abstract to state the number in a
+   form that unambiguously means "how many were studied": n = 420, "420
+   participants", "a total of 420 patients". A bare number near the word
+   "patients" is not enough — abstracts are full of numbers (doses, years,
+   percentages, confidence bounds) and a wrong sample size on a comparison
+   table is far more damaging than a blank one. */
+function sampleSize(source) {
+  const a = String((source && source.abstract) || "");
+  if (!a) return null;
+  const pats = [
+    /\bn\s*=\s*([\d][\d,]{1,7})\b/i,
+    /\b(?:a\s+)?total of\s+([\d][\d,]{1,7})\s+(?:participants|patients|subjects|individuals|adults|children|women|men|animals|mice|rats|samples|studies|trials)\b/i,
+    /\b([\d][\d,]{1,7})\s+(?:participants|patients|subjects|individuals|healthy volunteers)\b/i,
+    /\b(?:included|enrolled|recruited|analysed|analyzed)\s+([\d][\d,]{1,7})\s+(?:participants|patients|subjects|individuals|studies|trials|articles|records)\b/i,
+  ];
+  for (const re of pats) {
+    const m = a.match(re);
+    if (!m) continue;
+    const n = parseInt(String(m[1]).replace(/,/g, ""), 10);
+    // A "sample" of 1 or of ten million is a parsing accident, not a study.
+    if (Number.isFinite(n) && n >= 2 && n <= 5000000) return n;
+  }
+  return null;
 }
 
-function IllustrationModal({ P, accent, at, query, close }) {
+function EvidenceTableModal({ P, accent, at, sources, close }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
-  const [seed, setSeed] = useState(() => hashSeed(query || ""));
-  const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
-  const prompt = useMemo(() => buildIllustrationPrompt(query), [query]);
-  const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=576&nologo=true&seed=${seed}`;
+  const [sortKey, setSortKey] = useState("cited");
 
-  useEffect(() => { setStatus("loading"); }, [imgUrl]);
+  const rows = useMemo(() => (sources || []).map((s, i) => ({
+    i: i + 1,
+    src: s,
+    design: studyDesign(s),
+    n: sampleSize(s),
+    year: Number(s.year) || null,
+    citations: typeof s.citations === "number" ? s.citations : null,
+  })), [sources]);
+
+  const sorted = useMemo(() => {
+    const r = rows.slice();
+    if (sortKey === "n") return r.sort((a, b) => (b.n || -1) - (a.n || -1));
+    if (sortKey === "year") return r.sort((a, b) => (b.year || 0) - (a.year || 0));
+    if (sortKey === "design") return r.sort((a, b) => ((b.design && b.design.rank) || 0) - ((a.design && a.design.rank) || 0));
+    return r.sort((a, b) => a.i - b.i); // as cited
+  }, [rows, sortKey]);
+
+  const withN = rows.filter((r) => r.n != null);
+  const withDesign = rows.filter((r) => r.design);
+  const dash = <span style={{ color: P.faint, opacity: 0.6 }}>—</span>;
+
+  const th = { textAlign: "left", padding: "0 0 8px", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-body)", whiteSpace: "nowrap" };
+  const td = { padding: "12px 0", fontSize: FONT_SIZES.caption, color: P.ink, verticalAlign: "top", fontFamily: "var(--cb-body)", borderTop: `1px solid ${P.line}` };
 
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="Concept illustration" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 640, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none", overflow: "hidden" }} className="cb-modal">
-        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Concept illustration</div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2 }}>AI-generated visual concept — not a data figure from the cited papers.</div>
-          </div>
-          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
-        </div>
-        <div style={{ position: "relative", aspectRatio: "16/9", background: P.surface }}>
-          {status !== "error" && (
-            <img
-              key={imgUrl}
-              src={imgUrl}
-              alt={`AI-generated concept illustration for: ${query || "this question"}`}
-              onLoad={() => setStatus("ready")}
-              onError={() => setStatus("error")}
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: status === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }}
-            />
-          )}
-          {status === "loading" && (
-            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: P.faint }}>
-              <div style={{ width: 26, height: 26, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-              <span style={{ fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)" }}>Generating illustration…</span>
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="The evidence, side by side" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: RADIUS.lg, maxWidth: 860, width: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none", overflow: "hidden" }} className="cb-modal">
+        <div style={{ padding: "18px 22px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>The evidence, side by side</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, lineHeight: 1.5 }}>
+              {rows.length} source{rows.length === 1 ? "" : "s"} behind this answer
+              {withDesign.length > 0 && ` · design read for ${withDesign.length}`}
+              {withN.length > 0 && ` · sample size stated in ${withN.length}`}
             </div>
-          )}
-          {status === "error" && (
-            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: P.faint, padding: 20, textAlign: "center" }}>
-              <Icon name="warning" size={20} />
-              <span style={{ fontSize: FONT_SIZES.small }}>Couldn't draw that one. Try again in a moment.</span>
-            </div>
-          )}
-        </div>
-        <div style={{ padding: "14px 22px 20px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5, maxWidth: 320 }}>
-            Generated by an AI image model from your question alone — a conceptual sketch, not a scientific figure. Verify anything visual against the cited sources.
           </div>
-          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-            <button onClick={() => setSeed(Math.floor(Math.random() * 1000000))} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}><Icon name="refresh" size={13} />Regenerate</button>
-            <a href={imgUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", textDecoration: "none", fontFamily: "var(--cb-body)" }}><Icon name="link" size={13} />Open full size</a>
+          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}><Icon name="close" size={18} /></button>
+        </div>
+
+        <div style={{ padding: "12px 22px 0", flexShrink: 0, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[["cited", "As cited"], ["design", "Strongest design"], ["n", "Largest sample"], ["year", "Newest"]].map(([k, label]) => (
+            <button key={k} onClick={() => setSortKey(k)} aria-pressed={sortKey === k}
+              style={{
+                padding: "5px 12px", borderRadius: RADIUS.pill, cursor: "pointer",
+                fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+                background: sortKey === k ? withAlpha(accent, 0.14) : "transparent",
+                color: sortKey === k ? P.ink : P.ink2,
+                border: `1px solid ${sortKey === k ? withAlpha(accent, 0.42) : P.line}`,
+              }}>{label}</button>
+          ))}
+        </div>
+
+        <div style={{ overflowY: "auto", overflowX: "auto", padding: "8px 22px 22px", flex: 1, minHeight: 0 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, width: 26 }}>#</th>
+                <th style={th}>Study</th>
+                <th style={{ ...th, width: 130 }}>Design</th>
+                <th style={{ ...th, width: 76, textAlign: "right" }}>Sample</th>
+                <th style={{ ...th, width: 58, textAlign: "right" }}>Year</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r) => (
+                <tr key={r.i}>
+                  <td style={{ ...td, color: accent, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>{r.i}</td>
+                  <td style={{ ...td, paddingRight: 14 }}>
+                    <a href={safeHref(r.src.url)} target="_blank" rel="noreferrer" style={{ color: P.ink, textDecoration: "none", fontWeight: 600, lineHeight: 1.4, display: "block" }}>
+                      {r.src.title ? renderCleanTitle(r.src.title) : r.src.url}
+                    </a>
+                    <div style={{ color: P.faint, marginTop: 3, fontSize: FONT_SIZES.micro, lineHeight: 1.45 }}>
+                      {[r.src.authors, r.src.journal].filter(Boolean).join(" · ")}
+                      {r.citations != null && ` · ${r.citations.toLocaleString()} citations`}
+                    </div>
+                  </td>
+                  <td style={td}>
+                    {r.design ? (
+                      <span style={{
+                        display: "inline-block", padding: "3px 9px", borderRadius: RADIUS.pill,
+                        fontSize: FONT_SIZES.micro, fontWeight: 600, whiteSpace: "nowrap",
+                        // Stronger designs read louder. Rank is the crude
+                        // evidence-hierarchy position, not a quality score.
+                        color: r.design.rank >= 5 ? accent : P.ink2,
+                        background: r.design.rank >= 5 ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                        border: `1px solid ${r.design.rank >= 5 ? withAlpha(accent, 0.3) : P.line}`,
+                      }}>{r.design.label}</span>
+                    ) : dash}
+                  </td>
+                  <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-mono)", fontWeight: 600 }}>{r.n != null ? r.n.toLocaleString() : dash}</td>
+                  <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-mono)", color: P.ink2 }}>{r.year || dash}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 16, fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-body)" }}>
+            Design and sample size are read from each abstract as written. A dash means the abstract did not state it — not that the study lacks one. Check the paper before relying on any row.
           </div>
         </div>
       </div>
@@ -10396,12 +10462,15 @@ function SystemStatus({ P, accent }) {
       ["Calling — ring delivery", "/api/data?resource=incoming-calls", "data.js"],
       ["Calling — network relay", "/api/iceservers", "iceservers.js"],
       ["Trending feed", "/api/trending", "trending.js"],
-      // Commit 76 — the illustration engine, checked end to end rather
+      // Commit 76 — the card-imagery engine, checked end to end rather
       // than by existence. This is the probe that would have caught "no
       // images in Trending" before it shipped: it asks for a picture of
       // something every source should know about and reports which one
-      // actually answered.
-      ["Illustrations", "/api/image?q=spiral%20galaxy&debug=1", "image.js", null, "image"],
+      // actually answered. (Renamed in Commit 92 — this was labelled
+      // "Illustrations", which is now the name of a feature that no
+      // longer exists. It has always been the photo resolver behind
+      // trending cards, which is very much still here.)
+      ["Card imagery", "/api/image?q=spiral%20galaxy&debug=1", "image.js", null, "image"],
     ];
     const out = [];
     for (const [label, url, file, method, kind] of probes) {
@@ -12557,12 +12626,28 @@ function App() {
   // localStorage flag rather than the entry cookie above, since a returning
   // user who already has cb_entered_v5 set (nothing to re-trigger) still
   // needs to see it exactly once.
-  const [v5Open, setV5Open] = useState(false);
-  useEffect(() => {
-    if (!entered) return;
-    try { if (localStorage.getItem("cb_seen_v6") !== "1") setV5Open(true); } catch {}
-  }, [entered]);
+  /* ══════════════════════════════════════════════════════════════
+     Commit 92 — the invisible modal that froze the page.
 
+     `v5Open` was set to true on every first visit and NOTHING RENDERED IT.
+     The what's-new announcement it belonged to was removed in an earlier
+     refactor; this state, and its entry in the scroll-lock effect below,
+     were left behind. Nothing ever wrote cb_seen_v6 either, so the flag
+     could never clear.
+
+     The consequence was not a stray popup. anyOverlayOpen went true, the
+     scroll lock pinned document.body to position:fixed / overflow:hidden,
+     and there was no dialog on screen to close — so every genuinely
+     first-time visitor to askcerebrum.org got a page that could not be
+     scrolled, with nothing to dismiss. Verified: body position fixed,
+     overflow hidden, zero elements with role="dialog", scrollY stuck at 0
+     through a 1200px wheel event.
+
+     It survived this long because every test fixture in this project
+     seeds cb_seen_v6 = "1" in localStorage before the first paint, which
+     is the one value that hides it. A fixture written to skip an
+     announcement was masking a bug that broke the whole page.
+     ══════════════════════════════════════════════════════════════ */
   // ── Accounts. `user` stays null for guest mode, which is still the
   // overwhelming default — nothing below ever runs for someone who never
   // signs in, and their saved/history data never leaves localStorage.
@@ -12633,7 +12718,9 @@ function App() {
   const [threads, setThreads] = useState([]);
   const [networkGraphSources, setNetworkGraphSources] = useState(null);
   const [timelineSources, setTimelineSources] = useState(null);
-  const [illustrateQuery, setIllustrateQuery] = useState(null);
+  // Commit 92 — holds the source list for the evidence table (was the
+  // query string for the illustration generator).
+  const [evidenceTableSources, setEvidenceTableSources] = useState(null);
 
   async function handleAuthed(authedUser, { checkImport }) {
     setUser(authedUser);
@@ -13254,7 +13341,7 @@ function App() {
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
     const anyOverlayOpen = cmdOpen || howItWorksOpen || mobilePanel
-      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!illustrateQuery || !!importPrompt || v5Open || !!drawerSource;
+      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!evidenceTableSources || !!importPrompt || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -13274,7 +13361,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, illustrateQuery, importPrompt, v5Open, drawerSource]);
+  }, [cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -13753,9 +13840,8 @@ function App() {
           here was actually navigation-only. Two real, non-navigational
           casualties, deliberately not replaced:
           - The manual "V5" reopen button for the what's-new announcement.
-            It still shows itself once automatically on first visit (see the
-            v5Open effect above); there's just no way to deliberately
-            re-open it afterward anymore.
+            The announcement itself is gone as of Commit 92 — see the note
+            where v5Open used to live for why it had to be.
           - The header's own visible "Search ⌘K" button. The keyboard
             shortcut itself is unaffected (still a global keydown listener,
             not wired to this button), and Sidebar's "Search" item already
@@ -13952,7 +14038,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onIllustrate={setIllustrateQuery} />))}
+                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
@@ -14304,7 +14390,17 @@ function App() {
       {compareOpen && <CompareModal P={P} accent={accent} at={at} S={S} history={history} close={() => setCompareOpen(false)} />}
       {networkGraphSources && <SourceNetworkGraph P={P} accent={accent} at={at} sources={networkGraphSources} close={() => setNetworkGraphSources(null)} />}
       {timelineSources && <LiteratureTimeline P={P} accent={accent} at={at} sources={timelineSources} close={() => setTimelineSources(null)} />}
-      {illustrateQuery && <IllustrationModal P={P} accent={accent} at={at} query={illustrateQuery} close={() => setIllustrateQuery(null)} />}
+      {/* Commit 92 — Document Mode did nothing when clicked.
+
+          Same failure as the what's-new modal above and found the same
+          afternoon: handleSidebarNavigate's "document" case calls
+          setNotebookOpen(true), the NotebookMode component is fully
+          written and sitting at the top of this file, and no line of JSX
+          ever mounted it. The nav row has been inert since the refactor
+          that dropped the old header. Nothing about NotebookMode itself
+          needed fixing — it just needed rendering. */}
+      {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
+      {evidenceTableSources && <EvidenceTableModal P={P} accent={accent} at={at} sources={evidenceTableSources} close={() => setEvidenceTableSources(null)} />}
       {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />}
       {/* Commit 47: rendered here, at the app root, specifically so it's not
           a child of the "inbox" view branch above — a component instance
