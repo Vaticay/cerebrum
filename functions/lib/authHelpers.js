@@ -311,6 +311,29 @@ export async function ensureUserProfileColumns(env) {
     "ALTER TABLE users ADD COLUMN link_scholar TEXT",
     "ALTER TABLE users ADD COLUMN terms_version TEXT",
     "ALTER TABLE users ADD COLUMN terms_accepted_at INTEGER",
+    /* Commit 100 — privacy controls. Three columns, all nullable, all with a
+       defined meaning for NULL so an account that predates them behaves
+       sensibly without a backfill:
+
+         discoverable      NULL or 1 = findable by name/username search.
+                           0 = not returned by search at all. Opt-OUT, so the
+                           existing follow graph keeps working on deploy.
+         dm_policy         NULL or 'following' = only people I follow can
+                           open a new conversation with me. 'anyone' = the
+                           old behaviour, kept as an explicit choice.
+                           NULL defaulting to the STRICTER value is
+                           deliberate: an unset privacy control should fail
+                           closed, and the alternative is that every existing
+                           account is silently opted into unsolicited DMs
+                           from strangers.
+         show_affiliation  NULL or 1 = institution appears on my profile.
+                           0 = kept private. Affiliation is no longer
+                           searchable or browsable regardless of this (see
+                           search-users in data.js); this only controls
+                           whether it renders on the profile at all. */
+    "ALTER TABLE users ADD COLUMN discoverable INTEGER",
+    "ALTER TABLE users ADD COLUMN dm_policy TEXT",
+    "ALTER TABLE users ADD COLUMN show_affiliation INTEGER",
   ];
   for (const sql of alters) {
     try {
