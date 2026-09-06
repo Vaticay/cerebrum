@@ -1680,7 +1680,12 @@ async function europePMC(query, limit = 8) {
         resultType: "core",
         pageSize: String(limit),
         format: "json",
-        sort: "relevance",
+        // Commit 94 — the `sort` parameter was removed here. Europe PMC
+        // documents CITED / P_PDATE_D / AUTH_FIRST as sort values; "relevance"
+        // is not one of them, and relevance IS the default when sort is
+        // omitted. Passing an undocumented value risked a 400 that this
+        // function's bare catch would have turned into an empty result set —
+        // i.e. a whole source silently contributing nothing.
       });
     const data = await getJSON(url);
     return data && data.resultList && data.resultList.result ? data.resultList.result : [];
@@ -2134,18 +2139,79 @@ async function biorxivDirectAuthor(fullName) {
 async function medrxivDirectAuthor(fullName) {
   return preprintServerAuthor("medrxiv", fullName);
 }
+/* ══════════════════════════════════════════════════════════════════
+   Commit 94 — author search could not see preprints.
+
+   Reported case: "does Reese Saho have papers on this" returned nothing,
+   for the first author of a bioRxiv preprint that Europe PMC has indexed
+   as PPR1250670. The author fanout queried Europe PMC, OpenAlex, Crossref,
+   arXiv, Semantic Scholar and the two bioRxiv scans below — and none of
+   them reach Europe PMC's preprint slice, which is where that record
+   lives. Europe PMC's default search does not include SRC:PPR content;
+   preprintSearch() exists precisely for that and was wired into the TOPIC
+   fanout only, never the author one.
+
+   This is the author-side equivalent. It is an index lookup rather than
+   the brute-force scan below, so it finds a preprint regardless of how
+   many were posted that week. */
+async function europePMCPreprintAuthor(fullName, limit = 15) {
+  try {
+    const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
+      new URLSearchParams({
+        query: '("' + String(fullName).replace(/"/g, "") + '") AND (SRC:PPR)',
+        resultType: "core",
+        pageSize: String(limit),
+        format: "json",
+      });
+    const data = await getJSON(url, {}, 6000);
+    const rows = (data && data.resultList && data.resultList.result) || [];
+    return rows.filter((r) => r.title).map((r) => {
+      const server =
+        (r.bookOrReportDetails && r.bookOrReportDetails.publisher) ||
+        r.journalTitle || r.publisher || "";
+      return {
+        title: r.title || "Untitled",
+        url: r.doi ? "https://doi.org/" + r.doi : "https://europepmc.org/article/" + r.source + "/" + r.id,
+        year: r.pubYear || "",
+        citations: typeof r.citedByCount === "number" ? r.citedByCount : null,
+        authors: r.authorString || "",
+        _allAuthors: r.authorString || "",
+        journal: server ? server + " (preprint)" : "Preprint",
+        abstract: stripTags(r.abstractText),
+        isPreprint: true,
+      };
+    });
+  } catch { return []; }
+}
+
 async function preprintServerAuthor(server, fullName) {
   try {
-    // bioRxiv/medRxiv have a "details" API but no search-by-author endpoint.
-    // We use the interval endpoint to pull the last 6 months of preprints (up
-    // to ~1000 items) and filter locally by author. Rough but works for
-    // finding early-career researchers whose one preprint isn't indexed yet.
+    /* Commit 94 — this comment used to claim it pulled "up to ~1000 items".
+       It pulled 100. The bioRxiv details endpoint returns one page of 100
+       and the trailing "/0" is the cursor, which was never advanced. bioRxiv
+       alone posts several thousand preprints a month, so a six-month window
+       holds on the order of twenty thousand records and this was reading the
+       oldest one hundred of them — roughly half a percent, and always the
+       same half percent. As an author lookup it was never going to work, and
+       it is why a preprint posted three months ago went unfound.
+
+       Now walks a bounded number of pages. It is still a scan and still
+       cannot cover the whole window — which is exactly why the Europe PMC
+       preprint index above is the primary path and this is the backstop for
+       records too new to be indexed there yet. */
     const now = new Date();
     const six = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
     const iso = (d) => d.toISOString().slice(0, 10);
-    const url = "https://api.biorxiv.org/details/" + server + "/" + iso(six) + "/" + iso(now) + "/0";
-    const data = await getJSON(url, {}, 5000);
-    const items = (data && data.collection) || [];
+    const base = "https://api.biorxiv.org/details/" + server + "/" + iso(six) + "/" + iso(now) + "/";
+    const MAX_PAGES = 12; // 1200 records — a real budget, not an accident
+    let items = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const data = await getJSON(base + (page * 100), {}, 5000);
+      const batch = (data && data.collection) || [];
+      if (!batch.length) break;
+      items = items.concat(batch);
+      if (batch.length < 100) break;
+    }
     const nameLC = fullName.toLowerCase();
     const tokens = nameLC.split(/\s+/).filter(Boolean);
     const hits = items.filter((it) => {
@@ -2490,7 +2556,12 @@ async function preprintSearch(query, limit = 8) {
         resultType: "core",
         pageSize: String(limit),
         format: "json",
-        sort: "relevance",
+        // Commit 94 — the `sort` parameter was removed here. Europe PMC
+        // documents CITED / P_PDATE_D / AUTH_FIRST as sort values; "relevance"
+        // is not one of them, and relevance IS the default when sort is
+        // omitted. Passing an undocumented value risked a 400 that this
+        // function's bare catch would have turned into an empty result set —
+        // i.e. a whole source silently contributing nothing.
       });
     const data = await getJSON(url, {}, 6000);
     const rows = (data && data.resultList && data.resultList.result) || [];
@@ -2674,7 +2745,9 @@ async function baseSearch(query, limit = 8) {
 async function pmcFullText(query, limit = 8) {
   try {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
-      new URLSearchParams({ query: '(BODY:"' + query + '")', resultType: "core", pageSize: String(limit), format: "json", sort: "relevance" });
+      // Commit 94 — see the note in europePMC(): "relevance" is not a
+      // documented Europe PMC sort value and relevance is the default.
+      new URLSearchParams({ query: '(BODY:"' + query + '")', resultType: "core", pageSize: String(limit), format: "json" });
     const data = await getJSON(url, {}, 6000);
     return ((data && data.resultList && data.resultList.result) || []).filter((r) => r.title).map((r) => ({
       title: r.title || "Untitled",
@@ -4677,6 +4750,11 @@ async function gatherPapers(rawQuery, opts) {
       crossref(quoted, 15),                         // DOI-registered works
       arxiv(effectiveName, 15),                     // physics/CS/quantitative bio
       semanticScholar(quoted, 15),                  // includes preprints
+      // Commit 94 — the authoritative preprint index. Europe PMC's default
+      // search excludes SRC:PPR, so without this line an author whose only
+      // work is a preprint was invisible to the entire author lookup no
+      // matter how well indexed that preprint was.
+      europePMCPreprintAuthor(effectiveName, 15),
       biorxivDirectAuthor(effectiveName),           // fresh biology preprints
       medrxivDirectAuthor(effectiveName),           // fresh medical preprints
     ]);
@@ -5484,6 +5562,40 @@ async function gatherPapers(rawQuery, opts) {
       let match = 0;
       match += coreCoverage * 42;
       match += gateTerms.length ? (coreTitleHits / gateTerms.length) * 20 : 0;
+
+      /* ══════════════════════════════════════════════════════════════
+         Commit 93 — the verbatim title phrase.
+
+         Found from a real miss: a search for "waste oil substrates for
+         BSFL" did not return the one preprint titled "Waste oil substrates
+         reshape the black soldier fly larval gut microbiome…" anywhere in
+         twelve results. Its first three words ARE the query.
+
+         Per-term scoring cannot see that. Four terms scattered across a
+         title and four terms sitting in it as a contiguous phrase score
+         almost identically, even though the second is the single
+         strongest relevance signal a bibliographic search has. This finds
+         the longest run of consecutive query terms that appears
+         contiguously in the title and rewards it in proportion — a
+         two-word run is worth a little, a four-word run is decisive.
+
+         Capped at 18 so it is meaningful against the quality signals below
+         without being able to promote a paper that failed the topic gate. */
+      const phraseBonus = (() => {
+        if (gateTerms.length < 2 || !title) return 0;
+        const t = " " + title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+        let best = 0;
+        for (let a = 0; a < gateTerms.length; a++) {
+          for (let b = gateTerms.length; b > a + 1; b--) {
+            const run = gateTerms.slice(a, b).join(" ").toLowerCase();
+            if (run.split(" ").length <= best) continue;
+            if (t.includes(" " + run + " ")) { best = run.split(" ").length; break; }
+          }
+        }
+        if (best < 2) return 0;
+        return Math.min(18, 6 * (best - 1));
+      })();
+      match += phraseBonus;
       // Peripheral terms are a small bonus, never a requirement
       match += peripheralTerms.length ? (periphHits / peripheralTerms.length) * 4 : 0;
       if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 12;
@@ -5493,12 +5605,28 @@ async function gatherPapers(rawQuery, opts) {
       let quality = 0;
       if (abstract.length > 200) quality += 8;      // has a real abstract
       else if (abstract.length > 0) quality += 3;
-      if (typeof p.citations === "number") {
-        // Log scale — 10 citations matters much more than 1000 vs 990
-        quality += Math.min(Math.log10(Math.max(1, p.citations)) * 4, 12);
-      }
       const yr = parseInt(p.year, 10);
       const nowYear = new Date().getFullYear();
+      /* ══════════════════════════════════════════════════════════════
+         Commit 93 — citation count was an age bonus in disguise.
+
+         This awarded up to 12 points on raw citation count. A paper
+         published this year cannot have citations yet; a 2019 paper on a
+         loosely related topic has had six years to collect them. So the
+         old scoring quietly handed established work a double-digit lead
+         over anything new, on a tool whose users care most about what
+         landed recently — and it is exactly why a 2026 preprint whose
+         title matched the query verbatim finished outside the top twelve.
+
+         Citations per year is the standard correction: it measures the
+         rate at which a paper is being taken up rather than how long it
+         has been sitting there. Work under a year old is scored on the
+         same curve without being punished for a denominator near zero. */
+      if (typeof p.citations === "number" && p.citations > 0) {
+        const yearsOut = yr ? Math.max(1, nowYear - yr) : 3;
+        const perYear = p.citations / yearsOut;
+        quality += Math.min(Math.log10(Math.max(1, perYear)) * 6, 12);
+      }
       if (yr) {
         const age = nowYear - yr;
         if (age <= 2) quality += 10;
@@ -5516,7 +5644,16 @@ async function gatherPapers(rawQuery, opts) {
       // higher than a relevant one — `match` still dominates the total —
       // they only break ties among papers that already passed the topic
       // gate, the same way citation count and recency already do above.
-      const journalBonus = scoreJournalTier(p.journal);
+      /* Commit 93 — an established preprint server is a known venue.
+         scoreJournalTier returns 0 for anything not in its journal list,
+         which lumped bioRxiv and medRxiv in with venues it has never heard
+         of, so a preprint competed from zero against every tiered journal.
+         A small positive keeps them in contention on topical merit. It is
+         deliberately below the lowest real journal tier — a preprint is
+         not peer reviewed, the UI says so on every card, and this does not
+         pretend otherwise. */
+      const isPreprintVenue = /\b(biorxiv|medrxiv|arxiv|chemrxiv|research square|ssrn|preprint)\b/i.test(String(p.journal || ""));
+      const journalBonus = scoreJournalTier(p.journal) || (isPreprintVenue ? 3 : 0);
       quality += journalBonus;
       const predPenalty = predatoryPenalty(p.journal, p.url);
       quality += predPenalty;
@@ -6774,7 +6911,7 @@ export async function onRequest(context) {
 
       return new Response(JSON.stringify({
         answer:
-          `I searched Europe PMC, OpenAlex, Crossref, arXiv, Semantic Scholar, bioRxiv, and medRxiv for papers authored by **${displayName}** and didn't find any that list them as an author.\n\n` +
+          `I searched Europe PMC (including its preprint index), OpenAlex, Crossref, arXiv, Semantic Scholar, bioRxiv, and medRxiv for papers authored by **${displayName}** and didn't find any that list them as an author.\n\n` +
           `This usually means one of a few things:\n\n` +
           `- Their paper hasn't propagated to these indexes yet (aggregators can lag weeks to months behind actual publication).\n` +
           `- They publish under a slightly different form of their name (initials, middle name, hyphenation).\n` +
@@ -7262,6 +7399,14 @@ export async function onRequest(context) {
       "- Only cite source N if it genuinely supports that sentence. [WEAK MATCH] sources: ignore or note as tangential. [RETRACTED]: flag prominently.\n" +
       "- STRICT CITATION HONESTY: a citation may ONLY attach to a sentence making an explicit, empirical claim drawn from that specific paper — a measured result, a reported finding, a stated statistic, a named method or organism it actually studied. NEVER attach a citation to a general statement, a transition sentence, a definitional aside, or your own inference, even when a cited paper is topically related. If a sentence isn't a specific claim FROM that paper, it gets no citation at all.\n" +
       "- NEVER fabricate DOIs, authors, journal names, or statistics not in the abstracts.\n" +
+      // Commit 93 — from a real answer: "a study with a small sample size
+      // (n=12) may have limited generalizability compared to a larger study
+      // (n=1000)[9]". Neither number was in any abstract; both were
+      // illustrative, and the trailing citation made them look like
+      // findings from source 9. A hypothetical wearing a citation is the
+      // most damaging thing this system can produce, because it is
+      // indistinguishable from a real result to anyone not checking.
+      "- NEVER invent illustrative numbers. Do not write example figures like 'a small study (n=12) versus a larger one (n=1000)' to explain a concept. Every number you write must come from a specific abstract above, and must carry that source's citation. If you want to say sample sizes varied, say which studies and give their actual numbers — or say the abstracts do not report them. An invented number next to a citation reads as a real finding and is the single worst error you can make here.\n" +
       "- ZERO-HALLUCINATION GROUNDING: ground every factual assertion strictly in the provided abstracts. Do NOT introduce external acronyms, gene names, brain regions, or pathways (e.g., BDNF, DMN, TPJ) unless that exact term appears verbatim somewhere in the retrieved abstracts above — importing a real-but-unsourced acronym to sound precise is exactly as dishonest as inventing a fake one, and it will fail fact-checking either way. If a concept needs a name the sources don't give you, describe it in plain language instead.\n" +
       "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' — but NEVER invent specific paper titles or authors.\n" +
       "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
