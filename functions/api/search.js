@@ -490,6 +490,78 @@ function correctNameVariants(text, canonicalName) {
 }
 
 
+/* ══════════════════════════════════════════════════════════════════
+   Commit 95 — de-dashing.
+
+   RULE 5B tells the model not to use em dashes. Models ignore style rules
+   under load, and this one is too visible to leave to good intentions: it
+   is the single most recognisable sign that a paragraph was machine
+   written, and readers spot it immediately. So the prompt asks and this
+   guarantees.
+
+   Not a blind swap to a hyphen, which reads worse than the em dash did.
+   Each case gets the punctuation a person would actually have used:
+
+     paired dashes (a parenthetical)      -> commas
+     dash joining two full clauses        -> full stop, new sentence
+     dash introducing a short fragment    -> comma
+     numeric range (5-60 minutes)         -> "5 to 60 minutes"
+
+   Compound words keep their real hyphens; only the long dashes are
+   touched, and only where they are doing a punctuation job. */
+function deDash(text) {
+  if (!text) return text;
+  let t = String(text);
+
+  // Ranges first: "5–60 minutes", "2019–2024". A dash between two numbers
+  // is a range, never punctuation, and "to" is how it is read aloud.
+  t = t.replace(/(\d)\s*[\u2013\u2014]\s*(\d)/g, "$1 to $2");
+
+  // Work line by line so a dash never merges two list items or headings.
+  return t.split("\n").map((line) => {
+    if (!/[\u2013\u2014]/.test(line)) return line;
+    // Leave table rows alone: a dash there is a cell value, and rewriting
+    // punctuation inside a table breaks the column count.
+    if (line.trim().startsWith("|")) return line;
+
+    let out = line;
+    // A pair of dashes inside one line is a parenthetical. Commas.
+    out = out.replace(/\s*[\u2013\u2014]\s*([^\u2013\u2014]{1,120}?)\s*[\u2013\u2014]\s*/g, ", $1, ");
+
+    // Whatever is left is a single dash doing one of two jobs.
+    out = out.replace(/\s*[\u2013\u2014]\s*(.+)$/, (m, rest) => {
+      const tail = rest.trim();
+      if (!tail) return "";
+      const hasVerb = /\s(is|are|was|were|be|been|has|have|had|can|could|will|would|may|might|does|do|did|remains?|shows?|showed|suggests?|means?|makes?|made|gives?|gave|leaves?|left|becomes?|became|reduces?|increases?|supports?|appears?|seems?|tends?)\s/i.test(" " + tail);
+      const startsClause = /^(the|this|that|these|those|it|they|we|there|a|an|its|their|his|her|our|most|many|some|each|every|both|neither|either|[A-Z])\b/.test(tail);
+
+      // An independent clause reads best as its own sentence. Joining two
+      // of them with a comma is a comma splice, which is worse than the em
+      // dash we are replacing, so the bar for "this is a clause" has to be
+      // low enough to catch short ones like "the effect is strongest."
+      if (hasVerb && startsClause && tail.length > 24) {
+        return ". " + tail.charAt(0).toUpperCase() + tail.slice(1);
+      }
+      // No verb, but a list or an appositive naming several things: that is
+      // what a colon is for. "three oils, AVO, PG and UCO" turns one list
+      // into a confusing three; "three oils: AVO, PG and UCO" does not.
+      if (!hasVerb && /,|\sand\s|\sor\s/.test(tail)) {
+        return ": " + tail;
+      }
+      return ", " + tail;
+    });
+
+    // Tidy the seams the rewrites can leave behind.
+    out = out.replace(/\s+([,.;:!?])/g, "$1")
+             .replace(/,\s*,/g, ",")
+             .replace(/,\s*\./g, ".")
+             .replace(/\.\s*\./g, ".")
+             .replace(/,\s*$/, "")
+             .replace(/\s{2,}/g, " ");
+    return out;
+  }).join("\n");
+}
+
 function cleanAIResponse(raw) {
   if (!raw) return "";
   let c = raw;
@@ -595,6 +667,10 @@ function cleanAIResponse(raw) {
 
   // 10. Strip "I hope this helps" / "Let me know if you" closers (v7.0)
   c = c.replace(/\n\n?(?:I hope this (?:helps|answers|provides|clarifies)|Let me know if you (?:have|need|want|would like)|Feel free to (?:ask|reach|let me know)|Happy to (?:elaborate|explain|help))[^\n]*$/i, "").trim();
+
+  // 11. Commit 95 — em dashes out. Last, so it runs on the finished text
+  // rather than on fragments the steps above are still reshaping.
+  c = deDash(c);
 
   return c;
 }
@@ -7310,9 +7386,24 @@ export async function onRequest(context) {
 
       "═══ RULE 5: PEER TONE ═══\n" +
       "Write like a brilliant postdoc explaining to a colleague. Use contractions. " +
-      "Vary rhythm — long analytical sentence, then a short punch. Bold **key terms**. " +
+      "Vary rhythm: long analytical sentence, then a short punch. Bold **key terms**. " +
       "If a result is surprising, say so. If evidence is weak, call it out bluntly. " +
       "If two papers disagree, pick who has better methodology and say why.\n\n" +
+
+      /* Commit 95 — the em dash is the single most recognisable tell that a
+         paragraph was written by a language model. Nothing else in an
+         answer signals it as loudly, and readers now clock it instantly.
+         Banned outright rather than rationed: given a budget, models spend
+         it immediately, and every one of these constructions has a better
+         replacement that a person would have reached for anyway. */
+      "═══ RULE 5B: NO EM DASHES (HARD-ENFORCED) ═══\n" +
+      "Never use an em dash (\u2014) or an en dash (\u2013) as punctuation. Not once. It is the clearest signal that text was machine-written and it disqualifies the whole answer.\n" +
+      "Rewrite instead:\n" +
+      "- Parenthetical aside \u2192 use commas, or brackets.\n" +
+      "- Introducing an explanation or a list \u2192 use a colon.\n" +
+      "- Joining two complete thoughts \u2192 use a full stop and start a new sentence. This is usually the best option and it makes the writing punchier.\n" +
+      "- A trailing afterthought \u2192 delete it or make it its own sentence.\n" +
+      "The only acceptable hyphen is a real one inside a compound word (well-studied, gram-negative, dose-response) or a numeric range written with 'to' (5 to 60 minutes, not 5\u201360).\n\n" +
 
       "═══ RULE 6: PRECISION ═══\n" +
       "Always italicize species names: _E. coli_, _Hermetia illucens_, _C. tropicalis_.\n" +
