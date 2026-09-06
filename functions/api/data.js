@@ -407,7 +407,7 @@ export async function onRequest(context) {
         let row = null;
         try {
           row = await env.DB.prepare(
-            `SELECT cs.thread_id, cs.sender_id, cs.created_at
+            `SELECT cs.thread_id, cs.sender_id, cs.created_at, cs.payload
              FROM call_signals cs
              JOIN thread_participants tp ON tp.thread_id = cs.thread_id
              WHERE tp.user_id = ? AND cs.sender_id != ? AND cs.type = 'ring' AND cs.created_at > ?
@@ -433,6 +433,14 @@ export async function onRequest(context) {
             fromId: row.sender_id,
             fromName: caller ? (caller.name || caller.username || caller.email) : "Someone",
             at: row.created_at,
+            // Commit 97 — the caller's ring payload says whether this is an
+            // audio-only call. Without it the callee always answered with a
+            // camera request, which hard-failed on any machine that hasn't
+            // got one. Parsed defensively: an older client rings with an
+            // empty payload and that must still mean "video".
+            audioOnly: (() => {
+              try { return !!(JSON.parse(row.payload || "{}").audioOnly); } catch { return false; }
+            })(),
           },
         }), { status: 200, headers: cors });
       }
