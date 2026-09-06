@@ -1446,11 +1446,22 @@ export function verifyAnswerAgainstSources(answerText, papers) {
     if (phrase && phraseFoundInText(phrase, sourceTextLower)) { thin.push(entity); continue; }
     unsupported.push(entity);
   }
+  /* Commit 99 — this sentence is the whole panel for most readers, and it
+     was overselling what it had done. It used to read "All 3 specific terms
+     named in the answer appear in the cited sources", which a reader pairs
+     with the big "100%" above it and takes to mean the answer was verified.
+     What actually happened is narrower and worth saying out loud: the gene,
+     drug and pathway names were pulled out of the answer and looked for in
+     the titles and abstracts of the papers it cites. That catches an answer
+     citing a paper that has nothing to do with what it just said. It cannot
+     tell you the conclusion is right. Both halves of that belong in the
+     copy, because the reader's next move depends on which one they think
+     they are looking at. */
   const parts = [];
-  if (unsupported.length) parts.push(`${unsupported.length} term${unsupported.length === 1 ? "" : "s"} (${unsupported.slice(0, 5).join(", ")}) ${unsupported.length === 1 ? "doesn't" : "don't"} appear in any cited source — may come from general knowledge rather than these specific papers, or may be a citation error worth double-checking`);
-  if (thin.length) parts.push(`${thin.length} term${thin.length === 1 ? "" : "s"} (${thin.slice(0, 5).join(", ")}) ${thin.length === 1 ? "isn't" : "aren't"} named directly, but the phrase the answer used to define ${thin.length === 1 ? "it" : "them"} is in a cited source`);
+  if (unsupported.length) parts.push(`${unsupported.length === 1 ? "One name, " : `${unsupported.length} names, `}${unsupported.slice(0, 5).join(", ")}, ${unsupported.length === 1 ? "doesn't" : "don't"} turn up in any paper the answer cites. That can mean the answer reached past its sources, or that it attached the wrong citation`);
+  if (thin.length) parts.push(`${thin.length === 1 ? "One name is" : `${thin.length} names are`} only an indirect match: the answer writes ${thin.length === 1 ? "it" : "them"} out in full somewhere a source agrees with, but the short form itself never appears`);
   const note = parts.length
-    ? parts.join("; ") + "."
-    : `All ${supported.length} specific term${supported.length === 1 ? "" : "s"} named in the answer appear in the cited sources.`;
+    ? parts.join(". ") + "."
+    : `Every specific name the answer uses turns up in a paper it cites. That means it is drawing on this evidence rather than reaching past it. It is not a check on whether the conclusions are right.`;
   return { checked: true, unsupported, supported, thin, note };
 }
