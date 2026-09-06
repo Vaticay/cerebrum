@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.14.0";
+const APP_VERSION = "6.15.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -2352,7 +2352,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
       return (
         <ul key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.8, color: P.ink, marginBottom: 8, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-body)", fontWeight: 400 }}>
+            <li key={ii} style={{ fontSize: 17, lineHeight: 1.75, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-read)", fontWeight: 400 }}>
               <span style={{ position: "absolute", left: -12, top: "0.55em", width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.7 }} />
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite)}
             </li>
@@ -2369,7 +2369,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
       return (
         <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.8, color: P.ink, marginBottom: 8, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-body)", fontWeight: 400, counterIncrement: "cb-list" }}>
+            <li key={ii} style={{ fontSize: 17, lineHeight: 1.75, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-read)", fontWeight: 400, counterIncrement: "cb-list" }}>
               <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)", opacity: 0.8 }}>{ii + 1}.</span>
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite)}
             </li>
@@ -2391,7 +2391,16 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite) {
     // never reach this branch in the first place.
     const paraClean = stripStrayHashes(para);
     return (
-    <p key={pi} style={{ fontSize: 16, lineHeight: 1.7, margin: "0 0 20px", color: P.ink, letterSpacing: "-0.008em", fontFamily: "var(--cb-body)", fontWeight: 400 }}>
+    <p key={pi} style={{
+      /* Commit 96 — the reading surface.
+         17.5px on a serif with a 1.75 leading and NO negative tracking.
+         The old settings (16px sans, -0.008em) were tuned for a dense UI,
+         which is what an answer read like. A serif wants a touch more size
+         and air, and negative tracking on a serif is simply wrong. */
+      fontSize: 17.5, lineHeight: 1.75, margin: "0 0 22px", color: P.ink,
+      letterSpacing: "0", fontFamily: "var(--cb-read)", fontWeight: 400,
+      fontOpticalSizing: "auto",
+    }}>
       {paraClean.split("\n").map((line, li) => (
         <React.Fragment key={li}>
           {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)}
@@ -6848,7 +6857,7 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
               Email
               <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@example.com" aria-label="Email" />
             </label>
-            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>No password to remember — we'll email you a 6-digit code that signs you in.</div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>No password to remember. We'll email you a 6-digit code that signs you in.</div>
             {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5 }}>{error}</div>}
             <button type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-body)" }}>
               {busy ? "Sending…" : "Send sign-in code"}
@@ -14424,6 +14433,29 @@ function App() {
           ever mounted it. The nav row has been inert since the refactor
           that dropped the old header. Nothing about NotebookMode itself
           needed fixing — it just needed rendering. */}
+      {/* ══════════════════════════════════════════════════════════
+          Commit 96 — nobody could sign in or sign up.
+
+          The third instance of this exact bug, and by far the worst.
+          `authOpen` was set to true by the Sign in button, by the
+          "profile" nav case for a signed-out visitor, and by Settings'
+          onOpenAuth — and NO LINE OF JSX EVER MOUNTED AuthModal. The
+          component is fully written at line ~6734, handleAuthed is wired
+          and correct, the whole one-time-code flow works. It was simply
+          never rendered, so every one of those buttons set a boolean and
+          did nothing visible.
+
+          That means account creation has been impossible for every
+          visitor since the refactor that dropped the old header, which
+          also makes it the reason Resend looked like it was not sending:
+          nothing was ever requesting a code. */}
+      {authOpen && (
+        <AuthModal
+          P={P} accent={accent} at={at}
+          close={() => setAuthOpen(false)}
+          onAuthed={(u) => handleAuthed(u, { checkImport: true })}
+        />
+      )}
       {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
       {evidenceTableSources && <EvidenceTableModal P={P} accent={accent} at={at} sources={evidenceTableSources} close={() => setEvidenceTableSources(null)} />}
       {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />}
@@ -14490,9 +14522,42 @@ function App() {
    ════════════════════════════════════════════════════════════════ */
 const CSS = `
 :root {
-  --cb-display: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
-  --cb-body:    'Inter', system-ui, -apple-system, sans-serif;
-  --cb-mono:    'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  /* ══════════════════════════════════════════════════════════════
+     Commit 96 — the typeface was the tell.
+
+     This shipped on Space Grotesk + Inter + JetBrains Mono. That trio is
+     the default of every Vercel starter, every YC SaaS landing page and
+     every AI wrapper built between 2021 and 2024. None of the three is a
+     bad typeface. Together they are ANONYMOUS, and anonymous is what
+     "doesn't feel premium" actually means here: the page announces that it
+     came out of a template before a single word is read.
+
+     Replaced with a system where each face has one job:
+
+       Newsreader   a screen-first serif with a real optical-size axis
+                    (6..72) and weights 300-700. Headings AND, more
+                    importantly, the answer prose. Setting eight hundred
+                    words of research writing in a UI sans is what made
+                    this read as a dashboard; setting it in a serif built
+                    for reading is what makes it read as a publication.
+                    This is the single biggest change in the commit.
+
+       Inter Tight  chrome only. Buttons, labels, nav, chips, meta. Inter
+                    is superb at small sizes and the Tight cut is drawn
+                    for exactly this, so the interface stays crisp while
+                    the reading surfaces get character.
+
+       IBM Plex Mono  numbers, IDs, counts. Plex was drawn for a research
+                    and technology company and carries that; JetBrains
+                    Mono reads as a code editor, which this is not.
+
+     --cb-read exists so the intent is legible at every call site: it is
+     the same family as --cb-display, but it marks text a person actually
+     reads at length rather than scans. ══════════════════════════════ */
+  --cb-display: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --cb-read:    'Newsreader', Georgia, 'Times New Roman', serif;
+  --cb-body:    'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
+  --cb-mono:    'IBM Plex Mono', 'SF Mono', ui-monospace, monospace;
   --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
   --cb-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --cb-ease-out: cubic-bezier(0, 0, 0.2, 1);
