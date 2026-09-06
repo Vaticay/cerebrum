@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.11.0";
+const APP_VERSION = "6.13.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -4456,14 +4456,24 @@ function buildAcademicPaperBlocks(answer) {
 function extractDisagreement(answer, sources) {
   if (!answer || !Array.isArray(sources) || sources.length < 2) return null;
   // The heading text is fixed by the STRUCTURE contract in search.js.
-  const m = answer.match(/##\s*(?:Where researchers disagree|Where they actually differ)\s*\n([\s\S]*?)(?=\n##\s|$)/i);
+  /* Commit 93 — the section boundary needed the same fix the renderer got
+     in Commit 85. The lookahead required a NEWLINE before the next "##",
+     but models routinely glue the following heading onto the end of the
+     last sentence. When that happened this captured the next heading as
+     part of the disagreement body, and a card in the panel ended with a
+     literal "## How solid is this?" hanging off it — which is exactly what
+     showed up in a real answer. Tolerate the glued form. */
+  const m = answer.match(/##\s*(?:Where researchers disagree|Where they actually differ)\s*\n?([\s\S]*?)(?=\s*#{1,6}\s+\w|$)/i);
   if (!m) return null;
-  const body = m[1].trim();
+  const body = stripStrayHashes(m[1]).trim();
   if (body.length < 60) return null;
 
   const claims = [];
   for (const raw of body.split(/(?<=[.!?])\s+(?=[A-Z])/)) {
-    const sentence = raw.trim();
+    // Belt and braces: a marker surviving into an individual sentence
+    // would render inside a card, where there is no second chance to
+    // catch it.
+    const sentence = stripStrayHashes(raw).trim();
     if (sentence.length < 40) continue;
     const refs = [...sentence.matchAll(/\[(\d{1,2})\]/g)].map((x) => parseInt(x[1], 10));
     if (!refs.length) continue;
