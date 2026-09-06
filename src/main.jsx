@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.13.0";
+const APP_VERSION = "6.14.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -106,11 +106,11 @@ async function apiAuth(action, payload) {
   const isJson = (res.headers.get("content-type") || "").includes("json");
   const data = isJson ? await res.json().catch(() => ({})) : {};
   if (!res.ok) {
-    if (!isJson) throw new Error("Couldn't reach the account service right now — it may not be deployed yet. Try again shortly, or contact support if this keeps happening.");
+    if (!isJson) throw new Error("Couldn't reach the account service right now. It may not be deployed yet. Try again shortly, or contact support if this keeps happening.");
     // Surface the specific backend error (e.g. "Incorrect email or password",
     // "An account with that email already exists", "Too many attempts") so the
     // user sees exactly what went wrong rather than a generic catch-all.
-    throw new Error(data.error || (res.status === 401 ? "Invalid credentials." : res.status === 429 ? "Too many requests — wait a moment and try again." : "Something went wrong. Please try again."));
+    throw new Error(data.error || (res.status === 401 ? "Invalid credentials." : res.status === 429 ? "Too many requests. Wait a moment and try again." : "Something went wrong. Please try again."));
   }
   return data;
 }
@@ -347,21 +347,36 @@ function formatCitation(source, style, index) {
     if (!a) return "";
     return (a.endsWith(".") ? a : a + ".") + " ";
   })();
+  /* Commit 95 — the same double period, one field over.
+     v28 fixed it for the author string and stopped there. Titles have
+     exactly the same problem and it is far more visible: PubMed ships a
+     great many titles already terminated with a full stop ("...Gut
+     Microbiome Functions."), and every style below appends its own, so
+     real bibliographies were rendering "Functions.." on most entries.
+     Same treatment, applied to the two fields that can arrive
+     pre-terminated. */
+  const endPunct = (v) => {
+    const t = String(v || "").trim();
+    if (!t) return t;
+    return /[.!?]$/.test(t) ? t : t + ".";
+  };
+  const titleDot = endPunct(title);
+  const journalDot = endPunct(journal);
   switch (style) {
     case "vancouver": {
-      const parts = [`${index}. ${authorsPart}${title}.`];
-      if (journal) parts.push(` ${journal}.`);
+      const parts = [`${index}. ${authorsPart}${titleDot}`];
+      if (journal) parts.push(` ${journalDot}`);
       parts.push(` ${year}.`);
       return parts.join("");
     }
     case "apa": {
-      return `${authorsPart}(${year}). ${title}. ${journal ? "*" + journal + "*." : ""}`.trim();
+      return `${authorsPart}(${year}). ${titleDot} ${journal ? "*" + journal + "*." : ""}`.trim();
     }
     case "mla": {
-      return `${authorsPart}"${title}." *${journal || "n.p."}*, ${year}${url ? ", " + url : ""}.`;
+      return `${authorsPart}"${titleDot}" *${journal || "n.p."}*, ${year}${url ? ", " + url : ""}.`;
     }
     case "chicago": {
-      return `${authorsPart}${year}. "${title}." *${journal || "n.p."}*.`;
+      return `${authorsPart}${year}. "${titleDot}" *${journal || "n.p."}*.`;
     }
     case "bibtex": {
       // Bug: this built the key from `year`, which defaults to the literal
@@ -380,7 +395,7 @@ function formatCitation(source, style, index) {
       return `@article{${key},\n${fields.join(",\n")}\n}`;
     }
     default:
-      return `${index}. ${authors} ${title}. ${journal} ${year}.`;
+      return `${index}. ${authors} ${titleDot} ${journal} ${year}.`;
   }
 }
 
@@ -1298,7 +1313,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
         ))}
         {allOffline && (
           <div style={{ marginTop: 10, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>
-            Couldn't reach the literature index just now — counts will refresh on the next check.
+            Couldn't reach the literature index just now. Counts refresh on the next check.
           </div>
         )}
       </div>
@@ -1792,7 +1807,7 @@ const ASK_MODES = [
     key: "map",
     label: "Map a field",
     blurb: "The shape of a literature",
-    placeholder: "Name a field to map — who works on what, and what's open...",
+    placeholder: "Name a field to map. Who works on what, and what's open...",
     icon: "network",
   },
   {
@@ -3706,65 +3721,65 @@ function InfoPage({ page }) {
   const animationMode = (() => { try { return getCookie("cb_anim2") || "cinematic"; } catch { return "cinematic"; } })();
   const goHome = () => { window.location.href = "/"; };
   const PAGES = {
-    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC — 43M articles", "PubMed — 36M articles", "OpenAlex — 250M works", "Semantic Scholar — 220M papers", "Crossref — 150M works", "arXiv, bioRxiv — preprints", "DOAJ, PLOS, Zenodo — open access", "CORE, BASE, PMC full-text, OpenAIRE — additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers — every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized — no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
+    about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC: 43M articles", "PubMed: 36M articles", "OpenAlex: 250M works", "Semantic Scholar: 220M papers", "Crossref: 150M works", "arXiv, bioRxiv: preprints", "DOAJ, PLOS, Zenodo: open access", "CORE, BASE, PMC full-text, OpenAIRE: additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers. Every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized, no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ] },
     privacy: { eyebrow: "Privacy", title: "Privacy Policy", lede: "No advertising. No tracking pixels. No third-party analytics. No sale of personal information. This page explains exactly what is collected, why, who touches it, and how to get rid of it.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
       { h: "1. The short version", list: [
         "Guest mode needs no account and stores your work only in your own browser.",
-        "Your search question is sent to our server to run the search — it has to be, that is the search.",
+        "Your search question is sent to our server to run the search. It has to be, that is the search.",
         "We run no advertising, no tracking pixels, no third-party analytics, and no ad networks, with or without an account.",
         "We do not sell or share personal information, and we never have.",
         "An account exists for one reason: so your saved work follows you to another device.",
         "You can delete your account and its data from Settings, permanently, without emailing anyone."
       ] },
       { h: "2. Who is responsible for your data", p: "The operator of askcerebrum.org is the data controller for the information described here. For any privacy question, request, or complaint, contact contact@askcerebrum.org. If you are in the EEA or UK you also have the right to complain to your local supervisory authority." },
-      { h: "3. What we collect in guest mode", p: "Guest mode is the default and needs no account. Your saved articles, collections, conversation history, and preferences are written to your own browser's local storage and cookies. They are not sent to us, they are not readable by us, and clearing your browser data deletes them permanently — including from us, because we never had them." },
+      { h: "3. What we collect in guest mode", p: "Guest mode is the default and needs no account. Your saved articles, collections, conversation history, and preferences are written to your own browser's local storage and cookies. They are not sent to us, they are not readable by us, and clearing your browser data deletes them permanently, including from us, because we never had them." },
       { h: "4. What happens when you search", list: [
         "Your question is transmitted to our server so the search can run, and is sent onward to the scholarly databases and to the language-model provider that generates the summary.",
         "Answers may be cached, keyed by the question text, so a repeated question is faster and costs the upstream providers less.",
         "We keep short-lived request logs (timestamp, coarse endpoint, and an IP-derived value used for rate limiting) to keep the service up and to stop abuse.",
         "We do not build a profile of you from your questions, and we do not link guest-mode queries to an identity.",
-        "Please do not put personal health information, identifying details about other people, or confidential material into a query — it leaves your device and reaches third-party providers."
+        "Please do not put personal health information, identifying details about other people, or confidential material into a query. It leaves your device and reaches third-party providers."
       ] },
-      { h: "5. What an account adds", p: "If you create an account we store your email address, a password hash if you set a password, and the content you explicitly choose to sync: saved sources, collections, conversation history, profile fields you fill in, watched topics, and — if you use the social features — your follows, direct messages, message attachments, and call signalling records. That is the whole list. Signing in changes nothing about how a search itself works." },
+      { h: "5. What an account adds", p: "If you create an account we store your email address, a password hash if you set a password, and the content you explicitly choose to sync: saved sources, collections, conversation history, profile fields you fill in, watched topics, and, if you use the social features, your follows, direct messages, message attachments, and call signalling records. That is the whole list. Signing in changes nothing about how a search itself works." },
       { h: "6. Direct messages and calls", p: "Direct messages and their attachments are stored on our servers so they can be delivered to the recipient and shown to both of you later. They are not end-to-end encrypted: treat them as you would email, not as a confidential channel. Calls are established peer-to-peer where the network allows and are relayed through a public TURN service when it does not; we store only the short-lived signalling records needed to connect a call, and we do not record call audio or video. Conduct reports you file are stored so they can be reviewed." },
-      { h: "7. Cookies and local storage", p: "We use no advertising or analytics cookies. Everything we set is functional — either your own preferences or your login session:", list: [
-        "cb_sess — your signed-in session token. Set only if you sign in.",
-        "cb_pal, cb_accent, cb_ca, cb_density, cb_fs, cb_ls, cb_hc, cb_rt, cb_df, cb_fh — appearance and accessibility preferences.",
-        "cb_len, cb_cite, cb_tw, cb_fc — response and citation preferences.",
-        "cb_muted, cb_snd, cb_ap — sound, ambience, and read-aloud preferences.",
-        "cb_anim2, cb_animS — motion preferences.",
-        "cb_notify — which desktop notifications you have allowed.",
-        "cb_legal — the version of these policies you have accepted, and when.",
+      { h: "7. Cookies and local storage", p: "We use no advertising or analytics cookies. Everything we set is functional: either your own preferences or your login session:", list: [
+        "cb_sess. Your signed-in session token. Set only if you sign in.",
+        "cb_pal, cb_accent, cb_ca, cb_density, cb_fs, cb_ls, cb_hc, cb_rt, cb_df, cb_fh: appearance and accessibility preferences.",
+        "cb_len, cb_cite, cb_tw, cb_fc: response and citation preferences.",
+        "cb_muted, cb_snd, cb_ap: sound, ambience, and read-aloud preferences.",
+        "cb_anim2, cb_animS: motion preferences.",
+        "cb_notify, which desktop notifications you have allowed.",
+        "cb_legal. The version of these policies you have accepted, and when.",
         "Local storage: cb_saved, cb_history, cb_collections, cb_streak, cb_profile, cb_watch_notified, cb_tour_done, and any optional third-party API key you choose to paste into Settings.",
-        "Because none of these are tracking cookies, there is no consent banner to dismiss — but you can clear them at any time from your browser, or reset preferences from Settings."
+        "Because none of these are tracking cookies, there is no consent banner to dismiss, but you can clear them at any time from your browser, or reset preferences from Settings."
       ] },
       { h: "8. Legal bases for processing (EEA/UK)", list: [
-        "Performance of a contract — running searches, delivering messages, and keeping your account working.",
-        "Legitimate interests — security, abuse prevention, rate limiting, and keeping the service available, balanced against your rights.",
-        "Consent — optional extras such as desktop notifications and any third-party API key you supply. You can withdraw consent at any time in Settings.",
-        "Legal obligation — where we must retain or disclose something by law."
+        "Performance of a contract: running searches, delivering messages, and keeping your account working.",
+        "Legitimate interests: security, abuse prevention, rate limiting, and keeping the service available, balanced against your rights.",
+        "Consent, optional extras such as desktop notifications and any third-party API key you supply. You can withdraw consent at any time in Settings.",
+        "Legal obligation: where we must retain or disclose something by law."
       ] },
       { h: "9. Who else processes your data", p: "We keep the list of third parties as short as the service allows. Each of them acts as a processor or independent controller for the narrow purpose described:", list: [
-        "Cloudflare — hosting, edge delivery, database, and the AI inference that generates answers.",
+        "Cloudflare: hosting, edge delivery, database, and the AI inference that generates answers.",
         "Language-model providers reached through our server to generate summaries. Your question text reaches them; your identity does not.",
-        "Scholarly data providers — Europe PMC, PubMed/NCBI, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv/medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, OpenAIRE — which receive the search terms needed to answer your query.",
+        "Scholarly data providers: Europe PMC, PubMed/NCBI, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv/medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, OpenAIRE. Each receives the search terms needed to answer your query.",
         "A public STUN/TURN relay, used only to establish calls when a direct connection is impossible.",
         "Optional and only if you enable them: ElevenLabs for premium narration and Zotero for reference export, using a key you supply and that stays in your browser.",
         "We do not sell, rent, or share personal information with advertisers or data brokers. We have no advertising relationships of any kind."
       ] },
       { h: "10. International transfers", p: "The service runs on a global edge network, so processing may occur outside your country, including in the United States. Where data leaves the EEA or UK we rely on appropriate safeguards, such as standard contractual clauses entered into by our providers." },
       { h: "11. How long we keep things", list: [
-        "Account data — until you delete your account, which removes it.",
-        "Saved sources, collections, history, watched topics — until you delete them or your account.",
-        "Direct messages — until you or the other participant deletes the conversation, or until the account is deleted.",
-        "Call signalling records — minutes; they exist only to connect a call.",
-        "Answer cache entries — a bounded period, keyed by question text rather than by user.",
-        "Rate-limit and security logs — a short rolling window.",
-        "Guest-mode data — for as long as you keep it in your own browser. We never receive it."
+        "Account data: until you delete your account, which removes it.",
+        "Saved sources, collections, history, watched topics: until you delete them or your account.",
+        "Direct messages, until you or the other participant deletes the conversation, or until the account is deleted.",
+        "Call signalling records: minutes; they exist only to connect a call.",
+        "Answer cache entries: a bounded period, keyed by question text rather than by user.",
+        "Rate-limit and security logs: a short rolling window.",
+        "Guest-mode data, for as long as you keep it in your own browser. We never receive it."
       ] },
       { h: "12. Your rights", p: "Depending on where you live you may have the right to access, correct, delete, restrict, or object to the processing of your personal information, and to receive it in a portable format. Cerebrum is built so you can exercise most of these yourself and immediately: Settings gives you a full JSON export of your workspace, per-item deletion, and permanent account deletion. For anything you cannot do in the app, email contact@askcerebrum.org and we will respond within the period your law requires.", list: [
         "EEA/UK (GDPR): access, rectification, erasure, restriction, objection, portability, withdrawal of consent, and complaint to a supervisory authority.",
-        "California (CCPA/CPRA): know, delete, correct, and opt out of sale or sharing — we do not sell or share personal information, so there is nothing to opt out of, and we will not discriminate against you for exercising any right.",
+        "California (CCPA/CPRA): know, delete, correct, and opt out of sale or sharing. We do not sell or share personal information, so there is nothing to opt out of, and we will not discriminate against you for exercising any right.",
         "We honour Global Privacy Control and Do Not Track signals by default, because we run no tracking to disable in the first place."
       ] },
       { h: "13. Security", list: [
@@ -3779,9 +3794,9 @@ function InfoPage({ page }) {
       { h: "16. Changes to this policy", p: "We may update this policy. Material changes update the version identifier at the top of this page, and we will ask you to review and accept the new version before you continue using the Service. Prior versions are available on request." },
       { h: "17. Contact", email: "contact@askcerebrum.org", p: "Privacy questions, data requests, and complaints." }
     ] },
-    terms: { eyebrow: "Terms", title: "Terms of Service", lede: "These terms are a binding agreement between you and Cerebrum. Please read them — the sections on accuracy, professional advice, and liability affect your legal rights.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
+    terms: { eyebrow: "Terms", title: "Terms of Service", lede: "These terms are a binding agreement between you and Cerebrum. Please read them: the sections on accuracy, professional advice, and liability affect your legal rights.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
       { h: "1. Agreement to these terms", p: "By accessing or using Cerebrum (the \"Service\") at askcerebrum.org, you agree to be bound by these Terms of Service and by our Privacy Policy and Disclosures, which are incorporated here by reference. If you do not agree, do not use the Service. If you use the Service on behalf of an organization, you represent that you have authority to bind that organization, and \"you\" means that organization." },
-      { h: "2. What Cerebrum is — and is not", p: "Cerebrum is a free research instrument. It queries public scholarly databases, retrieves records and abstracts, and uses a large language model to summarize what it retrieved, with citations back to the source. It is a starting point for a literature search and a tool for finding papers you should read yourself." },
+      { h: "2. What Cerebrum is, and is not", p: "Cerebrum is a free research instrument. It queries public scholarly databases, retrieves records and abstracts, and uses a large language model to summarize what it retrieved, with citations back to the source. It is a starting point for a literature search and a tool for finding papers you should read yourself." },
       { h: "Cerebrum is NOT", list: [
         "A source of medical, legal, financial, psychological, veterinary, engineering, or safety advice.",
         "A substitute for reading the cited papers, or for a qualified professional.",
@@ -3789,7 +3804,7 @@ function InfoPage({ page }) {
         "A publisher, peer reviewer, or verifier of the third-party research it indexes.",
         "A guaranteed-accurate, guaranteed-complete, or guaranteed-available service."
       ] },
-      { h: "3. Eligibility", p: "You must be at least 13 years old to use the Service. If you are in the European Economic Area or the United Kingdom, you must be at least 16, or have the consent of a parent or guardian. The Service is not directed at children under 13 and we do not knowingly collect their personal information — see the Privacy Policy. If you are under the age of majority where you live, you may use the Service only with the involvement of a parent or guardian." },
+      { h: "3. Eligibility", p: "You must be at least 13 years old to use the Service. If you are in the European Economic Area or the United Kingdom, you must be at least 16, or have the consent of a parent or guardian. The Service is not directed at children under 13 and we do not knowingly collect their personal information, see the Privacy Policy. If you are under the age of majority where you live, you may use the Service only with the involvement of a parent or guardian." },
       { h: "4. Accounts", p: "An account is optional; guest mode works fully without one. If you create one, you are responsible for the security of your account and for everything done through it. Provide accurate information, keep your credentials confidential, and tell us promptly at contact@askcerebrum.org if you believe your account has been compromised. You may delete your account at any time from Settings, which permanently removes your account data from our servers." },
       { h: "5. Acceptable use", p: "You agree not to:", list: [
         "Disrupt, degrade, overload, or circumvent the Service, its rate limits, or its security controls.",
@@ -3806,24 +3821,24 @@ function InfoPage({ page }) {
       { h: "6. AI-generated content and accuracy", p: "Answers are generated by a large language model from records retrieved at query time. Language models can misread, over-generalize, conflate sources, misattribute findings, and state incorrect things fluently and confidently. Retrieval can miss relevant work or surface irrelevant work. Some indexed records are preprints that have not been peer reviewed. You are responsible for verifying anything you rely on against the cited primary sources. Cerebrum's accuracy indicators, confidence language, and fact-check pass are aids to judgment, not guarantees, and must not be read as certification that a statement is true." },
       { h: "7. No professional advice, and no reliance", p: "Nothing produced by the Service is professional advice of any kind, and no professional relationship is created by using it. Never disregard, delay, or override advice from a qualified professional because of something Cerebrum said. If you may be experiencing a medical emergency, contact your local emergency number or a licensed clinician immediately. Reliance on the Service is at your sole risk." },
       { h: "8. Third-party sources and content", p: "Cerebrum retrieves from, links to, and displays metadata and abstracts from independent third-party sources, including Europe PMC, PubMed/NCBI, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv and medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, OpenAIRE, and public feeds such as NASA APOD, and it may embed third-party video. Those materials belong to their authors, publishers, and providers. Cerebrum does not own, endorse, verify, or control them, is not affiliated with them, and is not responsible for their content, licensing, availability, or accuracy. Your use of any linked or embedded third-party material is governed by that third party's own terms and privacy policy. Where a source requires attribution, we display it; where a source's licence restricts reuse, that restriction travels with the content and binds you too." },
-      { h: "9. Intellectual property", p: "The Service's software, interface, design, and branding are owned by Cerebrum and its licensors and are protected by intellectual property law. These terms grant you a limited, personal, revocable, non-exclusive, non-transferable licence to use the Service as intended, and nothing more. Cited papers, abstracts, figures, and metadata remain the property of their respective rights holders. As between you and Cerebrum, you may use the Service's generated summaries for your own research, teaching, and internal work, subject to the restrictions in section 5 and to the rights of the underlying sources — but generated text may reproduce or closely paraphrase source material, so you remain responsible for citation and for any onward publication." },
+      { h: "9. Intellectual property", p: "The Service's software, interface, design, and branding are owned by Cerebrum and its licensors and are protected by intellectual property law. These terms grant you a limited, personal, revocable, non-exclusive, non-transferable licence to use the Service as intended, and nothing more. Cited papers, abstracts, figures, and metadata remain the property of their respective rights holders. As between you and Cerebrum, you may use the Service's generated summaries for your own research, teaching, and internal work, subject to the restrictions in section 5 and to the rights of the underlying sources, but generated text may reproduce or closely paraphrase source material, so you remain responsible for citation and for any onward publication." },
       { h: "10. Copyright complaints", p: "If you believe material accessible through the Service infringes your copyright, email contact@askcerebrum.org with: identification of the work, identification of the material and where it appears, your contact details, a statement that you have a good-faith belief the use is unauthorized, a statement under penalty of perjury that your notice is accurate and that you are the owner or authorized to act, and your physical or electronic signature. We will investigate and remove or disable access to infringing material where appropriate, and we may terminate the accounts of repeat infringers." },
       { h: "11. Your content and communications", p: "The Service includes optional features that let you save sources, keep collections and history, publish a profile, send direct messages, share attachments, and place audio or video calls to other users. You retain ownership of what you create. You grant Cerebrum a limited licence to store, process, transmit, and display that content solely to operate the features you are using. You are responsible for what you send, and you must not use these features to harass, defraud, or distribute unlawful material. We may remove content and suspend accounts that breach these terms or that are reported to us and found to breach them. Calls are peer-to-peer where the network permits; we do not record calls." },
       { h: "12. Privacy", p: "Our handling of personal information is described in the Privacy Policy, which forms part of this agreement. In short: no advertising, no tracking pixels, no sale of personal information, and the minimum data needed to run the features you use." },
-      { h: "13. Availability, changes, and termination", p: "The Service is provided free of charge and with no availability commitment. We may change, suspend, limit, or discontinue any part of it, including individual features and rate limits, at any time and without notice. We may suspend or terminate your access if you breach these terms, if we are required to by law, or if continuing would create risk for other users or for the Service. You may stop using the Service at any time and delete your account from Settings. Sections that by their nature should survive termination — including 6 through 11 and 14 through 19 — survive it." },
+      { h: "13. Availability, changes, and termination", p: "The Service is provided free of charge and with no availability commitment. We may change, suspend, limit, or discontinue any part of it, including individual features and rate limits, at any time and without notice. We may suspend or terminate your access if you breach these terms, if we are required to by law, or if continuing would create risk for other users or for the Service. You may stop using the Service at any time and delete your account from Settings. Sections that by their nature should survive termination, including 6 through 11 and 14 through 19, survive it." },
       { h: "14. Disclaimer of warranties", p: "THE SERVICE, INCLUDING ALL CONTENT AND OUTPUT, IS PROVIDED \"AS IS\" AND \"AS AVAILABLE\", WITHOUT WARRANTIES OF ANY KIND, EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WITHOUT LIMITATION IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, AND ANY WARRANTIES ARISING FROM COURSE OF DEALING OR USAGE OF TRADE. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, SECURE, OR ERROR-FREE, THAT DEFECTS WILL BE CORRECTED, OR THAT ANY OUTPUT IS ACCURATE, COMPLETE, CURRENT, OR RELIABLE. Some jurisdictions do not allow the exclusion of implied warranties, so parts of this section may not apply to you." },
       { h: "15. Limitation of liability", p: "TO THE MAXIMUM EXTENT PERMITTED BY LAW, CEREBRUM AND ITS OPERATORS, CONTRIBUTORS, AND LICENSORS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL, RESEARCH TIME, OR BUSINESS OPPORTUNITY, ARISING OUT OF OR RELATING TO YOUR USE OF OR INABILITY TO USE THE SERVICE, INCLUDING ANY RELIANCE ON ITS OUTPUT, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. OUR TOTAL AGGREGATE LIABILITY FOR ALL CLAIMS RELATING TO THE SERVICE WILL NOT EXCEED ONE HUNDRED US DOLLARS (US$100), OR THE AMOUNT YOU PAID US IN THE TWELVE MONTHS BEFORE THE CLAIM, WHICHEVER IS GREATER. Nothing in these terms excludes or limits liability that cannot lawfully be excluded or limited, including liability for death or personal injury caused by negligence, or for fraud. Some jurisdictions do not allow certain limitations, so parts of this section may not apply to you." },
       { h: "16. Indemnification", p: "You agree to indemnify and hold harmless Cerebrum and its operators from any claim, demand, loss, liability, or expense (including reasonable legal fees) arising out of your use of the Service, your content, your breach of these terms, or your violation of any law or third-party right." },
-      { h: "17. Governing law and disputes", p: "These terms are governed by the laws of the State of Tennessee, United States, without regard to its conflict-of-law rules. You and we agree that the exclusive venue for any dispute arising out of or relating to these terms or the Service is the state or federal courts located in Knox County, Tennessee, and each of us consents to personal jurisdiction there. If you are a consumer resident in the European Economic Area or the United Kingdom, nothing here deprives you of the protection of the mandatory consumer-protection laws of your country of residence, or of your right to bring proceedings in your local courts. Before filing any claim, please email contact@askcerebrum.org and give us thirty days to try to resolve it informally — most things can be sorted out that way." },
+      { h: "17. Governing law and disputes", p: "These terms are governed by the laws of the State of Tennessee, United States, without regard to its conflict-of-law rules. You and we agree that the exclusive venue for any dispute arising out of or relating to these terms or the Service is the state or federal courts located in Knox County, Tennessee, and each of us consents to personal jurisdiction there. If you are a consumer resident in the European Economic Area or the United Kingdom, nothing here deprives you of the protection of the mandatory consumer-protection laws of your country of residence, or of your right to bring proceedings in your local courts. Before filing any claim, please email contact@askcerebrum.org and give us thirty days to try to resolve it informally. Most things can be sorted out that way." },
       { h: "18. Changes to these terms", p: "We may update these terms. When we make a material change we will update the version identifier at the top of this page and ask you to review and accept the new version before continuing to use the Service. Continued use after a non-material update means you accept it. Prior versions are available on request." },
       { h: "19. General", p: "These terms, together with the Privacy Policy and the Disclosures page, are the entire agreement between you and us about the Service. If any provision is held unenforceable, the rest remains in effect and the unenforceable part is limited to the minimum extent necessary. Our failure to enforce a provision is not a waiver of it. You may not assign this agreement; we may assign it in connection with a merger, acquisition, or transfer of the Service." },
       { h: "20. Contact", email: "contact@askcerebrum.org", p: "Questions about these terms, or about anything on this page." }
     ] },
-    disclosures: { eyebrow: "Disclosures", title: "Disclosures", lede: "The things you should know about how Cerebrum works before you rely on it — stated plainly, in one place, rather than buried in the terms.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
+    disclosures: { eyebrow: "Disclosures", title: "Disclosures", lede: "The things you should know about how Cerebrum works before you rely on it: stated plainly, in one place, rather than buried in the terms.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
       { h: "AI-generated content", p: "Every answer on this site is written by a large language model, not by a person and not by the authors of the cited papers. The model summarizes records retrieved at the moment you asked. It can misread an abstract, merge two findings into one, attribute a result to the wrong study, or state something incorrect in completely fluent prose. Citations are inserted by the model and can point at the wrong source even when the sentence is right. Treat every answer as a lead to check, never as a finding to quote." },
       { h: "Not medical advice", p: "Cerebrum is not a doctor, a clinical decision support system, or a medical device, and nothing it produces is medical advice, diagnosis, or treatment. Do not use it to diagnose yourself or anyone else, to choose or change a treatment, to set a dose, or to decide whether to seek care. Always consult a qualified clinician. If you may be having a medical emergency, call your local emergency number now." },
       { h: "Not legal, financial, or safety advice", p: "Cerebrum does not give legal, financial, tax, engineering, chemical-safety, or biosafety advice, and no professional relationship is created by using it. Do not use its output to assess a legal position, make an investment, design a structure, or plan an experiment or procedure with safety implications, without a qualified professional." },
-      { h: "Preprints are not peer-reviewed", p: "Cerebrum deliberately indexes preprint servers — bioRxiv, medRxiv, arXiv, and others reached through Europe PMC — because important work often appears there first. Preprints have not been through peer review. Cerebrum labels them, and you should weight them accordingly." },
+      { h: "Preprints are not peer-reviewed", p: "Cerebrum deliberately indexes preprint servers, bioRxiv, medRxiv, arXiv, and others reached through Europe PMC, because important work often appears there first. Preprints have not been through peer review. Cerebrum labels them, and you should weight them accordingly." },
       { h: "Coverage is incomplete", p: "Cerebrum queries fifteen sources. That is a lot, and it is still not all of the literature. Paywalled full texts, books, theses, non-English work, older material that was never digitized, and anything outside the indexed databases can be missed entirely. An absence of results in Cerebrum is not evidence that no research exists." },
       { h: "Accuracy indicators are aids, not certificates", p: "Source-alignment scores, confidence language, evidence-tier filters, and the optional fact-check pass are heuristics designed to help you judge an answer faster. They are computed automatically, they can be wrong in both directions, and none of them is a certification that a statement is true." },
       { h: "No affiliation or endorsement", p: "Cerebrum is independent. It is not affiliated with, endorsed by, sponsored by, or acting on behalf of any publisher, database, university, journal, funder, or the authors of any cited work. Names, logos, and trademarks belong to their owners and appear here for identification and attribution only." },
@@ -3831,12 +3846,12 @@ function InfoPage({ page }) {
       { h: "Availability", p: "Cerebrum is free, provided as-is, and offered with no uptime commitment. Upstream databases go down, rate-limit us, or change their responses without notice, and features can be changed or withdrawn at any time. Do not build a workflow that cannot tolerate the service being unavailable." },
       { h: "Rate limits", p: "Requests are rate limited per account or per network address to keep the service usable for everyone and to stay within what the upstream providers allow. Hitting a limit is not an error in your query; wait and try again." },
       { h: "Messages and calls are not confidential", p: "Direct messages are stored on our servers so they can be delivered and are not end-to-end encrypted. Calls are peer-to-peer where the network allows and relayed otherwise; we do not record them, but we cannot promise the path is private. Do not use either for patient data, legal privilege, unpublished confidential results, or anything else that would harm you if disclosed." },
-      { h: "Accessibility", p: "Cerebrum aims to meet WCAG 2.1 Level AA. The interface offers high-contrast mode, adjustable text size and line spacing, a dyslexia-friendly typeface, reduced transparency, visible focus indicators, full keyboard navigation, and honours your operating system's reduced-motion setting. If something is unusable for you, email contact@askcerebrum.org and describe what you hit — accessibility reports are treated as bugs, not requests." },
+      { h: "Accessibility", p: "Cerebrum aims to meet WCAG 2.1 Level AA. The interface offers high-contrast mode, adjustable text size and line spacing, a dyslexia-friendly typeface, reduced transparency, visible focus indicators, full keyboard navigation, and honours your operating system's reduced-motion setting. If something is unusable for you, email contact@askcerebrum.org and describe what you hit, accessibility reports are treated as bugs, not requests." },
       { h: "Responsible security disclosure", p: "If you find a vulnerability, email contact@askcerebrum.org with enough detail to reproduce it, and please give us a reasonable chance to fix it before disclosing publicly. Do not access, modify, or delete other people's data, do not degrade the service for others, and do not run automated scanning that amounts to a denial-of-service. We will not pursue action against good-faith research that follows this process." },
       { h: "Reporting a bad answer", p: "Wrong species, invented citation, misattributed finding, an answer that reads as medical advice? Report it in the app or email contact@askcerebrum.org with the exact question. Bad answers are the highest-priority bug class here." },
       { h: "Contact", email: "contact@askcerebrum.org", p: "For anything on this page." }
     ] },
-    contact: { eyebrow: "Contact", title: "Tell us what's broken or missing", lede: "Bug reports, feature requests, feedback, security issues — all welcome.", blocks: [ { h: "Email", email: "contact@askcerebrum.org", p: "Include as much detail as you can. A bug report is far easier to act on with the exact query, your browser, and what you expected to see." }, { h: "Reporting a bad answer", p: "Found a wrong species, an invented citation, a misattributed finding? Email the exact question and a short description. This is how the system improves." }, { h: "Security", p: "Discovered a vulnerability? Email us with details and please hold off on public disclosure until we've had a chance to respond." }, { h: "Blocked at work?", p: "If your organization's web filter is blocking Cerebrum, email us — we can help get it recategorized correctly as Reference / Educational." } ] },
+    contact: { eyebrow: "Contact", title: "Tell us what's broken or missing", lede: "Bug reports, feature requests, feedback, security issues: all welcome.", blocks: [ { h: "Email", email: "contact@askcerebrum.org", p: "Include as much detail as you can. A bug report is far easier to act on with the exact query, your browser, and what you expected to see." }, { h: "Reporting a bad answer", p: "Found a wrong species, an invented citation, a misattributed finding? Email the exact question and a short description. This is how the system improves." }, { h: "Security", p: "Discovered a vulnerability? Email us with details and please hold off on public disclosure until we've had a chance to respond." }, { h: "Blocked at work?", p: "If your organization's web filter is blocking Cerebrum, email us. We can help get it recategorized correctly as Reference / Educational." } ] },
   };
   const data = PAGES[page]; if (!data) return null;
 
@@ -4209,13 +4224,13 @@ const TOUR_STEPS = [
   {
     title: "Command Line",
     icon: "⌘",
-    text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel — PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more — then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
+    text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel, PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more, then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
     hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to focus the search bar from anywhere.`,
   },
   {
     title: "Evidence Filters",
     icon: "◉",
-    text: "After results arrive, use the filter row to narrow by publication type (meta-analysis, RCT, review, preprint), date range, and evidence tier. Filters apply instantly — the source panel and synthesis update in real time so you see only the evidence that meets your threshold.",
+    text: "After results arrive, use the filter row to narrow by publication type (meta-analysis, RCT, review, preprint), date range, and evidence tier. Filters apply instantly: the source panel and synthesis update in real time so you see only the evidence that meets your threshold.",
     hint: "Combine filters to surface the highest-confidence subset of the literature.",
   },
   {
@@ -4230,7 +4245,7 @@ const TOUR_STEPS = [
     // Commit 55: these referenced the old section names ("Divergent
     // Findings & Gaps", "Methodological Confidence"). Tour copy that names
     // sections the reader will never see is worse than no tour copy.
-    text: "The \"Where researchers disagree\" section surfaces papers that conflict with each other or with the consensus. Instead of burying disagreement, Cerebrum shows it — so you can judge the full landscape of a question, not just the majority position.",
+    text: "The \"Where researchers disagree\" section surfaces papers that conflict with each other or with the consensus. Instead of burying disagreement, Cerebrum shows it, so you can judge the full landscape of a question, not just the majority position.",
     hint: "The \"How solid is this?\" section tells you which disagreements actually matter.",
   },
   {
@@ -4987,7 +5002,7 @@ function HowItWorksModal({ P, accent, close }) {
           <Section title="Query intelligence"><List items={[<><strong>Species queries</strong> are wrapped in quoted phrases with strict species-level filtering.</>,<><strong>Author queries</strong> hit OpenAlex's author disambiguation endpoint.</>,<><strong>Acronym expansion</strong> for common scientific abbreviations.</>,<><strong>Fallback ladder</strong>: if a strict query returns nothing, we retry looser, then plain.</>]} /></Section>
           <Section title="Trust and safety"><List items={[<><strong>Retraction flagging</strong> via Crossref's crossmark data.</>,<><strong>No fabricated citations</strong> — the AI is instructed to never invent DOIs, authors, or journal names.</>,<><strong>Honest hedging</strong> — when literature is thin, the model says so.</>]} /></Section>
           <Section title="The AI layer">Answers are synthesized by free-tier language models. Dozens of models across three providers (OpenRouter, Cloudflare Workers AI, and Pollinations) are raced in parallel in two waves — whichever responds first with a good answer wins — so a slow or rate-limited provider can't stall the others.</Section>
-          <Section title="Known limitations"><List items={["New preprints may not be indexed anywhere for hours or days.","The AI can misinterpret papers — verify claims.","Free AI models rate-limit under load.","Non-English literature is under-indexed."]} /></Section>
+          <Section title="Known limitations"><List items={["New preprints may not be indexed anywhere for hours or days.","The AI can misinterpret papers: verify claims.","Free AI models rate-limit under load.","Non-English literature is under-indexed."]} /></Section>
           <Section title="What Cerebrum is not"><List items={["Not a replacement for reading the actual papers","Not a systematic review tool","Not medical, legal, or financial advice","Not paywalled or ad-supported"]} /></Section>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 24, paddingTop: 16, borderTop: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" }}>Cerebrum™ · Built by Vaticay</div>
         </div>
@@ -5118,7 +5133,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
           <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
             {visible.length === 0 ? (
               <div style={{ fontSize: FONT_SIZES.small, color: P.faint, textAlign: "center", padding: "40px 0" }}>
-                {activeId === "all" ? "Nothing saved yet." : "Nothing here yet — move a saved source in with the dropdown next to it on “All saved.”"}
+                {activeId === "all" ? "Nothing saved yet." : "Nothing here yet: move a saved source in with the dropdown next to it on “All saved.”"}
               </div>
             ) : visible.map((s, i) => (
               <div key={sourceKey(s)} style={{ padding: "12px 0", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "flex-start", gap: 10 }}>
@@ -6416,7 +6431,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             )}
           </div>
           <div style={{ fontSize: FONT_SIZES.body, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
-            Refreshed hourly from real science press. Not curated by us, not fact-checked like an answer — read the source before you cite it.
+            Refreshed hourly from real science press. Not curated by us, not fact-checked like an answer. Read the source before you cite it.
           </div>
         </div>
         {status === "loading" && (
@@ -6463,7 +6478,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             </div>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>
               The upstream science feed didn't answer. It's usually busy rather than
-              down — a retry in a few seconds normally works.
+              down, so a retry in a few seconds normally works.
             </div>
             <button
               onClick={() => setReloadTick((t) => t + 1)}
@@ -7044,9 +7059,9 @@ async function postCallSignal(threadId, clientId, type, payload) {
     let reason = "";
     try { reason = (await res.json()).error || ""; } catch {}
     if (!reason) {
-      reason = res.status === 401 ? "Your session expired — sign in again."
+      reason = res.status === 401 ? "Your session expired: sign in again."
         : res.status === 403 ? "You're not authorized to call in this conversation."
-        : res.status === 429 ? "Too many requests — wait a moment."
+        : res.status === 429 ? "Too many requests: wait a moment."
         : `Server returned ${res.status}.`;
     }
     return reason;
@@ -7243,7 +7258,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           // between "the call feature is broken" and "why didn't Dusty's
           // deploy work" being knowable at all from the UI.
           if (!cancelled) {
-            setErrorReason("Video calling isn't set up on the server yet — /api/callsignal isn't answering. Check that functions/api/callsignal.js and iceservers.js are both deployed.");
+            setErrorReason("Video calling isn't set up on the server yet, /api/callsignal isn't answering. Check that functions/api/callsignal.js and iceservers.js are both deployed.");
             setStatus("error");
           }
           return;
@@ -7365,7 +7380,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
               ? "This call needs a relay server and none is available. Two networks like a phone on mobile data and a computer behind a home router usually can't reach each other directly, so the call needs somewhere to bounce through. Set TURN_KEY_ID and TURN_KEY_API_TOKEN in the Cloudflare Pages environment to fix this for everyone."
               : iceErr
                 ? `The relay server rejected the connection (code ${iceErr.code}). The TURN credentials in the Cloudflare Pages environment look wrong or expired.`
-                : "Couldn't establish a connection to the other person — this can happen on some restrictive networks."
+                : "Couldn't establish a connection to the other person. This can happen on some restrictive networks."
           );
           setStatus("error");
         }
@@ -7617,7 +7632,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 100, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
         <span style={{ width: 26, height: 26, borderRadius: "50%", background: withAlpha(accent, 0.35), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>{(name || "?")[0]?.toUpperCase()}</span>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
-        {dataSaver && <span title="Data saver is on — video quality lowered" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="zap" size={11} />Saver</span>}
+        {dataSaver && <span title="Data saver is on: video quality lowered" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="zap" size={11} />Saver</span>}
       </div>
 
       {/* Minimize — keeps the call connected, shrinks to a floating bubble
@@ -7872,7 +7887,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       const out = canvas.toDataURL("image/jpeg", q);
       if (out.length < 650000) return out;
     }
-    throw new Error("That image is too detailed to send — try a smaller crop.");
+    throw new Error("That image is too detailed to send: try a smaller crop.");
   }
 
   async function handleImagePick(e) {
@@ -7926,7 +7941,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       if (durationMs < 700) return; // a mis-tap, not a message
       const blob = new Blob(chunks, { type: mime });
       const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
-      if (data.length > 650000) { toast("That voice note is too long to send — try a shorter one.", { tone: "error" }); return; }
+      if (data.length > 650000) { toast("That voice note is too long to send: try a shorter one.", { tone: "error" }); return; }
       setAttachBusy(true);
       try {
         await sendMessage({ kind: "audio", data, title: "Voice note", meta: { durationMs, transcript: transcript.trim().slice(0, 2000) } });
@@ -8216,7 +8231,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <button
                   onClick={() => { if (!activeThread.blocked) onStartHuddle(activeThread.name, activeId); }}
                   disabled={activeThread.blocked}
-                  aria-label={activeThread.blocked ? "You've blocked this person — calling unavailable" : activeHuddleRoomSeed === activeId ? "Return to call" : "Start a video call"}
+                  aria-label={activeThread.blocked ? "You've blocked this person: calling unavailable" : activeHuddleRoomSeed === activeId ? "Return to call" : "Start a video call"}
                   title={activeThread.blocked ? "You've blocked this person" : activeHuddleRoomSeed === activeId ? "Return to call" : "Video call"}
                   style={{
                     background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: "50%", color: accent,
@@ -8729,7 +8744,7 @@ const PROFILE_COVERS = {
 };
 const COVER_KEYS = Object.keys(PROFILE_COVERS);
 
-function VerifiedCheck({ size = 15, title = "Verified — the owner of Cerebrum" }) {
+function VerifiedCheck({ size = 15, title = "Verified: the owner of Cerebrum" }) {
   return (
     <span title={title} aria-label={title} role="img" style={{ display: "inline-flex", flexShrink: 0, verticalAlign: "middle" }}>
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
@@ -8890,7 +8905,7 @@ const UNIVERSITIES = [
   "Chinese University of Hong Kong", "National Taiwan University", "Indian Institute of Technology Bombay",
   "Indian Institute of Technology Delhi", "Indian Institute of Science", "Indian Institute of Technology Madras",
   "Indian Institute of Technology Kanpur", "University of Delhi", "Tel Aviv University",
-  "Hebrew University of Jerusalem", "Technion – Israel Institute of Technology",
+  "Hebrew University of Jerusalem", "Technion: Israel Institute of Technology",
   "King Abdullah University of Science and Technology", "King Fahd University of Petroleum and Minerals",
 
   // Australia and New Zealand
@@ -9015,7 +9030,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     e.target.value = ""; // lets the same file be re-picked later
     if (!file) return;
     if (!file.type.startsWith("image/")) { setAvatarError("Please choose an image file."); return; }
-    if (file.size > 8 * 1024 * 1024) { setAvatarError("That photo is too large — try one under 8MB."); return; }
+    if (file.size > 8 * 1024 * 1024) { setAvatarError("That photo is too large: try one under 8MB."); return; }
     setAvatarError("");
     setAvatarSaving(true);
     try {
@@ -9540,7 +9555,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           recentHistory.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="history"
               title="No investigations yet"
-              body="Every question you ask is kept as an investigation — the thread, the papers it found, and what you saved from it." />
+              body="Every question you ask is kept as an investigation: the thread, the papers it found, and what you saved from it." />
           ) : (
             <div style={cardStyle}>
               <div style={{ display: "flex", flexDirection: "column" }}>
@@ -10147,7 +10162,7 @@ function NotebookMode({ P, accent, at, close }) {
       extractPdfText(file)
         .then((text) => {
           if (!text || text.length < 20) {
-            setError("Couldn't find any text in that PDF — it may be a scanned or image-only document. Try a different file, or paste the text directly if you have it.");
+            setError("Couldn't find any text in that PDF. It may be a scanned or image-only document. Try a different file, or paste the text directly if you have it.");
             return;
           }
           setDocumentText(text);
@@ -10155,7 +10170,7 @@ function NotebookMode({ P, accent, at, close }) {
         })
         .catch((e) => {
           console.error("PDF extraction failed:", e);
-          setError("Couldn't read that PDF — it may be corrupted or password-protected. Try a different file, or paste the text directly instead.");
+          setError("Couldn't read that PDF. It may be corrupted or password-protected. Try a different file, or paste the text directly instead.");
         })
         .finally(() => setExtractingPdf(false));
       return;
@@ -10468,9 +10483,9 @@ function SystemStatus({ P, accent }) {
     // means the call path is genuinely broken, which is what we needed to
     // be able to see.
     const probes = [
-      ["Calling — signaling", "/api/callsignal", "callsignal.js", "POST"],
-      ["Calling — ring delivery", "/api/data?resource=incoming-calls", "data.js"],
-      ["Calling — network relay", "/api/iceservers", "iceservers.js"],
+      ["Calling: signaling", "/api/callsignal", "callsignal.js", "POST"],
+      ["Calling: ring delivery", "/api/data?resource=incoming-calls", "data.js"],
+      ["Calling: network relay", "/api/iceservers", "iceservers.js"],
       ["Trending feed", "/api/trending", "trending.js"],
       // Commit 76 — the card-imagery engine, checked end to end rather
       // than by existence. This is the probe that would have caught "no
@@ -10508,11 +10523,11 @@ function SystemStatus({ P, accent }) {
         const ctype = res.headers.get("content-type") || "";
         if (res.status === 404 || (method === "POST" && res.status === 405)) {
           state = "missing";
-          detail = file + " isn't deployed — Cloudflare is serving the app shell for this path";
+          detail = file + " isn't deployed, Cloudflare is serving the app shell for this path";
         }
         else if (res.ok && !ctype.includes("json")) {
           state = "missing";
-          detail = file + " isn't deployed — this path returned the page, not the API";
+          detail = file + " isn't deployed: this path returned the page, not the API";
         }
         // 401/403 mean the endpoint EXISTS and answered — it just wants a
         // session or rejected this probe's fake ids. For "is it deployed?"
@@ -11121,7 +11136,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   title="Owner verification"
                   footer={
                     !founderStatus.configured
-                      ? "Set FOUNDER_EMAIL in Cloudflare Pages → Settings → Environment variables, then redeploy. Pushing code does not set environment variables — that is a separate step in the Cloudflare dashboard."
+                      ? "Set FOUNDER_EMAIL in Cloudflare Pages → Settings → Environment variables, then redeploy. Pushing code does not set environment variables. That is a separate step in the Cloudflare dashboard."
                       : founderStatus.youAreFounder
                         ? "This account carries the Founder & Owner badge and the verified check."
                         : "FOUNDER_EMAIL is set, but it doesn't match this account's email address. Either change the variable to this account's address, or sign in with the address the variable names."
@@ -11265,7 +11280,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               title="Desktop notifications"
               footer={
                 notifPerm === "unsupported" ? "This browser doesn't support desktop notifications."
-                : notifPerm === "denied" ? "Your browser is blocking notifications for this site. Re-allow them in the padlock menu in the address bar — Cerebrum can't undo that from here."
+                : notifPerm === "denied" ? "Your browser is blocking notifications for this site. Re-allow them in the padlock menu in the address bar: Cerebrum can't undo that from here."
                 : notifPerm === "granted" ? "Cerebrum only notifies you while this tab is in the background. Nothing is sent while you're looking at it."
                 : "Cerebrum will ask your browser for permission the first time it has something to tell you."
               }
@@ -11303,7 +11318,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
             <Section
               title="What to notify me about"
-              footer="These are per-browser, like every other preference here. Turning one off stops the notification only — the call still rings in the app, the message still arrives in your Inbox, and the papers still appear on your watchlist."
+              footer="These are per-browser, like every other preference here. Turning one off stops the notification only. The call still rings in the app, the message still arrives in your Inbox, and the papers still appear on your watchlist."
             >
               <Row label="Incoming calls" desc="Someone is calling you right now" control={
                 <Switch on={notify.call} onChange={(v) => setNotifyKind("call", v)} label="Notify me about incoming calls" />
@@ -11327,7 +11342,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     // above — a test that silently does nothing because of
                     // a setting is worse than no test.
                     setTimeout(() => cbNotify("Cerebrum", "Notifications are working.", "cb-test"), 2500);
-                    toast("Switch away from this tab — the test fires in a few seconds.");
+                    toast("Switch away from this tab: the test fires in a few seconds.");
                   }}
                   last
                 />
@@ -11384,7 +11399,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               )}
             </Section>
 
-            <Section title="Storage" footer="Stored in this browser. Queries go to our server to run the search — details in Privacy.">
+            <Section title="Storage" footer="Stored in this browser. Queries go to our server to run the search: details in Privacy.">
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} />
               <Row label="Clear all data" destructive control={
                 confirmClear
@@ -11513,7 +11528,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
             {/* Commit 91 — presence of every environment variable the app
                 reads, in one place. Founder-only. */}
-            <Section title="Configuration" footer="Which environment variables Cloudflare is actually serving. Values are never shown — only whether one is present.">
+            <Section title="Configuration" footer="Which environment variables Cloudflare is actually serving. Values are never shown, only whether one is present.">
               <ConfigStatus P={P} accent={accent} />
             </Section>
 
@@ -12237,7 +12252,7 @@ async function copyToClipboard(text, successMessage) {
       }
       throw new Error("execCommand copy failed");
     } catch {
-      toast("Couldn't copy — try selecting the text manually", { tone: "error" });
+      toast("Couldn't copy: try selecting the text manually", { tone: "error" });
       return false;
     }
   }
@@ -12574,7 +12589,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
             <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 4px" }}>
               {serverVersion
                 ? "Our Terms, Privacy Policy and Disclosures have changed materially since you last accepted them. Please review and accept the new version to continue."
-                : "Cerebrum is free and collects as little as it can. Three things are worth knowing before your first search — they take fifteen seconds and they matter."}
+                : "Cerebrum is free and collects as little as it can. Three things are worth knowing before your first search. They take fifteen seconds and they matter."}
             </p>
 
             <ul style={{ margin: "16px 0 0", padding: 0 }}>
@@ -12583,7 +12598,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
               {point("This is not medical, legal, or financial advice",
                 "Cerebrum is not a doctor, a lawyer, or an adviser, and no professional relationship is created by using it. Never delay or override professional advice because of something you read here. In an emergency, call your local emergency number.")}
               {point("Verify against the cited sources",
-                "Every answer links to the papers behind it. Those links are the point of the product — if something matters, open it and read the original.")}
+                "Every answer links to the papers behind it. Those links are the point of the product: if something matters, open it and read the original.")}
             </ul>
 
             <div style={{ borderTop: `1px solid ${P.line}`, marginTop: 4, paddingTop: 16 }}>
@@ -12889,10 +12904,10 @@ function App() {
     e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) { setError("That file isn't an image."); return; }
-    if (file.size > 8_000_000) { setError("That image is too large — try one under 8MB."); return; }
+    if (file.size > 8_000_000) { setError("That image is too large: try one under 8MB."); return; }
     const reader = new FileReader();
     reader.onload = () => { setAttachedImage(reader.result); setAttachedImageName(file.name); };
-    reader.onerror = () => setError("Couldn't read that image — try another file.");
+    reader.onerror = () => setError("Couldn't read that image: try another file.");
     reader.readAsDataURL(file);
   }
   const [turns, setTurns] = useState([]);
@@ -13287,7 +13302,7 @@ function App() {
       if (refs.length === 0) return;
 
       e.preventDefault();
-      const attributed = text + "\n\n— References —\n" + refs.join("\n") + "\n\nRetrieved via Cerebrum (askcerebrum.org)";
+      const attributed = text + "\n\n, References, \n" + refs.join("\n") + "\n\nRetrieved via Cerebrum (askcerebrum.org)";
       e.clipboardData.setData("text/plain", attributed);
     };
     document.addEventListener("copy", onCopy);
@@ -13622,7 +13637,7 @@ function App() {
       // everywhere else. Map the couple of ways this actually fails to real
       // sentences, and fall back to something a person can still act on.
       const raw = String(e && e.message || "");
-      const human = /401|403|forbidden|unauthorized/i.test(raw) ? "That API key or user ID looks wrong — double-check them in your Zotero account settings."
+      const human = /401|403|forbidden|unauthorized/i.test(raw) ? "That API key or user ID looks wrong: double-check them in your Zotero account settings."
         : /network|fetch|failed to fetch/i.test(raw) ? "Couldn't reach Zotero. Check your connection and try again."
         : "Couldn't save to Zotero right now. Try again in a moment.";
       setZMsg(human);
@@ -14073,7 +14088,7 @@ function App() {
                     ))}
                   </div>
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
-                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up — I remember the whole thread" />
+                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up: I remember the whole thread" />
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
@@ -14247,7 +14262,7 @@ function App() {
             {history.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="history"
                 title="No investigations yet"
-                body="Ask a research question and one starts itself — the thread, the papers it found, and anything you save from it are kept together."
+                body="Ask a research question and one starts itself. The thread, the papers it found, and anything you save from it are kept together."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask something</UIButton>} />
             ) : (
               <>
