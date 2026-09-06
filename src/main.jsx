@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.15.0";
+const APP_VERSION = "6.16.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -700,6 +700,13 @@ function Icon({ name, size = 17, className, style }) {
     case "mail": return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3.5 6.5L12 13l8.5-6.5" /></svg>;
     case "badge": return <svg {...common}><circle cx="12" cy="9" r="5.5" /><path d="M8.5 13.5L7 21l5-2.6L17 21l-1.5-7.5" /></svg>;
     case "send": return <svg {...common}><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>;
+    // Commit 98 — answer-quality feedback. /api/vote has existed since the
+    // answer cache landed (and /api/search returns an answerId with the
+    // comment "frontend can use this for upvote/downvote"), but nothing in
+    // this file ever called it, so the score column that decides which
+    // cached answers get served to everyone stayed permanently at 0.
+    case "thumb-up": return <svg {...common}><path d="M7 20V10l4.2-7a2 2 0 013.6 1.5L14 9h4.6a2 2 0 011.95 2.45l-1.6 7A2 2 0 0117 20z" /><path d="M7 10H4v10h3z" /></svg>;
+    case "thumb-down": return <svg {...common}><path d="M17 4v10l-4.2 7a2 2 0 01-3.6-1.5L10 15H5.4A2 2 0 013.45 12.55l1.6-7A2 2 0 017 4z" /><path d="M17 14h3V4h-3z" /></svg>;
     case "flag": return <svg {...common}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></svg>;
     // Commit 48: standard "no entry" glyph (circle + diagonal bar) for
     // Block/Unblock controls — same off-slash language this file already
@@ -2100,14 +2107,63 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
   );
 }
 
+/* Commit 98 — rewritten, and this was hiding a much larger bug than a
+   cosmetic one.
+
+   The old body was `setInterval(..., 12)` advancing a fixed character
+   `step`, on the assumption that a 12ms timer actually fires every 12ms.
+   It does not here: every tick re-runs the full answer render — the
+   markdown splitter, the heading detection, the citation-chip pass, the
+   evidence annotations — over the whole prefix, so a tick costs far more
+   than 12ms and the browser coalesces the timer. Measured against a real
+   render, a 330-character answer typed out at roughly FOUR characters per
+   second instead of the intended ~165.
+
+   That is not just slow text. `done` (in Turn) is `shown === t.answer`,
+   and the entire answer toolbar — Copy, Share, Print, Listen, evidence
+   table, source network, timeline, Report bad answer — is gated on `done`.
+   The typewriter is ON by default (`cb_tw !== "0"`), so on a normal-length
+   answer those controls were, in practice, never reachable: a 4,000
+   character answer needs about sixteen minutes at that rate. Every one of
+   those buttons was invisible to a default user, which is why they read as
+   "missing features" rather than as a slow animation.
+
+   Two changes fix it properly rather than by tuning the interval down:
+
+   1. Time-based, not tick-based. Each frame reveals however many
+      characters the elapsed wall-clock time says it should, so a slow
+      frame skips ahead instead of falling behind. The reveal always
+      finishes in DURATION_MS no matter how expensive one render is.
+   2. Bounded and opt-out by length. The whole animation runs for at most
+      ~900ms, and an answer long enough that the effect would be a chore to
+      sit through (over MAX_CHARS) simply appears. rAF also pauses in a
+      background tab, so a person who switches away and back does not
+      return to a half-typed answer with no toolbar.
+
+   requestAnimationFrame instead of setInterval means the loop can never
+   queue work faster than the browser can paint it. */
+const TYPEWRITER_DURATION_MS = 900;
+const TYPEWRITER_MAX_CHARS = 2600;
 function useTypewriter(full, on) {
-  const [out, setOut] = useState(on ? "" : full);
+  const animate = on && !!full && full.length <= TYPEWRITER_MAX_CHARS;
+  const [out, setOut] = useState(animate ? "" : full);
   useEffect(() => {
-    if (!on) { setOut(full); return; }
-    setOut(""); let i = 0; const step = Math.max(2, Math.round(full.length / 240));
-    const id = setInterval(() => { i += step; setOut(full.slice(0, i)); if (i >= full.length) { setOut(full); clearInterval(id); } }, 12);
-    return () => clearInterval(id);
-  }, [full, on]);
+    if (!animate) { setOut(full); return; }
+    let raf = 0;
+    const started = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const tick = (now) => {
+      const elapsed = now - started;
+      if (elapsed >= TYPEWRITER_DURATION_MS) { setOut(full); return; }
+      // Ease-out so the reveal decelerates into place instead of stopping
+      // dead — the same curve the rest of the motion in this file uses.
+      const t = elapsed / TYPEWRITER_DURATION_MS;
+      const eased = 1 - Math.pow(1 - t, 2);
+      setOut(full.slice(0, Math.max(1, Math.ceil(full.length * eased))));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [full, animate]);
   return out;
 }
 
@@ -3192,7 +3248,12 @@ const FEATURE_TAGS = ["Cited answers", "Compare investigations", "Source network
 
         <h1 style={{
           fontSize: isMobile ? 48 : "clamp(64px, 8vw, 96px)",
-          fontWeight: 800, letterSpacing: "-0.05em", lineHeight: 1.0,
+          // Commit 98 — Newsreader is a serif with real descenders; -0.05em
+          // and a 1.0 leading were carried over from the sans this hero used
+          // to be set in, and at 96px the "y" of "anything" ran into the cap
+          // line of "We'll" below it. Loosened to values a display serif can
+          // actually take.
+          fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05,
           color: "#ffffff", margin: "0 0 28px",
           fontFamily: "var(--cb-display)",
         }}>
@@ -3232,7 +3293,11 @@ const FEATURE_TAGS = ["Cited answers", "Compare investigations", "Source network
             padding: "16px 36px", fontSize: FONT_SIZES.body, fontWeight: 700,
             letterSpacing: "0.01em",
             background: "#ffffff", color: "#000000", border: "none", borderRadius: 0,
-            cursor: "pointer", fontFamily: "var(--cb-display)",
+            // Commit 98 — the CTA is a control, not a headline. Setting it in
+            // the same serif as the h1 directly above flattened the contrast
+            // between "thing you read" and "thing you press"; the sans reads
+            // as the button it is.
+            cursor: "pointer", fontFamily: "var(--cb-body)",
             transition: "opacity 0.2s ease",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
@@ -4583,6 +4648,8 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
   // immediately when the typewriter is off.
   const answerRevealRef = useGsapReveal([done ? t.answer : null], { y: 12, stagger: 0.045, duration: 0.7 });
   const [copiedAnswer, setCopiedAnswer] = useState(false);
+  // Commit 98 — "up" | "down" | "" ; one vote per answer per session.
+  const [vote, setVote] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [generatingPaper, setGeneratingPaper] = useState(false);
@@ -4722,6 +4789,40 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                 {done && interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="The evidence, side by side" icon="table" accent={accent} P={P} onClick={() => onEvidenceTable(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
+                {/* Commit 98 — this pair is what finally feeds /api/vote. The
+                    score it writes is not cosmetic: /api/search only re-serves
+                    a cached answer to other people once score >= 2, and a
+                    downvote also decays the confirmation count on the papers
+                    attached to that query. Voting is deliberately one-shot per
+                    answer (the buttons lock after a press) and fire-and-forget
+                    — a failed vote is not worth an error dialog, and the
+                    endpoint is rate-limited server-side anyway. Gated on
+                    t.answerId so the streaming/fallback paths that don't
+                    return one simply don't show the control. */}
+                {t.answerId ? (
+                  <>
+                    <ToolbarBtn
+                      title={vote === "up" ? "Marked useful" : "This was useful"}
+                      icon="thumb-up" active={vote === "up"} accent={accent} P={P}
+                      onClick={() => {
+                        if (vote) return;
+                        setVote("up");
+                        fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: "up" }) }).catch(() => {});
+                        toast("Thanks. That helps rank this answer.");
+                      }}
+                    />
+                    <ToolbarBtn
+                      title={vote === "down" ? "Marked not useful" : "This missed"}
+                      icon="thumb-down" active={vote === "down"} accent={STATUS.warn} P={P}
+                      onClick={() => {
+                        if (vote) return;
+                        setVote("down");
+                        fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: "down" }) }).catch(() => {});
+                        toast("Noted. This answer won't be reused.");
+                      }}
+                    />
+                  </>
+                ) : null}
                 <ToolbarBtn title="Report bad answer" icon="flag" accent={STATUS.bad} P={P} onClick={() => setShowReport(true)} />
               </div>
             )}
@@ -6731,7 +6832,7 @@ function LiteratureTimeline({ P, accent, at, sources, close }) {
 const OTP_LENGTH = 6;
 const OTP_RESEND_COOLDOWN_S = 30;
 
-function AuthModal({ P, accent, at, close, onAuthed }) {
+function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
   const [step, setStep] = useState("email"); // "email" | "code"
   const [email, setEmail] = useState("");
   const [digits, setDigits] = useState(Array(OTP_LENGTH).fill(""));
@@ -6847,7 +6948,7 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Sign in to Cerebrum" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", borderRadius: 8, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
         <div style={{ padding: "26px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>{step === "email" ? "Sign in" : "Enter your code"}</div>
+          <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>{step === "email" ? (intent === "signup" ? "Create your account" : "Sign in") : "Enter your code"}</div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
 
@@ -6857,7 +6958,7 @@ function AuthModal({ P, accent, at, close, onAuthed }) {
               Email
               <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@example.com" aria-label="Email" />
             </label>
-            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>No password to remember. We'll email you a 6-digit code that signs you in.</div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>{intent === "signup" ? "No password to pick. We'll email you a 6-digit code and your account is made." : "No password to remember. We'll email you a 6-digit code that signs you in."}</div>
             {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5 }}>{error}</div>}
             <button type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-body)" }}>
               {busy ? "Sending…" : "Send sign-in code"}
@@ -7295,14 +7396,20 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
     async function start() {
       const icePromise = fetch("/api/iceservers").then((r) => (r.ok ? r.json() : null)).catch(() => null);
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        // Commit 97 — do not ask for a camera on an audio call. This always
+        // requested video first and fell back only after the request FAILED,
+        // so an audio call still fired a camera permission prompt and, on a
+        // machine with a camera that is present but busy, could hang there.
+        localStream = await navigator.mediaDevices.getUserMedia({ video: !audioOnly, audio: true });
       } catch {
         try {
           localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
           if (!cancelled) setHasCamera(false);
         } catch {
           if (!cancelled) {
-            setErrorReason("Camera/microphone access is required to place a call. Please allow access in your browser and try again.");
+            setErrorReason(audioOnly
+              ? "Cerebrum needs microphone access for this call. Allow it in your browser, then try again."
+              : "Cerebrum needs camera and microphone access for this call. Allow them in your browser, then try again.");
             setStatus("error");
           }
           return;
@@ -7417,7 +7524,16 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       let lastRingReason = "";
       const ring = async () => {
         if (cancelled || connected) return;
-        const ok = await postSignal("ring", {});
+        /* Commit 97 — the ring now carries the call kind.
+           An audio call was being answered as a VIDEO call. The caller
+           picks "Start an audio call", but the ring payload was empty and
+           incoming-calls returned only {threadId, fromId, fromName, at},
+           so the callee had no way to know and its accept handler built a
+           huddle with audioOnly undefined. The callee's browser then asked
+           for a camera the caller never wanted, and on any machine without
+           a working one the whole call died with "Camera/microphone access
+           is required" instead of connecting as audio. */
+        const ok = await postSignal("ring", { audioOnly: !!audioOnly });
         if (ok !== true) {
           ringFailures += 1;
           if (typeof ok === "string" && ok) lastRingReason = ok;
@@ -8987,7 +9103,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const displayUsername = profile.username ? `@${profile.username}` : `@${emailLocal}`;
   const displayInitial = (displayName || "?")[0]?.toUpperCase() || "?";
   const avatarSeed = encodeURIComponent((profile.username || emailLocal || "cerebrum"));
-  const [avatarFailed, setAvatarFailed] = useState(false);
+  // Commit 97 — avatarFailed removed: declared, never set, never read.
   const fileInputRef = useRef(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState("");
@@ -9723,7 +9839,22 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
     setFollowBusy((prev) => new Set(prev).add(r.id));
     try {
       const res = await apiDataAction("toggle-follow", { target_id: r.id });
+      /* ══════════════════════════════════════════════════════════════
+         Commit 97 — the Follow button did nothing on the founder card.
+
+         Two bugs stacked. First, this only ever wrote back into
+         `results`, the searched-researcher list. The founder is rendered
+         from its own `founder` state and is not a member of that array,
+         so pressing Follow there fired the request, the server recorded
+         it, and the UI never changed — the most confusing possible
+         outcome, because it looks like the click was ignored.
+
+         Second, the founder card reads `founder.isFollowing` while every
+         other row derives from `r.following`. One field written, a
+         different field read, so even a correct update would not have
+         shown. Both surfaces now go through the same field. */
       setResults((prev) => prev.map((x) => (x.id === r.id ? { ...x, following: res.following, followers: res.followers } : x)));
+      setFounder((prev) => (prev && prev.id === r.id ? { ...prev, following: res.following, followers: res.followers } : prev));
     } catch (e) {
       toast(e.message || "Couldn't update that follow.", { tone: "error" });
     } finally {
@@ -9850,7 +9981,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
                   padding: "8px 16px", borderRadius: 100, cursor: "pointer",
                   background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
                   fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
-                }}>{founder.isFollowing ? "Following" : "Follow"}</button>
+                }}>{founder.following ? "Following" : "Follow"}</button>
               </div>
             </div>
           )}
@@ -13228,7 +13359,7 @@ function App() {
       catch { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      const nt = { id: turnId, answerId: data.answerId || "", q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       setTurns((t) => [...t, nt]);
@@ -14453,6 +14584,7 @@ function App() {
         <AuthModal
           P={P} accent={accent} at={at}
           close={() => setAuthOpen(false)}
+          intent={authInitialTab === "signup" ? "signup" : "login"}
           onAuthed={(u) => handleAuthed(u, { checkImport: true })}
         />
       )}
@@ -14474,7 +14606,8 @@ function App() {
             // roomSeed has always been the thread id (see VideoHuddle) — so
             // accepting is just opening the same huddle the caller is
             // already sitting in, and the existing handshake takes over.
-            setActiveHuddle({ name: incomingCall.fromName, roomSeed: incomingCall.threadId });
+            // Commit 97 — carry the caller's audio-only intent through.
+            setActiveHuddle({ name: incomingCall.fromName, roomSeed: incomingCall.threadId, audioOnly: !!incomingCall.audioOnly });
             setIncomingCall(null);
           }}
           onDecline={() => {
@@ -14569,6 +14702,18 @@ const CSS = `
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Commit 98 — form controls do not inherit the display serif.
+   Browsers default button/input/select/textarea to a system UI font, so
+   nothing inherited before the type system landed. Now that ancestors set
+   --cb-display on hero and article blocks, a plain <button> inside one
+   picks up Newsreader and a control ends up set in a reading serif. A
+   control is a control: it gets --cb-body. Call sites that genuinely want
+   the display face set fontFamily inline, and an inline style outranks
+   this rule, so the deliberate cases (the wordmark button, the headline
+   links) are untouched. Verified: the landing "Start exploring" button
+   was computing Newsreader and now computes Inter Tight. */
+button, input, select, textarea, optgroup { font-family: var(--cb-body); }
 /* v25 hotfix: this line used to also carry \`overflow-x: hidden\` and
    \`overscroll-behavior-y: contain\` directly on html/body. Per a live report
    of dead mouse-wheel scroll after asking a question, both were removed at
