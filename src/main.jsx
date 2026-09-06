@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.17.0";
+const APP_VERSION = "6.18.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -8360,7 +8360,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const subtitle = activeThread
     ? (activeThread.kind === "group"
       ? `${activeThread.memberCount} member${activeThread.memberCount === 1 ? "" : "s"}`
-      : [activeThread.otherEmail, activeThread.otherAffiliation].filter(Boolean).join(" · "))
+      // Commit 100 — was [otherEmail, otherAffiliation]. The email is no
+      // longer sent by the server at all, and the affiliation now arrives
+      // already filtered by that person's show_affiliation setting. The
+      // handle is what belongs here: public, stable, and the thing that
+      // tells two people with the same name apart.
+      : [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · "))
     : "";
 
   // Read receipts — DMs only (see the otherLastReadAt comment in
@@ -8421,10 +8426,24 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           )}
           <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 12px" }}>
+            {/* Commit 100 — "No conversations yet." followed by a <br> was
+                the last hand-written empty state left in this file, and it
+                sat in the narrowest column on the screen where a bare grey
+                sentence reads as a rendering failure. It also had one job it
+                was not doing: after this commit, whether a stranger can
+                reach you is a setting, so the empty inbox is the natural
+                place to say what that setting currently is. */}
             {threads.length === 0 && (
-              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
-                No conversations yet.<br />
-                <button onClick={onCompose} style={{ marginTop: 8, background: "none", border: "none", color: accent, cursor: "pointer", padding: 0, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", fontWeight: 600 }}>Start one →</button>
+              <div style={{ padding: "18px 12px", lineHeight: 1.6 }}>
+                <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, marginBottom: 5 }}>No conversations yet</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
+                  Search for someone in Find people and start one. By default only people you follow can open a conversation with you.
+                </div>
+                <button onClick={onCompose} className="cb-press" style={{
+                  marginTop: 12, padding: "7px 14px", borderRadius: RADIUS.pill, cursor: "pointer",
+                  background: withAlpha(accent, 0.12), color: accent, border: "none",
+                  fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", fontWeight: 700,
+                }}>Find someone</button>
               </div>
             )}
             {threads.length > 0 && filteredThreads.length === 0 && (
@@ -8550,7 +8569,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 long enough to scroll. */}
             <div ref={msgPaneRef} style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0 }}>
               {activeThread.messages.length === 0 && (
-                <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet — say hello.</div>
+                <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet. Say hello.</div>
               )}
               {activeThread.messages.map((m, i) => {
                 const key = m.id || i;
@@ -8759,8 +8778,32 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               )}
             </div>
           </>) : (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small, textAlign: "center", padding: 24 }}>
-              {loadingThread ? "Loading…" : threads.length === 0 ? "Nothing here yet." : "Select a conversation"}
+            /* Commit 100 — this pane is the largest single area on the
+               Inbox and it held one grey sentence, centred, with nothing
+               else. "Nothing here yet." in the middle of a 900px column is
+               indistinguishable from a page that failed to load. */
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32, gap: 10 }}>
+              {loadingThread ? (
+                <div style={{ color: P.faint, fontSize: FONT_SIZES.small }}>Loading…</div>
+              ) : threads.length === 0 ? (
+                <>
+                  <div style={{
+                    width: 46, height: 46, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                    background: withAlpha(accent, 0.1), color: accent, marginBottom: 2,
+                  }}><Icon name="mail" size={20} /></div>
+                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>Your conversations live here</div>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
+                    Messages, shared papers, and calls with other researchers. Nothing you say here is used to train anything or shown on your profile.
+                  </div>
+                  <button onClick={onCompose} className="cb-press" style={{
+                    marginTop: 8, padding: "9px 20px", borderRadius: RADIUS.pill, cursor: "pointer",
+                    background: accent, color: at, border: "none",
+                    fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", fontWeight: 700,
+                  }}>Find someone to message</button>
+                </>
+              ) : (
+                <div style={{ color: P.faint, fontSize: FONT_SIZES.small }}>Pick a conversation on the left.</div>
+              )}
             </div>
           )}
         </div>
@@ -9434,7 +9477,12 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               // artwork into the page rather than leaving it looking pasted
               // on top of the cover banner.
               <img
-                src={profile.avatar_base64 || `https://api.dicebear.com/7.x/shapes/svg?seed=${avatarSeed}&backgroundColor=${accent.replace("#", "")}`}
+                /* Commit 100 — this branch only runs when avatar_base64 is
+                   set, so the dicebear URL after the `||` was unreachable
+                   dead code that still read like a live third-party call.
+                   Removed: no avatar in this app is ever fetched from
+                   another host. */
+                src={profile.avatar_base64}
                 alt={`${displayName}'s avatar`}
                 onError={() => setAvatarFailed(true)}
                 style={{
@@ -9713,18 +9761,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </div>)}
           </div>
 
-          {/* Institution crest — an initials badge generated from the
-              affiliation text itself (no real logo database exists or is
-              being invented here), so it only ever appears once an
-              affiliation is actually set. */}
-          {profile.affiliation && profile.affiliation.trim() && (
-            <img
-              src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(profile.affiliation.trim())}&backgroundColor=${accent.replace("#", "")}`}
-              alt={`${profile.affiliation} logo`}
-              title={profile.affiliation}
-              style={{ width: 64, height: 64, borderRadius: 12, border: `1px solid ${withAlpha(accent, 0.3)}`, boxShadow: "0 6px 16px rgba(0,0,0,0.2)", flexShrink: 0 }}
-            />
-          )}
+          {/* Commit 100 — the institution crest is gone. It was an initials
+              badge fetched from api.dicebear.com with the institution name
+              in the query string, so viewing any profile told a third party
+              which university that person had written down. It also gave
+              affiliation the visual weight of a logo, which is the wrong
+              signal now that an institution is not an entity on Cerebrum —
+              it does not have a page, a roster, or anything to click. It is
+              a line of text on a person's profile, and only if they left it
+              visible. */}
         </div>
 
         {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginBottom: 16 }}>{avatarError}</div>}
@@ -9936,12 +9981,11 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 // this stays explicitly labeled as a preview: Follow toggles local-only
 // state that resets next time the modal opens, and Message is honest about
 // not being a real conversation before it hands off to the (real) Inbox.
-function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page = false }) {
+function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = () => {}, page = false }) {
   useEffect(() => { if (page) return; const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close, page]);
   const trapRef = useFocusTrap();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
-  const [hubs, setHubs] = useState([]);
   // Commit 74 — the founder, pinned. See search-users in data.js.
   const [founder, setFounder] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -9958,18 +10002,34 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
   // the same response — a Hub is just a distinct affiliation string at
   // least one real account has set (see the backend comment on this
   // endpoint), never an invented institution roster.
+  /* Commit 100 — no query, no request, and no results.
+
+     Commit 57 made an empty box browse the directory, to fix a real problem:
+     "a social network that shows you nobody until you can name somebody has
+     no way in." But the fix was to publish a roster of real accounts to
+     anybody who opened the tab, and the people in that roster never asked to
+     be listed. The cold-start problem is solved instead by the founder card,
+     which is one account volunteering its own contact rather than a sample
+     of everyone else's.
+
+     The 2-character floor mirrors the server's. `hubs` is gone from the
+     response entirely — see the endpoint. */
   useEffect(() => {
     clearTimeout(searchTimer.current);
     const q = query.trim();
-    // Commit 57 — the client used to bail out on a short query too, so even
-    // with the endpoint fixed the picker would still show nothing until you
-    // typed. An empty box now browses the directory (see search-users).
+    if (q.length < 2) {
+      setResults([]);
+      setLoading(false);
+      // The founder card is still worth fetching with an empty box: it is
+      // the one thing this screen shows before you type.
+      apiDataGet("search-users", { q: "" }).then((d) => setFounder((d && d.founder) || null)).catch(() => {});
+      return;
+    }
     setLoading(true);
     searchTimer.current = setTimeout(async () => {
       const data = await apiDataGet("search-users", { q });
       setLoading(false);
       setResults(data && Array.isArray(data.items) ? data.items : []);
-      setHubs(data && Array.isArray(data.hubs) ? data.hubs : []);
       setFounder((data && data.founder) || null);
     }, 300);
     return () => clearTimeout(searchTimer.current);
@@ -10065,7 +10125,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name, username, or institution"
+              placeholder="Search a name or @username"
               aria-label="Search researchers"
               style={{ width: "100%", padding: "10px 13px 10px 34px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)" }}
             />
@@ -10073,14 +10133,23 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+          {/* Commit 100 — the empty state is the honest explanation of why
+              this screen is empty. Nothing here is a placeholder for a list
+              that would appear if you waited: there is no list. Saying so
+              plainly is better than a blank panel that reads as broken. */}
           {trimmed.length < 2 && (
-            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Search by name, username, or institution to find people and hubs on Cerebrum.</div>
+            <div style={{ padding: "18px 14px 8px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
+              <div style={{ fontWeight: 600, color: P.ink2, marginBottom: 4 }}>Cerebrum doesn't list its members.</div>
+              There's no directory to scroll and no way to browse people by university. You find someone by searching their name or their @username, which means you already know who you're looking for. You can turn yourself off even from that in Settings.
+            </div>
           )}
-          {trimmed.length >= 2 && loading && results.length === 0 && hubs.length === 0 && (
+          {trimmed.length >= 2 && loading && results.length === 0 && (
             <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>
           )}
-          {trimmed.length >= 2 && !loading && results.length === 0 && hubs.length === 0 && (
-            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Nothing matches that search.</div>
+          {trimmed.length >= 2 && !loading && results.length === 0 && (
+            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+              Nobody matches that. Either they aren't on Cerebrum, or they've chosen not to be findable.
+            </div>
           )}
           {/* Commit 74 — the founder's card, pinned above everything.
               A new account lands on an empty social graph with nobody to
@@ -10100,7 +10169,12 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
                     ...avatarSkin(founder.name || founder.id), fontWeight: 700, fontFamily: "var(--cb-mono)", fontSize: 17,
                   }}>{(founder.name || "?").trim().charAt(0).toUpperCase()}</span>
                 </FounderFrame>
-                <div style={{ minWidth: 0, flex: 1 }}>
+                <div
+                  role="button" tabIndex={0}
+                  onClick={() => onOpenProfile(founder.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter") onOpenProfile(founder.id); }}
+                  style={{ minWidth: 0, flex: 1, cursor: "pointer" }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{founder.name}</span>
                     <VerifiedCheck size={15} />
@@ -10111,7 +10185,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
                 </div>
               </div>
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5, margin: "11px 0 12px" }}>
-                {founder.prompt || "Have a question for the owner?"} Send a message — it goes straight to the person who builds this.
+                {founder.prompt || "Have a question for the owner?"} A message here goes straight to the person who builds this.
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={() => messageResearcher(founder)} disabled={messageBusy.has(founder.id)} className="cb-press" style={{
@@ -10126,57 +10200,45 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
               </div>
             </div>
           )}
-          {hubs.length > 0 && (
-            <div style={{ marginBottom: 4 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", padding: "4px 8px" }}>Institutions</div>
-              {hubs.map((h) => (
-                <div
-                  key={h.name}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onOpenHub(h.name)}
-                  onKeyDown={(e) => { if (e.key === "Enter") onOpenHub(h.name); }}
-                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 12, cursor: "pointer" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                >
-                  <img
-                    src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(h.name)}&backgroundColor=${accent.replace("#", "")}`}
-                    alt="" aria-hidden="true" loading="lazy"
-                    style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, border: `1px solid ${P.line}` }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>{h.researcherCount} researcher{h.researcherCount === 1 ? "" : "s"} on Cerebrum</div>
-                  </div>
-                  <Icon name="arrowRight" size={14} style={{ color: P.faint, flexShrink: 0 }} />
-                </div>
-              ))}
-              {results.length > 0 && (
-                <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", padding: "10px 8px 4px" }}>People</div>
-              )}
-            </div>
-          )}
           {results.map((r) => {
             const isFollowing = !!r.following;
             const isFollowBusy = followBusy.has(r.id);
             const isMessageBusy = messageBusy.has(r.id);
             const subtitle = [r.affiliation, r.followers ? `${r.followers} follower${r.followers === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
             return (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 12 }}>
-                <img
-                  src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.username || r.id)}&backgroundColor=0a0a0a`}
-                  alt=""
-                  aria-hidden="true"
-                  loading="lazy"
-                  style={{ width: 40, height: 40, borderRadius: "50%", flexShrink: 0, border: `1px solid ${P.line}`, objectFit: "cover" }}
-                />
+              /* Commit 100 — the row is the way into a profile. Before this
+                 a search result was terminal: a name, an institution, and two
+                 buttons, with nothing behind it, so you decided whether to
+                 follow a stranger from one line of text. */
+              <div
+                key={r.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onOpenProfile(r.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenProfile(r.id); } }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 8px", borderRadius: 12, cursor: "pointer", transition: "background 0.15s ease" }}
+              >
+                {/* Commit 100 — this was `api.dicebear.com/...?seed=<username>`.
+                    Every search sent the username of every person it matched
+                    to a third-party host, from the searcher's browser, with
+                    their IP attached. Nobody consented to that and nothing
+                    needed it: the app already draws initial avatars locally
+                    (avatarSkin), which is what the profile page has used
+                    since Commit 54 for exactly this reason. */}
+                <div aria-hidden="true" style={{
+                  width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+                  border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 15, fontWeight: 700, fontFamily: "var(--cb-mono)",
+                  ...avatarSkin(r.name || r.username || r.id),
+                }}>{(r.name || r.username || "?").trim().charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
                 </div>
                 <button
-                  onClick={() => toggleFollow(r)}
+                  onClick={(e) => { e.stopPropagation(); toggleFollow(r); }}
                   disabled={isFollowBusy}
                   style={{
                     fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "6px 12px", borderRadius: 100, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
@@ -10187,7 +10249,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
                   }}
                 >{isFollowing ? "Following" : "Follow"}</button>
                 <button
-                  onClick={() => messageResearcher(r)}
+                  onClick={(e) => { e.stopPropagation(); messageResearcher(r); }}
                   disabled={isMessageBusy}
                   aria-label={`Message ${r.name}`}
                   title={`Message ${r.name}`}
@@ -10202,142 +10264,420 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenHub, page =
   );
 }
 
-/* ============================================================
-   INSTITUTION HUB — a University/Lab's page on Cerebrum. Not backed by a
-   separate "institutions" table: a Hub IS the set of real accounts sharing
-   one affiliation string (see the `hub` resource in functions/api/data.js).
-   That means Top Researchers is always real, but Departments and Recent
-   Papers — which would need data this schema doesn't track (no department
-   field on a user, no link between a researcher and "papers they authored
-   that Cerebrum has indexed") — show an honest empty state instead of
-   invented rosters. Filling those in for real is a bigger addition
-   (department taxonomy, and joining a researcher's name against gatherPapers'
-   own author-search path) than this pass covers.
-   ============================================================ */
-function InstitutionModal({ P, accent, at, close, hubName, onMessage }) {
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
-  const trapRef = useFocusTrap();
-  const isMobile = useIsMobile();
-  const [tab, setTab] = useState("researchers");
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState(null); // { name, researchers }
-  const [messageBusy, setMessageBusy] = useState(() => new Set());
+
+
+/* Commit 100 — the privacy panel.
+
+   These three switches are the settings side of the changes in
+   functions/api/data.js. They are grouped and worded so that reading them
+   tells you what the system does, not just what the toggle is named: a
+   privacy control the person does not understand is a privacy control they
+   will leave on the wrong setting.
+
+   Each writes through the same `update-profile` action as the rest of the
+   profile and re-reads nothing — the server resolves NULL to a default and
+   sends the resolved value back on load (see `privacy` on the profile
+   resource), so what shows here is always what the server will actually
+   enforce. */
+// Section, Row, Switch and Picker are locals inside SettingsView (they close
+// over its palette and spacing), so they are handed in rather than
+// re-implemented here — a privacy panel that looked subtly unlike every
+// other settings block would read as bolted on, which is the opposite of the
+// message it needs to send.
+function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker }) {
+  const [state, setState] = useState(null);
+  const [busy, setBusy] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    apiDataGet("hub", { name: hubName }).then((res) => {
-      if (cancelled) return;
-      setData(res && !res.error ? res : { name: hubName, researchers: [] });
-      setLoading(false);
-    });
+    apiDataGet("profile")
+      .then((res) => { if (!cancelled && res && res.privacy) setState(res.privacy); })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [hubName]);
+  }, []);
 
-  const messageResearcher = async (r) => {
-    if (messageBusy.has(r.id)) return;
-    setMessageBusy((prev) => new Set(prev).add(r.id));
+  const write = async (patch, key) => {
+    if (busy) return;
+    setBusy(key);
+    const prev = state;
+    setState((s) => ({ ...s, ...patch }));
     try {
-      const res = await apiDataAction("start-thread", { target_id: r.id });
-      onMessage(r, res.thread_id);
+      await apiDataAction("update-profile", {
+        ...(patch.discoverable !== undefined ? { discoverable: patch.discoverable } : {}),
+        ...(patch.showAffiliation !== undefined ? { show_affiliation: patch.showAffiliation } : {}),
+        ...(patch.dmPolicy !== undefined ? { dm_policy: patch.dmPolicy } : {}),
+      });
+      sfx();
+    } catch (e) {
+      // Roll the switch back rather than leaving it showing a setting that
+      // did not save. A privacy toggle that lies is worse than one that
+      // fails loudly.
+      setState(prev);
+      toast(e.message || "Couldn't save that setting.", { tone: "error" });
+    } finally { setBusy(""); }
+  };
+
+  if (!state) {
+    return (
+      <Section title="Privacy">
+        <Row label="Loading your privacy settings…" last />
+      </Section>
+    );
+  }
+
+  return (
+    <Section
+      title="Privacy"
+      footer="Cerebrum has no member directory, no institution pages, and no follower lists. Nobody can browse their way to you. They have to search your name or your @username, and these settings decide whether even that works."
+    >
+      <Row
+        label="Let people find me in search"
+        desc="When this is off, searching your name or @username returns nothing and your profile link stops working, including for people who already have it. People already following you keep seeing you."
+        control={<Switch on={state.discoverable} onChange={(v) => write({ discoverable: v }, "disc")} label="Findable in search" />}
+      />
+      <Row
+        label="Show my institution on my profile"
+        desc="Your affiliation is never searchable and never links anywhere, because there are no institution pages on Cerebrum. This only decides whether it appears on your profile at all."
+        control={<Switch on={state.showAffiliation} onChange={(v) => write({ showAffiliation: v }, "aff")} label="Show institution" />}
+      />
+      <Row
+        label="Who can start a conversation with you"
+        desc={state.dmPolicy === "anyone"
+          ? "Anyone signed in can message you out of the blue."
+          : "Only people you follow can open a new conversation. Conversations you're already in stay open either way."}
+        control={
+          <Picker
+            value={state.dmPolicy}
+            options={[["following", "People I follow"], ["anyone", "Anyone"]]}
+            onChange={(v) => write({ dmPolicy: v }, "dm")}
+          />
+        }
+        last
+      />
+    </Section>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Commit 100 — PublicProfile: somebody else's profile, as a real page.
+
+   Before this, viewing another person meant a row in a search result:
+   name, institution, follower count, two buttons. There was no server
+   endpoint for a profile that isn't your own (the `profile` resource is
+   own-account only, and said so), so there was nothing richer to render.
+   `public-profile` in functions/api/data.js is the other half of this.
+
+   The layout is deliberately the one people already know from Instagram,
+   Threads and X, because a profile is a solved layout and inventing a new
+   one only makes people work: cover, avatar breaking the cover line,
+   identity block, relationship buttons, counts, then the person's own
+   words and links. What is NOT borrowed from those apps is what they put
+   in the counts.
+
+   Followers and following are numbers here, and nothing else. They are not
+   buttons, because a tappable follower count is a follower LIST, and a
+   follower list is how you walk a social graph — pick one account, open its
+   followers, open each of those. That is the same enumeration problem as the
+   institution roster this commit deleted, wearing different clothes. The
+   count answers "is this person connected to anything?", which is the honest
+   reason to show it. The list answers "who else can I go find?", which is
+   not this app's business to answer.
+
+   Nothing about the person's research activity appears here either: no
+   searches, no saved papers, no collections, no history. A research question
+   is often the most sensitive thing anyone types into this product.
+   ════════════════════════════════════════════════════════════════════ */
+function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msgBusy, setMsgBusy] = useState(false);
+  const trapRef = useFocusTrap();
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError("");
+    apiDataGet("public-profile", { id: userId })
+      .then((res) => { if (!cancelled) { setData(res); setLoading(false); } })
+      .catch(() => {
+        if (cancelled) return;
+        // One message for every failure mode, matching the endpoint, which
+        // returns the same 404 for "no such account", "opted out of being
+        // found" and "one of you blocked the other". Distinguishing them
+        // here would leak exactly what the shared 404 exists to hide.
+        setError("This profile isn't available.");
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  const u = data && data.user;
+  const displayName = (u && u.name) || "Researcher";
+  const initial = displayName.trim().charAt(0).toUpperCase() || "?";
+  const isFounder = !!(data && data.badges || []).includes("founder");
+
+  const toggleFollow = async () => {
+    if (busy || !u) return;
+    setBusy(true);
+    try {
+      const res = await apiDataAction("toggle-follow", { target_id: u.id });
+      setData((prev) => prev && ({
+        ...prev,
+        isFollowing: res.following,
+        followers: typeof res.followers === "number" ? res.followers : prev.followers,
+        // Following someone can be what unlocks messaging them, when their
+        // policy is "people I follow" and they already follow you. Recompute
+        // optimistically so the button below stops lying immediately.
+        canMessage: prev.canMessage || (res.following && prev.followsMe),
+      }));
+    } catch (e) {
+      toast(e.message || "Couldn't update that follow.", { tone: "error" });
+    } finally { setBusy(false); }
+  };
+
+  const message = async () => {
+    if (msgBusy || !u) return;
+    setMsgBusy(true);
+    try {
+      const res = await apiDataAction("start-thread", { target_id: u.id });
+      onMessage(u, res.thread_id);
     } catch (e) {
       toast(e.message || "Couldn't start that conversation.", { tone: "error" });
-      setMessageBusy((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+      setMsgBusy(false);
     }
   };
 
-  const researchers = (data && data.researchers) || [];
-  const TABS = [["researchers", "Top Researchers"], ["departments", "Departments"], ["papers", "Recent Papers"]];
+  const links = u ? [
+    u.link_site ? { label: "Website", href: u.link_site, icon: "link" } : null,
+    u.link_orcid ? { label: "ORCID", href: u.link_orcid, icon: "check" } : null,
+    u.link_scholar ? { label: "Scholar", href: u.link_scholar, icon: "bookOpen" } : null,
+  ].filter(Boolean) : [];
+
+  // Affiliation, degree and graduating year read as one line of context
+  // about a person, not as three separate facets you could filter on. Any
+  // of them can be absent, and affiliation is absent for anyone who chose
+  // to hide it — the endpoint sends null and this simply doesn't render it.
+  const context = u ? [u.degree, u.grad_year, u.affiliation].filter(Boolean).join(" · ") : "";
+
+  const stat = (n, label) => (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+      <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-mono)", letterSpacing: "-0.02em" }}>{n}</span>
+      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>{label}</span>
+    </div>
+  );
 
   return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="Institution Hub" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
-        background: P.dark ? "rgba(15, 17, 26, 0.94)" : "rgba(255, 255, 255, 0.97)",
-        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
-        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column",
-        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
-      }} className="cb-modal">
-        {/* Cinematic full-bleed header: an accent wash behind the mark + name. */}
-        <div style={{
-          position: "relative", padding: isMobile ? "28px 20px 20px" : "36px 28px 24px", overflow: "hidden",
-          background: `linear-gradient(160deg, ${withAlpha(accent, 0.22)}, transparent 70%)`,
-          borderBottom: `1px solid ${P.line}`,
-        }}>
-          <button onClick={close} aria-label="Close" style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <img
-              src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(hubName)}&backgroundColor=${accent.replace("#", "")}`}
-              alt="" aria-hidden="true"
-              style={{ width: 64, height: 64, borderRadius: 12, border: `1px solid ${P.line}`, flexShrink: 0, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}
-            />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", color: withAlpha(accent, 0.9), fontFamily: "var(--cb-body)" }}>Institution Hub</div>
-              <div style={{ fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", marginTop: 2 }}>{hubName}</div>
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{researchers.length} researcher{researchers.length === 1 ? "" : "s"} on Cerebrum</div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 4, padding: "10px 20px 0", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-          {TABS.map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)} style={{
-              padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "none", border: "none", cursor: "pointer",
-              color: tab === key ? P.ink : P.faint, borderBottom: tab === key ? `2px solid ${accent}` : "2px solid transparent", marginBottom: -1,
-            }}>{label}</button>
-          ))}
-        </div>
-
-        <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-          {tab === "researchers" && (
-            loading ? (
-              <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Loading…</div>
-            ) : researchers.length === 0 ? (
-              <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>No researchers from {hubName} on Cerebrum yet.</div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                {researchers.map((r) => {
-                  const isMessageBusy = messageBusy.has(r.id);
-                  const meta = [r.degree, r.gradYear].filter(Boolean).join(" · ");
-                  return (
-                    <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, borderRadius: 12, border: `1px solid ${P.line}` }}>
-                      <img
-                        src={`https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(r.username || r.id)}&backgroundColor=0a0a0a`}
-                        alt="" aria-hidden="true" loading="lazy"
-                        style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0, border: `1px solid ${P.line}`, objectFit: "cover" }}
-                      />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
-                        {meta && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta}</div>}
-                      </div>
-                      <button
-                        onClick={() => messageResearcher(r)}
-                        disabled={isMessageBusy}
-                        aria-label={`Message ${r.name}`}
-                        title={`Message ${r.name}`}
-                        style={{ width: 30, height: 30, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: isMessageBusy ? "default" : "pointer", opacity: isMessageBusy ? 0.6 : 1 }}
-                      ><Icon name="mail" size={13} /></button>
-                    </div>
-                  );
-                })}
+    <div
+      onClick={onClose}
+      role="dialog" aria-modal="true" aria-label={`${displayName}'s profile`}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 216, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", padding: isMobile ? 0 : 20 }}
+      className="cb-backdrop"
+    >
+      <div
+        ref={trapRef} tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="cb-modal"
+        style={{
+          background: P.surface, border: `1px solid ${P.line}`,
+          borderRadius: isMobile ? "16px 16px 0 0" : RADIUS.lg,
+          width: "100%", maxWidth: 520, maxHeight: isMobile ? "92vh" : "86vh",
+          display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
+        }}
+      >
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {loading && (
+            <div style={{ padding: "60px 20px", textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint }}>Loading…</div>
+          )}
+          {!loading && error && (
+            <div style={{ padding: "52px 28px", textAlign: "center" }}>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6 }}>{error}</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+                It may have been removed, or the person may have chosen not to be found.
               </div>
-            )
-          )}
-          {tab === "departments" && (
-            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, maxWidth: 340, margin: "0 auto" }}>
-              Department listings aren't built yet — Cerebrum profiles don't currently carry a department field. Top Researchers above is the real, live roster for this institution.
             </div>
           )}
-          {tab === "papers" && (
-            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, maxWidth: 340, margin: "0 auto" }}>
-              Recent Papers isn't wired up yet — it would need to match this institution's researchers against Cerebrum's own literature search, which is a separate build. Try searching a researcher's name directly from the home screen in the meantime.
-            </div>
+          {!loading && !error && u && (
+            <>
+              {/* Cover. A person's own chosen image if they set one, and
+                  otherwise a calm accent wash rather than a grey slab — the
+                  profile should look composed before anyone has uploaded
+                  anything to it. */}
+              <div style={{
+                height: isMobile ? 104 : 132,
+                background: u.cover
+                  ? `center/cover no-repeat url(${JSON.stringify(u.cover)})`
+                  : `linear-gradient(135deg, ${withAlpha(accent, 0.32)}, ${withAlpha(accent, 0.08)})`,
+                borderBottom: `1px solid ${P.line}`,
+              }} />
+
+              <div style={{ padding: isMobile ? "0 18px 22px" : "0 26px 26px" }}>
+                <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: isMobile ? -38 : -46 }}>
+                  <div style={{ width: isMobile ? 78 : 96, height: isMobile ? 78 : 96, flexShrink: 0 }}>
+                    {u.avatar_base64 ? (
+                      <img
+                        src={u.avatar_base64}
+                        alt={`${displayName}'s avatar`}
+                        style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", border: `4px solid ${P.surface}`, background: P.surface }}
+                      />
+                    ) : (
+                      <div style={{
+                        width: "100%", height: "100%", borderRadius: "50%",
+                        ...avatarSkin(displayName || u.id),
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: isMobile ? 30 : 36, fontWeight: 700, fontFamily: "var(--cb-mono)",
+                        border: `4px solid ${P.surface}`,
+                      }}>{initial}</div>
+                    )}
+                  </div>
+
+                  {/* Relationship buttons sit on the avatar's line, the way
+                      every profile people already use puts them. */}
+                  <div style={{ display: "flex", gap: 8, paddingBottom: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button
+                      onClick={toggleFollow}
+                      disabled={busy}
+                      className="cb-press"
+                      style={{
+                        padding: "8px 18px", borderRadius: 100, cursor: busy ? "default" : "pointer",
+                        fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
+                        opacity: busy ? 0.6 : 1,
+                        background: data.isFollowing ? "transparent" : accent,
+                        color: data.isFollowing ? P.ink2 : at,
+                        border: data.isFollowing ? `1px solid ${P.line2}` : "none",
+                      }}
+                    >{data.isFollowing ? "Following" : "Follow"}</button>
+                    <button
+                      onClick={message}
+                      disabled={msgBusy || !data.canMessage}
+                      className="cb-press"
+                      title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
+                      style={{
+                        padding: "8px 16px", borderRadius: 100,
+                        cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
+                        fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+                        background: "transparent", color: data.canMessage ? P.ink2 : P.faint,
+                        border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.65,
+                      }}
+                    >{msgBusy ? "Opening…" : "Message"}</button>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                    <h2 style={{ fontSize: isMobile ? 21 : 24, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>{displayName}</h2>
+                    {isFounder && <VerifiedCheck size={16} />}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-mono)" }}>@{u.username}</span>
+                    {/* "Follows you" is the one piece of relationship context
+                        worth surfacing before you decide to follow back, and
+                        it is information the viewer is already entitled to —
+                        it is about their own account, not a third party's. */}
+                    {data.followsMe && (
+                      <span style={{
+                        fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
+                        background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)",
+                        padding: "2px 8px", borderRadius: RADIUS.pill,
+                      }}>Follows you</span>
+                    )}
+                  </div>
+                </div>
+
+                {u.bio && (
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.65, marginTop: 12, whiteSpace: "pre-wrap" }}>{u.bio}</div>
+                )}
+
+                {context && (
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>{context}</div>
+                )}
+
+                {links.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+                    {links.map((l) => (
+                      <a
+                        key={l.label}
+                        href={l.href}
+                        target="_blank"
+                        // noopener/noreferrer on every outbound link a person
+                        // put on their own profile: without it the destination
+                        // gets a referrer naming this app and a handle on the
+                        // opener window.
+                        rel="noopener noreferrer nofollow ugc"
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                          fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent,
+                          textDecoration: "none", padding: "5px 11px", borderRadius: RADIUS.pill,
+                          border: `1px solid ${withAlpha(accent, 0.3)}`, background: withAlpha(accent, 0.07),
+                        }}
+                      ><Icon name={l.icon} size={12} />{l.label}</a>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 20, marginTop: 16, paddingTop: 14, borderTop: `1px solid ${P.line}` }}>
+                  {stat(data.followers, data.followers === 1 ? "follower" : "followers")}
+                  {stat(data.followingCount, "following")}
+                </div>
+
+                {(data.badges || []).length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14 }}>
+                    {data.badges.map((b) => (
+                      <span key={b} style={{
+                        fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
+                        border: `1px solid ${P.line}`, padding: "3px 9px", borderRadius: RADIUS.pill,
+                        textTransform: "capitalize",
+                      }}>{String(b).replace(/[_-]+/g, " ")}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Saying what a profile does NOT carry is part of the
+                    product, not a disclaimer. Someone deciding how much to
+                    put on their own profile is choosing based on what they
+                    think other people can see. */}
+                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, marginTop: 18, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
+                  Cerebrum profiles never show what someone searched for, saved, or read. Follower counts don't open into lists.
+                </div>
+              </div>
+            </>
           )}
+        </div>
+
+        <div style={{ padding: "12px 18px", borderTop: `1px solid ${P.line}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+          <button onClick={onClose} style={{
+            background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer",
+            padding: "7px 16px", borderRadius: RADIUS.pill, fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+          }}>Close</button>
         </div>
       </div>
     </div>
   );
 }
+
+/* Commit 100 — InstitutionModal is deleted.
+
+   It rendered a university's roster: every Cerebrum account sharing one
+   affiliation string, up to a hundred of them, reachable by clicking an
+   institution name in Find People or an affiliation on someone's profile.
+   Reported directly: "if I go to find people, it shows up University of
+   Tennessee. I should not be able to view the people at University of
+   Tennessee. That is not safe."
+
+   It is not, and there is no privacy setting that makes it safe, because
+   the roster IS the feature. An institution is a fact about a person, not a
+   place other people can be browsed from. The `hub` endpoint behind it is
+   deleted too — see functions/api/data.js — so nothing can rebuild this
+   view against the same data. Affiliation still appears on a profile, as
+   plain text, and only if that person left it visible. */
+
 
 /* ============================================================
    NOTEBOOK MODE — deep summarization + Q&A over one full document the user
@@ -11187,6 +11527,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const SETTINGS_INDEX = [
     ["Answer length", "answers", "concise standard detailed response verbosity"],
     ["Check answers against their sources", "answers", "verify verification accuracy claims fact check"],
+    // Commit 100 — the privacy controls are findable by the words people
+    // actually search for when they go looking for them, which is rarely
+    // the word on the switch.
+    ["Let people find me in search", "account", "privacy discoverable hidden invisible directory find people search"],
+    ["Show my institution on my profile", "account", "privacy affiliation university college hide institution"],
+    ["Who can start a conversation with you", "account", "privacy dm direct message strangers block messages"],
     ["Animated typing", "answers", "typewriter reveal progressive"],
     ["Citation format", "answers", "apa mla chicago vancouver bibtex reference style"],
     ["Theme", "appearance", "dark light palette colour color"],
@@ -11429,6 +11775,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Section title="Account">
                 <Row label={user.email} desc="Signed in" last />
               </Section>
+              {/* Commit 100 — privacy sits directly under the account it
+                  governs, above password and everything else. It is the
+                  first thing someone should meet when they come looking for
+                  it, not the last section on a scroll. */}
+              <PrivacySettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} Switch={Switch} Picker={Picker} />
               <Section title="Password" footer="Set a password so you can sign in without waiting on an email link every time.">
                 <div style={{ padding: "14px 16px" }}>
                   <form onSubmit={submitPassword}>
@@ -13007,8 +13358,8 @@ function App() {
   // gone; `view === "inbox"` is the single source of truth now.
   const [networkSearchOpen, setNetworkSearchOpen] = useState(false);
   const [notebookOpen, setNotebookOpen] = useState(false);
-  const [hubOpen, setHubOpen] = useState(false);
-  const [activeHubName, setActiveHubName] = useState("");
+  // Commit 100 — hubOpen/activeHubName removed with InstitutionModal.
+  const [viewingProfileId, setViewingProfileId] = useState(null);
   // Which full-page view fills the app shell to the right of the Sidebar.
   // Profile, Settings, and Trending used to be centered modal dialogs
   // (UserProfileModal/Settings/TrendingModal) — each is now a real page
@@ -14671,7 +15022,7 @@ function App() {
           <WorkspacePage
             P={P} accent={accent} isMobile={isMobile} wide
             title="Find people"
-            description="Researchers on Cerebrum, and the authors behind the papers you've been reading."
+            description="Search for someone by name or @username. There is no member list, and no way to browse people by university."
           >
             <div style={{ maxWidth: 620 }}>
             <NetworkSearchModal
@@ -14679,7 +15030,7 @@ function App() {
               P={P} accent={accent} at={at}
               close={() => setView("search")}
               onMessage={(researcher, threadId) => { setPendingThreadId(threadId); setView("inbox"); }}
-              onOpenHub={(name) => { setActiveHubName(name); setHubOpen(true); }}
+              onOpenProfile={(id) => setViewingProfileId(id)}
             />
             </div>
           </WorkspacePage>
@@ -14711,20 +15062,19 @@ function App() {
             setPendingThreadId(threadId);
             setView("inbox");
           }}
-          onOpenHub={(name) => {
-            setNetworkSearchOpen(false);
-            setActiveHubName(name);
-            setHubOpen(true);
-          }}
+          onOpenProfile={(id) => { setNetworkSearchOpen(false); setViewingProfileId(id); }}
         />
       )}
-      {hubOpen && (
-        <InstitutionModal
-          P={P} accent={accent} at={at}
-          close={() => setHubOpen(false)}
-          hubName={activeHubName}
+      {/* Commit 100 — the profile viewer. Opened from a Find People result
+          or the founder card; nothing else on the site links to a person, by
+          design. */}
+      {viewingProfileId && (
+        <PublicProfile
+          P={P} accent={accent} at={at} isMobile={isMobile}
+          userId={viewingProfileId}
+          onClose={() => setViewingProfileId(null)}
           onMessage={(researcher, threadId) => {
-            setHubOpen(false);
+            setViewingProfileId(null);
             setPendingThreadId(threadId);
             setView("inbox");
           }}
