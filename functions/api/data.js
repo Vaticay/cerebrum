@@ -204,6 +204,83 @@ async function founderRow(env) {
   } catch { return null; }
 }
 
+/* Commit 100 — the founder card, factored out of search-users.
+
+   With browse deleted, this is the only account the app ever surfaces
+   without being asked for by name, and that is defensible for exactly one
+   reason: it is the person who runs the service, volunteering their own
+   contact, on their own product. It is not a sample of other users, and it
+   is not a suggestion algorithm — it recommends one account and says plainly
+   who it is and why. Everyone else has to be searched for. */
+async function founderCard(env, user) {
+  const fr = await founderRow(env);
+  if (!fr || fr.id === user.id) return null;
+  try {
+    const followers = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
+    ).bind(fr.id).first();
+    const isFollowing = await env.DB.prepare(
+      "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
+    ).bind(user.id, fr.id).first();
+    return {
+      id: fr.id, username: fr.username, name: fr.name || fr.username || "Founder",
+      affiliation: fr.affiliation || null, degree: fr.degree || null,
+      gradYear: fr.grad_year || null,
+      followers: (followers && followers.n) || 0,
+      following: !!isFollowing,
+      isFounder: true,
+      prompt: "Have a question for the owner?",
+    };
+  } catch { return null; }
+}
+
+/* Commit 100 — may `senderId` open a NEW conversation with `targetId`?
+
+   The default is "only people I follow", chosen deliberately over the old
+   "anyone signed in". An unsolicited DM from a stranger is the single most
+   common way a small network becomes unpleasant, and the person who pays for
+   a permissive default is never the one who chose it.
+
+   Two carve-outs, because a rule that blocks legitimate first contact just
+   gets worked around:
+
+     - The founder accepts from anyone. The Find People card invites you to
+       ask them a question; that invitation has to actually work, and it is
+       their own account extending it.
+     - An account can opt back in to 'anyone' explicitly.
+
+   This gates thread CREATION only. Once a conversation exists, both sides
+   can speak in it — the recipient allowed it by replying, or it predates
+   this rule, and retroactively silencing half of an open thread would be a
+   worse surprise than the one this prevents. Blocking is still the control
+   that ends an existing conversation. */
+async function mayStartConversation(env, senderId, targetId) {
+  let policy = "following";
+  let founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
+  try {
+    const row = await env.DB.prepare(
+      "SELECT dm_policy, email_lower, email FROM users WHERE id = ?"
+    ).bind(targetId).first();
+    if (row) {
+      if (row.dm_policy === "anyone") policy = "anyone";
+      const targetEmail = (row.email_lower || row.email || "").toLowerCase();
+      if (founderEmail && targetEmail === founderEmail) policy = "anyone";
+    }
+  } catch {
+    // A missing dm_policy column (an account older than this deploy, before
+    // ensureUserProfileColumns has run) must not fail open into the
+    // permissive branch — that is the whole failure mode this control
+    // exists to prevent. Fall through with the strict default.
+  }
+  if (policy === "anyone") return true;
+  try {
+    const follows = await env.DB.prepare(
+      "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
+    ).bind(targetId, senderId).first();
+    return !!follows;
+  } catch { return false; }
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
@@ -225,6 +302,65 @@ export async function onRequest(context) {
   if (!env.DB) return new Response(JSON.stringify({ error: "Accounts are not configured on this deployment." }), { status: 503, headers: cors });
 
   const user = await getSessionUser(request, env);
+
+  /* ══════════════════════════════════════════════════════════════════
+     Commit 100 — the one resource in this file that answers without a
+     session, and the only one that ever should.
+
+     A profile link that dies at a sign-in wall is not a profile link, so
+     signed-out visitors get a card: display name, @username, avatar, bio.
+     That is the whole payload. Everything a scraper would actually want is
+     withheld — institution, degree, graduation year, follower and following
+     counts, badges, links, activity — because those are the fields that make
+     a harvested profile worth harvesting, and none of them are needed to
+     decide whether to sign in and look properly.
+
+     Three further constraints on this branch:
+
+       - It requires an exact user id. There is no listing, no search, and no
+         enumeration from here; you can only ask about an account you were
+         already given a link to.
+       - It honours `discoverable`. Someone who has opted out of being found
+         is not reachable through a guessed link either.
+       - It is rate limited per IP, harder than the signed-in budget, because
+         this is the only unauthenticated door and it is the one an automated
+         client would knock on.
+
+     Signed-in visitors fall through to the full public-profile branch far
+     below, which is a different and much richer response.
+     ══════════════════════════════════════════════════════════════════ */
+  if (!user && request.method === "GET" && url.searchParams.get("resource") === "public-profile") {
+    const clientIPAnon = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
+    if (!(await checkRateLimit(env, `anonprofile:${clientIPAnon}`, 20, 60000))) {
+      return new Response(JSON.stringify({ error: "Too many requests." }), { status: 429, headers: { ...cors, "Retry-After": "30" } });
+    }
+    const targetId = (url.searchParams.get("id") || "").toString().slice(0, 64);
+    if (!targetId) return new Response(JSON.stringify({ error: "Missing id." }), { status: 400, headers: cors });
+    try {
+      await ensureUserProfileColumns(env);
+      const row = await env.DB.prepare(
+        "SELECT id, username, name, avatar_base64, bio, discoverable FROM users WHERE id = ?"
+      ).bind(targetId).first();
+      // Same 404 for "no such account" and "opted out", so this cannot be
+      // used to confirm that a hidden account exists.
+      if (!row || row.discoverable === 0) {
+        return new Response(JSON.stringify({ error: "Profile not found." }), { status: 404, headers: cors });
+      }
+      return new Response(JSON.stringify({
+        limited: true,
+        user: {
+          id: row.id,
+          username: row.username,
+          name: row.name || row.username || "Researcher",
+          avatar_base64: row.avatar_base64 || null,
+          bio: row.bio || null,
+        },
+      }), { status: 200, headers: cors });
+    } catch {
+      return new Response(JSON.stringify({ error: "Profile not found." }), { status: 404, headers: cors });
+    }
+  }
+
   if (!user) return new Response(JSON.stringify({ error: "Sign in first." }), { status: 401, headers: cors });
 
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
@@ -287,7 +423,7 @@ export async function onRequest(context) {
       // raise, so it's not being guessed at here.
       if (resource === "profile") {
         const row = await env.DB.prepare(
-          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, bio, cover, link_site, link_orcid, link_scholar, terms_version, terms_accepted_at FROM users WHERE id = ?"
+          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, bio, cover, link_site, link_orcid, link_scholar, terms_version, terms_accepted_at, discoverable, dm_policy, show_affiliation FROM users WHERE id = ?"
         ).bind(user.id).first();
         if (!row) return new Response(JSON.stringify({ error: "Account not found." }), { status: 404, headers: cors });
         const followerCount = await env.DB.prepare(
@@ -311,6 +447,105 @@ export async function onRequest(context) {
           termsVersion: row.terms_version || null,
           termsAcceptedAt: row.terms_accepted_at || null,
           isFounder,
+          /* Commit 100 — the privacy controls, resolved here rather than in
+             the UI. NULL means "never set", and each has a defined default
+             (see the column comments in authHelpers.js); doing that
+             resolution in one place means the settings screen cannot show a
+             switch in a position the server does not actually honour. */
+          privacy: {
+            discoverable: row.discoverable === null || row.discoverable === undefined ? true : row.discoverable === 1,
+            showAffiliation: row.show_affiliation === null || row.show_affiliation === undefined ? true : row.show_affiliation === 1,
+            dmPolicy: row.dm_policy === "anyone" ? "anyone" : "following",
+          },
+        }), { status: 200, headers: cors });
+      }
+
+      /* ══════════════════════════════════════════════════════════════
+         Commit 100 — somebody else's profile, for a signed-in viewer.
+
+         This did not exist. The old `profile` resource was your own account
+         only, and its comment said so explicitly: a version taking a target
+         id "would need its own thinking about which columns are safe to
+         expose about someone ELSE ... which is a real design question the
+         spec for this round didn't raise." This is that thinking.
+
+         Safe to return: display name, @username, avatar, cover, bio, the
+         three self-published links, degree and graduation year, follower and
+         following counts, badges, and the viewer's own relationship to this
+         account (following, blocked, may I message them).
+
+         Never returned: email in any form, account age, last login, the
+         accounts they follow or that follow them (a follower LIST is an
+         enumeration primitive — the count is not), anything about their
+         searches, saved papers, collections or history. A research question
+         is often the most sensitive thing a person will type into this
+         product, and none of it belongs on a public profile.
+
+         Conditional: affiliation, only when show_affiliation has not been
+         turned off. And nothing at all if the account has opted out of
+         discovery or either side has blocked the other — with the same 404
+         in every case, so this cannot be used to distinguish "no such
+         person" from "hidden" from "they blocked you."
+         ══════════════════════════════════════════════════════════════ */
+      if (resource === "public-profile") {
+        const targetId = (url.searchParams.get("id") || "").toString().slice(0, 64);
+        if (!targetId) return new Response(JSON.stringify({ error: "Missing id." }), { status: 400, headers: cors });
+        if (targetId === user.id) {
+          return new Response(JSON.stringify({ error: "Use resource=profile for your own account.", code: "self" }), { status: 400, headers: cors });
+        }
+        const row = await env.DB.prepare(
+          `SELECT id, username, name, affiliation, show_affiliation, degree, grad_year,
+                  avatar_base64, bio, cover, link_site, link_orcid, link_scholar, discoverable, dm_policy
+           FROM users WHERE id = ?`
+        ).bind(targetId).first();
+        const blocked = row ? await isBlockedPair(env, user.id, targetId) : false;
+        if (!row || row.discoverable === 0 || blocked) {
+          return new Response(JSON.stringify({ error: "Profile not found." }), { status: 404, headers: cors });
+        }
+        const followers = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
+        ).bind(targetId).first();
+        const following = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM follows WHERE follower_id = ?"
+        ).bind(targetId).first();
+        const iFollow = await env.DB.prepare(
+          "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
+        ).bind(user.id, targetId).first();
+        const followsMe = await env.DB.prepare(
+          "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
+        ).bind(targetId, user.id).first();
+        let badges = [];
+        try {
+          const badgeRows = await env.DB.prepare(
+            "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
+          ).bind(targetId).all();
+          badges = (badgeRows.results || []).map((b) => b.badge_type);
+        } catch {}
+        return new Response(JSON.stringify({
+          limited: false,
+          user: {
+            id: row.id,
+            username: row.username,
+            name: row.name || row.username || "Researcher",
+            affiliation: row.show_affiliation === 0 ? null : (row.affiliation || null),
+            degree: row.degree || null,
+            grad_year: row.grad_year || null,
+            avatar_base64: row.avatar_base64 || null,
+            bio: row.bio || null,
+            cover: row.cover || null,
+            link_site: row.link_site || null,
+            link_orcid: row.link_orcid || null,
+            link_scholar: row.link_scholar || null,
+          },
+          followers: followers?.n || 0,
+          followingCount: following?.n || 0,
+          badges,
+          // The viewer's relationship, which is what the profile's buttons
+          // are made of. `followsMe` is shown as "Follows you", the same
+          // signal every network gives you before you decide to follow back.
+          isFollowing: !!iFollow,
+          followsMe: !!followsMe,
+          canMessage: await mayStartConversation(env, user.id, targetId),
         }), { status: 200, headers: cors });
       }
 
@@ -341,12 +576,18 @@ export async function onRequest(context) {
           let otherId = null;
           if (t.kind === "dm") {
             const other = await env.DB.prepare(
-              `SELECT u.id, u.name, u.username, u.email FROM thread_participants tp
+              // Commit 100 — `u.email` selected here too, as the last fallback
+              // for a thread's display name. An account with no display name
+              // set would title the conversation with the other person's
+              // email address. The username always exists (auth.js assigns
+              // one at signup), so the fallback was unreachable in practice
+              // and only a leak in waiting.
+              `SELECT u.id, u.name, u.username FROM thread_participants tp
                JOIN users u ON u.id = tp.user_id
                WHERE tp.thread_id = ? AND tp.user_id != ?`
             ).bind(t.id, user.id).first();
             otherId = other ? other.id : null;
-            if (!displayName) displayName = other ? (other.name || other.username || other.email) : "Conversation";
+            if (!displayName) displayName = other ? (other.name || other.username || "Conversation") : "Conversation";
           }
           // Commit 48: a DM with either direction of block in place is
           // flagged so the Inbox can disable its composer/huddle button —
@@ -475,25 +716,46 @@ export async function onRequest(context) {
         // "Seen" on the read side's own last message — see otherLastReadAt
         // below. Not attempted for groups (kind !== "dm"): "seen by which
         // of N people" is a genuinely different feature nobody asked for.
+        /* Commit 100 — `u.email` and a raw `u.affiliation` used to be
+           selected here and sent to the other participant's browser, where
+           the Inbox printed them under the conversation title:
+           "alice@utk.edu · University of Tennessee". Two problems.
+
+           The email is the serious one. Nothing in this product asks you to
+           share your email address with the people you talk to, and nobody
+           agreed to it — opening a DM handed over a real, permanent contact
+           address. It is also the exact identifier that makes a scraped
+           user base worth something. It is not selected any more, so it
+           cannot be printed by accident later.
+
+           The affiliation was sent unconditionally, ignoring
+           show_affiliation, so a person who had hidden their institution on
+           their profile still leaked it to anyone who opened a conversation
+           with them. A privacy switch with a hole in it is worse than no
+           switch, because the person believes it holds.
+
+           `username` stays: it is the public handle, it is how you found
+           this person, and it is what disambiguates two people with the
+           same display name. */
         const participantRows = await env.DB.prepare(
-          `SELECT u.id, u.name, u.username, u.email, u.affiliation, tp.last_read_at FROM thread_participants tp
+          `SELECT u.id, u.name, u.username, u.affiliation, u.show_affiliation, tp.last_read_at FROM thread_participants tp
            JOIN users u ON u.id = tp.user_id
            WHERE tp.thread_id = ?`
         ).bind(threadId).all();
         const participants = participantRows.results || [];
         const byId = new Map(participants.map((p) => [p.id, p]));
-        const displayNameFor = (p) => (p ? (p.name || p.username || p.email) : "Someone");
+        const displayNameFor = (p) => (p ? (p.name || p.username || "Someone") : "Someone");
         let name = threadRow.name;
         let otherId = null;
-        let otherEmail = null;
+        let otherUsername = null;
         let otherAffiliation = null;
         let otherLastReadAt = null;
         if (!name && threadRow.kind === "dm") {
           const other = participants.find((p) => p.id !== user.id);
           name = other ? displayNameFor(other) : "Conversation";
           otherId = other?.id || null;
-          otherEmail = other?.email || null;
-          otherAffiliation = other?.affiliation || null;
+          otherUsername = other?.username || null;
+          otherAffiliation = other && other.show_affiliation !== 0 ? (other.affiliation || null) : null;
           otherLastReadAt = other ? toEpochMs(other.last_read_at) : null;
         }
         // Commit 48: same "either direction blocks" flag as the inbox list
@@ -526,7 +788,7 @@ export async function onRequest(context) {
           name: name || "Conversation",
           memberCount: participants.length,
           otherId,
-          otherEmail,
+          otherUsername,
           otherAffiliation,
           otherLastReadAt,
           blocked,
@@ -541,121 +803,117 @@ export async function onRequest(context) {
       // never leaves a user's own profile fetch. `q` needs 2+ characters so
       // an empty or single-character box doesn't scan every account on each
       // keystroke.
+      /* ══════════════════════════════════════════════════════════════
+         Commit 100 — Find People, rebuilt around one rule: you find a
+         person because you already know something about them, never by
+         being handed a list.
+
+         What this endpoint used to do, all of which is now gone:
+
+         1. An empty query returned 20 accounts ordered by followers and
+            last_login_at. Opening the tab handed any signed-in user a
+            roster. Commit 57 added that deliberately, to solve "a social
+            network that shows you nobody until you can name somebody has
+            no way in" — a real problem, but the fix was to publish a
+            directory, and the cost of that is borne by people who never
+            asked to be in one. The founder card (below) solves the same
+            cold-start problem without listing anyone else.
+
+         2. It matched `u.email_lower LIKE '%q%'`. Email was never returned,
+            but matching on it is the leak: type "@utk.edu" and you get
+            everyone at that domain; type a guessed address and the presence
+            or absence of a result confirms whether that person has an
+            account. That is an email-enumeration oracle, and it was the
+            most serious hole in this file. Gone entirely — email is not a
+            search key.
+
+         3. It matched `u.affiliation LIKE '%q%'`, and returned a `hubs`
+            aggregation: every distinct institution with a headcount. Paired
+            with the `hub` resource (deleted below), which returned up to 100
+            named accounts for any affiliation string, that made the whole
+            user base walkable institution by institution. Reported directly:
+            "if I go to find people, it shows up University of Tennessee. I
+            should not be able to view the people at University of Tennessee.
+            That is not safe." It is not. An institution is not a profile and
+            it is not a place you can browse.
+
+         What remains: a match on name or username only, from accounts that
+         have not opted out, rate limited so the remaining surface cannot be
+         walked at speed.
+         ══════════════════════════════════════════════════════════════ */
       if (resource === "search-users") {
         const q = (url.searchParams.get("q") || "").trim();
-        // Commit 57 — an empty query used to return an empty list, which is
-        // why "no one shows up in my inbox": opening Find People (or the
-        // compose picker) showed a blank screen until you typed two
-        // characters, and if you didn't already know a colleague's exact
-        // username there was nothing to type. A social network that shows
-        // you nobody until you can name somebody has no way in. Empty query
-        // now browses the directory instead — the most-followed accounts
-        // first, which is the same "who's here?" list every other network
-        // opens with.
-        const browsing = q.length < 2;
+
+        // No query, no people. This endpoint has no browse mode. The founder
+        // card is still assembled below, because it is one named account
+        // that has explicitly volunteered to be contacted — not a sample of
+        // other people's.
+        if (q.length < 2) {
+          return new Response(JSON.stringify({ items: [], founder: await founderCard(env, user) }), { status: 200, headers: cors });
+        }
+
+        // Commit 100 — a search endpoint that returns real accounts is a
+        // scraping target by definition. Two characters at a time, 20 rows a
+        // shot, an attacker walks the alphabet; the limit is what makes that
+        // cost real. Keyed to the account, not the IP, because the endpoint
+        // already requires a session — so the budget follows whoever is
+        // actually spending it.
+        if (!(await checkRateLimit(env, `usersearch:${user.id}`, 30, 60000))) {
+          return new Response(
+            JSON.stringify({ error: "You're searching very quickly. Give it a few seconds." }),
+            { status: 429, headers: { ...cors, "Retry-After": "20" } }
+          );
+        }
+
         const like = "%" + escapeLikeWildcards(q) + "%";
-        const rows = browsing
-          ? await env.DB.prepare(
-              `SELECT u.id, u.username, u.name, u.affiliation, u.degree, u.grad_year,
-                      (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
-                      EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
-               FROM users u
-               WHERE u.id != ?
-               ORDER BY followers DESC, u.last_login_at DESC
-               LIMIT 20`
-            ).bind(user.id, user.id).all()
-          : await env.DB.prepare(
-              `SELECT u.id, u.username, u.name, u.affiliation, u.degree, u.grad_year,
-                      (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
-                      EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
-               FROM users u
-               WHERE u.id != ?
-                 AND (u.username LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.affiliation LIKE ? ESCAPE '\\' OR u.email_lower LIKE ? ESCAPE '\\')
-               ORDER BY followers DESC, u.name ASC
-               LIMIT 20`
-            ).bind(user.id, user.id, like, like, like, like).all();
+        const rows = await env.DB.prepare(
+          `SELECT u.id, u.username, u.name, u.affiliation, u.show_affiliation, u.degree, u.grad_year,
+                  (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
+                  EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
+           FROM users u
+           WHERE u.id != ?
+             AND COALESCE(u.discoverable, 1) = 1
+             AND (u.username LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\')
+             AND NOT EXISTS (
+               SELECT 1 FROM user_blocks b
+               WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
+                  OR (b.blocker_id = ? AND b.blocked_id = u.id)
+             )
+           ORDER BY followers DESC, u.name ASC
+           LIMIT 20`
+        ).bind(user.id, user.id, like, like, user.id, user.id).all();
+
         const items = (rows.results || []).map((r) => ({
           id: r.id,
           username: r.username,
           name: r.name || r.username || "Researcher",
-          affiliation: r.affiliation || "",
+          // Honoured here as well as on the profile: a search result that
+          // shows the institution of someone who hid it would hand back
+          // exactly the field they chose to withhold.
+          affiliation: (r.show_affiliation === 0 ? "" : (r.affiliation || "")),
           degree: r.degree || null,
           gradYear: r.grad_year || null,
           followers: r.followers || 0,
           following: !!r.is_following,
         }));
-        // "Hubs" are not a separate table — a Hub IS a distinct affiliation
-        // string that at least one real account has set, grouped and
-        // counted directly off `users`. That's deliberate: it means every
-        // Hub that shows up here corresponds to actual Cerebrum researchers,
-        // never an invented institution with a fabricated roster. An
-        // institution with zero matching users just doesn't appear as a
-        // Hub yet — see <InstitutionModal>'s empty state on the frontend
-        // for what that looks like when opened directly.
-        const hubRows = await env.DB.prepare(
-          `SELECT affiliation, COUNT(*) AS researcherCount
-           FROM users
-           WHERE affiliation IS NOT NULL AND affiliation != '' AND affiliation LIKE ? ESCAPE '\\'
-           GROUP BY affiliation
-           ORDER BY researcherCount DESC, affiliation ASC
-           LIMIT 8`
-        ).bind(like).all();
-        const hubs = (hubRows.results || []).map((h) => ({ name: h.affiliation, researcherCount: h.researcherCount || 0 }));
 
-        // Commit 74 — pin the founder to the top of Find People with an
-        // invitation to ask them something. A new user's biggest problem on
-        // an empty social graph is that there is nobody to talk to; the
-        // person who built the thing is a genuinely useful first contact,
-        // and unlike a suggested-follow algorithm this one is honest about
-        // who it is recommending and why.
-        let founder = null;
-        const fr = await founderRow(env);
-        if (fr && fr.id !== user.id) {
-          const fFollowers = await env.DB.prepare(
-            "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
-          ).bind(fr.id).first();
-          const fFollowing = await env.DB.prepare(
-            "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
-          ).bind(user.id, fr.id).first();
-          founder = {
-            id: fr.id, username: fr.username, name: fr.name || fr.username || "Founder",
-            affiliation: fr.affiliation || null, degree: fr.degree || null,
-            gradYear: fr.grad_year || null,
-            followers: (fFollowers && fFollowers.n) || 0,
-            isFollowing: !!fFollowing,
-            isFounder: true,
-            prompt: "Have a question for the owner?",
-          };
-          // Don't list them twice.
-          for (let i = items.length - 1; i >= 0; i--) {
-            if (items[i].id === fr.id) items.splice(i, 1);
-          }
-        }
-        return new Response(JSON.stringify({ items, hubs, founder }), { status: 200, headers: cors });
+        return new Response(JSON.stringify({ items, founder: await founderCard(env, user) }), { status: 200, headers: cors });
       }
-      // One Hub's full roster — <InstitutionModal> loads this when opened,
-      // either from a search result or a profile's affiliation link.
-      // `name` is matched exactly (not LIKE) since it's always passed back
-      // verbatim from a value this same file already returned via
-      // search-users' `hubs` list — the affiliation string IS the Hub's
-      // identity, there's no separate id to look it up by.
-      if (resource === "hub") {
-        const name = (url.searchParams.get("name") || "").trim().slice(0, MAX_AFFILIATION_LEN);
-        if (!name) return new Response(JSON.stringify({ error: "Missing hub name." }), { status: 400, headers: cors });
-        const rows = await env.DB.prepare(
-          `SELECT u.id, u.username, u.name, u.degree, u.grad_year,
-                  (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers
-           FROM users u
-           WHERE u.affiliation = ?
-           ORDER BY followers DESC, u.name ASC
-           LIMIT 100`
-        ).bind(name).all();
-        const researchers = (rows.results || []).map((r) => ({
-          id: r.id, username: r.username, name: r.name || r.username || "Researcher",
-          degree: r.degree || null, gradYear: r.grad_year || null, followers: r.followers || 0,
-        }));
-        return new Response(JSON.stringify({ name, researchers }), { status: 200, headers: cors });
-      }
+
+      /* Commit 100 — the `hub` resource is deleted, not disabled.
+
+         It took an affiliation string and returned up to 100 accounts at
+         that institution: id, username, display name, degree, graduation
+         year, follower count. No rate limit, and the institution strings to
+         feed it were published by search-users' own `hubs` list, so the two
+         together were a complete enumeration path over the user base.
+
+         There is no privacy flag that makes an institutional roster safe,
+         which is why this is a deletion rather than a `discoverable` filter:
+         the feature IS the exposure. A request for it now 404s like any
+         other unknown resource, and InstitutionModal is gone from the
+         frontend. */
+
       if (resource === "history") {
         const rows = await env.DB.prepare(
           "SELECT id, title, turns_json, created_at, updated_at FROM user_history WHERE user_id = ? ORDER BY updated_at DESC LIMIT 200"
@@ -1014,6 +1272,25 @@ export async function onRequest(context) {
       if (degree !== undefined) { sets.push("degree = ?"); binds.push(degree); }
       if (gradYear !== undefined) { sets.push("grad_year = ?"); binds.push(gradYear); }
       if (avatarBase64 !== undefined) { sets.push("avatar_base64 = ?"); binds.push(avatarBase64); }
+
+      /* Commit 100 — the three privacy controls, written through the same
+         action as the rest of the profile.
+
+         Each is parsed strictly rather than coerced: an unrecognised
+         dm_policy is ignored outright instead of being truthy-cast into
+         something, and the booleans only accept an actual boolean. A
+         privacy setting that can be flipped by a malformed request is worse
+         than no setting, because the person believes it holds. */
+      if (typeof body.discoverable === "boolean") {
+        sets.push("discoverable = ?"); binds.push(body.discoverable ? 1 : 0);
+      }
+      if (typeof body.show_affiliation === "boolean") {
+        sets.push("show_affiliation = ?"); binds.push(body.show_affiliation ? 1 : 0);
+      }
+      if (body.dm_policy === "anyone" || body.dm_policy === "following") {
+        sets.push("dm_policy = ?"); binds.push(body.dm_policy);
+      }
+
       if (!sets.length) return new Response(JSON.stringify({ error: "Nothing to update." }), { status: 400, headers: cors });
       binds.push(user.id);
       try {
@@ -1165,6 +1442,22 @@ export async function onRequest(context) {
       ).bind(user.id, targetId).first();
       if (existing) {
         return new Response(JSON.stringify({ thread_id: existing.id, created: false }), { status: 200, headers: cors });
+      }
+      /* Commit 100 — the recipient's DM policy gates NEW conversations. This
+         check sits after the find-existing lookup on purpose: an open thread
+         stays open regardless of what the policy says today, so tightening
+         the setting never strands a conversation someone is already having.
+         See mayStartConversation for the rule and its two carve-outs.
+
+         The message is written to be useful rather than accusatory — the
+         sender has done nothing wrong, they just have not been let in yet,
+         and following is not the answer (it is the recipient's follow that
+         matters). */
+      if (!(await mayStartConversation(env, user.id, targetId))) {
+        return new Response(JSON.stringify({
+          error: "This person only accepts messages from people they follow. Follow them and they may follow you back, which opens a conversation.",
+          code: "dm_not_allowed",
+        }), { status: 403, headers: cors });
       }
       // Note: back-to-back double-clicks could theoretically race past this
       // check and create two separate DM threads for the same pair — low-
