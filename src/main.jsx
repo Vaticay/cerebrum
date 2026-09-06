@@ -67,7 +67,7 @@ function relativeTime(ms) {
 // answer "did my deploy actually go live?" — the footer prints it, so a
 // stale bundle is visible in one glance instead of being diagnosed by
 // hunting for a missing feature.
-const APP_VERSION = "6.16.0";
+const APP_VERSION = "6.17.0";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1792,35 +1792,35 @@ const ASK_MODES = [
   {
     key: "explain",
     label: "Explain",
-    blurb: "How something works, from the literature",
+    blurb: "How something works, according to published research",
     placeholder: "Ask anything...",
     icon: "sparkle",
   },
   {
     key: "verify",
     label: "Check a claim",
-    blurb: "Is this actually supported?",
+    blurb: "Paste something you've heard and see if the research backs it",
     placeholder: "Paste a claim to test against the evidence...",
     icon: "check",
   },
   {
     key: "compare",
     label: "Compare",
-    blurb: "Two positions, side by side",
+    blurb: "Two treatments, theories or methods, weighed against each other",
     placeholder: "Compare two theories, methods or findings...",
     icon: "compare",
   },
   {
     key: "map",
     label: "Map a field",
-    blurb: "The shape of a literature",
+    blurb: "Who studies this, what they've found, and what's still unsettled",
     placeholder: "Name a field to map. Who works on what, and what's open...",
     icon: "network",
   },
   {
     key: "readinglist",
     label: "Reading list",
-    blurb: "What to read, in order",
+    blurb: "The papers to read first, in the order to read them",
     placeholder: "A topic to build a reading list for...",
     icon: "bookmark",
   },
@@ -1855,11 +1855,19 @@ function useEdgeMask() {
   return [ref, { WebkitMaskImage: mask, maskImage: mask }];
 }
 
+/* Commit 99 — these descriptions assumed the reader already knew the
+   hierarchy of evidence. "Syntheses of many studies" and "Controlled human
+   experiments" are accurate and tell a newcomer nothing about WHICH one they
+   should pick, which is the only decision this control asks them to make.
+   Each one now says what you get and when you would want it. "In vivo /
+   in vitro" keeps its Latin, because that is what the label says on the
+   papers themselves and hiding it would leave someone unable to recognise it
+   later, but it now carries a translation. */
 const EVIDENCE_TIERS = [
-  ["all", "All evidence", "Everything the databases return"],
-  ["systematic-review", "Systematic reviews", "Syntheses of many studies"],
-  ["rct", "Randomised trials", "Controlled human experiments"],
-  ["in-vivo-vitro", "In vivo / in vitro", "Lab and animal work"],
+  ["all", "All evidence", "Everything, from lab work to large trials. Start here."],
+  ["systematic-review", "Systematic reviews", "Papers that pool many studies and weigh them together. The strongest single thing to read on a settled question."],
+  ["rct", "Randomised trials", "Studies that tested something on people, with a control group. Best for whether a treatment actually works."],
+  ["in-vivo-vitro", "In vivo / in vitro", "Work done in animals or in cells, not yet in people. Early evidence about how something works."],
 ];
 
 function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
@@ -2530,48 +2538,172 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite)
 /* ============================================================
    FACT CHECK, SKELETON, LOADING — redesigned visuals, same logic
    ============================================================ */
+/* Commit 99 — rewritten, twice, and the second pass is the one that matters.
+
+   The first pass fixed the wording. The real report was harder: "as a new
+   reader looks at it, it doesn't make sense. What even is that for? What's
+   the purpose of having that specific block? How is that going to better
+   what the reader is reading?"
+
+   That is not a copy problem. A block that appears under every answer,
+   always green, always reading 100%, has no purpose a reader can name —
+   because a warning that fires every time is not a warning, it is furniture.
+   The reader learns in two answers that it is always green and never looks
+   again, which means on the one answer where it is NOT green, they miss it.
+   The panel was loudest in exactly the case where it had nothing to say.
+
+   So the block earns its space by being quiet. Its purpose is to interrupt
+   you when the answer has drifted off its own citations, and that is the
+   only time it now looks like anything. Clean, it is a single line of text
+   under the answer, a receipt you can open if you care. Flagged, it opens
+   into the full card, headed by the specific thing that is wrong and listing
+   only the items that are wrong.
+
+   The other half of "what is it for" is that there are two very different
+   checks feeding this and they were rendered identically:
+
+     mode "claims"  an LLM read the answer's actual assertions and matched
+                    each against a quote from a named source. A real check.
+     mode "terms"   the gene/drug/pathway NAMES were extracted and looked
+                    for in the cited titles and abstracts. This catches an
+                    answer stapling an unrelated citation onto a sentence.
+                    It cannot tell you a conclusion is right — the same
+                    sentence with "no effect" and "essential" scores the
+                    same, because both contain the gene name.
+
+   The terms pass is the fallback that runs whenever the models are rate
+   limited, i.e. often, so the weak check was borrowing the strong check's
+   authority under a shared "Supported by sources / 100% source alignment"
+   heading. Each now says which one it is, in words that tell the reader what
+   it buys them. The percentage is gone in both: 3 of 3 shown as "100%" is a
+   word-match rate with a denominator of three dressed up as a verdict. */
 function FactCheck({ fc, P, accent }) {
   const colors = { supported: STATUS.good, partly: STATUS.warn, unsupported: STATUS.bad, thin: STATUS.warn };
-  const label = { supported: "Supported by sources", partly: "Partly supported", unsupported: "Not supported by sources" };
-  const oc = colors[fc.overall] || P.ink2;
   const claims = fc.claims || [];
-  const nSup = claims.filter((c) => c.status === "supported").length;
+  const isTerms = fc.mode === "terms";
   const nThin = claims.filter((c) => c.status === "thin").length;
   const nUns = claims.filter((c) => c.status === "unsupported").length;
+  const nSup = claims.filter((c) => c.status === "supported").length;
   const total = claims.length;
-  const score = total ? Math.round(((nSup + nThin * 0.5) / total) * 100) : null;
-  const scoreColor = score === null ? P.ink2 : score >= 75 ? STATUS.good : score >= 45 ? STATUS.warn : STATUS.bad;
-  return (
-    <div style={{ marginTop: 20, border: `1px solid ${P.line2}`, borderRadius: 8, background: P.surface, padding: "20px 22px" }} className="cb-rise">
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: oc, flexShrink: 0 }} />
-        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, letterSpacing: "0.02em", color: oc, fontFamily: "var(--cb-body)" }}>{label[fc.overall] || fc.overall}</span>
-        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginLeft: "auto", fontFamily: "var(--cb-mono)" }}>vs. cited abstracts</span>
+  const flagged = claims.filter((c) => c.status !== "supported");
+  const allClear = flagged.length === 0;
+  const [open, setOpen] = useState(false);
+
+  if (total === 0) return null;
+
+  /* ── Clean: one line, and it stays one line unless asked ──
+     This is the case that was a full bordered card with a hero percentage.
+     A reader who wants to know what was checked can open it; a reader who
+     does not is no longer told about it in 34px type. */
+  if (allClear) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            background: "none", border: "none", padding: 0, cursor: "pointer",
+            fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "left",
+            lineHeight: 1.5, fontFamily: "var(--cb-body)",
+          }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS.good, flexShrink: 0 }} />
+          <span>
+            {isTerms
+              ? `Checked: all ${total} specific name${total === 1 ? "" : "s"} in this answer appear in the papers it cites`
+              : `Checked: all ${total} claim${total === 1 ? "" : "s"} in this answer trace to a quote in a cited paper`}
+          </span>
+          <span style={{ color: P.ink2, fontWeight: 600, flexShrink: 0 }}>{open ? "Hide" : "What this means"}</span>
+        </button>
+
+        {open && (
+          <div style={{
+            marginTop: 10, padding: "14px 16px", borderRadius: 8,
+            border: `1px solid ${P.line}`, background: P.surface,
+            fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65,
+          }}>
+            {/* The caveat is the whole point of opening this. A reader who
+                thinks a green line means "verified" is worse off than one
+                who never saw it. */}
+            {isTerms ? (
+              <>
+                Every gene, drug and pathway named in the answer was looked for in the
+                title and abstract of each paper it cites, and all of them turned up.
+                That rules out the common failure where an answer attaches a citation
+                to a paper that has nothing to do with the sentence. It does not check
+                whether the finding is reported correctly, so the sources are still
+                worth opening for anything you plan to rely on.
+              </>
+            ) : (
+              <>
+                Each claim in the answer was matched against a specific quote from the
+                paper it cites, and every one of them held up. This is the stronger of
+                the two checks Cerebrum runs. It still reads abstracts rather than full
+                texts, so a claim that depends on a method or a caveat buried in the
+                paper can pass here and still deserve a look.
+              </>
+            )}
+            {isTerms && total > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+                {claims.map((c, i) => (
+                  <span key={i} style={{
+                    fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 600,
+                    color: STATUS.good, background: withAlpha(STATUS.good, 0.1),
+                    border: `1px solid ${withAlpha(STATUS.good, 0.25)}`,
+                    padding: "2px 8px", borderRadius: RADIUS.pill,
+                  }}>{c.claim}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      {score !== null && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: FONT_SIZES.hero, fontWeight: 700, color: scoreColor, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" }}>{score}<span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, opacity: 0.7 }}>%</span></span>
-            <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 500 }}>source alignment</span>
-          </div>
-          <div style={{ display: "flex", height: 4, borderRadius: 8, overflow: "hidden", background: P.line, gap: 1 }}>
-            {nSup > 0 && <div style={{ flex: nSup, background: STATUS.good, borderRadius: 8 }} title={`${nSup} supported`} />}
-            {nThin > 0 && <div style={{ flex: nThin, background: STATUS.warn, borderRadius: 8 }} title={`${nThin} thin`} />}
-            {nUns > 0 && <div style={{ flex: nUns, background: STATUS.bad, borderRadius: 8 }} title={`${nUns} unsupported`} />}
-          </div>
-          <div style={{ display: "flex", gap: 16, marginTop: 8, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: P.faint }}>
-            <span>{nSup} solid</span><span>{nThin} thin</span><span>{nUns} unsupported</span>
-          </div>
+    );
+  }
+
+  /* ── Flagged: this is what the block is FOR ──
+     Headed by the specific thing that is wrong and what to do about it,
+     listing only the items that are wrong. The ones that passed are a count,
+     not a list — they were never the reason to look. */
+  const oc = nUns > 0 ? STATUS.bad : STATUS.warn;
+  const headline = isTerms
+    ? (nUns > 0
+        ? `${nUns} name${nUns === 1 ? "" : "s"} in this answer ${nUns === 1 ? "isn't" : "aren't"} in any paper it cites`
+        : `${nThin} name${nThin === 1 ? "" : "s"} only match${nThin === 1 ? "es" : ""} indirectly`)
+    : (nUns > 0
+        ? `${nUns} claim${nUns === 1 ? "" : "s"} in this answer ${nUns === 1 ? "isn't" : "aren't"} backed by a cited paper`
+        : `${nThin} claim${nThin === 1 ? "" : "s"} ${nThin === 1 ? "is" : "are"} only partly backed by a cited paper`);
+  const why = isTerms
+    ? "The answer may have reached past its sources here, or attached the wrong citation. Worth opening a source before relying on these."
+    : "The quote that should support this either doesn't say it, or says less than the answer claims. Worth reading the source directly.";
+
+  return (
+    <div style={{ marginTop: 20, border: `1px solid ${withAlpha(oc, 0.4)}`, borderRadius: 8, background: withAlpha(oc, 0.04), padding: "18px 20px" }} className="cb-rise">
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
+        <span style={{ color: oc, flexShrink: 0, display: "flex" }}><Icon name={nUns > 0 ? "close" : "partial"} size={14} /></span>
+        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: oc, fontFamily: "var(--cb-body)", lineHeight: 1.4 }}>{headline}</span>
+      </div>
+      <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, marginBottom: 4 }}>{why}</div>
+      {nSup > 0 && (
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+          {/* "The other 1 claim" reads like a typo. English wants the bare
+              noun when there is exactly one of it. */}
+          {isTerms
+            ? (nSup === 1 ? "The other name checked out." : `The other ${nSup} names checked out.`)
+            : (nSup === 1 ? "The other claim traced to a source cleanly." : `The other ${nSup} claims traced to a source cleanly.`)}
         </div>
       )}
-      {fc.summary && <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, marginBottom: claims.length ? 14 : 0, lineHeight: 1.6, paddingTop: score !== null ? 14 : 0, borderTop: score !== null ? `1px solid ${P.line}` : "none" }}>{fc.summary}</div>}
-      {claims.map((c, i) => {
+
+      {flagged.map((c, i) => {
         const cc = colors[c.status] || P.ink2;
-        const iconName = c.status === "supported" ? "check" : c.status === "thin" ? "partial" : "close";
         return (
-          <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
-            <span style={{ color: cc, flexShrink: 0, width: 18, height: 18, borderRadius: 8, background: withAlpha(cc, 0.1), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}><Icon name={iconName} size={11} /></span>
-            <div><div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5 }}>{c.claim}</div>{c.note && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 3, lineHeight: 1.5 }}>{c.note}</div>}</div>
+          <div key={i} style={{ display: "flex", gap: 11, padding: "12px 0 0", marginTop: 12, borderTop: `1px solid ${P.line}` }}>
+            <span style={{ color: cc, flexShrink: 0, width: 18, height: 18, borderRadius: 8, background: withAlpha(cc, 0.12), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}><Icon name={c.status === "thin" ? "partial" : "close"} size={11} /></span>
+            <div>
+              <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5, fontFamily: isTerms ? "var(--cb-mono)" : "var(--cb-body)", fontWeight: isTerms ? 600 : 500 }}>{c.claim}</div>
+              {c.note && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 3, lineHeight: 1.55 }}>{c.note}</div>}
+            </div>
           </div>
         );
       })}
@@ -2623,15 +2755,24 @@ function useIsMobile() {
 function AgentTrace({ P, accent }) {
   const startRef = useRef(performance.now());
   const [now, setNow] = useState(performance.now());
+  /* Commit 99 — this readout is the only thing a person looks at for the
+     ten seconds a search takes, and it was written for an engineer.
+     "Initializing query pipeline" and "Dispatching to 14 indexes" describe
+     our plumbing; they also got the count wrong (`sourceNames` in
+     functions/api/search.js lists 15, which is what the rest of the app
+     advertises). Rewritten to describe the WORK, in the order a person would
+     do it themselves, because that is what earns the wait: someone reading
+     this should finish it understanding what they are getting and why it
+     took a moment. */
   const STEPS = [
-    { t: 0,    label: "Initializing query pipeline" },
-    { t: 600,  label: "Dispatching to 14 indexes" },
-    { t: 1800, label: "PubMed · Europe PMC · OpenAlex responding" },
-    { t: 3200, label: "Semantic Scholar · Crossref · arXiv responding" },
-    { t: 4800, label: "De-duplicating and ranking results" },
-    { t: 6200, label: "Scoring evidence quality" },
-    { t: 7600, label: "Checking retraction databases" },
-    { t: 9200, label: "Synthesizing answer" },
+    { t: 0,    label: "Working out what you're asking" },
+    { t: 600,  label: "Searching 15 research databases at once" },
+    { t: 1800, label: "PubMed, Europe PMC and OpenAlex have answered" },
+    { t: 3200, label: "Semantic Scholar, Crossref and arXiv have answered" },
+    { t: 4800, label: "Removing duplicates, ranking what's left" },
+    { t: 6200, label: "Weighing how strong each study is" },
+    { t: 7600, label: "Checking nothing here has been retracted" },
+    { t: 9200, label: "Writing the answer, with citations" },
   ];
   useEffect(() => {
     const id = setInterval(() => setNow(performance.now()), 100);
@@ -10268,8 +10409,16 @@ const NOTEBOOK_TABS = [
   ["qa", "Follow-up Q&A", null],
 ];
 
-function NotebookMode({ P, accent, at, close }) {
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+function NotebookMode({ P, accent, at, close, asPage = false }) {
+  // Escape closes the overlay form. As a page it must NOT: Escape inside a
+  // destination that is not covering anything is a keystroke that throws
+  // away whatever the person pasted.
+  useEffect(() => {
+    if (asPage) return;
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close, asPage]);
   const isMobile = useIsMobile();
   const [leftTab, setLeftTab] = useState("paste"); // "paste" | "upload"
   const [rightTab, setRightTab] = useState("summary");
@@ -10383,13 +10532,38 @@ function NotebookMode({ P, accent, at, close }) {
   const dimBtnBg = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Document Mode" style={{ position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
+    /* Commit 99 — Document Mode was the last nav item still living in a
+       full-screen `position: fixed; inset: 0; z-index: 300` overlay. Commit
+       88 promoted History, Saved, Collections and Network Search out of
+       modals and into real pages; this one was missed, and it is the worst
+       of the set to leave behind, because the overlay paints over the entire
+       sidebar. A person who clicked Document Mode lost the nav rail
+       completely, and pressing any nav item did nothing — verified: with it
+       open, Settings and Trending both left the view where it was. The only
+       way out was a close button in its own header, and Escape. That is a
+       dead end in the primary navigation, and it is the same report as
+       "document mode doesn't work when I click on it."
+
+       It is a page now, laid out in the app shell alongside the others, so
+       the sidebar stays and you can leave the way you arrived. `asPage`
+       keeps the modal form available for the command palette, which opens it
+       deliberately as an interruption. */
+    <div
+      {...(asPage ? { role: "region", "aria-label": "Document Mode" } : { role: "dialog", "aria-modal": "true", "aria-label": "Document Mode" })}
+      style={asPage
+        ? { display: "flex", flexDirection: "column", minHeight: 0, height: "calc(100dvh - 96px)", background: P.bg }
+        : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "14px 16px" : "16px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Icon name="bookOpen" size={18} style={{ color: accent }} />
           <div>
-            <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)" }}>Document Mode</div>
-            {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Deep summarization and Q&A over one document</div>}
+            {/* Commit 99 — a page needs a real heading, not a styled div, or
+                a screen reader and the browser's own outline see a page with
+                no title. The description said "Deep summarization and Q&A over
+                one document", which names the technique rather than the job.
+                A person arrives here holding a PDF. */}
+            <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", margin: 0, letterSpacing: "-0.01em" }}>Document Mode</h1>
+            {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
           </div>
         </div>
         <button onClick={close} aria-label="Close Document Mode" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="close" size={20} /></button>
@@ -10401,7 +10575,7 @@ function NotebookMode({ P, accent, at, close }) {
             instead of stacking the dropzone above the textarea always. */}
         <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
           <div role="tablist" aria-label="Document source" style={{ display: "flex", gap: 4, marginBottom: 14, flexShrink: 0, background: dimBtnBg, borderRadius: 8, padding: 3 }}>
-            {[["paste", "Source Text"], ["upload", "Upload File"]].map(([key, label]) => (
+            {[["paste", "Paste text"], ["upload", "Upload a file"]].map(([key, label]) => (
               <button key={key} role="tab" aria-selected={leftTab === key} onClick={() => setLeftTab(key)}
                 style={{
                   flex: 1, padding: "7px 10px", borderRadius: 8, border: "none", cursor: "pointer",
@@ -10475,7 +10649,7 @@ function NotebookMode({ P, accent, at, close }) {
                 background: (!documentText.trim() || analyzing) ? dimBtnBg : accent,
                 color: (!documentText.trim() || analyzing) ? P.faint : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
               }}
-            >{analyzing ? "Analyzing…" : "Analyze Document"}</button>
+            >{analyzing ? "Reading it…" : "Read this document"}</button>
           </div>
           {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
         </div>
@@ -10493,7 +10667,7 @@ function NotebookMode({ P, accent, at, close }) {
               }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
               <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink }}>Read a paper with me</div>
               <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, textAlign: "center", lineHeight: 1.6, color: P.ink2 }}>
-                Paste a paper on the left and I'll pull out what it found, how it was done, and where it's weak — then you can ask follow-up questions about it.
+                Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
               </div>
             </div>
           )}
@@ -11012,7 +11186,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // has to be registered here to be findable.
   const SETTINGS_INDEX = [
     ["Answer length", "answers", "concise standard detailed response verbosity"],
-    ["Fact-check pass", "answers", "verify verification accuracy claims"],
+    ["Check answers against their sources", "answers", "verify verification accuracy claims fact check"],
     ["Animated typing", "answers", "typewriter reveal progressive"],
     ["Citation format", "answers", "apa mla chicago vancouver bibtex reference style"],
     ["Theme", "appearance", "dark light palette colour color"],
@@ -11335,8 +11509,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Answer length" control={
                 <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} />
               } />
-              <Row label="Fact-check pass" desc="Runs a second verification pass over claims before showing the answer" control={<Switch on={factCheck} onChange={(v) => { sfx(); setFactCheck(v); }} label="Fact-check pass" />} />
-              <Row label="Animated typing" desc="Reveals answers progressively as they're written" control={<Switch on={typewriter} onChange={setTypewriter} label="Typing animation" />} />
+              <Row label="Check answers against their sources" desc="Before showing an answer, go back through it and confirm each claim really appears in the papers it cites. Adds a few seconds." control={<Switch on={factCheck} onChange={(v) => { sfx(); setFactCheck(v); }} label="Fact-check pass" />} />
+              <Row label="Animated typing" desc="Reveal the answer a few words at a time instead of all at once" control={<Switch on={typewriter} onChange={setTypewriter} label="Typing animation" />} />
               <Row label="Citation format" control={
                 <Picker value={citationStyle} options={[["vancouver", "Vancouver"], ["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"], ["bibtex", "BibTeX"]]} onChange={setCitationStyle} />
               } last />
@@ -11523,7 +11697,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               } last />
             </Section>
 
-            <Section title="Text to speech" footer="Free voice by default. Add an ElevenLabs key for a better one.">
+            <Section title="Read answers aloud" footer="The built-in voice is free and needs no setup. ElevenLabs is a paid service with more natural voices; if you have an account there, paste your key and answers will use it instead. The key stays in this browser.">
               <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
               <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
             </Section>
@@ -13715,10 +13889,16 @@ function App() {
   function handleSidebarNavigate(key) {
     sfx();
     if (isMobile) setSidebarMobileOpen(false);
+    // Commit 99 — belt and braces. Document Mode's overlay used to eat every
+    // nav press while it was up, and any future full-screen overlay would do
+    // the same silently. Navigation is the one action that must always win,
+    // so anything covering the shell is dismissed before the destination
+    // changes rather than being left to each case to remember.
+    setNotebookOpen(false);
     switch (key) {
       case "new": newSession(); setView("search"); break;
       case "search": setView("search"); break;
-      case "document": setNotebookOpen(true); break;
+      case "document": setView("document"); break;
       case "trending": setView("trending"); break;
       /* Commit 88 — these four were setHistoryOpen(true), setSavedOpen(true),
          setCollectionsOpen(true) and setNetworkSearchOpen(true): four modal
@@ -14189,15 +14369,21 @@ function App() {
                 onOpenHistory={() => setView("investigations")}
                 onOpenSaved={() => setView("library")}
               />
+              {/* Commit 99 — this was six proper nouns and "+ 9 more", with
+                  nothing saying what they are. Anyone who already knows what
+                  Europe PMC is does not need the row; anyone who does not is
+                  being shown a list of strangers. One line of framing turns it
+                  from decoration into the reassurance it was meant to be.
+                  (The stale comment this replaces claimed the backend queries
+                  14 — `sourceNames` in functions/api/search.js lists 15, which
+                  is what 6 named + 9 more already said. The count is right;
+                  the note about it was not.) */}
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginBottom: 8, lineHeight: 1.5 }}>
+                Every question is sent to 15 public research databases at once. These are the largest:
+              </div>
               <div style={S.trustRow}>
-                {/* Bug: this said "+ 10 more" after 6 named databases (implying
-                    16 total), matching the stale "16 databases" figure that
-                    was hardcoded in several other places (index.html meta
-                    tags, Settings footer, HowItWorksModal) — the real backend
-                    fanout (functions/api/search.js's `sourceNames`) queries
-                    14. Corrected to match. */}
                 {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
-                <span style={{ ...S.trustItem, color: P.faint }}>+ 9 more</span>
+                <span style={{ ...S.trustItem, color: P.faint }}>and 9 others</span>
               </div>
             </Reveal>
           ) : (
@@ -14295,6 +14481,13 @@ function App() {
       )}
       {view === "trending" && (
         <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} onAsk={(q) => { setView("search"); ask(q); }} /></Reveal>
+      )}
+      {/* Commit 99 — Document Mode, as a destination. See NotebookMode's own
+          comment for why it stopped being an overlay. */}
+      {view === "document" && (
+        <Reveal style={S.pageView} deps={[view]}>
+          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} />
+        </Reveal>
       )}
       {/* ══════════════════════════════════════════════════════════
           Commit 88 — the library is a page.
