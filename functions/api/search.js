@@ -1995,20 +1995,75 @@ function extractBinomial(raw) {
 
 // Looks like a person's name: 2-3 capitalized-word tokens, all letters.
 // Used to trigger author-specific search paths.
+/* ══════════════════════════════════════════════════════════════════
+   Commit 97 — "Nuclear Fission" was being searched as a person.
+
+   This test was pure SHAPE: two to four capitalised tokens meant a name.
+   "Nuclear Fission" fits that perfectly, and so does "Machine Learning",
+   "Quantum Computing", "Black Holes", "Dark Matter", "Gene Editing" and a
+   very large fraction of every topic anyone would actually type. The
+   reported case returned "no papers authored by Nuclear Fission" and zero
+   sources, which is about as broken as a search can look.
+
+   The old defence was NAME_STOPWORDS, a hand-written list of a couple of
+   dozen words. A blocklist can never cover the space of scientific topics,
+   and every miss is a dead-end search.
+
+   The real signal is much simpler: the FIRST token of a person's name is a
+   given name, and given names are essentially never ordinary English nouns
+   or adjectives. "Nuclear", "Machine", "Quantum", "Black", "Deep", "Green"
+   all are. "Marie", "Reese", "Zachary", "Hiroshi" all are not. So instead
+   of listing topics, list the far smaller and far more stable set of
+   common words that can open a topic phrase, and reject on those.
+
+   This deliberately also rejects "Green Chemistry" and "Bell Labs", which
+   is correct: neither is a person. It keeps "John Miller" because the
+   FIRST token is what is tested, and "john" is not a common noun. */
+const TOPIC_OPENERS = new Set([
+  // question and function words
+  "how","what","why","when","where","who","which","does","do","is","are","can",
+  "the","a","an","this","that","these","those","using","use","about","for","in",
+  "on","of","with","and","or","not","new","recent","latest","best","top","any",
+  // physical / chemical
+  "nuclear","atomic","quantum","thermal","optical","magnetic","electric","electrical",
+  "solar","plasma","laser","photonic","acoustic","seismic","fluid","particle",
+  "fission","fusion","radiation","radioactive","superconducting","semiconductor",
+  "chemical","organic","inorganic","polymer","catalytic","molecular","crystal",
+  // life sciences
+  "gene","genetic","genomic","protein","cell","cellular","stem","immune","neural",
+  "microbial","bacterial","viral","fungal","enzyme","metabolic","clinical","dietary",
+  "cancer","tumor","tumour","brain","heart","liver","kidney","lung","blood","bone",
+  "gut","skin","muscle","plant","animal","insect","marine","soil","water","food",
+  // computation
+  "machine","deep","artificial","neural","computer","computational","digital","data",
+  "algorithm","algorithmic","software","network","quantum","robotic","autonomous",
+  // earth / environment
+  "climate","environmental","ecological","atmospheric","oceanic","renewable",
+  "sustainable","carbon","waste","energy","green","urban","agricultural",
+  // general descriptors that open topics
+  "black","white","red","blue","dark","light","high","low","large","small","long",
+  "short","fast","slow","early","late","modern","ancient","human","social","public",
+  "global","local","natural","artificial","advanced","basic","applied","general",
+  "bell","big","open","closed","hot","cold","wet","dry","solid","liquid","gas",
+]);
+
 function looksLikePersonName(raw) {
   const s = raw.trim();
   if (!s) return false;
-  // If it's a Latin binomial, it's NOT a person name (Populus angustifolia matches
-  // the shape of "Firstname Lastname" but is not a person).
+  // A Latin binomial has the shape of "Firstname Lastname" and is not a person.
   if (extractBinomial(raw)) return false;
   const toks = s.split(/\s+/);
   if (toks.length < 2 || toks.length > 4) return false;
-  // Each token: only letters (allow hyphens/apostrophes), starts with uppercase in original
+  // Every token must look like a name part: capitalised letters, or an initial.
   const isNamey = toks.every((t) => /^[A-Z][a-zA-Z'\-]+\.?$/.test(t) || /^[A-Z]\.?$/.test(t));
-  // Reject obvious topic-word starts like "How" "What"
-  const q = ["how", "what", "why", "when", "where", "who", "which", "does", "is", "are", "can", "the"];
-  if (q.includes(toks[0].toLowerCase())) return false;
-  return isNamey;
+  if (!isNamey) return false;
+  // The decisive test: a given name is not an ordinary English word.
+  if (TOPIC_OPENERS.has(toks[0].toLowerCase())) return false;
+  // Nor is any later token, unless it is a plausible surname. A second token
+  // that is a common topic word ("... Learning", "... Fission") means the
+  // phrase is a subject, not a person.
+  if (toks.some((t, i) => i > 0 && TOPIC_OPENERS.has(t.toLowerCase()))) return false;
+  return true;
 }
 
 // Words that are NEVER person surnames or first names, even though they might
