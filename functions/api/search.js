@@ -8981,7 +8981,16 @@ export async function onRequest(context) {
         }));
         const summary = `Checked ${claims.length} claim${claims.length === 1 ? "" : "s"} against the cited sources: ` +
           `${supportedCount} supported, ${thinCount} thin, ${unsupportedCount} unsupported.`;
-        factCheckResult = { overall, summary, claims };
+        // Commit 99 — `mode` tells the UI which of the two very different
+        // checks produced this panel. They are not comparable and must not
+        // look the same on screen: this one read the answer's actual claims
+        // and matched each against a quote from a specific source. The
+        // fallback below only checks whether a gene or drug NAME appears
+        // somewhere in a cited abstract. Both used to render identically,
+        // under the same "Supported by sources" heading and the same big
+        // percentage, which let a name-spelling check present itself as a
+        // verified answer. Reported by a reader: "this doesn't make sense."
+        factCheckResult = { overall, summary, claims, mode: "claims" };
       } else {
         // Both LLM tiers failed (no key/binding configured, timeout, or an
         // unparseable response) — fall back to the deterministic, zero-
@@ -9006,12 +9015,18 @@ export async function onRequest(context) {
             : (fc.supported.length > 0 || fc.thin.length > 0)
             ? "partly"
             : "unsupported";
+          // Commit 99 — the note on a clean term used to read "Appears in at
+          // least one cited source", repeated verbatim once per term. Three
+          // identical rows saying nothing a reader could act on, under a
+          // heading that claimed the answer was supported. The status is what
+          // carries the verdict; the note now only exists where there is
+          // something the reader actually has to do about it.
           const claims = [
-            ...fc.supported.map((term) => ({ claim: `References "${term}"`, status: "supported", note: "Appears in at least one cited source." })),
-            ...fc.thin.map((term) => ({ claim: `References "${term}"`, status: "thin", note: "The acronym itself isn't in a cited source's title or abstract, but the phrase the answer used to define it is." })),
-            ...fc.unsupported.map((term) => ({ claim: `References "${term}"`, status: "unsupported", note: "Doesn't appear in any cited source's title or abstract — may be from general knowledge, or worth double-checking." })),
+            ...fc.supported.map((term) => ({ claim: term, status: "supported", note: "" })),
+            ...fc.thin.map((term) => ({ claim: term, status: "thin", note: "The answer spells this one out, and that longer phrase is in a source. The short form itself is not." })),
+            ...fc.unsupported.map((term) => ({ claim: term, status: "unsupported", note: "Not in the title or abstract of anything the answer cites. Worth opening a source to check where it came from." })),
           ];
-          factCheckResult = { overall, summary: fc.note, claims };
+          factCheckResult = { overall, summary: fc.note, claims, mode: "terms" };
         }
       }
     }
