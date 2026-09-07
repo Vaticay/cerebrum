@@ -2658,7 +2658,6 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
           background: isActive
             ? withAlpha(accent, 0.22)
             : hoverCite === n ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.07)") : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
-          color: isActive ? P.ink : P.ink,
           border: "1px solid " + (isActive ? withAlpha(accent, 0.65) : P.line),
           boxShadow: isActive ? `0 0 0 3px ${withAlpha(accent, 0.14)}` : "none",
           transition: `background ${MOTION.feedback}s ${MOTION.ease}, border-color ${MOTION.feedback}s ${MOTION.ease}, box-shadow ${MOTION.feedback}s ${MOTION.ease}`,
