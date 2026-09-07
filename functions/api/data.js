@@ -14,6 +14,9 @@
 
 import { getSessionUser, newId, ensureUserProfileColumns, ensureSocialTables, isBlockedPair } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { maybeSweep } from "../lib/retention.js";
+import { safeUrl, cleanString, safeId, LIMITS } from "../lib/validate.js";
+import { clientIp, privacyKey, requireTrustedOrigin, forbiddenOrigin, corsHeaders, readOriginAllowed } from "../lib/http.js";
 
 const MAX_MESSAGE_LEN = 4000;
 const MAX_NAME_LEN = 120;
@@ -145,17 +148,7 @@ function escapeLikeWildcards(s) {
 // gained a second caller (call-signal.js) and a duplicated copy of a
 // security-relevant check is exactly the kind of thing that quietly drifts.
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
-function originAllowed(request) {
-  const origin = request.headers.get("Origin") || "";
-  if (!origin) return true;
-  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
-}
+// Origin policy lives in lib/http.js — one copy, one behaviour.
 
 const DATA_RATE_LIMIT = 60;
 const DATA_RATE_WINDOW_MS = 60000;
@@ -282,23 +275,23 @@ async function mayStartConversation(env, senderId, targetId) {
 }
 
 export async function onRequest(context) {
+  // Opportunistic retention sweep. See lib/retention.js for why this is
+  // not a cron. Runs in the background; never delays this response.
+  maybeSweep(context);
   const { request, env } = context;
   const url = new URL(request.url);
 
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin) ? reqOrigin : "https://askcerebrum.org";
-  const cors = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Credentials": "true",
-    "Vary": "Origin",
-  };
+  const cors = corsHeaders(request, env);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  if (!originAllowed(request)) return new Response(JSON.stringify({ error: "Origin not allowed." }), { status: 403, headers: cors });
+
+  /* CSRF on the write path. Reads may omit Origin (same-origin GETs do);
+   * writes must prove they came from one of our pages, because a cookie
+   * that is SameSite=Lax still rides along on a top-level cross-site POST. */
+  if (request.method === "POST" && !requireTrustedOrigin(request, env)) {
+    return forbiddenOrigin(cors);
+  }
+  if (!readOriginAllowed(request, env)) return forbiddenOrigin(cors);
   if (!env.DB) return new Response(JSON.stringify({ error: "Accounts are not configured on this deployment." }), { status: 503, headers: cors });
 
   const user = await getSessionUser(request, env);
@@ -666,13 +659,17 @@ export async function onRequest(context) {
           return new Response(JSON.stringify({ call: null }), { status: 200, headers: cors });
         }
         const caller = await env.DB.prepare(
-          "SELECT name, username, email FROM users WHERE id = ?"
+          "SELECT name, username FROM users WHERE id = ?"
         ).bind(row.sender_id).first();
         return new Response(JSON.stringify({
           call: {
             threadId: row.thread_id,
             fromId: row.sender_id,
-            fromName: caller ? (caller.name || caller.username || caller.email) : "Someone",
+            // Never the email address. auth.js always assigns a username, so
+            // the old `|| caller.email` fallback was unreachable — and it is
+            // the same leak Commit 100 removed from the inbox and thread
+            // queries, left behind in this one.
+            fromName: caller ? (caller.name || caller.username || "Someone") : "Someone",
             at: row.created_at,
             // Commit 97 — the caller's ring payload says whether this is an
             // audio-only call. Without it the callee always answered with a
@@ -964,7 +961,7 @@ export async function onRequest(context) {
             // Cache the fresh number so the next render has something true
             // to fall back on if Europe PMC is unreachable.
             try {
-              await env.DB.prepare("UPDATE watched_topics SET last_count = ? WHERE id = ?").bind(w.live, w.id).run();
+              await env.DB.prepare("UPDATE watched_topics SET last_count = ? WHERE id = ? AND user_id = ?").bind(w.live, w.id, user.id).run();
             } catch {}
           }
           out.push({
@@ -1083,20 +1080,31 @@ export async function onRequest(context) {
           const name = str.slice(0, at);
           return name.slice(0, 2) + "•".repeat(Math.max(1, name.length - 2)) + str.slice(at);
         };
-        let matchedUser = null;
-        if (configured) {
-          const fr = await founderRow(env);
-          matchedUser = fr ? (fr.username || fr.id) : null;
-        }
         const me = await env.DB.prepare("SELECT email, email_lower FROM users WHERE id = ?").bind(user.id).first();
         const myEmail = ((me && (me.email_lower || me.email)) || "").toLowerCase();
         const target = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
+        const youAreFounder = !!(configured && myEmail && myEmail === target);
+
+        /* This resource is a setup aid for the operator, and it was answering
+         * everyone. Any signed-in account learned the founder's username (or
+         * raw user id) and a mask that preserves the entire email domain —
+         * config.js goes to real lengths to gate exactly this disclosure
+         * behind the founder account, and this endpoint handed it out.
+         *
+         * Non-founders now learn only whether owner verification is
+         * configured at all, which is what the UI needs to decide whether to
+         * show a "not set up" hint, and nothing about who the owner is. */
+        if (!youAreFounder) {
+          return new Response(JSON.stringify({
+            configured,
+            youAreFounder: false,
+          }), { status: 200, headers: cors });
+        }
         return new Response(JSON.stringify({
           configured,
           configuredValue: configured ? mask(target) : null,
-          matchedUser,
           yourEmail: mask(myEmail),
-          youAreFounder: !!(configured && myEmail && myEmail === target),
+          youAreFounder: true,
         }), { status: 200, headers: cors });
       }
 
@@ -1314,8 +1322,25 @@ export async function onRequest(context) {
       // action — worth rejecting outright rather than letting it silently
       // inflate your own follower count.
       if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't follow yourself." }), { status: 400, headers: cors });
-      const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(targetId).first();
-      if (!target) return new Response(JSON.stringify({ error: "That account doesn't exist." }), { status: 404, headers: cors });
+      /* Three fixes in one guard.
+       *
+       * Blocks: every sibling action (send-message, start-thread,
+       * incoming-calls) consults isBlockedPair; this one did not, so a person
+       * you had blocked could still follow you and appear in the follow graph
+       * the DM policy is built on.
+       *
+       * Discoverability: an account that opted out of being found was still
+       * confirmable here.
+       *
+       * Oracle: "That account doesn't exist" (404) versus a 200 told you
+       * whether any id was real. public-profile deliberately returns an
+       * identical 404 for missing, hidden and blocked — this now matches, so
+       * the three states cannot be told apart from outside. */
+      const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
+      const blockedPair = target ? await isBlockedPair(env, user.id, targetId) : false;
+      if (!target || target.discoverable === 0 || blockedPair) {
+        return new Response(JSON.stringify({ error: "That account isn't available.", code: "not_available" }), { status: 404, headers: cors });
+      }
       const existing = await env.DB.prepare(
         "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
       ).bind(user.id, targetId).first();
@@ -1342,7 +1367,11 @@ export async function onRequest(context) {
       const attachmentKind = ALLOWED_ATTACHMENT_KINDS.has(body.attachment_kind) ? body.attachment_kind : "";
       const attachmentData = attachmentKind === "image" || attachmentKind === "audio"
         ? (typeof body.attachment_data === "string" ? body.attachment_data : "") : "";
-      const attachmentUrl = typeof body.attachment_url === "string" ? body.attachment_url.trim().slice(0, MAX_ATTACHMENT_URL_LEN) : "";
+      /* This was a bare trim+slice, so `javascript:` and `data:text/html`
+       * were stored verbatim and handed to every member of the thread — while
+       * the profile link fields three hundred lines below went through a
+       * real scheme check. Same validator both places now. */
+      const attachmentUrl = safeUrl(body.attachment_url, MAX_ATTACHMENT_URL_LEN) || "";
       let attachmentMeta = "";
       try { attachmentMeta = body.attachment_meta ? JSON.stringify(body.attachment_meta).slice(0, MAX_ATTACHMENT_META_LEN) : ""; } catch { attachmentMeta = ""; }
       if (attachmentData) {
@@ -1420,8 +1449,8 @@ export async function onRequest(context) {
       const targetId = (body.target_id || "").toString();
       if (!targetId) return new Response(JSON.stringify({ error: "Missing target_id." }), { status: 400, headers: cors });
       if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't message yourself." }), { status: 400, headers: cors });
-      const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(targetId).first();
-      if (!target) return new Response(JSON.stringify({ error: "That account doesn't exist." }), { status: 404, headers: cors });
+      const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
+      if (!target || target.discoverable === 0) return new Response(JSON.stringify({ error: "That account isn't available.", code: "not_available" }), { status: 404, headers: cors });
       // Commit 48 enforcement: blocked in either direction means no new
       // conversation gets started or reopened via this path — including
       // finding-and-returning an existing thread just below, since that
@@ -1482,8 +1511,8 @@ export async function onRequest(context) {
       const targetId = (body.target_id || "").toString();
       if (!targetId) return new Response(JSON.stringify({ error: "Missing target_id." }), { status: 400, headers: cors });
       if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't block yourself." }), { status: 400, headers: cors });
-      const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(targetId).first();
-      if (!target) return new Response(JSON.stringify({ error: "That account doesn't exist." }), { status: 404, headers: cors });
+      const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
+      if (!target || target.discoverable === 0) return new Response(JSON.stringify({ error: "That account isn't available.", code: "not_available" }), { status: 404, headers: cors });
       const wasBlocked = await isBlockedPair(env, user.id, targetId);
       if (wasBlocked) {
         await env.DB.prepare(
@@ -1517,10 +1546,43 @@ export async function onRequest(context) {
       const threadId = body.thread_id ? body.thread_id.toString() : null;
       const messageId = body.message_id ? body.message_id.toString() : null;
       if (!reportedUserId && !threadId) {
-        return new Response(JSON.stringify({ error: "Nothing to report." }), { status: 400, headers: cors });
+        return new Response(JSON.stringify({ error: "Nothing to report.", code: "empty_report" }), { status: 400, headers: cors });
       }
       if (reportedUserId === user.id) {
-        return new Response(JSON.stringify({ error: "You can't report yourself." }), { status: 400, headers: cors });
+        return new Response(JSON.stringify({ error: "You can't report yourself.", code: "self_report" }), { status: 400, headers: cors });
+      }
+
+      /* SECURITY: the membership guard below only ran when a thread_id was
+       * supplied. A report naming only reported_user_id skipped every check,
+       * so any signed-in account could file unlimited reports against any
+       * user id — including ids it had no connection to and ids that did not
+       * exist. That is a report-bombing primitive and a way to poison a
+       * moderation queue against a chosen target.
+       *
+       * A report now requires a real relationship: a shared conversation, or
+       * a follow edge in either direction. You can report someone you have
+       * actually encountered, not an id you guessed. */
+      if (reportedUserId && !threadId) {
+        const related = await env.DB.prepare(
+          `SELECT 1 FROM thread_participants a
+             JOIN thread_participants b ON a.thread_id = b.thread_id
+            WHERE a.user_id = ? AND b.user_id = ?
+            UNION ALL
+           SELECT 1 FROM follows WHERE (follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)
+            LIMIT 1`
+        ).bind(user.id, reportedUserId, user.id, reportedUserId, reportedUserId, user.id).first();
+        if (!related) {
+          return new Response(JSON.stringify({ error: "You can only report someone you've interacted with.", code: "no_relationship" }), { status: 403, headers: cors });
+        }
+      }
+
+      // One open report per target per reporter. Without this, the guard
+      // above still allows a thousand duplicates from a genuine contact.
+      const dupe = await env.DB.prepare(
+        "SELECT 1 FROM content_reports WHERE reporter_id = ? AND reported_user_id IS ? AND created_at > ? LIMIT 1"
+      ).bind(user.id, reportedUserId, Date.now() - 24 * 60 * 60 * 1000).first().catch(() => null);
+      if (dupe) {
+        return new Response(JSON.stringify({ error: "You've already reported this. We're looking at it.", code: "duplicate_report" }), { status: 429, headers: cors });
       }
       // Same membership guard as send-message/thread: reporting a
       // conversation (or a message/call inside one) you're not actually
