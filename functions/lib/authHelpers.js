@@ -153,6 +153,8 @@ export async function signJWT(payload, env) {
   const key = await hmacKey(env.JWT_SECRET);
   const header = b64UrlEncodeStr(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const now = Math.floor(Date.now() / 1000);
+  // The epoch the token is issued under. Checked on every request; a bump
+  // invalidates this token and every one of its siblings.
   const claims = { ...payload, iat: now, exp: now + JWT_TTL_S };
   const body = b64UrlEncodeStr(JSON.stringify(claims));
   const data = new TextEncoder().encode(`${header}.${body}`);
@@ -160,20 +162,128 @@ export async function signJWT(payload, env) {
   return `${header}.${body}.${b64UrlEncode(sig)}`;
 }
 
+/* Verify a session JWT.
+ *
+ * Three things this deliberately does that the previous version did not:
+ *
+ * 1. The header is parsed and `alg`/`typ` are pinned. The verifier already
+ *    hardcoded HMAC-SHA256, so `alg: none` was never actually exploitable —
+ *    but that was defence by accident. A token whose header claims anything
+ *    other than HS256/JWT is now refused before any crypto runs.
+ *
+ * 2. `exp` is REQUIRED, not merely honoured when present. `if (payload.exp &&
+ *    ...)` treats a token with no expiry claim as one that never expires,
+ *    which is the wrong direction to fail.
+ *
+ * 3. Signature is verified before the payload is parsed (this part was
+ *    already right, and is preserved).
+ */
 export async function verifyJWT(token, env) {
   if (!env.JWT_SECRET) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   try {
+    let header;
+    try {
+      header = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[0])));
+    } catch { return null; }
+    if (!header || header.alg !== "HS256" || header.typ !== "JWT") return null;
+
     const key = await hmacKey(env.JWT_SECRET);
     const data = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
     const sig = b64UrlDecode(parts[2]);
     const valid = await crypto.subtle.verify("HMAC", key, sig, data);
     if (!valid) return null;
+
     const payload = JSON.parse(new TextDecoder().decode(b64UrlDecode(parts[1])));
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (typeof payload.exp !== "number" || payload.exp < now) return null;
+    // A token dated in the future is not one we issued.
+    if (typeof payload.iat === "number" && payload.iat > now + 120) return null;
     return payload;
   } catch { return null; }
+}
+
+/* ── Session epoch: revocation for stateless tokens ───────────────────────
+ *
+ * A JWT cannot be deleted, which is the trade its statelessness buys. That
+ * left logout unable to revoke anything and account deletion leaving a valid
+ * cookie authenticating a user row that no longer existed.
+ *
+ * The epoch is the fix. Every account has one; every JWT carries the epoch it
+ * was issued under; getSessionUser refuses a token whose epoch is behind the
+ * account's current value. Bumping it invalidates every outstanding token for
+ * that account at once, which is what "sign out" and "delete my account"
+ * both actually mean.
+ *
+ * Tombstones exist because a deleted account has no row left to hold an
+ * epoch. The tombstone outlives the account by one JWT lifetime — long enough
+ * that every token issued to it has expired on its own — and is swept after.
+ */
+let _epochTableReady = false;
+async function ensureEpochTable(env) {
+  if (_epochTableReady) return;
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS session_epochs (user_id TEXT PRIMARY KEY, epoch INTEGER NOT NULL, tombstoned_at INTEGER)"
+  );
+  _epochTableReady = true;
+}
+
+/* Keyed hash for one-time sign-in codes.
+ *
+ * The OTP was stored as plain SHA-256 of `email:code`. The code space is 10^6
+ * and SHA-256 is fast, so anyone who obtained the otp_codes table — a backup,
+ * a log, an export, an injection anywhere else in the stack — could recover
+ * every live code by hashing a million candidates, which takes under a second.
+ * The email prefix stopped a shared rainbow table and added no work factor.
+ *
+ * HMAC under a server secret means the table alone is not enough: an attacker
+ * needs the secret too, and rotating it invalidates every outstanding code.
+ * Falls back to the plain hash only when no secret exists at all, so a
+ * deployment without secrets still functions rather than silently rejecting
+ * every sign-in.
+ */
+export async function hashOtp(env, emailLower, code) {
+  const secret = (env && (env.OTP_PEPPER || env.JWT_SECRET)) || "";
+  if (!secret) return sha256Hex(`${emailLower}:${code}`);
+  const key = await hmacKey(secret);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`otp:${emailLower}:${code}`));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function bumpSessionEpoch(env, userId, { tombstone = false } = {}) {
+  if (!env || !env.DB || !userId) return;
+  await ensureEpochTable(env);
+  const now = Date.now();
+  await env.DB.prepare(
+    "INSERT INTO session_epochs (user_id, epoch, tombstoned_at) VALUES (?, ?, ?) " +
+    "ON CONFLICT(user_id) DO UPDATE SET epoch = epoch + 1, tombstoned_at = COALESCE(excluded.tombstoned_at, session_epochs.tombstoned_at)"
+  ).bind(userId, now, tombstone ? now : null).run();
+  // Opportunistic sweep of tombstones older than one token lifetime. Cheap,
+  // and it keeps a table that only ever grows from doing so.
+  if (Math.random() < 0.02) {
+    try {
+      await env.DB.prepare("DELETE FROM session_epochs WHERE tombstoned_at IS NOT NULL AND tombstoned_at < ?")
+        .bind(now - JWT_TTL_S * 1000 - 86400000).run();
+    } catch (e) { console.error("epoch sweep:", e); }
+  }
+}
+
+export async function currentSessionEpoch(env, userId) {
+  if (!env || !env.DB || !userId) return { epoch: 0, tombstoned: false };
+  try {
+    await ensureEpochTable(env);
+    const row = await env.DB.prepare("SELECT epoch, tombstoned_at FROM session_epochs WHERE user_id = ?")
+      .bind(userId).first();
+    if (!row) return { epoch: 0, tombstoned: false };
+    return { epoch: Number(row.epoch) || 0, tombstoned: !!row.tombstoned_at };
+  } catch (e) {
+    // Fail CLOSED. If we cannot read the revocation state we cannot know the
+    // token is still valid, and the safe answer to "is this session revoked?"
+    // when we do not know is yes.
+    console.error("epoch read failed:", e);
+    return { epoch: Number.MAX_SAFE_INTEGER, tombstoned: true };
+  }
 }
 
 export function jwtCookieHeader(jwt, secure) {
@@ -188,13 +298,32 @@ export async function getSessionUser(request, env) {
   const raw = readSessionCookie(request);
   if (!raw) return null;
 
-  // JWT tokens contain dots; legacy session tokens don't.
+  // JWT tokens contain dots; opaque DB tokens are base64url of random bytes
+  // and cannot, so this dispatch is unambiguous.
   if (raw.includes(".") && env.JWT_SECRET) {
     const payload = await verifyJWT(raw, env);
-    if (payload && payload.sub && payload.email) {
-      return { id: payload.sub, email: payload.email };
-    }
-    return null;
+    if (!payload || !payload.sub || !payload.email) return null;
+
+    /* A valid signature proves we issued this token. It does not prove the
+     * account still exists, still has this address, or has not signed out
+     * since. Previously none of those were checked — the JWT branch never
+     * touched the database at all — so a deleted account kept authenticating
+     * and logout revoked nothing.
+     *
+     * One indexed lookup per request is a real cost, and it is the price of
+     * being able to revoke a session at all. */
+    const { epoch, tombstoned } = await currentSessionEpoch(env, payload.sub);
+    if (tombstoned) return null;
+    if ((Number(payload.epoch) || 0) < epoch) return null;
+
+    if (!env.DB) return null;
+    const row = await env.DB.prepare("SELECT id, email FROM users WHERE id = ?")
+      .bind(payload.sub).first();
+    if (!row) return null;
+    // Trust the row, not the claim: an address that changed since the token
+    // was issued must not keep resolving to the old one (the founder gate
+    // compares on email).
+    return { id: row.id, email: row.email };
   }
 
   // Legacy DB session fallback
