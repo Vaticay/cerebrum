@@ -20,38 +20,37 @@
 // it's free when paired with their SFU, or metered standalone — but any TURN
 // provider's credentials work here the same way.
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
-function originAllowed(request) {
-  const origin = request.headers.get("Origin") || "";
-  if (!origin) return true;
-  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
-}
-function corsFor(request) {
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin) ? reqOrigin : "https://askcerebrum.org";
-  return {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Vary": "Origin",
-  };
-}
+import { corsHeaders, readOriginAllowed, errorResponse, tooManyRequests, unauthorized, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
+import { getSessionUser } from "../lib/authHelpers.js";
+import { checkRateLimit } from "../lib/rateLimit.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
-  const cors = corsFor(request);
+  const cors = corsHeaders(request, env, { methods: "GET, OPTIONS" });
+  if (!readOriginAllowed(request, env)) return forbiddenOrigin(cors);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  if (!originAllowed(request)) {
-    return new Response(JSON.stringify({ error: "Origin not allowed." }), { status: 403, headers: cors });
-  }
   if (request.method !== "GET") {
-    return new Response(JSON.stringify({ error: "Method not allowed." }), { status: 405, headers: cors });
+    return errorResponse(405, "method_not_allowed", "Method not allowed.", cors);
+  }
+
+  /* SECURITY: this endpoint mints TURN relay credentials, and it used to do so
+   * for anyone at all — no session check, no rate limit, and an origin gate
+   * that returns true when the Origin header is absent (which is what curl
+   * sends). `curl https://askcerebrum.org/api/iceservers` returned working
+   * credentials. TURN relay is metered bandwidth on the operator's account, so
+   * that was an open tap on someone else's bill, and the static
+   * TURN_USERNAME/TURN_CREDENTIAL path handed out long-lived shared secrets
+   * from the environment rather than a minted, expiring credential.
+   *
+   * Credentials are for calls, and calls require an account. Sign-in is now
+   * required, and the budget is charged to the account rather than the IP so
+   * it cannot be reset by changing networks. */
+  const user = await getSessionUser(request, env).catch(() => null);
+  if (!user) return unauthorized(cors);
+
+  const rlKey = await privacyKey("ice", user.id, env);
+  if (!(await checkRateLimit(env, rlKey, 20, 60000))) {
+    return tooManyRequests(cors, 30);
   }
 
   // Several STUN servers, not one. STUN discovery is a single UDP probe and
@@ -162,7 +161,13 @@ export async function onRequest(context) {
   }
 
   if (env.TURN_URLS && env.TURN_USERNAME && env.TURN_CREDENTIAL) {
-    // Operator-configured TURN: a known owner, known capacity, support path.
+    /* Operator-configured static TURN. Note the trade being made: these are
+     * long-lived shared credentials read straight from the environment, so
+     * every signed-in caller receives the same username and secret and can
+     * keep using them after they stop being a user. Cloudflare's minted
+     * credentials above are time-limited and per-request, which is why they
+     * are tried first. If you configure this path, treat TURN_CREDENTIAL as a
+     * rotating secret rather than a permanent one. */
     iceServers.push({
       urls: env.TURN_URLS.split(",").map((s) => s.trim()).filter(Boolean),
       username: env.TURN_USERNAME,
