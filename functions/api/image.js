@@ -40,24 +40,7 @@ const CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days — subjects don't cha
 const FETCH_TIMEOUT_MS = 4000;
 const MAX_QUERY_LEN = 160;
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
-function corsFor(request) {
-  const origin = request.headers.get("Origin") || "";
-  const allow = ALLOWED_ORIGINS.includes(origin) || PAGES_PREVIEW_RE.test(origin)
-    ? origin : "https://askcerebrum.org";
-  return {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Vary": "Origin",
-  };
-}
+import { corsHeaders, readOriginAllowed, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 
 async function getJSON(url, headers) {
   const ctl = new AbortController();
@@ -387,7 +370,10 @@ async function ensureCache(env) {
 
 export async function onRequest(context) {
   const { request, env } = context;
-  const cors = corsFor(request);
+  const cors = corsHeaders(request, env, { methods: "GET, OPTIONS", credentials: false });
+  // This file built CORS headers and never rejected anything — it was the only
+  // gate-less endpoint besides report.js and config.js.
+  if (!readOriginAllowed(request, env)) return forbiddenOrigin(cors);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (request.method !== "GET") {
     return new Response(JSON.stringify({ error: "Method not allowed." }), { status: 405, headers: cors });
@@ -397,8 +383,8 @@ export async function onRequest(context) {
   const category = (url.searchParams.get("category") || "").trim().slice(0, 60);
   if (!query) return new Response(JSON.stringify({ image: null }), { status: 200, headers: cors });
 
-  const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
-  if (!(await checkRateLimit(env, `image:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
+  const rlKey = await privacyKey("image", clientIp(request), env);
+  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
     return new Response(JSON.stringify({ image: null, error: "Too many requests." }), { status: 429, headers: cors });
   }
 
@@ -470,7 +456,21 @@ export async function onRequest(context) {
   // on nine third parties, none of which can be reached from a development
   // sandbox — "it returns nothing and I cannot tell you why" was a real
   // possibility, and this is how that gets answered without a guess.
+  /* ?debug=1 reported which image-provider API keys are configured. That is
+   * exactly the environment-variable disclosure config.js gates behind the
+   * founder account, published here to anyone who appended a query parameter.
+   * Same gate now applies. */
   if (url.searchParams.get("debug") === "1") {
+    const founderEmail = String(env.FOUNDER_EMAIL || "").trim().toLowerCase();
+    let viewer = null;
+    try {
+      const { getSessionUser } = await import("../lib/authHelpers.js");
+      viewer = await getSessionUser(request, env);
+    } catch { viewer = null; }
+    const isFounder = !!viewer && !!founderEmail && String(viewer.email || "").trim().toLowerCase() === founderEmail;
+    if (!isFounder) {
+      return new Response(JSON.stringify({ error: "Not authorized.", code: "forbidden" }), { status: 403, headers: cors });
+    }
     return new Response(JSON.stringify({
       image,
       query,
