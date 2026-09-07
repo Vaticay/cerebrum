@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
     <title>Cerebrum — Free Scientific Literature Search</title>
-    <meta name="description" content="Ask a research question. Get cited answers assembled from 14 open scholarly databases including PubMed, Europe PMC, OpenAlex, and Semantic Scholar. Free, no account required, no ads." />
+    <meta name="description" content="Ask a research question. Get answers assembled from 15 open scholarly databases including PubMed, Europe PMC, OpenAlex and Semantic Scholar, where every claim links to a paper you can open. Free, no ads, and an account is optional." />
     <meta name="keywords" content="scientific literature search, research papers, PubMed, Europe PMC, OpenAlex, peer-reviewed, free research tool, academic search engine, science search" />
     <meta name="author" content="Cerebrum" />
     <meta name="publisher" content="Cerebrum" />
@@ -35,11 +35,22 @@
          renders at all, not just an unstyled headline. This way a slow or
          blocked font fetch costs a few seconds of fallback-font text,
          never a blank white screen. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
-    <noscript><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" /></noscript>
+    <!-- Fonts are served from this origin, not from Google.
+         Previously three <link>s pointed at fonts.googleapis.com, which meant
+         every visitor's IP address and User-Agent reached a third party
+         before the page had rendered a single word — on a site whose whole
+         proposition is that your research questions are private. The woff2
+         files now live in /fonts (latin + latin-ext subsets only, ~700KB
+         total) and the @font-face rules are local.
+
+         The stylesheet is loaded normally rather than through the old
+         media="print" onload="this.media='all'" trick: that trick needs an
+         inline event handler, which a strict CSP must forbid, and it would
+         have left the site permanently unstyled once the CSP shipped.
+         Same-origin CSS blocks for a few milliseconds, not a network round
+         trip, so the trick bought nothing here. -->
+    <link rel="preload" as="style" href="/fonts/cerebrum-fonts.css" />
+    <link rel="stylesheet" href="/fonts/cerebrum-fonts.css" />
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -50,7 +61,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Cerebrum" />
     <meta property="og:title" content="Cerebrum — Free Scientific Literature Search" />
-    <meta property="og:description" content="Ask a research question. Get cited answers from 14 open scholarly databases. Free, no account, no ads." />
+    <meta property="og:description" content="Ask a research question. Get answers from 15 open scholarly databases, with every claim linked to a paper you can open. Free, no ads." />
     <meta property="og:url" content="https://askcerebrum.org/" />
     <meta property="og:image" content="https://askcerebrum.org/og-image.png" />
     <meta property="og:image:width" content="1200" />
@@ -61,7 +72,7 @@
     <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Cerebrum — Free Scientific Literature Search" />
-    <meta name="twitter:description" content="Ask a research question. Get cited answers from 14 open scholarly databases." />
+    <meta name="twitter:description" content="Ask a research question. Get answers from 15 open scholarly databases, every claim linked to a real paper." />
     <meta name="twitter:image" content="https://askcerebrum.org/og-image.png" />
 
     <!-- Structured data: identifies Cerebrum as a legitimate WebSite + SearchAction
@@ -74,7 +85,7 @@
       "name": "Cerebrum",
       "alternateName": "Ask Cerebrum",
       "url": "https://askcerebrum.org/",
-      "description": "A free scientific literature search engine that queries 14 open scholarly databases and returns cited, verifiable answers.",
+      "description": "A scientific literature search engine that queries 15 open scholarly databases and returns answers whose citations link to real, checkable papers.",
       "inLanguage": "en-US",
       "publisher": {
         "@type": "Organization",
@@ -123,8 +134,9 @@
     <noscript>
       <div style="max-width: 720px; margin: 40px auto; padding: 20px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #18181b;">
         <h1 style="font-size: 32px; font-weight: 700; letter-spacing: -0.02em;">Cerebrum</h1>
-        <p><strong>Cerebrum is a free, all-in-one research platform — not just a chatbot.</strong> Ask a research question and receive cited answers assembled from 14 open scholarly databases including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, and Zenodo. Save sources into Collections, compare two investigations side by side, visualize how your sources relate to each other, and generate an illustrative figure for what you just learned.</p>
-        <p>Every citation links to a real, verifiable paper. Cerebrum does not use ads and does not track users; an account is optional and only ever used to sync your saved research across devices.</p>
+        <p><strong>Cerebrum is a free research platform for scientific literature.</strong> Ask a research question and receive an answer assembled from 15 open scholarly databases including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS and Zenodo. Save sources into collections, compare investigations side by side, and see how your sources relate to one another.</p>
+        <p>Citations point to real papers you can open and check yourself. Answers are written by a language model from those papers, so they can still be wrong — the sources are there so you do not have to take our word for it. Preprints are labelled as preprints; not everything returned has been peer reviewed.</p>
+        <p>Cerebrum carries no advertising and sells no data. An account is optional, and is used for saved research, profiles, and messaging other researchers. Questions classified as sensitive are never written to a shared cache. What is stored, and for how long, is set out on the privacy page.</p>
         <p>Cerebrum requires JavaScript to run. Please enable JavaScript in your browser to use the search.</p>
         <p>
           <a href="/about">About Cerebrum</a> &middot;
