@@ -1,3 +1,4 @@
+import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
 // TTS endpoint with tiered voice engines. Tries progressively:
@@ -19,17 +20,6 @@ import { checkRateLimit } from "../lib/rateLimit.js";
 // string, so an arbitrarily large `text` field got fully processed before
 // ever being truncated — a cheap CPU-time DoS lever. Now capped up front.
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
-function originAllowed(request) {
-  const origin = request.headers.get("Origin") || "";
-  if (!origin) return true; // same-origin / non-browser client
-  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
-}
 
 const RATE_LIMIT = 20;         // TTS requests
 const RATE_WINDOW_MS = 60000;  // per minute
@@ -37,18 +27,7 @@ const RATE_WINDOW_MS = 60000;  // per minute
 export async function onRequest(context) {
   const { request, env } = context;
 
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin)
-      ? reqOrigin
-      : "https://askcerebrum.org";
-  const cors = {
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Cache-Control": "no-store",
-    "Vary": "Origin",
-  };
+  const cors = corsHeaders(request, env);
 
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: cors });
@@ -62,7 +41,7 @@ export async function onRequest(context) {
     // on this one path.
     return jsonErr(cors, 405, "Method not allowed");
   }
-  if (!originAllowed(request)) {
+  if (!readOriginAllowed(request, env)) {
     return jsonErr(cors, 403, "Origin not allowed");
   }
 
