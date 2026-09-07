@@ -1,7 +1,7 @@
 {
   "name": "cerebrum",
-  "version": "5.0.0",
-  "description": "A free scientific literature search engine — ask a research question, get a cited answer synthesized from open scholarly databases.",
+  "version": "6.20.0",
+  "description": "A free scientific literature search engine \u2014 ask a research question, get a cited answer synthesized from open scholarly databases.",
   "private": true,
   "license": "UNLICENSED",
   "repository": {
@@ -12,9 +12,11 @@
   "scripts": {
     "dev": "wrangler pages dev --proxy 5173 -- vite",
     "vite": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/prerender.mjs && node scripts/check.mjs",
     "preview": "wrangler pages dev ./dist",
-    "deploy": "vite build && wrangler pages deploy ./dist"
+    "deploy": "vite build && wrangler pages deploy ./dist",
+    "test": "node tests/run.mjs",
+    "check": "node scripts/check.mjs"
   },
   "dependencies": {
     "gsap": "^3.15.0",
