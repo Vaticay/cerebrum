@@ -1,0 +1,350 @@
+/**
+ * Security and privacy tests.
+ *
+ * These cover the behaviours where being wrong is expensive and where a
+ * regression would be silent: forged sessions, cross-user access, and whether
+ * a sensitive question can reach shared storage. They are unit tests against
+ * the real modules — no server, no database, no network — so they run in a
+ * second and can gate a build.
+ *
+ * Run with: npm test
+ */
+
+import { strict as assert } from "node:assert";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+let passed = 0;
+const failures = [];
+
+async function test(name, fn) {
+  try {
+    await fn();
+    passed++;
+    console.log(`  ✓ ${name}`);
+  } catch (e) {
+    failures.push({ name, error: e });
+    console.log(`  ✗ ${name}\n      ${e.message}`);
+  }
+}
+
+function group(name) {
+  console.log(`\n${name}`);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Query privacy — sensitive questions must never reach shared storage");
+
+const { classifyQuery, cacheKey } = await import(join(root, "functions/lib/queryPrivacy.js"));
+
+const MUST_NOT_PERSIST = [
+  ["personal clinical",   "my son has a rash and fever, is it Kawasaki disease"],
+  ["family health",       "interactions between sertraline and my mother chemotherapy"],
+  ["self-harm topic",     "is suicide risk higher with isotretinoin"],
+  ["stigmatised topic",   "HIV latency reversal agents"],
+  ["unpublished work",    "our unpublished data shows GPR75 knockouts resist obesity"],
+  ["medical record no.",  "patient MRN 4482119 presented with dyspnea"],
+  ["email address",       "contact me at researcher@example.com about the trial"],
+  ["first-person health", "why do I get migraines from red wine"],
+  ["personal medication", "should I take metformin for prediabetes"],
+  ["phone number",        "call 555-123-4567 about the cohort"],
+];
+
+for (const [label, q] of MUST_NOT_PERSIST) {
+  await test(`refuses to persist: ${label}`, () => {
+    const r = classifyQuery(q);
+    assert.equal(r.persist, false, `classified persist=true (${r.reason})`);
+    assert.equal(r.cacheable, false, `classified cacheable=true (${r.reason})`);
+  });
+}
+
+const MUST_PERSIST = [
+  "how does CRISPR gene editing work",
+  "mechanisms of long term potentiation in the hippocampus",
+  "waste oil substrates for black soldier fly larvae",
+  "comparison of transformer and convolutional architectures",
+];
+for (const q of MUST_PERSIST) {
+  await test(`allows caching: "${q.slice(0, 40)}…"`, () => {
+    assert.equal(classifyQuery(q).persist, true);
+  });
+}
+
+await test("cache key is not reversible to the query", async () => {
+  const q = "how does CRISPR gene editing work";
+  const k = await cacheKey(q, {});
+  assert.ok(!k.includes("crispr"), "key contains the query text");
+  assert.ok(!k.includes("gene"), "key contains the query text");
+  assert.match(k, /^v8:[0-9a-f]{32}$/);
+});
+
+await test("cache key is stable across punctuation and case", async () => {
+  const a = await cacheKey("How does CRISPR work?", {});
+  const b = await cacheKey("how does crispr work", {});
+  assert.equal(a, b);
+});
+
+await test("rotating the secret retires the cache", async () => {
+  const a = await cacheKey("how does crispr work", { QUERY_KEY_SECRET: "one" });
+  const b = await cacheKey("how does crispr work", { QUERY_KEY_SECRET: "two" });
+  assert.notEqual(a, b);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Input validation");
+
+const { cleanString, safeUrl, safeId, safeDataUrl, isValidEmail, escapeLike } =
+  await import(join(root, "functions/lib/validate.js"));
+
+await test("rejects javascript: URLs", () => assert.equal(safeUrl("javascript:alert(1)"), null));
+await test("rejects data: URLs as links", () => assert.equal(safeUrl("data:text/html,<script>"), null));
+await test("rejects URLs with embedded credentials", () =>
+  assert.equal(safeUrl("https://apple.com@evil.example/"), null));
+await test("accepts a normal https URL", () =>
+  assert.ok(safeUrl("https://orcid.org/0000-0002-1825-0097")));
+await test("strips bidi override characters", () => {
+  const out = cleanString("ev‮liam‬", 40);
+  assert.ok(!/[‪-‮⁦-⁩]/.test(out), "bidi characters survived");
+});
+await test("strips zero-width characters used to spoof handles", () => {
+  assert.equal(cleanString("ad​min", 40), "admin");
+});
+await test("rejects a path-traversal id", () => assert.equal(safeId("../../etc/passwd"), null));
+await test("accepts a generated id", () => assert.equal(safeId("thr_abc-123"), "thr_abc-123"));
+await test("rejects HTML disguised as a PNG data URL", () =>
+  assert.equal(safeDataUrl("data:image/png;base64,<script>", "image"), null));
+await test("accepts a real PNG data URL", () =>
+  assert.ok(safeDataUrl("data:image/png;base64,iVBORw0KGgo=", "image")));
+await test("escapes SQL LIKE wildcards", () => assert.equal(escapeLike("100%_x"), "100\\%\\_x"));
+await test("rejects malformed email", () => {
+  assert.equal(isValidEmail("a@b"), false);
+  assert.equal(isValidEmail("a b@c.co"), false);
+  assert.equal(isValidEmail("a@b.co"), true);
+});
+await test("enforces length limits", () => {
+  assert.equal(cleanString("x".repeat(500), 80).length, 80);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Origin policy");
+
+const http = await import(join(root, "functions/lib/http.js"));
+const req = (url, headers = {}) => new Request(url, { headers });
+
+await test("trusts the canonical production origin", () =>
+  assert.ok(http.isAllowedOrigin("https://askcerebrum.org", {})));
+await test("rejects an unrelated origin", () =>
+  assert.equal(http.isAllowedOrigin("https://evil.example", {}), false));
+await test("rejects any other pages.dev project", () =>
+  assert.equal(http.isAllowedOrigin("https://attacker.pages.dev", {}), false));
+await test("accepts this project's preview subdomains", () =>
+  assert.ok(http.isAllowedOrigin("https://feature-x.cerebrum-2pz.pages.dev", {})));
+await test("previews can be disabled by the operator", () =>
+  assert.equal(http.isAllowedOrigin("https://feature-x.cerebrum-2pz.pages.dev", { PREVIEW_ORIGINS: "off" }), false));
+
+await test("localhost is trusted ONLY when we are served from localhost", () => {
+  const localReq = req("http://localhost:8790/api/data");
+  const prodReq = req("https://askcerebrum.org/api/data");
+  assert.ok(http.isAllowedOrigin("http://localhost:8790", {}, localReq),
+    "local origin rejected during local development");
+  assert.equal(http.isAllowedOrigin("http://localhost:8790", {}, prodReq), false,
+    "PRODUCTION ACCEPTED A LOCALHOST ORIGIN");
+});
+
+await test("write path refuses a request with no origin proof", () =>
+  assert.equal(http.requireTrustedOrigin(req("https://askcerebrum.org/api/data"), {}), false));
+await test("write path accepts a same-origin browser request", () =>
+  assert.ok(http.requireTrustedOrigin(req("https://askcerebrum.org/api/data", { "Sec-Fetch-Site": "same-origin" }), {})));
+await test("write path refuses a cross-site request", () =>
+  assert.equal(http.requireTrustedOrigin(req("https://askcerebrum.org/api/data", { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" }), {}), false));
+await test("read path tolerates a missing origin", () =>
+  assert.ok(http.readOriginAllowed(req("https://askcerebrum.org/api/data"), {})));
+await test("CORS never reflects a disallowed origin", () => {
+  const h = http.corsHeaders(req("https://askcerebrum.org/api/data", { Origin: "https://evil.example" }), {});
+  assert.equal(h["Access-Control-Allow-Origin"], "https://askcerebrum.org");
+  assert.equal(h["Access-Control-Allow-Credentials"], undefined,
+    "credentials granted to a disallowed origin");
+});
+
+await test("rate-limit keys do not contain the raw IP", async () => {
+  const k = await http.privacyKey("search", "203.0.113.7", {});
+  assert.ok(!k.includes("203.0.113.7"), "raw IP present in the storage key");
+  assert.match(k, /^search:[0-9a-f]{20}$/);
+});
+await test("X-Forwarded-For cannot move the rate-limit bucket", () => {
+  const spoofed = req("https://askcerebrum.org/api/search", { "X-Forwarded-For": "1.2.3.4" });
+  assert.equal(http.clientIp(spoofed), "unknown");
+});
+
+await test("oversized request bodies are refused before parsing", async () => {
+  const big = new Request("https://askcerebrum.org/api/data", {
+    method: "POST",
+    headers: { "Content-Length": "9999999" },
+    body: "{}",
+  });
+  const r = await http.readJsonBody(big, {}, 1000);
+  assert.equal(r.ok, false);
+  assert.equal(r.response.status, 413);
+});
+await test("a literal null body does not crash the handler", async () => {
+  const r = await http.readJsonBody(new Request("https://askcerebrum.org/api/data", { method: "POST", body: "null" }), {});
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.body, {});
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Authentication — the forgeable-session class of bug");
+
+const authSrc = stripComments(await (await import("node:fs/promises")).readFile(join(root, "functions/api/auth.js"), "utf8"));
+
+await test("no unsigned fallback token minting remains", () => {
+  assert.ok(!/function makeFallbackToken/.test(authSrc), "makeFallbackToken still exists");
+  assert.ok(!/function readFallbackToken/.test(authSrc), "readFallbackToken still exists");
+});
+await test("no password login path remains", () => {
+  assert.ok(!/action === "login"/.test(authSrc), "the login action is still dispatched");
+  assert.ok(!/action === "signup"/.test(authSrc), "the signup action is still dispatched");
+});
+await test("auth fails closed without a database", () => {
+  assert.match(authSrc, /if \(!env \|\| !env\.DB\)[\s\S]{0,400}503/,
+    "no 503 fail-closed guard for a missing D1 binding");
+});
+await test("the plaintext OTP log is gone", () => {
+  assert.ok(!/OTP_DEV_NO_RESEND/.test(authSrc), "codes are still logged in plaintext");
+});
+await test("a missing email provider fails closed", () => {
+  assert.match(authSrc, /RESEND_API_KEY[\s\S]{0,600}return false/,
+    "sendOtpEmail still returns success when it cannot send");
+});
+await test("logout revokes the server-side session", () => {
+  assert.match(authSrc, /destroySessionByToken/, "logout does not destroy the session");
+  assert.match(authSrc, /bumpSessionEpoch/, "logout does not invalidate stateless tokens");
+});
+await test("account deletion covers messages, follows and blocks", () => {
+  for (const table of ["messages", "thread_participants", "follows", "user_blocks", "watched_topics", "call_signals"]) {
+    assert.ok(authSrc.includes(table), `delete-account does not touch ${table}`);
+  }
+});
+
+const helpersSrc = stripComments(await (await import("node:fs/promises")).readFile(join(root, "functions/lib/authHelpers.js"), "utf8"));
+await test("JWT algorithm and type are pinned", () => {
+  assert.match(helpersSrc, /header\.alg !== "HS256"/, "alg is not pinned");
+  assert.match(helpersSrc, /header\.typ !== "JWT"/, "typ is not pinned");
+});
+await test("JWT expiry is required, not optional", () => {
+  assert.match(helpersSrc, /typeof payload\.exp !== "number"/,
+    "a token with no exp claim would be treated as valid forever");
+});
+await test("revocation state failure fails closed", () => {
+  assert.match(helpersSrc, /MAX_SAFE_INTEGER[\s\S]{0,80}tombstoned: true/,
+    "an unreadable epoch would be treated as 'not revoked'");
+});
+await test("OTP codes are hashed under a server secret", () => {
+  assert.match(helpersSrc, /export async function hashOtp/, "no keyed OTP hash");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Authorization — cross-user access");
+
+/* Comments are stripped before matching. Several of these files explain, in
+ * prose, the vulnerability they fixed — a naive search finds the explanation
+ * and reports the documentation as the bug. */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+const dataSrc = stripComments(await (await import("node:fs/promises")).readFile(join(root, "functions/api/data.js"), "utf8"));
+
+await test("thread reads require membership", () => {
+  assert.match(dataSrc, /SELECT 1 FROM thread_participants WHERE thread_id = \? AND user_id = \?/,
+    "no membership check before returning messages");
+});
+await test("reporting someone requires a real relationship", () => {
+  assert.match(dataSrc, /no_relationship/, "any user can report any user id");
+});
+await test("follow respects blocks", () => {
+  const follow = dataSrc.slice(dataSrc.indexOf('action === "toggle-follow"'), dataSrc.indexOf('action === "send-message"'));
+  assert.match(follow, /isBlockedPair/, "a blocked user can still follow");
+});
+await test("hidden and missing accounts are indistinguishable", () => {
+  assert.ok(!/That account doesn't exist\./.test(dataSrc),
+    "a distinct 404 message still confirms whether an account id is real");
+});
+await test("attachment URLs go through the URL validator", () => {
+  assert.match(dataSrc, /const attachmentUrl = safeUrl\(/,
+    "attachment_url is stored without scheme validation");
+});
+await test("the founder's identity is not published to other accounts", () => {
+  const fs2 = dataSrc.slice(dataSrc.indexOf('resource === "founder-status"'));
+  assert.ok(!/matchedUser,/.test(fs2.slice(0, 2000)),
+    "founder-status still returns the founder's username to any signed-in user");
+});
+await test("no email address is selected into social payloads", () => {
+  assert.ok(!/SELECT u\.id, u\.name, u\.username, u\.email FROM thread_participants/.test(dataSrc),
+    "the inbox query still selects email");
+  assert.ok(!/caller\.email/.test(dataSrc),
+    "incoming-calls still falls back to the caller's email address");
+});
+
+const iceSrc = stripComments(await (await import("node:fs/promises")).readFile(join(root, "functions/api/iceservers.js"), "utf8"));
+await test("TURN credentials require a session", () => {
+  assert.match(iceSrc, /getSessionUser/, "TURN credentials are minted for anonymous callers");
+  assert.match(iceSrc, /checkRateLimit/, "TURN credential minting is unthrottled");
+});
+
+const reportSrc = stripComments(await (await import("node:fs/promises")).readFile(join(root, "functions/api/report.js"), "utf8"));
+await test("the report endpoint enforces its origin allowlist", () => {
+  assert.match(reportSrc, /requireTrustedOrigin/, "report.js defines an allowlist it never enforces");
+});
+await test("reports do not store a raw IP alongside the query", () => {
+  assert.ok(!/CF-Connecting-IP"\) \|\| "unknown"\s*\)\s*\n\s*\.run\(\)/.test(reportSrc));
+  assert.match(reportSrc, /privacyKey\("reporter"/, "reporter IP is not hashed");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("AI safety — prompt injection and citation integrity");
+
+const searchSrc = stripComments(await (await import("node:fs/promises")).readFile(join(root, "functions/api/search.js"), "utf8"));
+
+await test("retrieved source text is fenced with a per-request nonce", () => {
+  assert.match(searchSrc, /function makeFence/, "no fencing of untrusted content");
+  assert.match(searchSrc, /fence\.clean\(p\.title\)/, "paper titles are not sanitised");
+  assert.match(searchSrc, /fence\.clean\(fullAbstract|fence\.clean\(cappedAbstract/, "abstracts are not sanitised");
+});
+await test("the question is stated outside the source fence", () => {
+  assert.match(searchSrc, /fence\.open \+ "\\n" \+ evidence \+ "\\n" \+ fence\.close/,
+    "evidence and question are still concatenated into one blob");
+});
+await test("our own annotation markers cannot be forged by a source", () => {
+  assert.match(searchSrc, /RETRACTED\|WRONG SPECIES/, "reserved markers are not stripped from source text");
+});
+await test("citations are validated against real authors, not just a range", () => {
+  assert.match(searchSrc, /knownAuthors/, "author-year attributions are not checked");
+});
+await test("raw queries are no longer written to query_intelligence", () => {
+  assert.match(searchSrc, /VALUES \(\?, NULL, \?/, "raw_query is still persisted");
+});
+await test("provider error bodies are not returned to ordinary callers", () => {
+  assert.match(searchSrc, /async function operatorDiagnostics/, "diagnostics are not gated");
+  assert.ok(!/_aiAttempts: typeof aiAttempts/.test(searchSrc),
+    "_aiAttempts still ships on every response");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Retention");
+
+const { RETENTION, sweepExpiredData } = await import(join(root, "functions/lib/retention.js"));
+await test("every retained table has a defined window", () => {
+  for (const k of ["answerCacheMs", "paperCacheMs", "queryIntelligenceMs", "callSignalsMs", "otpMs", "magicLinkMs"]) {
+    assert.ok(RETENTION[k] > 0, `${k} has no retention window`);
+  }
+});
+await test("sweep is a no-op without a database rather than throwing", async () => {
+  const r = await sweepExpiredData({});
+  assert.equal(r.swept, 0);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+console.log(`\n${passed} passed, ${failures.length} failed`);
+if (failures.length) process.exit(1);
