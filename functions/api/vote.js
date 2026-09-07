@@ -1,3 +1,4 @@
+import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
 // Vote endpoint: POST /api/vote
@@ -13,21 +14,6 @@ import { checkRateLimit } from "../lib/rateLimit.js";
 // /api/search) and had no rate limiting at all, so any third-party site could
 // script arbitrary up/down votes against guessed or scraped answerIds.
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-// Scoped to OUR Pages project's preview subdomains only. Bug fix: this used
-// to be `origin.endsWith(".pages.dev")`, which trusts every free Cloudflare
-// Pages site on the internet — anyone can deploy one and get an origin that
-// passes — completely defeating the allowlist. Matches search.js's fix.
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
-function originAllowed(request) {
-  const origin = request.headers.get("Origin") || "";
-  if (!origin) return true; // same-origin / non-browser client
-  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
-}
 
 const RATE_LIMIT = 30;         // votes
 const RATE_WINDOW_MS = 60000;  // per minute
@@ -35,18 +21,7 @@ const RATE_WINDOW_MS = 60000;  // per minute
 export async function onRequest(context) {
   const { request, env } = context;
 
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin)
-      ? reqOrigin
-      : "https://askcerebrum.org";
-  const cors = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Vary": "Origin",
-  };
+  const cors = corsHeaders(request, env);
 
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: cors });
@@ -56,7 +31,7 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Method not allowed." }), { status: 405, headers: cors });
   }
 
-  if (!originAllowed(request)) {
+  if (!readOriginAllowed(request, env)) {
     return new Response(JSON.stringify({ error: "Origin not allowed." }), { status: 403, headers: cors });
   }
 
