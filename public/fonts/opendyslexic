@@ -1,0 +1,8 @@
+/* OpenDyslexic, self-hosted.
+   Loaded only when a reader turns on the dyslexia-friendly setting, and
+   served from this origin so switching on an accessibility feature does not
+   announce that fact to a third-party font CDN. */
+@font-face { font-family:'OpenDyslexic'; font-style:normal; font-weight:400; font-display:swap; src:local('OpenDyslexic'), url('/fonts/OpenDyslexic-Regular.woff') format('woff'); }
+@font-face { font-family:'OpenDyslexic'; font-style:italic; font-weight:400; font-display:swap; src:local('OpenDyslexic'), url('/fonts/OpenDyslexic-Italic.woff') format('woff'); }
+@font-face { font-family:'OpenDyslexic'; font-style:normal; font-weight:700; font-display:swap; src:local('OpenDyslexic'), url('/fonts/OpenDyslexic-Bold.woff') format('woff'); }
+@font-face { font-family:'OpenDyslexic'; font-style:italic; font-weight:700; font-display:swap; src:local('OpenDyslexic'), url('/fonts/OpenDyslexic-Bold-Italic.woff') format('woff'); }
