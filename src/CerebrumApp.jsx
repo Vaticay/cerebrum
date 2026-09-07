@@ -1509,8 +1509,8 @@ function DeckLabel({ P, accent, children, extra }) {
 function DeckCard({ P, accent, label, children, className = "", labelExtra, span }) {
   return (
     <UICard P={P} className={"cb-deck-card " + className}
-      style={{ display: "flex", flexDirection: "column", textAlign: "left", ...(span ? { gridColumn: span } : null) }}>
-      {label && <UILabel P={P} accent={accent} right={labelExtra}>{label}</UILabel>}
+      style={{ display: "flex", flexDirection: "column", textAlign: "left", background: "transparent", border: "none", borderTop: `1px solid ${P.line}`, borderRadius: 0, padding: "24px 0", ...(span ? { gridColumn: span } : null) }}>
+      {label && <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 16, color: P.ink2, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)" }}><span>{label}</span>{labelExtra}</div>}
       {children}
     </UICard>
   );
@@ -1638,28 +1638,9 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
       // Extra top margin on mobile keeps the strip clear of it at rest, and
       // the strip's own left padding keeps the first column out from under
       // the button while scrolling.
-      marginTop: isMobile ? 20 : 34,
+      marginTop: isMobile ? 32 : 56,
       display: "flex", flexDirection: "column", gap: 12,
     }}>
-      {/* Stats strip — four real counts. Rendered only for signed-in users
-          with something to count; a row of zeroes is a worse first
-          impression than no row at all. */}
-      {user && (totalTurns > 0 || saved.length > 0) && (
-        <div className="cb-deck-stats" style={{
-          display: "grid",
-          gridTemplateColumns: isMobile ? "repeat(2, minmax(0,1fr))" : "repeat(4, minmax(0,1fr))",
-          gap: isMobile ? "14px 12px" : 14,
-          padding: isMobile ? "15px 16px" : "13px 18px", borderRadius: 12,
-          background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
-          border: `1px solid ${P.line}`,
-        }}>
-          <DeckStat label="Questions asked" shortLabel="Questions" value={totalTurns} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Papers saved" shortLabel="Saved" value={(saved || []).length} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Topics watched" shortLabel="Watched" value={watchCount} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Day streak" shortLabel="Streak" value={streak.days} P={P} accent={accent} isMobile={isMobile} />
-        </div>
-      )}
-
       {/* Commit 87 — alignItems: start.
 
           A CSS grid stretches every cell in a row to the height of the
@@ -1672,8 +1653,8 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           the row bottoms are allowed to differ, which is what an edited
           page looks like. */}
       <div style={{
-        display: "grid", gap: 12, alignItems: "start",
-        gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(310px, 1fr))",
+        display: "grid", gap: "8px 32px", alignItems: "start",
+        gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
       }}>
         {/* Commit 71 — this is the lead, so it looks like the lead.
             It was one of four identical boxes in an even grid, with the
@@ -1688,14 +1669,14 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           <DeckCard P={P} accent={accent} label="Where you left off" span={isMobile ? undefined : "1 / -1"}>
             <div style={{
               fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
-              fontWeight: 600, color: P.ink, lineHeight: 1.28,
+              fontWeight: 500, color: P.ink, lineHeight: 1.4,
               letterSpacing: "-0.02em", fontFamily: "var(--cb-display)",
               marginBottom: 16, display: "-webkit-box", WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical", overflow: "hidden",
             }}>{lastQ}</div>
             <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Keep going</DeckBtn>
-              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>Everything else</DeckBtn>
+              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Continue investigation</DeckBtn>
+              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>All investigations</DeckBtn>
             </div>
           </DeckCard>
         )}
@@ -1730,9 +1711,28 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
         <WatchList P={P} accent={accent} at={at} user={user} onAsk={onAsk}
           refreshKey={watchKey} deck onCount={setWatchCount} />
-        <MilestoneCard P={P} accent={accent} at={at} user={user} refreshKey={watchKey} />
         <DailyScience P={P} accent={accent} at={at} onAsk={onAsk} deck />
+        {user && <details style={{ gridColumn: "1 / -1", color: P.ink2, fontSize: FONT_SIZES.small }}><summary style={{ cursor: "pointer", padding: "12px 0", minHeight: 44 }}>Research milestones</summary><MilestoneCard P={P} accent={accent} at={at} user={user} refreshKey={watchKey} /></details>}
       </div>
+      {/* Stats strip — four real counts. Rendered only for signed-in users
+          with something to count; a row of zeroes is a worse first
+          impression than no row at all. */}
+      {user && (totalTurns > 0 || saved.length > 0) && (
+        <div className="cb-deck-stats" style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "repeat(2, minmax(0,1fr))" : "repeat(4, minmax(0,1fr))",
+          gap: isMobile ? "14px 12px" : 14,
+          padding: "20px 0", borderRadius: 0,
+          background: "transparent",
+          border: "none", borderTop: `1px solid ${P.line}`,
+        }}>
+          <DeckStat label="Questions asked" shortLabel="Questions" value={totalTurns} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Papers saved" shortLabel="Saved" value={(saved || []).length} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Topics watched" shortLabel="Watched" value={watchCount} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Day streak" shortLabel="Streak" value={streak.days} P={P} accent={accent} isMobile={isMobile} />
+        </div>
+      )}
+
     </div>
   );
 }
@@ -2049,12 +2049,12 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
             className="cb-press"
             style={{
               display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0,
-              padding: "8px 14px", borderRadius: 100, cursor: "pointer",
+              padding: "10px 12px", borderRadius: 0, minHeight: 44, cursor: "pointer",
               fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
               fontFamily: "var(--cb-body)", letterSpacing: "-0.005em",
-              background: on ? withAlpha(accent, 0.14) : "transparent",
+              background: "transparent",
               color: on ? P.ink : P.ink2,
-              border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
+              border: "none", borderBottom: `2px solid ${on ? accent : "transparent"}`,
               transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
             }}
           >
@@ -2658,6 +2658,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
           background: isActive
             ? withAlpha(accent, 0.22)
             : hoverCite === n ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.07)") : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
+          color: isActive ? P.ink : P.ink,
           border: "1px solid " + (isActive ? withAlpha(accent, 0.65) : P.line),
           boxShadow: isActive ? `0 0 0 3px ${withAlpha(accent, 0.14)}` : "none",
           transition: `background ${MOTION.feedback}s ${MOTION.ease}, border-color ${MOTION.feedback}s ${MOTION.ease}, box-shadow ${MOTION.feedback}s ${MOTION.ease}`,
@@ -12139,7 +12140,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarWidth: 260,
     sidebar: {
       position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 30,
-      background: P.surface, borderRight: `1px solid ${P.line}`,
+      background: P.bg, borderRight: `1px solid ${P.line}`,
       display: "flex", flexDirection: "column",
       transform: isMobile ? "translateX(-100%)" : "none",
       transition: "transform 240ms cubic-bezier(0.4, 0, 0.2, 1)",
@@ -12162,7 +12163,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // kept as a supporting wash. Two channels, not one — which also means
     // the state survives High Contrast mode flattening the tint.
     sidebarItemActive: {
-      background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600,
+      background: withAlpha(accent, 0.07), color: P.ink, fontWeight: 600,
       boxShadow: `inset 2px 0 0 ${accent}`,
     },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" },
@@ -12243,7 +12244,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // See the comment at the hero's <Reveal>.
     heroCompact: {
       flex: "0 0 auto",
-      padding: isMobile ? "18px 0 8px" : "20px 0 10px",
+      padding: isMobile ? "64px 0 24px" : "64px 0 32px",
     },
     heroTitleCompact: {
       fontSize: isMobile ? 34 : 50,
@@ -12289,8 +12290,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     searchShell: {
       display: "flex", alignItems: "center", gap: 10,
       width: "100%", maxWidth: 700,
-      backdropFilter: "blur(40px) saturate(150%)",
-      WebkitBackdropFilter: "blur(40px) saturate(150%)",
+      backdropFilter: "blur(16px)",
+      WebkitBackdropFilter: "blur(16px)",
       // This is the one control the entire product exists to serve, and it
       // was the least defined element on the page: an 8%-alpha border and a
       // single 32px shadow at 8% opacity, sitting on top of the animated
@@ -12309,7 +12310,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       //     is what makes a surface read as raised rather than printed).
       background: P.dark ? "rgba(15, 17, 26, 0.92)" : "rgba(255, 255, 255, 0.94)",
       border: P.dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.13)",
-      borderRadius: 100,
+      borderRadius: 20,
       padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
       boxShadow: P.dark
         ? "inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.35), 0 18px 48px rgba(0,0,0,0.45)"
@@ -14256,8 +14257,8 @@ function App() {
         mode={started ? "reading" : "ambient"}
         energy={busy ? 1 : 0}
         core={started ? 0.34 : 0.85}
-        corePos={started ? [0.72, 0.58] : [0, 0.08]}
-        coreScale={started ? 0.42 : 0.9}
+        corePos={started ? [0.72, 0.58] : (isMobile ? [0.35, 0.52] : [0.72, 0.48])}
+        coreScale={started ? 0.42 : (isMobile ? 0.5 : 0.68)}
         animationMode={animationMode}
       />
       <div style={S.grain} />
@@ -14380,18 +14381,20 @@ function App() {
                   has not been introduced yet.
                   ══════════════════════════════════════════════════════ */}
               {deckHasContent ? (
-                <div style={{ marginBottom: 26, position: "relative" }}>
+                <div style={{ marginBottom: 36, position: "relative", width: "100%", maxWidth: 880, textAlign: "left" }}>
                   <h1 style={{
-                    fontSize: isMobile ? 30 : 40, fontWeight: 700, letterSpacing: "-0.03em",
+                    fontSize: isMobile ? 32 : 48, fontWeight: 500, letterSpacing: "-0.045em",
                     lineHeight: 1.1, color: P.ink, margin: "0 0 8px", fontFamily: "var(--cb-display)",
                   }}>
-                    {greeting()}{firstName ? <>, <span style={{ color: accent }}>{firstName}</span></> : null}
+                    What are you investigating?
                   </h1>
                   <p style={{
                     fontSize: FONT_SIZES.small, color: P.faint, margin: 0,
                     fontFamily: "var(--cb-body)", display: "flex", flexWrap: "wrap",
                     alignItems: "center", gap: 10, letterSpacing: "-0.005em",
                   }}>
+                    <span>{greeting()}{firstName ? `, ${firstName}` : ""}</span>
+                    <span aria-hidden="true" style={{ opacity: 0.4 }}>·</span>
                     <span>{todayLabel()}</span>
                     {streakDays > 0 && (
                       <>
@@ -14419,7 +14422,7 @@ function App() {
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
               )}
-              <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+              <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 880 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
@@ -14949,39 +14952,10 @@ function App() {
    ════════════════════════════════════════════════════════════════ */
 const CSS = `
 :root {
-  /* ══════════════════════════════════════════════════════════════
-     Commit 96 — the typeface was the tell.
-
-     This shipped on Space Grotesk + Inter + JetBrains Mono. That trio is
-     the default of every Vercel starter, every YC SaaS landing page and
-     every AI wrapper built between 2021 and 2024. None of the three is a
-     bad typeface. Together they are ANONYMOUS, and anonymous is what
-     "doesn't feel premium" actually means here: the page announces that it
-     came out of a template before a single word is read.
-
-     Replaced with a system where each face has one job:
-
-       Newsreader   a screen-first serif with a real optical-size axis
-                    (6..72) and weights 300-700. Headings AND, more
-                    importantly, the answer prose. Setting eight hundred
-                    words of research writing in a UI sans is what made
-                    this read as a dashboard; setting it in a serif built
-                    for reading is what makes it read as a publication.
-                    This is the single biggest change in the commit.
-
-       Inter Tight  chrome only. Buttons, labels, nav, chips, meta. Inter
-                    is superb at small sizes and the Tight cut is drawn
-                    for exactly this, so the interface stays crisp while
-                    the reading surfaces get character.
-
-       IBM Plex Mono  numbers, IDs, counts. Plex was drawn for a research
-                    and technology company and carries that; JetBrains
-                    Mono reads as a code editor, which this is not.
-
-     --cb-read exists so the intent is legible at every call site: it is
-     the same family as --cb-display, but it marks text a person actually
-     reads at length rather than scans. ══════════════════════════════ */
-  --cb-display: 'Newsreader', Georgia, 'Times New Roman', serif;
+  /* Workspace headings and controls use the same sans-serif family.
+     Long-form reading keeps Newsreader through --cb-read.
+     Every family has an offline system fallback. */
+  --cb-display: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
   --cb-read:    'Newsreader', Georgia, 'Times New Roman', serif;
   --cb-body:    'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
   --cb-mono:    'IBM Plex Mono', 'SF Mono', ui-monospace, monospace;
@@ -15750,16 +15724,7 @@ button, a, .cb-tap {
    top edge that wipes in from the left — a small "this one is live"
    signal that doesn't cost a color change or a size change. */
 .cb-deck-card { position: relative; overflow: hidden; }
-.cb-deck-card::before {
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--cb-accent, #34d399) 70%, transparent),
-    transparent);
-  transform: scaleX(0); transform-origin: left center;
-  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: none;
-}
+.cb-deck-card::before { display: none; }
 .cb-deck-card:hover::before { transform: scaleX(1); }
 
 /* The stats strip lifts as one object rather than per-number — the four
