@@ -32,32 +32,10 @@
 // AND thread membership AND that the two participants haven't blocked each
 // other — strictly more access control than what it replaces, not less.
 
+import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 import { getSessionUser, isBlockedPair, ensureSocialTables } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
-function originAllowed(request) {
-  const origin = request.headers.get("Origin") || "";
-  if (!origin) return true;
-  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
-}
-function corsFor(request) {
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin) ? reqOrigin : "https://askcerebrum.org";
-  return {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Vary": "Origin",
-  };
-}
 
 // Generous relative to search/videos endpoints: a single call's connection
 // setup alone posts a handful of messages (hello, one offer or answer, a
@@ -99,9 +77,9 @@ async function authorizeThread(env, userId, threadId) {
 
 export async function onRequest(context) {
   const { request, env } = context;
-  const cors = corsFor(request);
+  const cors = corsHeaders(request, env);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  if (!originAllowed(request)) {
+  if (!readOriginAllowed(request, env)) {
     return new Response(JSON.stringify({ error: "Origin not allowed." }), { status: 403, headers: cors });
   }
   if (!env.DB) {
@@ -213,6 +191,10 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ error: "Method not allowed." }), { status: 405, headers: cors });
   } catch (e) {
     console.error("Cerebrum call-signal endpoint error:", e);
-    return new Response(JSON.stringify({ error: "Call signaling is temporarily unavailable." }), { status: 200, headers: cors });
+    /* Returned HTTP 200 on a total failure, so every `res.ok` check on the
+     * client treated a broken signalling channel as a working one — which is
+     * precisely the "the call rings and never connects" symptom. 503 is the
+     * truth and the client can act on it. */
+    return new Response(JSON.stringify({ error: "Call signaling is temporarily unavailable.", code: "signal_unavailable" }), { status: 503, headers: cors });
   }
 }
