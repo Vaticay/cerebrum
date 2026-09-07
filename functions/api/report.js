@@ -8,57 +8,65 @@
 // user still gets a success response — reporting should never fail from
 // the reporter's perspective.
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
+import { corsHeaders, requireTrustedOrigin, forbiddenOrigin, errorResponse, tooManyRequests, json, readJsonBody, clientIp, privacyKey } from "../lib/http.js";
+import { checkRateLimit } from "../lib/rateLimit.js";
+import { cleanString, safeUrl, LIMITS } from "../lib/validate.js";
 
-function json(data, status, headers) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...headers, "Content-Type": "application/json" },
-  });
+// The `reports` table was never in schema.sql at all — every report this
+// endpoint "successfully" received was actually being thrown away the
+// instant env.DB was bound, since the INSERT below throws against a table
+// that doesn't exist and the catch around it was written to swallow that
+// silently (on purpose: a missing table shouldn't turn into a visible
+// failure for someone filing a report). schema.sql now documents the table
+// properly, but a table definition sitting in a file the person running
+// this has to remember to separately run against their live database is
+// exactly the kind of manual step that's easy to skip — so this creates it
+// itself, once per isolate, the first time it's actually needed. Cheap
+// (CREATE TABLE IF NOT EXISTS is a no-op once the table exists) and means a
+// report is never silently lost just because a migration step got missed.
+let _reportsTableEnsured = false;
+async function ensureReportsTable(env) {
+  if (_reportsTableEnsured) return;
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT, description TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'general', source_url TEXT, created_at INTEGER NOT NULL, ip TEXT)"
+  );
+  _reportsTableEnsured = true;
 }
 
 export async function onRequest(context) {
   const { request, env } = context;
 
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin)
-      ? reqOrigin
-      : "https://askcerebrum.org";
-  const cors = {
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Credentials": "true",
-    Vary: "Origin",
-  };
+  const cors = corsHeaders(request, env, { methods: "POST, OPTIONS" });
 
-  if (request.method === "OPTIONS")
+  /* This file defined ALLOWED_ORIGINS and then never used it to reject
+   * anything — it only picked which origin to echo back. Combined with
+   * Access-Control-Allow-Credentials: true, that made it the weakest endpoint
+   * in the set: an unauthenticated, unthrottled, any-origin writer of
+   * arbitrary text into the database, tagged with the reporter's IP. */
+  if (request.method === "OPTIONS") {
+    if (!requireTrustedOrigin(request, env)) return forbiddenOrigin(cors);
     return new Response(null, { status: 204, headers: cors });
+  }
+  if (!requireTrustedOrigin(request, env)) return forbiddenOrigin(cors);
+  if (request.method !== "POST") return errorResponse(405, "method_not_allowed", "Method not allowed.", cors);
 
-  if (request.method !== "POST")
-    return json({ error: "Method not allowed." }, 405, cors);
+  const rlKey = await privacyKey("report", clientIp(request), env);
+  if (!(await checkRateLimit(env, rlKey, 5, 10 * 60000))) return tooManyRequests(cors, 120);
 
-  const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object")
-    return json({ error: "Invalid request body." }, 400, cors);
+  const parsed = await readJsonBody(request, cors, 32_000);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
-  const query = typeof body.query === "string" ? body.query.slice(0, 2000) : "";
-  const description =
-    typeof body.description === "string" ? body.description.slice(0, 5000) : "";
-  const category =
-    typeof body.category === "string" ? body.category.slice(0, 100) : "general";
-  const sourceUrl =
-    typeof body.sourceUrl === "string" ? body.sourceUrl.slice(0, 2000) : "";
+  const query = cleanString(body.query, LIMITS.QUERY, { allowNewlines: true });
+  const description = cleanString(body.description, LIMITS.REPORT_DESCRIPTION, { allowNewlines: true });
+  const category = cleanString(body.category, 100);
+  const sourceUrl = safeUrl(body.sourceUrl) || "";
+  if (!description) return errorResponse(400, "missing_description", "Tell us what's wrong so we can act on it.", cors);
 
   // Persist to DB if available
   if (env && env.DB) {
     try {
+      await ensureReportsTable(env);
       await env.DB.prepare(
         "INSERT INTO reports (query, description, category, source_url, created_at, ip) VALUES (?, ?, ?, ?, ?, ?)"
       )
@@ -68,7 +76,12 @@ export async function onRequest(context) {
           category,
           sourceUrl,
           Date.now(),
-          request.headers.get("CF-Connecting-IP") || "unknown"
+          /* The raw IP used to be stored here, in the same row as the user's
+           * research question — a direct query-to-person join, kept forever,
+           * on a table nobody prunes. A rotating one-way hash still lets an
+           * operator see that twenty reports came from one source without
+           * recording who that source is. */
+          await privacyKey("reporter", clientIp(request), env)
         )
         .run();
     } catch (e) {
@@ -77,7 +90,7 @@ export async function onRequest(context) {
     }
   } else {
     // No DB — log to worker console for real-time tailing
-    console.log("DATA_REPORT", JSON.stringify({ query, description, category, sourceUrl, ts: Date.now() }));
+    console.log("DATA_REPORT", JSON.stringify({ category, sourceUrl, ts: Date.now() }));
   }
 
   return json({ success: true }, 200, cors);
