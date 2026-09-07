@@ -24,54 +24,12 @@ import { getSessionUser } from "../lib/authHelpers.js";
    it is not a secret — it is a typo.
    ══════════════════════════════════════════════════════════════════ */
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
-
-// group, variable name, what it does, what breaks without it
-const WATCHED = [
-  ["Sign-in",    "RESEND_API_KEY",     "Sends sign-in codes and magic links", "Nobody can sign in by email"],
-  ["Sign-in",    "RESEND_FROM",        "The From address on those emails",    "Falls back to a default sender"],
-  ["Sign-in",    "JWT_SECRET",         "Signs session tokens",                "Sessions fall back to a weaker mode"],
-  ["Sign-in",    "FOUNDER_EMAIL",      "Marks the owner account",             "No founder badge or verified check"],
-
-  ["Literature", "OPENALEX_KEY",       "Higher OpenAlex rate limit",          "Shared anonymous pool"],
-  ["Literature", "NCBI_API_KEY",       "PubMed 3/sec to 10/sec",              "PubMed results drop under load"],
-
-  ["Models",     "OPENROUTER_KEY",     "OpenRouter free models",              "That whole bucket is unavailable"],
-  ["Models",     "GROQ_KEY",           "Independent quota, very fast",        "One fewer bucket"],
-  ["Models",     "CEREBRAS_KEY",       "Independent quota, very fast",        "One fewer bucket"],
-  ["Models",     "GEMINI_KEY",         "Independent quota",                   "One fewer bucket"],
-  ["Models",     "MISTRAL_KEY",        "Independent quota",                   "One fewer bucket"],
-  ["Models",     "GITHUB_MODELS_KEY",  "Independent quota",                   "One fewer bucket"],
-  ["Models",     "NVIDIA_KEY",         "Independent quota",                   "One fewer bucket"],
-  ["Models",     "TTS_PREMIUM",        "Paid Deepgram Aura voices",           "Free voices only (this is fine)"],
-
-  ["Calling",    "TURN_KEY_ID",        "Cloudflare TURN relay",               "Calls fail between some networks"],
-  ["Calling",    "TURN_KEY_API_TOKEN", "Cloudflare TURN relay",               "Calls fail between some networks"],
-
-  ["Media",      "UNSPLASH_KEY",       "Last-resort card photography",        "Tonal gradient fallback"],
-  ["Media",      "PEXELS_KEY",         "Last-resort card photography",        "Tonal gradient fallback"],
-  ["Media",      "CUSTOM_IMAGE_BASE",  "Your own image source",               "Not used"],
-];
+import { corsHeaders, readOriginAllowed, forbiddenOrigin } from "../lib/http.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin)
-      ? reqOrigin
-      : "https://askcerebrum.org";
-  const cors = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Credentials": "true",
-    "Cache-Control": "no-store",
-    "Vary": "Origin",
-  };
+  const cors = corsHeaders(request, env);
+  if (!readOriginAllowed(request, env)) return forbiddenOrigin(cors);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (request.method !== "GET") {
