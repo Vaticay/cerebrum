@@ -1,3 +1,4 @@
+import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
 // Dedicated videos endpoint. Frontend fires this in parallel with /api/search
@@ -12,35 +13,10 @@ import { checkRateLimit } from "../lib/rateLimit.js";
 // outbound IP getting flagged by YouTube from volume it didn't generate.
 // Brought up to the same bar as the other endpoints.
 
-const ALLOWED_ORIGINS = [
-  "https://askcerebrum.org",
-  "https://www.askcerebrum.org",
-  "https://cerebrum-2pz.pages.dev",
-];
-const PAGES_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.cerebrum-2pz\.pages\.dev$/i;
-function originAllowed(request) {
-  const origin = request.headers.get("Origin") || "";
-  if (!origin) return true; // same-origin / non-browser client
-  return ALLOWED_ORIGINS.some((o) => origin === o) || PAGES_PREVIEW_RE.test(origin);
-}
 
 const RATE_LIMIT = 20;         // video-search requests
 const RATE_WINDOW_MS = 60000;  // per minute
 
-function corsFor(request) {
-  const reqOrigin = request.headers.get("Origin") || "";
-  const corsOrigin =
-    ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin)
-      ? reqOrigin
-      : "https://askcerebrum.org";
-  return {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": corsOrigin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Vary": "Origin",
-  };
-}
 
 // Everyday words that ambiguate a query. "rupture" without context finds
 // religious rapture content; "cell" finds jail cells; "python" finds snakes.
@@ -241,14 +217,14 @@ async function tryProxy(inst, query) {
 
 export async function onRequest(context) {
   const { request, env } = context;
-  const cors = corsFor(request);
+  const cors = corsHeaders(request, env);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: cors });
   }
   if (request.method !== "POST") {
     return new Response(JSON.stringify({ videos: [], error: "Method not allowed." }), { status: 405, headers: cors });
   }
-  if (!originAllowed(request)) {
+  if (!readOriginAllowed(request, env)) {
     return new Response(JSON.stringify({ videos: [], error: "Origin not allowed." }), { status: 403, headers: cors });
   }
   const clientIP =
