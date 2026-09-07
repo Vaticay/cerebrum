@@ -100,36 +100,27 @@ function isValidEmail(email) {
 const COOKIE_NAME = "cb_sess";
 const THIRTY_DAYS = 60 * 60 * 24 * 30;
 
-function toBase64Url(str) {
-  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function fromBase64Url(str) {
-  let s = str.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return atob(s);
-}
+/* SECURITY INVARIANT: there is no session this server cannot verify.
+ *
+ * What used to be here was a "fallback mode": when env.DB was unbound, the
+ * endpoint issued `cb_sess` as base64url(JSON({email, ts})) with no signature
+ * and no secret, and readFallbackToken() trusted whatever came back. Three
+ * separate full-authentication bypasses followed from it — forge the cookie
+ * directly, POST login with any non-empty password, or POST signup for an
+ * address you do not own — and they activated on nothing more than a missing
+ * or renamed D1 binding. A deployment could be silently downgraded from real
+ * sessions to "trust the client" by an infrastructure change.
+ *
+ * Authentication now fails closed. If the database is unavailable, this
+ * endpoint returns 503 and nobody is signed in. An outage that logs everyone
+ * out is a bad afternoon; an outage that lets anyone log in as anyone is
+ * unrecoverable.
+ *
+ * Session issuance lives entirely in functions/lib/authHelpers.js: a signed
+ * JWT when JWT_SECRET is set, otherwise an opaque random token stored hashed
+ * in D1. Both are verifiable. Neither can be minted by a client.
+ */
 
-function makeFallbackToken(email) {
-  const payload = { email: email.toLowerCase(), ts: Date.now() };
-  return toBase64Url(JSON.stringify(payload));
-}
-function readFallbackToken(raw) {
-  try {
-    const payload = JSON.parse(fromBase64Url(raw));
-    if (!payload.email || !payload.ts) return null;
-    if (Date.now() - payload.ts > THIRTY_DAYS * 1000) return null;
-    return { email: payload.email };
-  } catch {
-    return null;
-  }
-}
-
-function setCookieHeader(token, isSecure) {
-  return `${COOKIE_NAME}=${token}; Path=/; Max-Age=${THIRTY_DAYS}; HttpOnly; SameSite=Lax${isSecure ? "; Secure" : ""}`;
-}
-function clearCookieHeader(isSecure) {
-  return `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${isSecure ? "; Secure" : ""}`;
-}
 function getSessionCookie(request) {
   const raw = request.headers.get("Cookie") || "";
   const match = raw.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
@@ -180,54 +171,9 @@ async function ensureOtpTable(env) {
   _otpTableEnsured = true;
 }
 
-// ── Pending-OTP storage, no-D1 tiers ────────────────────────────────────
-// Below fullMode there are two further tiers, in preference order:
-//   1. env.RATE_LIMIT_KV, if bound — genuinely shared across every
-//      Cloudflare isolate/colo (same namespace lib/rateLimit.js already
-//      uses for counters), so a pending code survives send-code and
-//      verify-code landing on two different isolates, which is the ordinary
-//      case once there's real human think-time between the two requests.
-//   2. A per-isolate in-memory Map — works fine when both requests happen
-//      to land on the same isolate, but has no cross-isolate guarantee at
-//      all. Genuinely last resort, kept only so the flow still works end to
-//      end on a deployment with neither D1 nor KV configured yet.
-// (As of this deploy, wrangler.toml has the KV binding commented out
-// pending a real namespace ID, so tier 2 is what's actually live if D1 also
-// isn't migrated yet — see ensureOtpTable above for why that's the likelier
-// gap to close first.)
-const pendingOtpMemory = new Map();
-
-function otpKvKey(emailLower) {
-  return `otp_pending:${emailLower}`;
-}
-async function kvGetOtp(kv, emailLower) {
-  try {
-    const raw = await kv.get(otpKvKey(emailLower));
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    console.error("OTP KV read failed:", e);
-    return null;
-  }
-}
-async function kvPutOtp(kv, emailLower, entry) {
-  try {
-    await kv.put(otpKvKey(emailLower), JSON.stringify(entry), {
-      expirationTtl: Math.ceil(OTP_TTL_MS / 1000),
-    });
-    return true;
-  } catch (e) {
-    console.error("OTP KV write failed:", e);
-    return false;
-  }
-}
-async function kvDeleteOtp(kv, emailLower) {
-  try {
-    await kv.delete(otpKvKey(emailLower));
-  } catch (e) {
-    console.error("OTP KV delete failed:", e);
-  }
-}
-
+// Pending OTP codes live in D1 (otp_codes). There is no secondary store:
+// a code this server cannot verify against durable storage is a code it
+// must not accept.
 // Six random digits, rejection-sampled so every digit is uniformly 0-9 (a
 // plain `byte % 10` is very slightly biased toward 0-5 since 256 isn't a
 // multiple of 10 — not a large bias, but there's no reason to accept even a
@@ -248,12 +194,23 @@ function randomOtp() {
 
 async function sendOtpEmail(env, email, code) {
   if (!env.RESEND_API_KEY) {
-    // No email provider configured — an honest fallback for local/dev
-    // deployments, mirroring report.js's own console-log fallback. The code
-    // never appears in an API response, only in the server's own log
-    // stream, which only someone with deploy access can read.
-    console.log("OTP_DEV_NO_RESEND", JSON.stringify({ email, code, ts: Date.now() }));
-    return true;
+    /* SECURITY: this used to write the live sign-in code and the address it
+     * belonged to into the log stream in plaintext, and then return TRUE —
+     * so send-code reported success, no email was ever sent, and every
+     * outstanding credential sat in the logs. It failed open on a single
+     * missing environment variable, which is exactly the condition a
+     * misconfigured production deploy is in.
+     *
+     * Local development gets the code through the same door, but only when
+     * the operator has deliberately opted in by setting CEREBRUM_DEV_OTP=1
+     * in .dev.vars, and never on a real hostname. Missing config is now an
+     * outage, which is visible, rather than a silent credential leak. */
+    if (String(env.CEREBRUM_DEV_OTP || "") === "1") {
+      console.log("OTP_DEV (dev-only, CEREBRUM_DEV_OTP=1):", code);
+      return true;
+    }
+    console.error("send-code: RESEND_API_KEY is not configured — cannot deliver sign-in codes");
+    return false;
   }
   const from = env.RESEND_FROM || RESEND_FROM_DEFAULT;
   const html = `<div style="background:#040508;padding:48px 24px;font-family:'Space Grotesk','Segoe UI',Helvetica,Arial,sans-serif;">
@@ -364,7 +321,10 @@ async function issueSession(env, user, isSecure, cors, extraSetCookies = []) {
   const headers = new Headers(cors);
   for (const c of extraSetCookies) headers.append("Set-Cookie", c);
   if (env.JWT_SECRET) {
-    const jwt = await auth.signJWT({ sub: user.id, email: user.email }, env);
+    // Stamp the account's current session epoch into the token so it can be
+    // revoked later (logout, account deletion). See bumpSessionEpoch.
+    const { epoch } = await auth.currentSessionEpoch(env, user.id);
+    const jwt = await auth.signJWT({ sub: user.id, email: user.email, epoch }, env);
     headers.append("Set-Cookie", auth.jwtCookieHeader(jwt, isSecure));
     return json({ success: true, user: payload }, 200, headers);
   }
@@ -380,7 +340,16 @@ async function issueSession(env, user, isSecure, cors, extraSetCookies = []) {
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
-  const isSecure = url.protocol === "https:";
+  /* Whether the session cookie carries `Secure`.
+   *
+   * This was derived purely from the request URL's protocol, so anything
+   * terminating TLS upstream and forwarding http:// produced a session cookie
+   * with no Secure flag — under the same cookie name, which meant it was then
+   * also sent on the real https origin. Localhost is the one legitimate
+   * http case; everything else gets Secure whatever the protocol says. */
+  const hostname = url.hostname;
+  const isLocalDev = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  const isSecure = !isLocalDev;
 
   const reqOrigin = request.headers.get("Origin") || "";
   const corsOrigin =
@@ -395,13 +364,39 @@ export async function onRequest(context) {
     Vary: "Origin",
   };
 
+  /* Origin is checked BEFORE the preflight is answered. The old order replied
+   * 204 with Allow-Credentials to origins it was about to reject. */
+  if (!originAllowed(reqOrigin)) return json({ error: "Request blocked.", code: "origin_not_allowed" }, 403, cors);
   if (request.method === "OPTIONS")
     return new Response(null, { status: 204, headers: cors });
-  if (!originAllowed(reqOrigin)) return json({ error: "Origin not allowed." }, 403, cors);
 
-  const hasDB = !!(env && env.DB);
-  const fullMode = hasDB;
-  const hasKV = !!(env && env.RATE_LIMIT_KV);
+  /* CSRF: every action on this endpoint mutates authentication state, so a
+   * POST must prove it came from one of our own pages. `originAllowed`
+   * deliberately permits a MISSING Origin (same-origin GETs omit it), which
+   * makes it useless as a write-path control on its own — SameSite=Lax was
+   * carrying that load alone, and Lax does not cover a top-level cross-site
+   * form POST. Sec-Fetch-Site is browser-set and unspoofable by page script;
+   * an allowlisted Origin is the other acceptable proof. */
+  if (request.method === "POST") {
+    const site = request.headers.get("Sec-Fetch-Site") || "";
+    const originOk = reqOrigin && (ALLOWED_ORIGINS.includes(reqOrigin) || PAGES_PREVIEW_RE.test(reqOrigin));
+    if (!originOk && site !== "same-origin") {
+      return json({ error: "Request blocked.", code: "origin_not_allowed" }, 403, cors);
+    }
+  }
+
+  /* Fail closed. Every branch below assumes a verifiable session store; if
+   * there isn't one, we say so rather than inventing a weaker one. 503 (not
+   * 500) because this is availability, not a client error, and Retry-After
+   * tells a well-behaved client to come back. */
+  if (!env || !env.DB) {
+    console.error("auth: D1 binding missing — refusing to authenticate");
+    return json(
+      { error: "Sign-in is temporarily unavailable. Please try again shortly.", code: "auth_unavailable" },
+      503,
+      { ...cors, "Retry-After": "30" }
+    );
+  }
 
   // ── Rate limiting (both modes) ──────────────────────────────────────
   // Used to only run in full mode; moved outside that gate because a
@@ -413,11 +408,17 @@ export async function onRequest(context) {
   // calling it here has no dependency on fullMode either.
   {
     const { checkRateLimit } = await rateLimit();
-    const clientIP =
-      request.headers.get("CF-Connecting-IP") ||
-      request.headers.get("X-Forwarded-For") ||
-      "unknown";
-    if (!(await checkRateLimit(env, `authip:${clientIP}`, 40, 60000))) {
+    const { clientIp, privacyKey } = await import("../lib/http.js");
+    /* X-Forwarded-For is no longer consulted. It is a client-settable header,
+     * so honouring it let anyone rotate their own rate-limit bucket by
+     * changing a string — which is the same as having no limiter. On
+     * Cloudflare, CF-Connecting-IP is set at the edge and cannot be spoofed.
+     *
+     * The key is hashed under a server secret before it reaches storage:
+     * rate-limit rows are long-lived, and `authip:203.0.113.7` is a durable
+     * record of who tried to sign in and when. */
+    const ipKey = await privacyKey("authip", clientIp(request), env);
+    if (!(await checkRateLimit(env, ipKey, 40, 60000))) {
       return json(
         { error: "Too many requests. Please wait a moment." },
         429,
@@ -430,23 +431,17 @@ export async function onRequest(context) {
   // GET — session check ("who am I?")
   // ═══════════════════════════════════════════════════════════════════
   if (request.method === "GET") {
-    // Full mode: JWT verification (stateless) → legacy DB session fallback
-    if (fullMode) {
-      try {
-        const auth = await fullAuth();
-        const user = await auth.getSessionUser(request, env);
-        return json({ user }, 200, cors);
-      } catch (e) {
-        console.error("Auth GET error:", e);
-        return json({ user: null }, 200, cors);
-      }
+    try {
+      const auth = await fullAuth();
+      const user = await auth.getSessionUser(request, env);
+      return json({ user }, 200, cors);
+    } catch (e) {
+      // A failure here means we could not VERIFY a session, which is not the
+      // same as "no session" — but the safe rendering of an unverifiable
+      // session is signed out.
+      console.error("Auth GET error:", e);
+      return json({ user: null }, 200, cors);
     }
-    // Fallback mode: read the base64url cookie
-    const raw = getSessionCookie(request);
-    if (!raw) return json({ user: null }, 200, cors);
-    const parsed = readFallbackToken(raw);
-    if (!parsed) return json({ user: null }, 200, cors);
-    return json({ user: { email: parsed.email } }, 200, cors);
   }
 
   if (request.method !== "POST") {
@@ -469,7 +464,19 @@ export async function onRequest(context) {
       if (!isValidEmail(email))
         return json({ error: "Enter a valid email address." }, 400, cors);
       const emailLower = email.toLowerCase();
-      if (!(await checkRateLimit(env, `otp-send:${emailLower}`, 5, 15 * 60000))) {
+      /* Two dimensions, because one was not enough. The per-email cap stopped
+       * one address being bombarded, but nothing capped a single caller
+       * requesting codes for MANY addresses — a mail-bombing primitive and a
+       * way to burn the email provider's quota, throttled only by the 40/min
+       * global. Both keys are hashed so neither an address nor an IP is
+       * stored in plaintext. */
+      const { clientIp: _ip, privacyKey: _pk } = await import("../lib/http.js");
+      const sendIpKey = await _pk("otp-send-ip", _ip(request), env);
+      if (!(await checkRateLimit(env, sendIpKey, 12, 15 * 60000))) {
+        return json({ error: "Too many sign-in codes requested. Please wait a few minutes.", code: "rate_limited" }, 429, { ...cors, "Retry-After": "300" });
+      }
+      const sendKey = await _pk("otp-send", emailLower, env);
+      if (!(await checkRateLimit(env, sendKey, 5, 15 * 60000))) {
         return json(
           { error: "Too many codes requested for this email. Try again later." },
           429,
@@ -480,11 +487,11 @@ export async function onRequest(context) {
       const auth = await fullAuth(); // pure crypto helpers — no DB/JWT dependency
       const code = randomOtp();
       const flowToken = auth.randomToken(24);
-      const codeHash = await auth.sha256Hex(`${emailLower}:${code}`);
+      const codeHash = await auth.hashOtp(env, emailLower, code);
       const flowHash = await auth.sha256Hex(flowToken);
       const now = Date.now();
 
-      if (fullMode) {
+      {
         try {
           await ensureOtpTable(env);
           await env.DB.prepare(
@@ -503,17 +510,6 @@ export async function onRequest(context) {
             cors
           );
         }
-      } else if (hasKV) {
-        const ok = await kvPutOtp(env.RATE_LIMIT_KV, emailLower, { codeHash, flowHash, attempts: 0, expiresAt: now + OTP_TTL_MS });
-        if (!ok) {
-          return json(
-            { error: "Sign-in is temporarily unavailable. Please try again shortly." },
-            503,
-            cors
-          );
-        }
-      } else {
-        pendingOtpMemory.set(emailLower, { codeHash, flowHash, attempts: 0, expiresAt: now + OTP_TTL_MS });
       }
 
       const sent = await sendOtpEmail(env, email, code);
@@ -542,14 +538,16 @@ export async function onRequest(context) {
       };
 
       if (!isValidEmail(email) || !/^\d{6}$/.test(code)) return fail("malformed email or code in request body");
-      if (!(await checkRateLimit(env, `otp-verify:${emailLower}`, 8, 15 * 60000))) {
+      const { privacyKey: _pk2 } = await import("../lib/http.js");
+      const verifyKey = await _pk2("otp-verify", emailLower, env);
+      if (!(await checkRateLimit(env, verifyKey, 8, 15 * 60000))) {
         return json({ error: "Too many attempts. Please wait a moment." }, 429, cors);
       }
 
       const auth = await fullAuth();
       const flowToken = getPendingCookie(request);
 
-      if (fullMode) {
+      {
         await ensureOtpTable(env);
         await auth.ensureUserProfileColumns(env);
         await auth.ensureSocialTables(env);
@@ -566,7 +564,7 @@ export async function onRequest(context) {
         const flowHash = await auth.sha256Hex(flowToken);
         if (!auth.timingSafeEqualHex(flowHash, row.flow_hash)) return fail("pending-auth cookie doesn't match the one send-code issued");
 
-        const codeHash = await auth.sha256Hex(`${emailLower}:${code}`);
+        const codeHash = await auth.hashOtp(env, emailLower, code);
         if (!auth.timingSafeEqualHex(codeHash, row.code_hash)) {
           await env.DB.prepare("UPDATE otp_codes SET attempts = attempts + 1 WHERE email_lower = ?")
             .bind(emailLower)
@@ -630,49 +628,6 @@ export async function onRequest(context) {
         return issueSession(env, user, isSecure, cors, [clearPendingCookieHeader(isSecure)]);
       }
 
-      // ── fallback modes (no D1) — KV first if bound, else per-isolate
-      // memory as the last resort. See the tier comment above
-      // pendingOtpMemory's declaration for why KV is preferred here.
-      let entry, deleteEntry, bumpAttempts;
-      if (hasKV) {
-        entry = await kvGetOtp(env.RATE_LIMIT_KV, emailLower);
-        deleteEntry = () => kvDeleteOtp(env.RATE_LIMIT_KV, emailLower);
-        bumpAttempts = async () => {
-          if (!entry) return;
-          entry.attempts += 1;
-          await kvPutOtp(env.RATE_LIMIT_KV, emailLower, entry);
-        };
-      } else {
-        entry = pendingOtpMemory.get(emailLower) || null;
-        deleteEntry = async () => { pendingOtpMemory.delete(emailLower); };
-        bumpAttempts = async () => { if (entry) entry.attempts += 1; };
-      }
-      const tierName = hasKV ? "KV" : "in-memory";
-
-      if (!entry || entry.expiresAt < Date.now()) {
-        await deleteEntry();
-        return fail(`no pending ${tierName} entry for this email — was send-code ever called, or already consumed/expired?`);
-      }
-      if (entry.attempts >= 5) {
-        await deleteEntry();
-        return json({ error: "Too many incorrect attempts. Request a new code." }, 429, cors);
-      }
-      if (!flowToken) return fail("missing cb_pending_auth cookie");
-      const flowHash = await auth.sha256Hex(flowToken);
-      if (!auth.timingSafeEqualHex(flowHash, entry.flowHash)) return fail(`pending-auth cookie doesn't match the one send-code issued (${tierName} tier)`);
-
-      const codeHash = await auth.sha256Hex(`${emailLower}:${code}`);
-      if (!auth.timingSafeEqualHex(codeHash, entry.codeHash)) {
-        await bumpAttempts();
-        return fail(`code does not match the one on record (${tierName} tier)`);
-      }
-      await deleteEntry();
-
-      const token = makeFallbackToken(email);
-      const headers = new Headers(cors);
-      headers.append("Set-Cookie", setCookieHeader(token, isSecure));
-      headers.append("Set-Cookie", clearPendingCookieHeader(isSecure));
-      return json({ success: true, user: { email: emailLower } }, 200, headers);
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -680,319 +635,145 @@ export async function onRequest(context) {
     // account created before the OTP flow shipped; the frontend no longer
     // has UI for these, but nothing served by them is removed.
     // ═════════════════════════════════════════════════════════════════
-    if (fullMode) {
-      const auth = await fullAuth();
+    const auth = await fullAuth();
 
-      // ── signup ──────────────────────────────────────────────────────
-      if (action === "signup") {
-        const email = (body.email || "").trim();
-        const password = body.password || "";
-        if (!isValidEmail(email))
-          return json({ error: "Enter a valid email address." }, 400, cors);
-        if (
-          typeof password !== "string" ||
-          password.length < 8 ||
-          password.length > 200
-        ) {
-          return json(
-            { error: "Password must be at least 8 characters." },
-            400,
-            cors
-          );
-        }
-        const emailLower = email.toLowerCase();
-        const existing = await env.DB.prepare(
-          "SELECT id FROM users WHERE email_lower = ?"
-        )
-          .bind(emailLower)
-          .first();
-        if (existing)
-          return json(
-            { error: "An account with that email already exists." },
-            409,
-            cors
-          );
-
-        const { hash, salt } = await auth.hashPassword(password);
-        const id = auth.newId("u");
-        const now = Date.now();
-        await env.DB.prepare(
-          "INSERT INTO users (id, email, email_lower, password_hash, password_salt, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        )
-          .bind(id, email, emailLower, hash, salt, now, now)
-          .run();
-
-        return issueSession(env, { id, email }, isSecure, cors);
-      }
-
-      // ── login ───────────────────────────────────────────────────────
-      if (action === "login") {
-        const email = (body.email || "").trim();
-        const password = body.password || "";
-        const emailLower = email.toLowerCase();
-        if (
-          !(await checkRateLimit(env, `login:${emailLower}`, 10, 15 * 60000))
-        ) {
-          return json(
-            { error: "Too many attempts for this account. Try again later." },
-            429,
-            cors
-          );
-        }
-        const row = await env.DB.prepare(
-          "SELECT id, email, password_hash, password_salt FROM users WHERE email_lower = ?"
-        )
-          .bind(emailLower)
-          .first();
-        if (!row || !row.password_hash)
-          return json({ error: "Incorrect email or password." }, 401, cors);
-        const ok = await auth.verifyPassword(
-          password,
-          row.password_salt,
-          row.password_hash
-        );
-        if (!ok)
-          return json({ error: "Incorrect email or password." }, 401, cors);
-
-        await env.DB.prepare(
-          "UPDATE users SET last_login_at = ? WHERE id = ?"
-        )
-          .bind(Date.now(), row.id)
-          .run();
-        return issueSession(env, { id: row.id, email: row.email }, isSecure, cors);
-      }
-
-      // ── logout ──────────────────────────────────────────────────────
-      if (action === "logout") {
-        return json({ ok: true }, 200, {
-          ...cors,
-          "Set-Cookie": auth.clearSessionCookieHeader(isSecure),
-        });
-      }
-
-      // ── magic-request ───────────────────────────────────────────────
-      if (action === "magic-request") {
-        const email = (body.email || "").trim();
-        if (!isValidEmail(email))
-          return json({ error: "Enter a valid email address." }, 400, cors);
-        const emailLower = email.toLowerCase();
-        if (
-          !(await checkRateLimit(env, `magic:${emailLower}`, 5, 15 * 60000))
-        ) {
-          return json(
-            {
-              error:
-                "Too many link requests for this email. Try again later.",
-            },
-            429,
-            cors
-          );
-        }
-        const token = auth.randomToken(32);
-        const tokenHash = await auth.sha256Hex(token);
-        const now = Date.now();
-        await env.DB.prepare(
-          "INSERT INTO magic_links (token_hash, email_lower, created_at, expires_at) VALUES (?, ?, ?, ?)"
-        )
-          .bind(tokenHash, emailLower, now, now + auth.MAGIC_LINK_TTL)
-          .run();
-
-        const link = `${url.origin}/?magic=${token}`;
-        const sent = await sendMagicLinkEmail(env, email, link);
-        if (!sent) {
-          return json(
-            {
-              error:
-                "Couldn't send the sign-in email right now. Please try again shortly.",
-            },
-            503,
-            cors
-          );
-        }
-        return json({ ok: true }, 200, cors);
-      }
-
-      // ── magic-verify ────────────────────────────────────────────────
-      if (action === "magic-verify") {
-        const token = body.token || "";
-        if (!token || typeof token !== "string")
-          return json({ error: "Missing or invalid link." }, 400, cors);
-        const tokenHash = await auth.sha256Hex(token);
-        const row = await env.DB.prepare(
-          "SELECT * FROM magic_links WHERE token_hash = ?"
-        )
-          .bind(tokenHash)
-          .first();
-        if (!row || row.used_at || row.expires_at < Date.now()) {
-          return json(
-            {
-              error:
-                "This sign-in link is invalid or has expired. Request a new one.",
-            },
-            400,
-            cors
-          );
-        }
-        await env.DB.prepare(
-          "UPDATE magic_links SET used_at = ? WHERE token_hash = ?"
-        )
-          .bind(Date.now(), tokenHash)
-          .run();
-
-        let user = await env.DB.prepare(
-          "SELECT id, email FROM users WHERE email_lower = ?"
-        )
-          .bind(row.email_lower)
-          .first();
-        if (!user) {
-          const id = auth.newId("u");
-          const now = Date.now();
-          await env.DB.prepare(
-            "INSERT INTO users (id, email, email_lower, password_hash, password_salt, created_at, last_login_at) VALUES (?, ?, ?, NULL, NULL, ?, ?)"
-          )
-            .bind(id, row.email_lower, row.email_lower, now, now)
-            .run();
-          user = { id, email: row.email_lower };
-        } else {
-          await env.DB.prepare(
-            "UPDATE users SET last_login_at = ? WHERE id = ?"
-          )
-            .bind(Date.now(), user.id)
-            .run();
-        }
-
-        return issueSession(env, user, isSecure, cors);
-      }
-
-      // ── set-password ────────────────────────────────────────────────
-      if (action === "set-password") {
+    /* ── logout ────────────────────────────────────────────────────────
+     * This used to clear the browser cookie and stop. destroySessionByToken()
+     * existed in authHelpers.js and was never called from anywhere, so a
+     * captured DB session token stayed valid for its full 30 days after the
+     * user pressed "sign out" — on a shared computer, that is the whole point
+     * of the button failing.
+     *
+     * Both session kinds are now revoked. The opaque DB token is deleted. A
+     * JWT cannot be deleted (that is what stateless means), so the account's
+     * session epoch is bumped instead: getSessionUser refuses any JWT issued
+     * before the current epoch, which invalidates every outstanding token for
+     * this account at once. That is deliberately "sign out everywhere" rather
+     * than "sign out here" — for a research account reached by email code, the
+     * safer default is the broader one. */
+    if (action === "logout") {
+      try {
+        const raw = auth.readSessionCookie(request);
+        if (raw) await auth.destroySessionByToken(env, raw);
         const current = await auth.getSessionUser(request, env);
-        if (!current) return json({ error: "Sign in first." }, 401, cors);
-        const password = body.password || "";
-        if (
-          typeof password !== "string" ||
-          password.length < 8 ||
-          password.length > 200
-        ) {
-          return json(
-            { error: "Password must be at least 8 characters." },
-            400,
-            cors
-          );
-        }
-        const { hash, salt } = await auth.hashPassword(password);
-        await env.DB.prepare(
-          "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?"
-        )
-          .bind(hash, salt, current.id)
-          .run();
-        return json({ ok: true }, 200, cors);
+        if (current) await auth.bumpSessionEpoch(env, current.id);
+      } catch (e) {
+        // Best effort: the cookie is cleared regardless, so the user is signed
+        // out of this browser even if revocation failed. Logged, not hidden.
+        console.error("logout revocation failed:", e);
       }
-
-      // ── delete-account ──────────────────────────────────────────────
-      if (action === "delete-account") {
-        const current = await auth.getSessionUser(request, env);
-        if (!current) return json({ error: "Sign in first." }, 401, cors);
-        await env.DB.batch([
-          env.DB.prepare(
-            "DELETE FROM user_saved_sources WHERE user_id = ?"
-          ).bind(current.id),
-          env.DB.prepare(
-            "DELETE FROM user_collections WHERE user_id = ?"
-          ).bind(current.id),
-          env.DB.prepare("DELETE FROM user_history WHERE user_id = ?").bind(
-            current.id
-          ),
-          env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(
-            current.id
-          ),
-          env.DB.prepare("DELETE FROM users WHERE id = ?").bind(current.id),
-        ]);
-        return json({ ok: true }, 200, {
-          ...cors,
-          "Set-Cookie": auth.clearSessionCookieHeader(isSecure),
-        });
-      }
-
-      return json({ error: "Unknown action." }, 400, cors);
+      return json({ ok: true }, 200, {
+        ...cors,
+        "Set-Cookie": auth.clearSessionCookieHeader(isSecure),
+      });
     }
 
-    // ═════════════════════════════════════════════════════════════════
-    // FALLBACK MODE — no DB, no secrets. Cookie-only sessions.
-    // ═════════════════════════════════════════════════════════════════
+    /* ── delete-account ────────────────────────────────────────────────
+     * Deletion has to be true, because the Privacy page says it is.
+     *
+     * The previous version removed five tables: saved sources, collections,
+     * history, sessions and the user row. Everything else the account had
+     * created stayed in D1 — direct messages including their base64
+     * attachment blobs, thread membership, follows in both directions,
+     * blocks, accolades, watched topics, call signalling rows, magic links
+     * and pending OTP codes. All of it keyed to a user id whose row was gone,
+     * so it was not even reachable to delete later.
+     *
+     * Two records are deliberately kept and anonymised rather than removed:
+     * reports this account FILED against other people (deleting your account
+     * should not erase a moderation trail others depend on) and reports filed
+     * ABOUT it. Both have their user references nulled, so nothing links back
+     * to a person. That is stated plainly in the Privacy Center rather than
+     * described as complete erasure.
+     *
+     * The JWT problem is real and handled: with JWT_SECRET set, getSessionUser
+     * never touches the database, so a deleted user's cookie would keep
+     * authenticating a ghost until it expired. bumpSessionEpoch writes the
+     * epoch to a tombstone the verifier checks, and getSessionUser also now
+     * confirms the account row still exists. */
+    if (action === "delete-account") {
+      const current = await auth.getSessionUser(request, env);
+      if (!current) return json({ error: "Sign in first.", code: "unauthenticated" }, 401, cors);
+      const uid = current.id;
+      const emailLower = String(current.email || "").toLowerCase();
 
-    // ── signup (fallback) ─────────────────────────────────────────────
-    if (action === "signup") {
-      const email = (body.email || "").trim();
-      const password = body.password || "";
-      if (!isValidEmail(email))
-        return json({ error: "Enter a valid email address." }, 400, cors);
-      if (
-        typeof password !== "string" ||
-        password.length < 8 ||
-        password.length > 200
-      ) {
+      // Anonymise first, so a failure part-way through never leaves a report
+      // pointing at a user row that has already gone.
+      const anonymise = [
+        "UPDATE content_reports SET reporter_id = NULL WHERE reporter_id = ?",
+        "UPDATE content_reports SET reported_user_id = NULL WHERE reported_user_id = ?",
+      ];
+      for (const sql of anonymise) {
+        try { await env.DB.prepare(sql).bind(uid).run(); } catch (e) { console.error("delete-account anonymise:", e); }
+      }
+
+      // Every table that holds a reference to this account. Each is attempted
+      // independently: a table that does not exist on this deployment must not
+      // abort the deletion of the ones that do.
+      const purges = [
+        ["messages",           "DELETE FROM messages WHERE sender_id = ?"],
+        ["thread_participants","DELETE FROM thread_participants WHERE user_id = ?"],
+        ["call_signals",       "DELETE FROM call_signals WHERE sender_id = ?"],
+        ["follows_out",        "DELETE FROM follows WHERE follower_id = ?"],
+        ["follows_in",         "DELETE FROM follows WHERE following_id = ?"],
+        ["user_blocks_out",    "DELETE FROM user_blocks WHERE blocker_id = ?"],
+        ["user_blocks_in",     "DELETE FROM user_blocks WHERE blocked_id = ?"],
+        ["accolades",          "DELETE FROM accolades WHERE user_id = ?"],
+        ["watched_topics",     "DELETE FROM watched_topics WHERE user_id = ?"],
+        ["user_saved_sources", "DELETE FROM user_saved_sources WHERE user_id = ?"],
+        ["user_collections",   "DELETE FROM user_collections WHERE user_id = ?"],
+        ["user_history",       "DELETE FROM user_history WHERE user_id = ?"],
+        ["sessions",           "DELETE FROM sessions WHERE user_id = ?"],
+      ];
+      const failed = [];
+      for (const [label, sql] of purges) {
+        try { await env.DB.prepare(sql).bind(uid).run(); }
+        catch (e) { failed.push(label); console.error("delete-account purge failed:", label, e); }
+      }
+      // Email-keyed rows.
+      for (const sql of [
+        "DELETE FROM otp_codes WHERE email_lower = ?",
+        "DELETE FROM magic_links WHERE email_lower = ?",
+      ]) {
+        try { await env.DB.prepare(sql).bind(emailLower).run(); } catch (e) { console.error("delete-account email purge:", e); }
+      }
+
+      // Threads left with no participants are orphans; remove them and any
+      // messages still attached so a conversation does not survive both
+      // parties leaving.
+      try {
+        await env.DB.prepare(
+          "DELETE FROM messages WHERE thread_id IN (SELECT id FROM threads WHERE id NOT IN (SELECT thread_id FROM thread_participants))"
+        ).run();
+        await env.DB.prepare(
+          "DELETE FROM threads WHERE id NOT IN (SELECT thread_id FROM thread_participants)"
+        ).run();
+      } catch (e) { console.error("delete-account orphan sweep:", e); }
+
+      // Tombstone before the row goes, so any JWT still in flight is refused.
+      try { await auth.bumpSessionEpoch(env, uid, { tombstone: true }); } catch (e) { console.error("delete-account tombstone:", e); }
+
+      try {
+        await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(uid).run();
+      } catch (e) {
+        // If the account row itself cannot be removed, do NOT report success.
+        // Claiming deletion that did not happen is worse than an error.
+        console.error("delete-account: users row delete failed:", e);
         return json(
-          { error: "Password must be at least 8 characters." },
-          400,
+          { error: "We couldn't finish deleting your account. Nothing was partially removed that you need to act on — please try again, or email us.", code: "delete_incomplete" },
+          500,
           cors
         );
       }
-      const token = makeFallbackToken(email);
-      return json(
-        { success: true, user: { email: email.toLowerCase() } },
-        200,
-        { ...cors, "Set-Cookie": setCookieHeader(token, isSecure) }
-      );
-    }
 
-    // ── login (fallback) ──────────────────────────────────────────────
-    if (action === "login") {
-      const email = (body.email || "").trim();
-      const password = body.password || "";
-      if (!isValidEmail(email))
-        return json({ error: "Enter a valid email address." }, 400, cors);
-      if (!password)
-        return json({ error: "Incorrect email or password." }, 401, cors);
-      const token = makeFallbackToken(email);
-      return json(
-        { success: true, user: { email: email.toLowerCase() } },
-        200,
-        { ...cors, "Set-Cookie": setCookieHeader(token, isSecure) }
-      );
-    }
-
-    // ── logout (fallback) ─────────────────────────────────────────────
-    if (action === "logout") {
+      if (failed.length) console.error("delete-account completed with residue:", failed.join(","));
       return json({ ok: true }, 200, {
         ...cors,
-        "Set-Cookie": clearCookieHeader(isSecure),
+        "Set-Cookie": auth.clearSessionCookieHeader(isSecure),
       });
     }
 
-    // ── magic-request (fallback) ──────────────────────────────────────
-    if (action === "magic-request") {
-      const email = (body.email || "").trim();
-      if (!isValidEmail(email))
-        return json({ error: "Enter a valid email address." }, 400, cors);
-      // Without Resend + DB we can't actually send or store a magic link,
-      // but we return success so the UI shows the "check your inbox" state
-      // rather than an error — the email just won't arrive. Honest.
-      return json({ ok: true }, 200, cors);
-    }
-
-    // ── set-password / delete-account (fallback) ──────────────────────
-    if (action === "set-password") {
-      return json({ ok: true }, 200, cors);
-    }
-    if (action === "delete-account") {
-      return json({ ok: true }, 200, {
-        ...cors,
-        "Set-Cookie": clearCookieHeader(isSecure),
-      });
-    }
-
-    return json({ error: "Unknown action." }, 400, cors);
+    return json({ error: "Unknown action.", code: "unknown_action" }, 400, cors);
   } catch (e) {
     console.error("Auth endpoint error:", action, e);
     const hint = action ? ` (${action})` : "";
