@@ -23,7 +23,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalContent.js";
-import { staticFieldCss } from "./cerebrumField.js";
+import { staticFieldCss, createField } from "./cerebrumField.js";
 import { createPortal } from "react-dom";
 import gsap from "gsap";
 
@@ -838,7 +838,7 @@ try { gsap.ticker.lagSmoothing(0); } catch {}
 
 function cbMotionOff() {
   try {
-    if (getCookie("cb_anim2") === "off") return true;
+    if (getCookie("cb_anim2") === "off" || window.matchMedia("(max-width: 899px)").matches) return true;
   } catch {}
   try {
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -998,7 +998,7 @@ function Reveal({ children, deps = [], y, stagger, duration, delay, descend, sty
 // useCallTone below.
 function cbBlip(freq, dur = 0.07, gain = 0.05) {
   try {
-    if (getCookie("cb_muted") === "1") return;
+    if (getCookie("cb_muted") !== "0") return;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const ctx = new AC();
@@ -1077,7 +1077,7 @@ function cbNotify(title, body, tag, kind) {
 function useCallTone(kind, active) {
   useEffect(() => {
     if (!active) return;
-    try { if (getCookie("cb_muted") === "1") return; } catch {}
+    try { if (getCookie("cb_muted") !== "0") return; } catch {}
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     let ctx;
@@ -1711,7 +1711,12 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
         <WatchList P={P} accent={accent} at={at} user={user} onAsk={onAsk}
           refreshKey={watchKey} deck onCount={setWatchCount} />
-        <DailyScience P={P} accent={accent} at={at} onAsk={onAsk} deck />
+        {!lastQ && <div style={{ gridColumn: "1 / -1", padding: "18px 0", borderTop: `1px solid ${P.line}` }}>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginBottom: 10 }}>Start with a question</div>
+          {["What limits the stability of perovskite solar cells?", "How do cells repair damaged DNA?", "How does ocean warming affect marine ecosystems?"].map(question => (
+            <button key={question} type="button" onClick={() => onAsk(question)} style={{ display: "block", width: "100%", textAlign: "left", padding: "12px 0", border: 0, background: "transparent", color: P.ink, font: "inherit", cursor: "pointer" }}>{question} <span aria-hidden="true" style={{ color: accent }}>↗</span></button>
+          ))}
+        </div>}
         {user && <details style={{ gridColumn: "1 / -1", color: P.ink2, fontSize: FONT_SIZES.small }}><summary style={{ cursor: "pointer", padding: "12px 0", minHeight: 44 }}>Research milestones</summary><MilestoneCard P={P} accent={accent} at={at} user={user} refreshKey={watchKey} /></details>}
       </div>
       {/* Stats strip — four real counts. Rendered only for signed-in users
@@ -2151,7 +2156,7 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
         <div style={{ position: "absolute", left: 15, right: 15, bottom: 12, display: imgOk ? "flex" : "none", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{
             padding: "3px 9px", borderRadius: 100, background: "rgba(255,255,255,0.16)",
-            backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+            backdropFilter: "none", WebkitBackdropFilter: "none",
             color: "#fff", fontSize: FONT_SIZES.micro, fontWeight: 600,
           }}>Today in science</span>
           {item.category && (
@@ -2658,7 +2663,6 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
           background: isActive
             ? withAlpha(accent, 0.22)
             : hoverCite === n ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.07)") : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
-          color: isActive ? P.ink : P.ink,
           border: "1px solid " + (isActive ? withAlpha(accent, 0.65) : P.line),
           boxShadow: isActive ? `0 0 0 3px ${withAlpha(accent, 0.14)}` : "none",
           transition: `background ${MOTION.feedback}s ${MOTION.ease}, border-color ${MOTION.feedback}s ${MOTION.ease}, box-shadow ${MOTION.feedback}s ${MOTION.ease}`,
@@ -2858,7 +2862,7 @@ function Skeleton({ P, accent }) {
   return (
     <div style={{
       background: P.dark ? withAlpha(P.surface, 0.85) : "rgba(255,255,255,0.7)",
-      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      backdropFilter: "none", WebkitBackdropFilter: "none",
       border: `1px solid ${P.line}`,
       borderRadius: 8, padding: "32px 34px",
       display: "flex", flexDirection: "column", gap: 14,
@@ -3279,7 +3283,6 @@ function CerebrumFieldCanvas({
 
     (async () => {
       try {
-        const { createField } = await import("./cerebrumField.js");
         if (disposed || !canvasRef.current) return;
         handle = await createField(canvasRef.current, {
           accent, deep, mode, core, corePos, coreScale, light: isLight,
@@ -3309,7 +3312,7 @@ function CerebrumFieldCanvas({
 
   const fallbackStyle = {
     position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-    background: staticFieldCss(accent, deep),
+    background: staticFieldCss(accent, deep, { core: mode === "arrival" }),
   };
 
   // Animation off, or WebGL unavailable: the same palette and roughly the
@@ -3328,7 +3331,7 @@ function CerebrumFieldCanvas({
         zIndex: 0, pointerEvents: "none", display: "block",
         // Painted underneath while the shader module loads, so there is never
         // a black rectangle between first paint and first frame.
-        background: staticFieldCss(accent, deep),
+        background: staticFieldCss(accent, deep, { core: mode === "arrival" }),
       }}
     />
   );
@@ -3475,7 +3478,7 @@ function SelectionAsk({ onAsk, P, accent, containerRef }) {
         color: P.ink, whiteSpace: "nowrap",
         background: P.dark ? "rgba(20,24,22,0.94)" : "rgba(255,255,255,0.96)",
         border: `1px solid ${withAlpha(accent, 0.45)}`,
-        backdropFilter: "blur(14px) saturate(1.3)", WebkitBackdropFilter: "blur(14px) saturate(1.3)",
+        backdropFilter: "none", WebkitBackdropFilter: "none",
         boxShadow: P.dark ? "0 8px 26px rgba(0,0,0,0.55)" : "0 8px 26px rgba(0,0,0,0.16)",
       }}
     >
@@ -3769,7 +3772,7 @@ function InfoPage({ page }) {
   // v29: default flipped to "cinematic" alongside App()'s own default — see
   // the comment on App's animationMode state for why "off" was the actual
   // reason the WebGL background never appeared for new visitors.
-  const animationMode = (() => { try { return getCookie("cb_anim2") || "cinematic"; } catch { return "cinematic"; } })();
+  const animationMode = (() => { try { return getCookie("cb_anim2") || (window.matchMedia("(max-width: 899px), (prefers-reduced-motion: reduce)").matches ? "off" : "cinematic"); } catch { return "cinematic"; } })();
   const goHome = () => { window.location.href = "/"; };
   const PAGES = LEGAL_PAGES;
   const data = PAGES[page]; if (!data) return null;
@@ -3835,7 +3838,7 @@ function InfoPage({ page }) {
             `willChange: "transform"` compositor hint this used to also carry
             was removed (v25) to match the same edit in makeStyles' `header`
             — see that comment for the full reasoning. */}
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}` }} />
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: withAlpha(P.bg, 0.85), backdropFilter: "none", WebkitBackdropFilter: "none", borderBottom: `1px solid ${P.line}` }} />
         <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
@@ -3920,7 +3923,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   return (
-    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
+    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "none", WebkitBackdropFilter: "none" }} className="cb-fade">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap", paddingBottom: 16, borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 3, height: 18, background: accent, borderRadius: 8 }} />
@@ -4081,7 +4084,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
     <div onClick={onClose} role="dialog" aria-modal="true" aria-label="Report data issue" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 220, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
-        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        backdropFilter: "none", WebkitBackdropFilter: "none",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 8, maxWidth: 460, width: "100%", padding: "28px", outline: "none",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -4143,7 +4146,7 @@ const TOUR_STEPS = [
   {
     title: "Command Line",
     icon: "⌘",
-    text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel, PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more, then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
+    text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel, PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more, then synthesizes a fully cited answer from the retrieved evidence. AI synthesizes retrieved papers; open the citations to verify important claims.",
     hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to focus the search bar from anywhere.`,
   },
   {
@@ -4219,15 +4222,15 @@ function GuidedTour({ P, accent }) {
       position: "fixed", inset: 0, zIndex: 300,
       display: "flex", alignItems: "center", justifyContent: "center",
       background: "rgba(0, 0, 0, 0.6)",
-      backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+      backdropFilter: "none", WebkitBackdropFilter: "none",
       opacity: entering ? 0 : 1,
       transition: "opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
     }} onClick={(e) => { if (e.target === e.currentTarget) dismiss(); }}>
       <div style={{
         width: "min(480px, calc(100vw - 48px))",
         background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)",
-        backdropFilter: "blur(40px) saturate(150%)",
-        WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
         border: P.dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
         borderRadius: 16,
         boxShadow: P.dark
@@ -5389,7 +5392,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
         borderLeft: "1px solid " + P.line,
         boxShadow: "-8px 0 32px rgba(0,0,0,0.15)",
         zIndex: 51, display: "flex", flexDirection: "column",
-        backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+        backdropFilter: "none", WebkitBackdropFilter: "none",
       }}>
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid " + P.line, flexShrink: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -6087,7 +6090,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
     <div onClick={close} role="dialog" aria-modal="true" aria-label={item.title || "Article"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 217, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
-        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        backdropFilter: "none", WebkitBackdropFilter: "none",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
@@ -6820,7 +6823,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Sign in to Cerebrum" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", borderRadius: 8, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "none", WebkitBackdropFilter: "none", borderRadius: 8, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
         <div style={{ padding: "26px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>{step === "email" ? (intent === "signup" ? "Create your account" : "Sign in") : "Enter your code"}</div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
@@ -6970,7 +6973,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
         background: P.dark ? "rgba(18,19,24,0.96)" : "rgba(255,255,255,0.98)",
         border: `1px solid ${P.line2}`,
         boxShadow: "0 18px 60px rgba(0,0,0,0.4)",
-        backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        backdropFilter: "none", WebkitBackdropFilter: "none",
       }}
       className="cb-modal"
     >
@@ -7628,7 +7631,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         </div>
       ) : (<>
       {/* Top bar: who you're calling, reachable even before the call connects */}
-      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 100, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
+      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 100, background: "rgba(0,0,0,0.4)", backdropFilter: "none", WebkitBackdropFilter: "none" }}>
         <span style={{ width: 26, height: 26, borderRadius: "50%", background: withAlpha(accent, 0.35), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>{(name || "?")[0]?.toUpperCase()}</span>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
         {dataSaver && <span title="Data saver is on: video quality lowered" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="zap" size={11} />Saver</span>}
@@ -7638,7 +7641,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           so the rest of the app is usable mid-call (see the block comment
           above this component for the FaceTime/Messenger-style rationale). */}
       {status === "ready" && (
-        <button onClick={() => setMinimized(true)} aria-label="Minimize call" title="Minimize" style={{ position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
+        <button onClick={() => setMinimized(true)} aria-label="Minimize call" title="Minimize" style={{ position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.4)", backdropFilter: "none", WebkitBackdropFilter: "none", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
           <Icon name="minimize2" size={16} />
         </button>
       )}
@@ -7673,7 +7676,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           position: "absolute", bottom: isMobile ? 20 : 32, left: "50%", transform: "translateX(-50%)",
           display: "flex", alignItems: "center", gap: 14, padding: 10, borderRadius: 100,
           background: "rgba(28,28,32,0.55)",
-          backdropFilter: "blur(24px) saturate(180%)", WebkitBackdropFilter: "blur(24px) saturate(180%)",
+          backdropFilter: "none", WebkitBackdropFilter: "none",
           border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 14px 40px rgba(0,0,0,0.45)",
         }}>
           {controlBtn(micMuted, toggleMic, "mic", "micOff", micMuted ? "Unmute microphone" : "Mute microphone")}
@@ -7770,7 +7773,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
     <div onClick={onClose} role="dialog" aria-modal="true" aria-label={title} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 310, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
-        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        backdropFilter: "none", WebkitBackdropFilter: "none",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 8, maxWidth: 420, width: "100%", padding: "26px", outline: "none",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -9832,7 +9835,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
         width: "100%", maxHeight: "none", display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
       } : {
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
-        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        backdropFilter: "none", WebkitBackdropFilter: "none",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 12, maxWidth: 480, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
@@ -10608,7 +10611,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     }
   };
 
-  const paneBase = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
+  const paneBase = { flex: 1, minWidth: 0, minHeight: isMobile ? 320 : 0, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" };
   const inputBg = P.dark ? "rgba(255,255,255,0.03)" : "#fff";
   const dimBtnBg = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
@@ -10632,7 +10635,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     <div
       {...(asPage ? { role: "region", "aria-label": "Document Mode" } : { role: "dialog", "aria-modal": "true", "aria-label": "Document Mode" })}
       style={asPage
-        ? { display: "flex", flexDirection: "column", minHeight: 0, height: "calc(100dvh - 96px)", background: P.bg }
+        ? { display: "flex", flexDirection: "column", minHeight: 0, height: isMobile ? "auto" : "calc(100dvh - 96px)", background: P.bg }
         : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "14px 16px" : "16px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -10650,11 +10653,11 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
         <button onClick={close} aria-label="Close Document Mode" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="close" size={20} /></button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: isMobile ? "visible" : "hidden" }}>
         {/* LEFT PANE — the source, tabbed between pasting text directly and
             loading it from a file. Only one sub-view renders at a time now
             instead of stacking the dropzone above the textarea always. */}
-        <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
+        <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: "none", minHeight: isMobile ? 340 : 0, flex: isMobile ? "0 0 auto" : 1 }}>
           <div role="tablist" aria-label="Document source" style={{ display: "flex", gap: 4, marginBottom: 14, flexShrink: 0, background: dimBtnBg, borderRadius: 8, padding: 3 }}>
             {[["paste", "Paste text"], ["upload", "Upload a file"]].map(([key, label]) => (
               <button key={key} role="tab" aria-selected={leftTab === key} onClick={() => setLeftTab(key)}
@@ -11332,7 +11335,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const Section = ({ title, footer, children }) => (
     <div style={{ marginBottom: 22 }}>
       {title && <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, marginBottom: 8, paddingLeft: 2, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>{title}</div>}
-      <div style={{ background: bg, border: glassBorderS, borderRadius: 8, overflow: "hidden", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>{children}</div>
+      <div style={{ background: bg, border: glassBorderS, borderRadius: 8, overflow: "hidden", backdropFilter: "none", WebkitBackdropFilter: "none" }}>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, paddingLeft: 2, lineHeight: 1.5 }}>{footer}</div>}
     </div>
   );
@@ -12095,8 +12098,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none",
       borderBottom: glassBorder,
       background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85),
-      backdropFilter: "blur(14px) saturate(1.3)",
-      WebkitBackdropFilter: "blur(14px) saturate(1.3)",
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
     },
     headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
     // v36: headActions picked up a 7th button ("Find People") without any
@@ -12290,8 +12293,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     searchShell: {
       display: "flex", alignItems: "center", gap: 10,
       width: "100%", maxWidth: 700,
-      backdropFilter: "blur(16px)",
-      WebkitBackdropFilter: "blur(16px)",
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
       // This is the one control the entire product exists to serve, and it
       // was the least defined element on the page: an 8%-alpha border and a
       // single 32px shadow at 8% opacity, sitting on top of the animated
@@ -12432,8 +12435,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     answerCard: {
       position: "relative",
       background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
-      backdropFilter: "blur(40px) saturate(150%)",
-      WebkitBackdropFilter: "blur(40px) saturate(150%)",
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 8,
       padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
@@ -12455,9 +12458,9 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       borderRadius: 8, fontSize: FONT_SIZES.body, lineHeight: 1.6,
       border: `1px solid ${withAlpha(STATUS.bad, 0.2)}`,
       display: "flex", alignItems: "flex-start", gap: 12,
-      backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+      backdropFilter: "none", WebkitBackdropFilter: "none",
     },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)", backdropFilter: "none", WebkitBackdropFilter: "none", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-body)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
@@ -12493,8 +12496,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     panel: {
       position: "sticky", top: 24,
       background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
-      backdropFilter: "blur(40px) saturate(150%)",
-      WebkitBackdropFilter: "blur(40px) saturate(150%)",
+      backdropFilter: "none",
+      WebkitBackdropFilter: "none",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 8,
       padding: "20px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
@@ -12561,8 +12564,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     footDbs: { fontSize: FONT_SIZES.micro, letterSpacing: "0.01em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-body)" },
 
     /* ── Mobile sources FAB ── */
-    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 8, padding: "14px 20px", fontSize: FONT_SIZES.small, fontWeight: 600, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}, 0 2px 8px rgba(0,0,0,0.2)`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" },
-    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", zIndex: 25 },
+    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 8, padding: "14px 20px", fontSize: FONT_SIZES.small, fontWeight: 600, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}, 0 2px 8px rgba(0,0,0,0.2)`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8, backdropFilter: "none", WebkitBackdropFilter: "none" },
+    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "none", WebkitBackdropFilter: "none", zIndex: 25 },
 
     /* ── Command palette ── */
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh", zIndex: 50 },
@@ -12575,7 +12578,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
 
     /* ── Modals ── */
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
-    modal: { background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
+    modal: { background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)", backdropFilter: "none", WebkitBackdropFilter: "none", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
     modalTitle: { fontSize: FONT_SIZES.display, fontWeight: 400, color: P.ink, marginBottom: 24, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" },
     // v7.0 cleanup: setLabel/palRow/palCard/accentRow/accentDot/customDot
     // removed — leftovers from an older, untabbed Settings layout with an
@@ -12724,14 +12727,14 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
       ["new", "New investigation", "plus", null],
       ["search", "Search", "search", null],
     ] },
-    { label: "Explore", items: [
-      ["document", "Document Mode", "bookOpen", null],
-      ["trending", "Trending", "chart", null],
-    ] },
     { label: "Your work", items: [
       ["investigations", "Investigations", "history", history.length || null],
       ["library", "Library", "bookmark", saved.length || null],
       ...(user ? [["collections", "Collections", "folder", (collections && collections.length) || null]] : []),
+    ] },
+    { label: "Explore", items: [
+      ["document", "Document Mode", "bookOpen", null],
+      ["trending", "Trending", "chart", null],
     ] },
     ...(user ? [{ label: "People", items: [
       ["inbox", "Inbox", "mail", threads.filter((t) => t.unread).length || null],
@@ -12751,11 +12754,12 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   const navRevealRef = useGsapReveal([], { y: 8, stagger: 0.04, duration: 0.6, descend: false });
 
   const body = (
-    <nav ref={navRevealRef} aria-label="Main" style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}) }}>
+    <nav hidden={isMobile && !mobileOpen} ref={navRevealRef} aria-label="Main" style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), display: isMobile && !mobileOpen ? "none" : "flex" }}>
       <div style={S.sidebarBrand} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
         <Mark size={18} accent={accent} glow={P.dark} />
         <span style={{ fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-display)" }}>Cerebrum</span>
       </div>
+      {isMobile && <button type="button" onClick={onCloseMobile} style={{ ...S.sidebarItem, minHeight: 44 }} aria-label="Close menu">Close menu ×</button>}
       <div style={S.sidebarNav}>
         {NAV_GROUPS.map((group, gi) => (
           <React.Fragment key={group.label || `g${gi}`}>
@@ -12941,7 +12945,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
     <div role="dialog" aria-modal="true" aria-labelledby="cb-consent-title" style={{
       position: "fixed", inset: 0, zIndex: 9000,
       background: P.dark ? "rgba(0,0,0,0.86)" : "rgba(20,24,28,0.72)",
-      backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)",
+      backdropFilter: "none", WebkitBackdropFilter: "none",
       display: "flex", alignItems: "center", justifyContent: "center",
       padding: isMobile ? 16 : 28, overflowY: "auto",
     }}>
@@ -13301,6 +13305,10 @@ function App() {
     reader.readAsDataURL(file);
   }
   const [turns, setTurns] = useState([]);
+  const lastRequestRef = useRef(null);
+  const searchControllerRef = useRef(null);
+  const requestGenerationRef = useRef(0);
+  useEffect(() => () => { requestGenerationRef.current++; searchControllerRef.current?.abort(); }, []);
   const [pinnedSources, setPinnedSources] = useState([]);
   const [corrections, setCorrections] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -13360,9 +13368,9 @@ function App() {
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(true);
-  const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
+  const [muted, setMuted] = useState(() => getCookie("cb_muted") !== "0");
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
-  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
+  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") === "1");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
   // v6.6: this used to default every first-time visitor into "cinematic" —
   // a continuously-rendering CDN-loaded WebGL scene (Vanta.js/three.js, long
@@ -13391,7 +13399,7 @@ function App() {
   // field checks it independently), so this doesn't fight accessibility —
   // it only changes what people who haven't opted out of motion get by
   // default. Respects an explicit stored preference either way.
-  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim2") || "cinematic");
+  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim2") || (window.matchMedia("(max-width: 899px), (prefers-reduced-motion: reduce)").matches ? "off" : "cinematic"));
   // v5: this used to swap the chip row's content out from under the user
   // every 8s unconditionally — a real interaction hazard, not just a CSS
   // animation, since a keyboard user who tabs to a chip and takes >8s to
@@ -13515,7 +13523,7 @@ function App() {
   // persist anything — genuinely just for whoever finds it.
   const dpEggRef = useRef({ longPressed: false, timer: null });
   const threadRef = useRef(null);
-  const mutedRef = useRef(false);
+  const mutedRef = useRef(muted);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
   const P = PALETTES[paletteName] || PALETTES.Sage;
@@ -13570,8 +13578,13 @@ function App() {
     // the app. See readStreak/bumpStreak for why that distinction matters.
     try { bumpStreak(); } catch {}
     const question = (q ?? input).trim();
-    const imageToSend = attachedImage;
-    if ((!question && !imageToSend) || busy) return;
+    const imageToSend = opts.image ?? attachedImage;
+    if ((!question && !imageToSend) || busy || searchControllerRef.current) return;
+    const generation = ++requestGenerationRef.current;
+    const controller = new AbortController();
+    searchControllerRef.current = controller;
+    lastRequestRef.current = { question, image: imageToSend };
+    const timeout = setTimeout(() => controller.abort(), 120000);
     // Commit 85 — auto-read is for an answer the reader just asked for, not
     // for one restored from history. Reopening a saved investigation was
     // enough to start narrating its last answer at you, unprompted, which
@@ -13579,18 +13592,20 @@ function App() {
     // now requires an ask in THIS session.
     setAskedThisSession(true);
     if (!mutedRef.current) Audio.click();
-    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    setInput(question); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
       const videosPromise = imageToSend ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections }) });
+      const res = await fetch("/api/search", { signal: controller.signal, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections }) });
+      if (generation !== requestGenerationRef.current) return;
       if (!res.ok) {
         let errData = {};
         try { errData = await res.json(); } catch {}
-        setError(errData.error || "Something went sideways. Try that again?"); setBusy(false); return;
+        if (generation !== requestGenerationRef.current) return;
+        setError(errData.error || `Search is temporarily unavailable (HTTP ${res.status}). Your question is saved below.`); setBusy(false); return;
       }
       // Stream response body via ReadableStream — reads chunks as they arrive.
       // Currently the backend sends a single JSON payload; when it's upgraded
@@ -13604,10 +13619,14 @@ function App() {
         if (value) buf += decoder.decode(value, { stream: !done });
         if (done) break;
       }
+      if (generation !== requestGenerationRef.current) return;
       let data;
       try { data = JSON.parse(buf); }
       catch { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
+      if (generation !== requestGenerationRef.current) return;
+      if (!data.answer && !(Array.isArray(data.sources) && data.sources.length)) throw new Error("The server returned no answer or papers.");
+      setInput(""); setAttachedImage(null); setAttachedImageName("");
       const turnId = Date.now() + Math.random();
       const nt = { id: turnId, answerId: data.answerId || "", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
@@ -13617,9 +13636,16 @@ function App() {
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Audio.pop();
       videosPromise.then(({ videos }) => { if (videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
-    } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
-    finally { setBusy(false); }
-  }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
+    } catch (e) {
+      if (generation === requestGenerationRef.current) setError(e.name === "AbortError"
+        ? "The search took too long. Your question is saved; try again."
+        : "Search could not finish. Your question is saved; check your connection and try again.");
+    } finally {
+      clearTimeout(timeout);
+      if (searchControllerRef.current === controller) searchControllerRef.current = null;
+      if (generation === requestGenerationRef.current) setBusy(false);
+    }
+  }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter, askMode]);
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
 
@@ -13755,7 +13781,7 @@ function App() {
   // (the standard robust scroll-lock pattern) and restore that exact
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
-    const anyOverlayOpen = cmdOpen || howItWorksOpen || mobilePanel
+    const anyOverlayOpen = (isMobile && sidebarMobileOpen) || cmdOpen || howItWorksOpen || mobilePanel
       || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!evidenceTableSources || !!importPrompt || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
@@ -13776,7 +13802,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource]);
+  }, [isMobile, sidebarMobileOpen, cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -13941,6 +13967,7 @@ function App() {
     setSaved((prev) => prev.map((s) => sourceKey(s) === sourceKey(source) ? { ...s, collectionId } : s));
   }
   function newSession() {
+    requestGenerationRef.current++; searchControllerRef.current?.abort(); searchControllerRef.current = null; lastRequestRef.current = null; setBusy(false);
     if (!mutedRef.current) Audio.click();
     if (turns.length > 0) {
       const firstQ = turns[0]?.q || input || "Untitled investigation";
@@ -13952,6 +13979,7 @@ function App() {
     setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50);
   }
   function openHistoryItem(entry) {
+    requestGenerationRef.current++; searchControllerRef.current?.abort(); searchControllerRef.current = null; setBusy(false);
     sfx();
     setTurns(entry.turns || []);
     setAllSources(entry.allSources || []);
@@ -14130,7 +14158,7 @@ function App() {
     );
   }
 
-  const started = turns.length > 0 || busy;
+  const started = turns.length > 0 || busy || Boolean(error);
   const exportList = saved.length ? saved : allSources;
   const relColor = (r) => r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint;
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
@@ -14259,10 +14287,10 @@ function App() {
         core={started ? 0.34 : 0.85}
         corePos={started ? [0.72, 0.58] : (isMobile ? [0.35, 0.52] : [0.72, 0.48])}
         coreScale={started ? 0.42 : (isMobile ? 0.5 : 0.68)}
-        animationMode={animationMode}
+        animationMode="off"
       />
-      <div style={S.grain} />
-      <GuidedTour P={P} accent={accent} />
+      {/* No full-screen grain compositing layer. */}
+      {/* Guidance remains available through How it works; no blocking tour. */}
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {/* Back to top. Two mobile fixes: it sat at 10% white over the page,
           so the Home Deck's rows read straight through it (a watchlist
@@ -14271,7 +14299,7 @@ function App() {
           edge of a card is its quiet side. Opaque, shadowed, and on the
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
-      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? 80 : 24) /* clears the Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? 16 : 24, width: 38, height: 38, borderRadius: "50%", background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95), border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
+      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? 80 : 24) /* clears the Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? 16 : 24, width: 38, height: 38, borderRadius: "50%", background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95), border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "none", WebkitBackdropFilter: "none", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -14306,7 +14334,7 @@ function App() {
           title="Menu"
           style={{
             position: "fixed", top: 14, left: 14, zIndex: 21,
-            width: 38, height: 38, borderRadius: "50%",
+            width: 44, height: 44, borderRadius: "50%",
             display: "flex", alignItems: "center", justifyContent: "center",
             // Was 0.75/0.85 — translucent enough that the Home Deck's first
             // stat read straight through the button as it scrolled under.
@@ -14314,7 +14342,7 @@ function App() {
             // smudge.
             background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95),
             border: `1px solid ${P.line}`,
-            backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)",
+            backdropFilter: "none", WebkitBackdropFilter: "none",
             boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)",
             color: P.ink, cursor: "pointer",
           }}
@@ -14406,12 +14434,8 @@ function App() {
                 </div>
               ) : (
                 <>
-                  <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-                    <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
-                    <Mark size={44} accent={accent} glow={P.dark} />
-                  </div>
-                  <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
-                  <p style={S.heroSub}>Ask a real research question. Every claim traces to a paper you can open.</p>
+                  <h1 style={{ ...S.heroTitle, fontSize: isMobile ? 34 : 52, lineHeight: 1.1, letterSpacing: "-0.045em" }}>What are you investigating?</h1>
+                  <p style={S.heroSub}>Find the papers. Compare the evidence. Build your investigation.</p>
                 </>
               )}
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
@@ -14423,7 +14447,7 @@ function App() {
                 </div>
               )}
               <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 880 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey || !e.shiftKey)) { e.preventDefault(); ask(); } }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
@@ -14484,7 +14508,7 @@ function App() {
                   is what 6 named + 9 more already said. The count is right;
                   the note about it was not.) */}
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginBottom: 8, lineHeight: 1.5 }}>
-                Every question is sent to 15 public research databases at once. These are the largest:
+                Search across scholarly databases. Open the papers to check the evidence:
               </div>
               <div style={S.trustRow}>
                 {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
@@ -14496,8 +14520,8 @@ function App() {
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} done={false} /></div>)}
-                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
-                {turns.length > 0 && !busy && (<>
+                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { const retry = lastRequestRef.current; if (retry) ask(retry.question, { image: retry.image }); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
+                {!busy && (<>
                   {attachedImage && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
                       <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "cover" }} />
@@ -14519,7 +14543,7 @@ function App() {
                     ))}
                   </div>
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
-                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up: I remember the whole thread" />
+                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey || !e.shiftKey)) { e.preventDefault(); ask(); } }} placeholder="Follow up: I remember the whole thread" />
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
@@ -14927,8 +14951,8 @@ function App() {
           Background animation setting. Someone who turns effects off was
           still getting grain and a vignette over everything, which is not
           what "off" means. */}
-      {animationMode !== "off" && <div className="cb-grain" aria-hidden="true" />}
-      {animationMode !== "off" && <div className="cb-vignette" aria-hidden="true" />}
+      
+      
       <ToastHost P={P} accent={accent} />
       {/* Commit 69 — rendered last so it sits above every other layer, and
           unconditionally blocking: no query runs, no data loads into view,
@@ -14955,10 +14979,10 @@ const CSS = `
   /* Workspace headings and controls use the same sans-serif family.
      Long-form reading keeps Newsreader through --cb-read.
      Every family has an offline system fallback. */
-  --cb-display: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
-  --cb-read:    'Newsreader', Georgia, 'Times New Roman', serif;
-  --cb-body:    'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
-  --cb-mono:    'IBM Plex Mono', 'SF Mono', ui-monospace, monospace;
+  --cb-display: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --cb-read:    Georgia, 'Times New Roman', serif;
+  --cb-body:    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --cb-mono:    ui-monospace, 'SFMono-Regular', Consolas, monospace;
   --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
   --cb-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --cb-ease-out: cubic-bezier(0, 0, 0.2, 1);
@@ -14999,6 +15023,15 @@ button, input, select, textarea, optgroup { font-family: var(--cb-body); }
    own, which is exactly the kind of nested scrolling context this fix is
    trying to get rid of; \`clip\` suppresses the paint without doing that. */
 html, body { margin: 0; }
+button, a, input, textarea { touch-action: manipulation; }
+@media (max-width: 899px) {
+  input, textarea, select { font-size: 16px !important; }
+  button { min-height: 44px; }
+  [role="dialog"] { max-width: 100vw; overscroll-behavior: contain; }
+  .cb-page-enter, .cb-fade, .cb-answer-enter { animation: none !important; opacity: 1 !important; filter: none !important; }
+  table { display: block; max-width: 100%; overflow-x: auto; }
+}
+
 /* Commit 43: iOS/macOS Safari runs its own automatic text-inflation
    algorithm on top of every font-size this app already sets — it silently
    scales body text up or down (independent of pinch-zoom) based on column
