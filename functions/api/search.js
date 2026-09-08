@@ -49,11 +49,26 @@ function decodeInverted(inv) {
 // trailing punctuation stripped) only when no DOI is present.
 function paperDedupeKey(p) {
   const url = (p && p.url) || "";
+
+  /* Identifiers carried as fields, not only as URLs. Several fetchers set
+   * `doi`/`pmid`/`arxivId` directly and build a landing-page URL that does
+   * not contain the identifier at all (a publisher URL, an S2 corpus link).
+   * Parsing only `url` therefore fell through to the title for records that
+   * had an authoritative identifier sitting right there, and the same work
+   * from two APIs was deduped only if both happened to punctuate its title
+   * identically. Fields are checked first, then the URL. */
+  const doiField = String((p && (p.doi || p.DOI)) || "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+  if (/^10\.\d{4,9}\//.test(doiField)) {
+    return "doi:" + doiField.toLowerCase().replace(/\/+$/, "").trim();
+  }
   // DOI is the strongest unique identifier
   const doiMatch = url.match(/doi\.org\/(.+)$/i);
   if (doiMatch && doiMatch[1]) {
     return "doi:" + doiMatch[1].toLowerCase().replace(/\/+$/, "").trim();
   }
+  const pmidField = String((p && (p.pmid || p.PMID)) || "").trim();
+  if (/^\d{1,9}$/.test(pmidField)) return "pmid:" + pmidField;
   // PMID from PubMed/Europe PMC URLs is a strong secondary identifier
   const pmidMatch = url.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i) ||
                     url.match(/europepmc\.org\/article\/med\/(\d+)/i);
@@ -61,21 +76,43 @@ function paperDedupeKey(p) {
     return "pmid:" + pmidMatch[1];
   }
   // PMC IDs
-  const pmcMatch = url.match(/ncbi\.nlm\.nih\.gov\/pmc\/articles\/(PMC\d+)/i);
+  const pmcMatch = url.match(/ncbi\.nlm\.nih\.gov\/pmc\/articles\/(PMC\d+)/i) ||
+                   url.match(/europepmc\.org\/article\/pmc\/(PMC\d+)/i);
   if (pmcMatch && pmcMatch[1]) {
     return "pmc:" + pmcMatch[1].toLowerCase();
   }
-  // arXiv IDs
-  const arxivMatch = url.match(/arxiv\.org\/abs\/([\d.]+)/i);
-  if (arxivMatch && arxivMatch[1]) {
-    return "arxiv:" + arxivMatch[1];
+  /* arXiv. The previous pattern was /arxiv\.org\/abs\/([\d.]+)/ , which is
+   * wrong in three ways that each let one paper appear twice:
+   *   - it does not match /pdf/ links, which several sources return;
+   *   - it does not match the pre-2007 scheme (math/0211159, hep-th/9711200),
+   *     because of the slash and the letters;
+   *   - `[\d.]+` happily includes the version suffix, so 2401.12345v1 and
+   *     2401.12345v2 are two different keys for the same preprint.
+   * The version is stripped deliberately: v1 and v2 are revisions of one
+   * work, not two studies, and citing both under separate numbers is exactly
+   * the duplicate a reader notices. */
+  const arxivId = String((p && p.arxivId) || "").trim() ||
+    (url.match(/arxiv\.org\/(?:abs|pdf)\/([A-Za-z-]+(?:\.[A-Za-z]{2})?\/\d{7}|\d{4}\.\d{4,5})(v\d+)?/i) || [])[1] ||
+    (String((p && p.url) || "").match(/^arxiv:(\S+)$/i) || [])[1];
+  if (arxivId) {
+    return "arxiv:" + arxivId.toLowerCase().replace(/v\d+$/, "");
   }
-  // Normalized title fallback
+  /* Normalized title fallback.
+   *
+   * Only reached when no identifier exists anywhere. Subtitle and
+   * punctuation differences are normalised away, but nothing cleverer:
+   * fuzzy title matching would merge a preprint with a genuinely different
+   * study that shares an opening phrase, and silently dropping a distinct
+   * paper is worse than showing a near-duplicate. Preprint/journal versions
+   * are linked only when an identifier supports it, never by guesswork. */
   const title = ((p && p.title) || "")
     .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u2018\u2019\u201c\u201d]/g, "'")
+    .replace(/[^a-z0-9]+/g, " ")
     .trim()
-    .replace(/\s+/g, " ")
-    .replace(/[.\s]+$/, "");
+    .replace(/\s+/g, " ");
   return title ? "title:" + title : "";
 }
 
@@ -6550,6 +6587,37 @@ export async function onRequest(context) {
     // (versionedCacheKey(query)) and not follow-up-aware in any special
     // way — it's the identical key the existing read/write below already
     // use, just consulted sooner.
+    /* ONE privacy classification, consulted by every persistence and cache
+     * decision in this handler. Doing it once here rather than at each call
+     * site is the point: a sensitive-query rule scattered across six code
+     * paths is a rule that will be missed in the seventh.
+     *
+     * This declaration must stay ABOVE the early cache check below. It used
+     * to sit ~50 lines further down, next to the self-reasoning chain, which
+     * put `privacy.cacheable` inside its own temporal dead zone: with D1
+     * bound, `env.DB && privacy.cacheable` threw ReferenceError before the
+     * `const` was evaluated, and every database-backed search failed. The
+     * `if (env.DB && ...)` guard is why it looked like an intermittent bug
+     * rather than a total outage — a deployment without D1 short-circuited
+     * on the first operand and never touched `privacy`.
+     *
+     * An image or prior conversation turns downgrade the classification to
+     * private regardless of what the current question looks like. The
+     * classifier only sees `query`; a follow-up reading "what about the
+     * second one?" is unremarkable on its own and can carry the sensitive
+     * context of the turn before it, and an uploaded image is content the
+     * classifier cannot inspect at all. Neither may reach a shared cache or
+     * shared learning tables. */
+    const hasPriorTurns = Array.isArray(body.history) && body.history.length > 0;
+    const basePrivacy = classifyQuery(query);
+    const privacy = (hasImage || hasPriorTurns)
+      ? {
+          persist: false,
+          cacheable: false,
+          reason: hasImage ? "attached-image" : "conversation-context",
+        }
+      : basePrivacy;
+
     /* A sensitive question never touches the shared cache — not to read from
      * it and not to write to it. Reading looks harmless, but a cache HIT is
      * observable in response time, which turns the cache into an oracle for
@@ -6599,12 +6667,9 @@ export async function onRequest(context) {
     ).catch(() => null);
 
     // 2. Self-Reasoning Chain — decomposes complex queries
-    /* One classification, consulted by every persistence and cache decision
-     * below. Doing it here rather than at each call site is the point: a
-     * sensitive-query rule scattered across six code paths is a rule that
-     * will be missed in the seventh. */
-    const privacy = classifyQuery(query);
-
+    /* `privacy` is declared above, before the early cache check that is its
+     * first consumer. It used to be declared here, which put its first use
+     * inside its own temporal dead zone — see the note at the declaration. */
     const reasoningPromise = selfReason(
       query, body.history || [], env.OPENROUTER_KEY
     ).catch(() => null);
@@ -6614,8 +6679,15 @@ export async function onRequest(context) {
 
     // 4. Check D1 for previously successful query resolutions
     // Keyed hash, not the query text. See lib/queryPrivacy.js.
-    const queryKey = await derivedCacheKey(query, env, "qi1");
-    const cachedIntelligence = await checkQueryIntelligence(queryKey, env.DB).catch(() => null);
+    /* Gated on `privacy.persist`, the same flag that governs writing to this
+     * table. Reading is not neutral: query_intelligence rows are shared across
+     * users, so a hit tells the request something about what other people have
+     * asked, and the write side must not be the only place the rule is
+     * applied. A private question resolves from scratch. */
+    const queryKey = privacy.persist ? await derivedCacheKey(query, env, "qi1") : null;
+    const cachedIntelligence = queryKey
+      ? await checkQueryIntelligence(queryKey, env.DB).catch(() => null)
+      : null;
 
     // Pronoun / continuation follow-up detection: "he has papers from...",
     // "she also wrote...", "does he work on...", "what about her research".
