@@ -1,0 +1,7 @@
+/* Cerebrum: fast native typography, no font downloads required. */
+:root {
+  --cb-display: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cb-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cb-read: Georgia, "Times New Roman", serif;
+  --cb-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
