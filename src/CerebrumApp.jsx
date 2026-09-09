@@ -1470,10 +1470,15 @@ function useCountUp(target, ms = 900) {
 function DeckStat({ label, shortLabel, value, accent, P, isMobile, suffix = "" }) {
   const n = useCountUp(value);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+      {/* Tabular figures, so a column of counts lines up instead of
+          jittering as it counts. A zero is set at the same size but in the
+          faint ink: it is still information, it is just not news. */}
       <span style={{
-        fontSize: FONT_SIZES.subhead, fontWeight: 700, color: value > 0 ? P.ink : P.faint,
-        fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
+        fontSize: isMobile ? 24 : 29, fontWeight: 600,
+        color: value > 0 ? P.ink : withAlpha(P.faint, 0.55),
+        fontFamily: "var(--cb-display)", letterSpacing: "-0.035em", lineHeight: 1.05,
+        fontVariantNumeric: "tabular-nums",
       }}>{n}{suffix}</span>
       {/* Commit 71 — was uppercase mono with wide tracking, matching the
           four shouted card eyebrows above it. Sentence case in the body
@@ -1481,7 +1486,7 @@ function DeckStat({ label, shortLabel, value, accent, P, isMobile, suffix = "" }
           competing with it for attention just makes the row noisy. */}
       <span style={{
         fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)",
-        letterSpacing: "0.01em", lineHeight: 1.35, fontWeight: 500,
+        letterSpacing: "0.005em", lineHeight: 1.35, fontWeight: 450,
       }}>{isMobile ? (shortLabel || label) : label}</span>
     </div>
   );
@@ -1545,12 +1550,31 @@ function MilestoneCard({ P, accent, at, user, refreshKey }) {
       labelExtra={<span style={{ fontFamily: "var(--cb-mono)" }}>{data.earnedCount} of {data.total}</span>}>
       {next ? (
         <>
-          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 2 }}>{next.label}</div>
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 11, lineHeight: 1.5 }}>{next.desc}</div>
-          <div style={{ height: 6, borderRadius: RADIUS.pill, background: P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", overflow: "hidden", marginBottom: 7 }}>
-            <div style={{ height: "100%", width: pct + "%", borderRadius: RADIUS.pill, background: accent, transition: "width 900ms cubic-bezier(0.16, 1, 0.3, 1)" }} />
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 3 }}>
+            <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, letterSpacing: "-0.01em" }}>{next.label}</span>
+            {/* The percentage was never shown, only implied by a 6px bar.
+                Saying it costs one span and turns a decorative stripe into
+                a reading. */}
+            <span style={{
+              marginLeft: "auto", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro,
+              color: accent, fontVariantNumeric: "tabular-nums", fontWeight: 600,
+            }}>{pct}%</span>
           </div>
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, fontFamily: "var(--cb-mono)" }}>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 13, lineHeight: 1.5 }}>{next.desc}</div>
+          <div style={{
+            height: 8, borderRadius: RADIUS.pill, marginBottom: 9, position: "relative",
+            background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
+            boxShadow: P.dark ? "inset 0 1px 2px rgba(0,0,0,0.35)" : "none",
+            overflow: "hidden",
+          }}>
+            <div className="cb-progress-fill" style={{
+              height: "100%", width: pct + "%", borderRadius: RADIUS.pill,
+              background: "linear-gradient(90deg, " + withAlpha(accent, 0.55) + ", " + accent + ")",
+              boxShadow: "0 0 14px " + withAlpha(accent, 0.45),
+              transition: "width 1100ms cubic-bezier(0.16, 1, 0.3, 1)",
+            }} />
+          </div>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, fontFamily: "var(--cb-mono)", fontVariantNumeric: "tabular-nums" }}>
             {next.have} of {next.need} {next.unit}{next.need === 1 ? "" : "s"}
           </div>
         </>
@@ -1559,13 +1583,14 @@ function MilestoneCard({ P, accent, at, user, refreshKey }) {
           Every milestone earned. That's a real research habit.
         </div>
       )}
-      <div style={{ paddingTop: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <div style={{ paddingTop: 16, display: "flex", gap: 6, flexWrap: "wrap" }}>
         {data.items.filter((i) => i.earned).slice(-6).map((i) => (
           <span key={i.key} title={`${i.label} — ${i.desc}`} style={{
             display: "inline-flex", alignItems: "center", gap: 5,
-            padding: "4px 9px", borderRadius: RADIUS.pill,
-            background: withAlpha(accent, 0.13), color: accent,
-            fontSize: FONT_SIZES.micro, fontWeight: 700, maxWidth: "100%", overflow: "hidden",
+            padding: "5px 11px", borderRadius: RADIUS.pill,
+            background: withAlpha(accent, 0.11), color: accent,
+            border: "1px solid " + withAlpha(accent, 0.22),
+            fontSize: FONT_SIZES.micro, fontWeight: 600, maxWidth: "100%", overflow: "hidden",
           }}>
             <Icon name="check" size={11} />
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.label}</span>
@@ -1576,7 +1601,7 @@ function MilestoneCard({ P, accent, at, user, refreshKey }) {
   );
 }
 
-function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile }) {
+function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", streakDays = 0 }) {
   const deckRef = useGsapReveal([user ? user.id : "anon", history.length, saved.length], {
     y: 14, stagger: 0.06, duration: 0.85, descend: false,
   });
@@ -1629,29 +1654,81 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
   const totalTurns = (history || []).reduce((n, h) => n + ((h.turns && h.turns.length) || 0), 0);
 
+  /* Does this deck have anything to say at all? A signed-out visitor, or a
+     signed-in one on their first minute, renders every card's own empty
+     guard and the deck collapses to nothing — but its margins do not, so
+     the screen was left with a ~140px hole between the mode row and the
+     footer. Spacing that only exists when there is something to space. */
+  const deckIsEmpty = !lastQ && !revisit && !(user && (totalTurns > 0 || (saved || []).length > 0));
+
   return (
     <div ref={deckRef} style={{
-      width: "100%", maxWidth: 880, textAlign: "left",
+      /* Same measure as the composer above it. They used to be 700 and
+         880: two column widths stacked on one screen, close enough that
+         the eye reads it as a mistake rather than a decision, which is
+         most of why this page felt loose. */
+      width: "100%", maxWidth: 820, textAlign: "left",
       // The mobile menu button is a fixed circle in the top-left corner. As
       // the deck scrolls up under it, it landed squarely on top of the
       // first stat's number — the value was unreadable behind the button.
       // Extra top margin on mobile keeps the strip clear of it at rest, and
       // the strip's own left padding keeps the first column out from under
       // the button while scrolling.
-      marginTop: isMobile ? 20 : 34,
-      display: "flex", flexDirection: "column", gap: 12,
+      /* A real gap, because this is where the screen changes subject:
+         above it is the instrument you type into, below it is your own
+         work. At 34px the two zones read as one long undifferentiated
+         column. */
+      marginTop: deckIsEmpty ? 0 : (isMobile ? 32 : 64),
+      display: "flex", flexDirection: "column", gap: 14,
     }}>
+      {/* The greeting, in its new home: left-aligned, at the size of a
+          section heading rather than a headline, introducing the block of
+          your own work that follows it. Same three facts as before — time
+          of day, the date, the streak — and none of them are pretending to
+          be the most important thing on the screen. */}
+      {!deckIsEmpty && (
+        <div style={{ order: 0, marginBottom: isMobile ? 4 : 8 }}>
+          <h2 style={{
+            margin: "0 0 4px", fontSize: isMobile ? 19 : 22, fontWeight: 600,
+            letterSpacing: "-0.025em", color: P.ink, fontFamily: "var(--cb-display)",
+          }}>
+            {greeting()}{greetingName ? <>, <span style={{ color: accent }}>{greetingName}</span></> : null}
+          </h2>
+          <p style={{
+            margin: 0, fontSize: FONT_SIZES.caption, color: P.faint,
+            fontFamily: "var(--cb-mono)", display: "flex", flexWrap: "wrap",
+            alignItems: "center", gap: 8,
+          }}>
+            <span>{todayLabel()}</span>
+            {streakDays > 0 && (
+              <>
+                <span aria-hidden="true" style={{ opacity: 0.4 }}>·</span>
+                <span style={{ color: P.ink2 }}>{streakDays}-day streak</span>
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
       {/* Stats strip — four real counts. Rendered only for signed-in users
           with something to count; a row of zeroes is a worse first
           impression than no row at all. */}
       {user && (totalTurns > 0 || saved.length > 0) && (
+        /* Ordered last and stripped of its card.
+           These four numbers were the first thing under the composer, in a
+           bordered panel, at the same visual weight as the work itself —
+           and three of them are usually zero. A count of what you have done
+           belongs after what you were doing, and it does not need a box to
+           be legible. `order` moves it without moving the markup, so the
+           reading order for a screen reader still follows the source. */
         <div className="cb-deck-stats" style={{
+          order: 2,
           display: "grid",
           gridTemplateColumns: isMobile ? "repeat(2, minmax(0,1fr))" : "repeat(4, minmax(0,1fr))",
           gap: isMobile ? "14px 12px" : 14,
-          padding: isMobile ? "15px 16px" : "13px 18px", borderRadius: 12,
-          background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
-          border: `1px solid ${P.line}`,
+          padding: isMobile ? "18px 4px 4px" : "22px 6px 2px",
+          marginTop: isMobile ? 6 : 12,
+          borderTop: `1px solid ${P.line}`,
         }}>
           <DeckStat label="Questions asked" shortLabel="Questions" value={totalTurns} P={P} accent={accent} isMobile={isMobile} />
           <DeckStat label="Papers saved" shortLabel="Saved" value={(saved || []).length} P={P} accent={accent} isMobile={isMobile} />
@@ -1672,7 +1749,8 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           the row bottoms are allowed to differ, which is what an edited
           page looks like. */}
       <div style={{
-        display: "grid", gap: 12, alignItems: "start",
+        order: 1,
+        display: "grid", gap: 14, alignItems: "start",
         gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(310px, 1fr))",
       }}>
         {/* Commit 71 — this is the lead, so it looks like the lead.
@@ -2133,7 +2211,7 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
           grew to ~400px tall and swallowed the card. A fixed height is
           deterministic at every card width. */}
       <div style={{ position: "relative", width: "100%", height: imgOk ? (deck ? 176 : 148) : 6, flex: "0 0 auto", overflow: "hidden", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", transition: "height 0.35s cubic-bezier(0.16,1,0.3,1)" }}>
-        <div style={{ position: "absolute", inset: 0, opacity: imgOk ? 1 : 0, transition: "opacity 0.5s ease" }}>
+        <div className="cb-deck-media" style={{ position: "absolute", inset: 0, opacity: imgOk ? 1 : 0, transition: "opacity 0.5s ease, transform 900ms cubic-bezier(0.16, 1, 0.3, 1)" }}>
           <CardMedia media={heroMedia} onReady={() => setImgOk(true)} onFail={() => setImgOk(false)} />
         </div>
         {/* Commit 80 — no more letter placeholders, anywhere.
@@ -12739,7 +12817,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        along with the rest of the terminal aesthetic. Fully rounded,
        minimal tags with a subtle border that gently lights up on hover;
        the label is now just the question, nothing prefixed onto it. */
-    chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 700 },
+    chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 820 },
     chip: {
       // Commit 46: was P.ink2 (secondary) at rest — explicit direction that
       // chips are one of the surfaces that must never render as dark grey
@@ -14788,29 +14866,14 @@ function App() {
                   block is kept for the first-time visitor, who genuinely
                   has not been introduced yet.
                   ══════════════════════════════════════════════════════ */}
-              {deckHasContent ? (
-                <div style={{ marginBottom: 26, position: "relative" }}>
-                  <h1 style={{
-                    fontSize: isMobile ? 30 : 40, fontWeight: 700, letterSpacing: "-0.03em",
-                    lineHeight: 1.1, color: P.ink, margin: "0 0 8px", fontFamily: "var(--cb-display)",
-                  }}>
-                    {greeting()}{firstName ? <>, <span style={{ color: accent }}>{firstName}</span></> : null}
-                  </h1>
-                  <p style={{
-                    fontSize: FONT_SIZES.small, color: P.faint, margin: 0,
-                    fontFamily: "var(--cb-body)", display: "flex", flexWrap: "wrap",
-                    alignItems: "center", gap: 10, letterSpacing: "-0.005em",
-                  }}>
-                    <span>{todayLabel()}</span>
-                    {streakDays > 0 && (
-                      <>
-                        <span aria-hidden="true" style={{ opacity: 0.4 }}>·</span>
-                        <span style={{ color: P.ink2 }}>{streakDays}-day streak</span>
-                      </>
-                    )}
-                  </p>
-                </div>
-              ) : (
+              {/* For someone with work in progress the centre of this screen
+                  is the composer and nothing else. The greeting, the date
+                  and the streak still exist — they moved down to head the
+                  deck, where they introduce your own work instead of
+                  competing with the one control you came here to use.
+                  A 40px "Good afternoon" directly above the search bar was
+                  taking the focal position and giving it to a salutation. */}
+              {deckHasContent ? null : (
                 <>
                   <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
                     <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
@@ -14828,7 +14891,7 @@ function App() {
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
               )}
-              <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+              <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
@@ -14840,7 +14903,7 @@ function App() {
               </div>
               {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
               <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 10, textAlign: "center", minHeight: 16 }}>
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 9, marginBottom: 2, textAlign: "center", minHeight: 15, lineHeight: 1.4 }}>
                 {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
               </div>
               {/* ══════════════════════════════════════════════════════
@@ -14874,6 +14937,7 @@ function App() {
                   cards that used to sit here. See HomeDeck. */}
               <HomeDeck
                 P={P} accent={accent} at={at} user={user} isMobile={isMobile}
+                greetingName={firstName} streakDays={streakDays}
                 history={history} saved={saved} sessions={sessions}
                 watchKey={watchKey}
                 onAsk={(q) => ask(q)}
@@ -14889,7 +14953,7 @@ function App() {
                   14 — `sourceNames` in functions/api/search.js lists 15, which
                   is what 6 named + 9 more already said. The count is right;
                   the note about it was not.) */}
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginBottom: 8, lineHeight: 1.5 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 40 : 72) : (isMobile ? 30 : 44), marginBottom: 10, lineHeight: 1.5 }}>
                 Every question is sent to 15 public research databases at once. These are the largest:
               </div>
               <div style={S.trustRow}>
@@ -16255,6 +16319,32 @@ button, a, .cb-tap {
   pointer-events: none;
 }
 .cb-deck-card:hover::before { transform: scaleX(1); }
+
+/* The photograph leans in when you hover its card. One transform on an
+   already-composited layer inside an overflow-hidden box, so it costs
+   nothing and it is the difference between a card that reacts and a
+   picture sitting in a rectangle. Deliberately small: 6% over 0.9s reads
+   as the card waking up, 20% over 0.2s reads as a slideshow. */
+.cb-deck-media { transform-origin: center; will-change: transform; }
+.cb-card:hover .cb-deck-media,
+.cb-deck-card:hover .cb-deck-media { transform: scale(1.06); }
+
+/* The progress fill gets a slow sheen that crosses it once on arrival —
+   it draws the eye to the one number on the deck that moves. */
+.cb-progress-fill { position: relative; overflow: hidden; }
+.cb-progress-fill::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.42) 50%, transparent 80%);
+  transform: translateX(-120%);
+  animation: cbSheen 2.6s cubic-bezier(0.16, 1, 0.3, 1) 0.9s 1 forwards;
+}
+@keyframes cbSheen { to { transform: translateX(220%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cb-deck-media, .cb-card:hover .cb-deck-media, .cb-deck-card:hover .cb-deck-media { transform: none !important; }
+  .cb-progress-fill::after { animation: none !important; }
+}
 
 /* The stats strip lifts as one object rather than per-number — the four
    counts are one reading, not four cards. */
