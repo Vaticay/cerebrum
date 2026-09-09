@@ -23,7 +23,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalContent.js";
-import { staticFieldCss, createField } from "./cerebrumField.js";
+import { staticFieldCss } from "./cerebrumField.js";
 import { createPortal } from "react-dom";
 import gsap from "gsap";
 
@@ -838,7 +838,7 @@ try { gsap.ticker.lagSmoothing(0); } catch {}
 
 function cbMotionOff() {
   try {
-    if (getCookie("cb_anim2") === "off" || window.matchMedia("(max-width: 899px)").matches) return true;
+    if (getCookie("cb_anim2") === "off") return true;
   } catch {}
   try {
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -998,7 +998,7 @@ function Reveal({ children, deps = [], y, stagger, duration, delay, descend, sty
 // useCallTone below.
 function cbBlip(freq, dur = 0.07, gain = 0.05) {
   try {
-    if (getCookie("cb_muted") !== "0") return;
+    if (getCookie("cb_muted") === "1") return;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const ctx = new AC();
@@ -1077,7 +1077,7 @@ function cbNotify(title, body, tag, kind) {
 function useCallTone(kind, active) {
   useEffect(() => {
     if (!active) return;
-    try { if (getCookie("cb_muted") !== "0") return; } catch {}
+    try { if (getCookie("cb_muted") === "1") return; } catch {}
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     let ctx;
@@ -1509,8 +1509,8 @@ function DeckLabel({ P, accent, children, extra }) {
 function DeckCard({ P, accent, label, children, className = "", labelExtra, span }) {
   return (
     <UICard P={P} className={"cb-deck-card " + className}
-      style={{ display: "flex", flexDirection: "column", textAlign: "left", background: "transparent", border: "none", borderTop: `1px solid ${P.line}`, borderRadius: 0, padding: "24px 0", ...(span ? { gridColumn: span } : null) }}>
-      {label && <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 16, color: P.ink2, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)" }}><span>{label}</span>{labelExtra}</div>}
+      style={{ display: "flex", flexDirection: "column", textAlign: "left", ...(span ? { gridColumn: span } : null) }}>
+      {label && <UILabel P={P} accent={accent} right={labelExtra}>{label}</UILabel>}
       {children}
     </UICard>
   );
@@ -1638,9 +1638,28 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
       // Extra top margin on mobile keeps the strip clear of it at rest, and
       // the strip's own left padding keeps the first column out from under
       // the button while scrolling.
-      marginTop: isMobile ? 32 : 56,
+      marginTop: isMobile ? 20 : 34,
       display: "flex", flexDirection: "column", gap: 12,
     }}>
+      {/* Stats strip — four real counts. Rendered only for signed-in users
+          with something to count; a row of zeroes is a worse first
+          impression than no row at all. */}
+      {user && (totalTurns > 0 || saved.length > 0) && (
+        <div className="cb-deck-stats" style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "repeat(2, minmax(0,1fr))" : "repeat(4, minmax(0,1fr))",
+          gap: isMobile ? "14px 12px" : 14,
+          padding: isMobile ? "15px 16px" : "13px 18px", borderRadius: 12,
+          background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
+          border: `1px solid ${P.line}`,
+        }}>
+          <DeckStat label="Questions asked" shortLabel="Questions" value={totalTurns} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Papers saved" shortLabel="Saved" value={(saved || []).length} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Topics watched" shortLabel="Watched" value={watchCount} P={P} accent={accent} isMobile={isMobile} />
+          <DeckStat label="Day streak" shortLabel="Streak" value={streak.days} P={P} accent={accent} isMobile={isMobile} />
+        </div>
+      )}
+
       {/* Commit 87 — alignItems: start.
 
           A CSS grid stretches every cell in a row to the height of the
@@ -1653,8 +1672,8 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           the row bottoms are allowed to differ, which is what an edited
           page looks like. */}
       <div style={{
-        display: "grid", gap: "8px 32px", alignItems: "start",
-        gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+        display: "grid", gap: 12, alignItems: "start",
+        gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(310px, 1fr))",
       }}>
         {/* Commit 71 — this is the lead, so it looks like the lead.
             It was one of four identical boxes in an even grid, with the
@@ -1669,14 +1688,14 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           <DeckCard P={P} accent={accent} label="Where you left off" span={isMobile ? undefined : "1 / -1"}>
             <div style={{
               fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
-              fontWeight: 500, color: P.ink, lineHeight: 1.4,
+              fontWeight: 600, color: P.ink, lineHeight: 1.28,
               letterSpacing: "-0.02em", fontFamily: "var(--cb-display)",
               marginBottom: 16, display: "-webkit-box", WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical", overflow: "hidden",
             }}>{lastQ}</div>
             <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Continue investigation</DeckBtn>
-              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>All investigations</DeckBtn>
+              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Keep going</DeckBtn>
+              <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>Everything else</DeckBtn>
             </div>
           </DeckCard>
         )}
@@ -1711,33 +1730,9 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
         <WatchList P={P} accent={accent} at={at} user={user} onAsk={onAsk}
           refreshKey={watchKey} deck onCount={setWatchCount} />
-        {!lastQ && <div style={{ gridColumn: "1 / -1", padding: "18px 0", borderTop: `1px solid ${P.line}` }}>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginBottom: 10 }}>Start with a question</div>
-          {["What limits the stability of perovskite solar cells?", "How do cells repair damaged DNA?", "How does ocean warming affect marine ecosystems?"].map(question => (
-            <button key={question} type="button" onClick={() => onAsk(question)} style={{ display: "block", width: "100%", textAlign: "left", padding: "12px 0", border: 0, background: "transparent", color: P.ink, font: "inherit", cursor: "pointer" }}>{question} <span aria-hidden="true" style={{ color: accent }}>↗</span></button>
-          ))}
-        </div>}
-        {user && <details style={{ gridColumn: "1 / -1", color: P.ink2, fontSize: FONT_SIZES.small }}><summary style={{ cursor: "pointer", padding: "12px 0", minHeight: 44 }}>Research milestones</summary><MilestoneCard P={P} accent={accent} at={at} user={user} refreshKey={watchKey} /></details>}
+        <MilestoneCard P={P} accent={accent} at={at} user={user} refreshKey={watchKey} />
+        <DailyScience P={P} accent={accent} at={at} onAsk={onAsk} deck />
       </div>
-      {/* Stats strip — four real counts. Rendered only for signed-in users
-          with something to count; a row of zeroes is a worse first
-          impression than no row at all. */}
-      {user && (totalTurns > 0 || saved.length > 0) && (
-        <div className="cb-deck-stats" style={{
-          display: "grid",
-          gridTemplateColumns: isMobile ? "repeat(2, minmax(0,1fr))" : "repeat(4, minmax(0,1fr))",
-          gap: isMobile ? "14px 12px" : 14,
-          padding: "20px 0", borderRadius: 0,
-          background: "transparent",
-          border: "none", borderTop: `1px solid ${P.line}`,
-        }}>
-          <DeckStat label="Questions asked" shortLabel="Questions" value={totalTurns} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Papers saved" shortLabel="Saved" value={(saved || []).length} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Topics watched" shortLabel="Watched" value={watchCount} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Day streak" shortLabel="Streak" value={streak.days} P={P} accent={accent} isMobile={isMobile} />
-        </div>
-      )}
-
     </div>
   );
 }
@@ -2054,12 +2049,12 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
             className="cb-press"
             style={{
               display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0,
-              padding: "10px 12px", borderRadius: 0, minHeight: 44, cursor: "pointer",
+              padding: "8px 14px", borderRadius: 100, cursor: "pointer",
               fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
               fontFamily: "var(--cb-body)", letterSpacing: "-0.005em",
-              background: "transparent",
+              background: on ? withAlpha(accent, 0.14) : "transparent",
               color: on ? P.ink : P.ink2,
-              border: "none", borderBottom: `2px solid ${on ? accent : "transparent"}`,
+              border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
               transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
             }}
           >
@@ -2156,7 +2151,7 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
         <div style={{ position: "absolute", left: 15, right: 15, bottom: 12, display: imgOk ? "flex" : "none", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{
             padding: "3px 9px", borderRadius: 100, background: "rgba(255,255,255,0.16)",
-            backdropFilter: "none", WebkitBackdropFilter: "none",
+            backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
             color: "#fff", fontSize: FONT_SIZES.micro, fontWeight: 600,
           }}>Today in science</span>
           {item.category && (
@@ -2862,7 +2857,7 @@ function Skeleton({ P, accent }) {
   return (
     <div style={{
       background: P.dark ? withAlpha(P.surface, 0.85) : "rgba(255,255,255,0.7)",
-      backdropFilter: "none", WebkitBackdropFilter: "none",
+      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       border: `1px solid ${P.line}`,
       borderRadius: 8, padding: "32px 34px",
       display: "flex", flexDirection: "column", gap: 14,
@@ -3002,31 +2997,354 @@ function AgentTrace({ P, accent, sourcesQueried = null, done = false }) {
 /* ════════════════════════════════════════════════════════════════
    INTRO background
    ════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════
+   THE FILM — Cerebrum's cinematic backdrop.
+
+   A shuffled reel of short, colour-graded science clips playing behind the
+   whole application, with the interface floating over it on smoked glass.
+
+   WHY IT IS BUILT THIS WAY
+
+   Two <video> elements, never more. One is on screen; the other is loading
+   the next clip and is what the cross-dissolve dissolves INTO. Mounting
+   fifteen video elements would mean fifteen decoders, and on a laptop that
+   is the difference between an ambient backdrop and a hot fan.
+
+   Nothing about this is load-bearing. The reel is decoration, so every
+   failure mode ends with the interface still perfectly usable:
+
+     - no clip decodes (a browser without H.264, an asset that 404s, a
+       corporate proxy stripping video) -> the graded ground underneath is
+       what shows, and it is painted whether or not a frame ever arrives.
+       The first version of this had a black hole behind the glass on any
+       browser without H.264, which is not a rare browser.
+     - one clip is broken -> it steps to the next rather than stalling on
+       a dead frame, and gives up only after the whole reel has failed.
+     - Save-Data, prefers-reduced-motion, a hidden tab, or the visitor
+       pressing pause -> it stops decoding entirely rather than burning
+       battery behind a tab nobody is looking at.
+
+   The grade (grayscale, contrast, brightness) is applied in CSS rather
+   than baked into the files, so one line changes the mood of every clip
+   and the same source footage can be re-used without re-encoding. */
+
+/* The reel. Files live in public/assets/cinematic/ and ship with the
+   static build; each should be a 10-15s loop, no audio track, no faces,
+   no on-screen text, with real movement in frame.
+
+   Order does not matter — the component shuffles per visit so two people
+   opening Cerebrum at the same moment do not see the same shot, and one
+   person does not open the same shot twice in a row. */
+/* The reel — twenty slots, one per line, each labelled with the subject it
+   is meant to hold. The label is the point: a bare list of twenty numbered
+   filenames tells whoever replaces one in six months nothing about what
+   belonged there, and the reel quietly drifts into five clips of glassware.
+
+   Cerebrum searches every field, so the backdrop should look like it. The
+   order here is only the order files are named; the component shuffles per
+   visit, so what matters is that the SET spans scale (micro to cosmic) and
+   colour (sage lab, red lava, blue deep-sea) rather than the sequence.
+
+   A slot with no file is skipped automatically — the component steps to the
+   next clip on error — so shipping twelve of these is fine and the missing
+   eight can arrive later without a code change. */
+/* The reel. Every line is labelled with what the clip ACTUALLY shows,
+   taken from the pack's own manifest — not with what was requested for
+   that slot. Those two drifted apart during sourcing: slot 15 was
+   specified as a genetic sequencer and is general laboratory sample work,
+   and slot 04 is sunlit leaves rather than a stomata macro. Labelling
+   footage with the science someone hoped it showed is how a backdrop ends
+   up quietly misdescribing itself, on a product whose whole argument is
+   that claims trace to real sources.
+
+   Three clips are CC BY 4.0 and one is NASA material, so attribution is a
+   licence condition, not a courtesy — see FILM_CREDITS below and the
+   credits dialog it feeds. Do not add a clip here without adding its row
+   there.
+
+   A slot whose file is missing is skipped automatically, so the reel
+   survives a partial upload. */
+const FILM_CLIPS = [
+  "/assets/cinematic/science-01.mp4", // Microorganisms under a microscope — turek
+  "/assets/cinematic/science-02.mp4", // Microscopic cells in motion — Rony Way
+  "/assets/cinematic/science-03.mp4", // Seedling growth timelapse — David Roberts
+  "/assets/cinematic/science-04.mp4", // Sunlit green leaves — Pexels contributor; see source page
+  /* science-05.mp4 (Forest canopy and sunbeams, Matthias Groeneveld) is
+     deliberately NOT in the reel. It is the one portrait clip in the pack
+     at 304x540, and `object-fit: cover` on a 1440-wide window scales it
+     4.7x by width — a soft, heavily cropped frame sitting between
+     nineteen sharp ones. The file ships anyway and is credited below, so
+     restoring it is uncommenting this line; a landscape re-crop of the
+     same source would fix it properly. */
+  // "/assets/cinematic/science-05.mp4",
+  "/assets/cinematic/science-06.mp4", // Perovskite crystal growth — Makhsud I. Saidaminov et al.
+  "/assets/cinematic/science-07.mp4", // Laboratory reaction — cottonbro studio
+  "/assets/cinematic/science-08.mp4", // Blue ink dispersing in water — MART PRODUCTION
+  "/assets/cinematic/science-09.mp4", // Splashing volcanic lava — Martin Sanchez
+  "/assets/cinematic/science-10.mp4", // Volcanic eruption at sunset — Gylfi Gylfason
+  "/assets/cinematic/science-11.mp4", // Greenland icebergs — Mikhail Nilov
+  "/assets/cinematic/science-12.mp4", // Jellyfish — Chris Munnik (2)
+  "/assets/cinematic/science-13.mp4", // Coral aquarium — Pexels contributor; see source page
+  "/assets/cinematic/science-14.mp4", // Neuronal image-volume reconstruction — Michael N Economo, Nathan G Clack and colleagues
+  "/assets/cinematic/science-15.mp4", // Laboratory sample work — Pexels contributor; see source page
+  "/assets/cinematic/science-16.mp4", // Plasma globe — Mathias De Rivo
+  "/assets/cinematic/science-17.mp4", // Industrial robot arm — Usman AbdulrasheedGambo
+  "/assets/cinematic/science-18.mp4", // Laser beams over Paranal — ESO/F. Kamphues
+  "/assets/cinematic/science-19.mp4", // Helix Nebula zoom — ESO
+  "/assets/cinematic/science-20.mp4", // Earth night lights rotating globe — NASA Scientific Visualization Studio; NASA Earth Observatory / NASA-NOAA Suomi NPP data
+];
+const FILM_POSTER = "/assets/cinematic/poster.webp";
+const FILM_HOLD_MS = 11000;
+
+/* Attribution for the reel.
+
+   Three of these clips are CC BY 4.0 and one is NASA material: showing
+   them without naming the creator is a licence breach, so this list and
+   the dialog that renders it are part of shipping the backdrop, not a
+   nice-to-have. The Pexels clips do not require attribution and are
+   credited anyway — the cost is one row each, and a credits page that
+   lists only the clips it is legally forced to list is a strange thing to
+   put in front of researchers. */
+const FILM_CREDITS = [
+  { n: "01", title: "Microorganisms under a microscope", credit: "turek", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/footage-of-microscopic-organisms-8739082/" },
+  { n: "02", title: "Microscopic cells in motion", credit: "Rony Way", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/microscopic-view-of-bacteria-or-cells-in-motion-38533119/" },
+  { n: "03", title: "Seedling growth timelapse", credit: "David Roberts", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/time-lapse-of-seedlings-8522207/" },
+  { n: "04", title: "Sunlit green leaves", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/sunlight-filtering-through-green-leaves-in-forest-32208331/" },
+  { n: "05", title: "Forest canopy and sunbeams", credit: "Matthias Groeneveld", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/sunlight-through-forest-canopy-in-summer-35172241/" },
+  { n: "06", title: "Perovskite crystal growth", credit: "Makhsud I. Saidaminov et al.", license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/", source: "https://commons.wikimedia.org/wiki/File:CH3NH3PbBr3_crystal_growth.webm" },
+  { n: "07", title: "Laboratory reaction", credit: "cottonbro studio", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/chemistry-laboratorio-6208946/" },
+  { n: "08", title: "Blue ink dispersing in water", credit: "MART PRODUCTION", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/blue-ink-in-water-7565814/" },
+  { n: "09", title: "Splashing volcanic lava", credit: "Martin Sanchez", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-view-of-splashing-lava-during-a-volcano-eruption-13456698/" },
+  { n: "10", title: "Volcanic eruption at sunset", credit: "Gylfi Gylfason", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/red-smoke-coming-from-volcanic-eruption-16128318/" },
+  { n: "11", title: "Greenland icebergs", credit: "Mikhail Nilov", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/drone-footage-of-glaciers-at-greenland-8318618/" },
+  { n: "12", title: "Jellyfish", credit: "Chris Munnik (2)", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-group-of-jellyfish-swimming-underwater-at-display-in-an-aquarium-3297378/" },
+  { n: "13", title: "Coral aquarium", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-fish-tank-with-coral-and-fish-9406677/" },
+  { n: "14", title: "Neuronal image-volume reconstruction", credit: "Michael N Economo, Nathan G Clack and colleagues", license: "CC0", licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/", source: "https://elifesciences.org/articles/10566#video1" },
+  { n: "15", title: "Laboratory sample work", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/scientists-working-in-a-lab-8852423/" },
+  { n: "16", title: "Plasma globe", credit: "Mathias De Rivo", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-footage-of-a-plasma-ball-6738879/" },
+  { n: "17", title: "Industrial robot arm", credit: "Usman AbdulrasheedGambo", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/industrial-robot-arm-in-high-tech-factory-32386532/" },
+  { n: "18", title: "Laser beams over Paranal", credit: "ESO/F. Kamphues", license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/", source: "https://www.eso.org/public/videos/fk_vlt_platform_laser02/" },
+  { n: "19", title: "Helix Nebula zoom", credit: "ESO", license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/", source: "https://www.eso.org/public/videos/eso0907a/" },
+  { n: "20", title: "Earth night lights rotating globe", credit: "NASA Scientific Visualization Studio; NASA Earth Observatory / NASA-NOAA Suomi NPP data", license: "NASA media-use guidelines", licenseUrl: "https://www.nasa.gov/nasa-brand-center/images-and-media/", source: "https://svs.gsfc.nasa.gov/30878/" },
+];
+
+/* What was done to the footage. Stated once, plainly, because "adapted"
+   with no detail is not an adaptation notice. */
+const FILM_MODIFICATIONS =
+  "Each clip is a silent excerpt of up to 15 seconds, resized to at most 1280 pixels wide, " +
+  "re-encoded as H.264 at 24 fps, and colour-graded in the browser at display time " +
+  "(desaturated, contrast raised, brightness reduced). No clip is re-timed or reversed, and " +
+  "no frames are composited between clips.";
+
+function FilmCreditsDialog({ onClose, accent }) {
+  const ref = useRef(null);
+
+  /* Escape closes, focus starts inside, and focus goes back where it came
+     from. A modal that traps nothing and returns nowhere is the most
+     common keyboard dead end in an app like this. */
+  useEffect(() => {
+    const prev = document.activeElement;
+    if (ref.current) ref.current.focus();
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (prev && prev.focus) prev.focus();
+    };
+  }, [onClose]);
+
+  const link = { color: accent, textDecoration: "none", borderBottom: "1px solid " + withAlpha(accent, 0.4) };
+
+  return (
+    <div
+      role="dialog" aria-modal="true" aria-label="Background film credits"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 400, display: "flex",
+        alignItems: "center", justifyContent: "center", padding: 20,
+        background: "rgba(6, 8, 10, 0.68)",
+        backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+      }}>
+      <div ref={ref} tabIndex={-1} style={{
+        width: "min(680px, 100%)", maxHeight: "82vh", overflowY: "auto", outline: "none",
+        background: "rgba(15, 17, 21, 0.88)",
+        backdropFilter: "blur(28px) saturate(120%)", WebkitBackdropFilter: "blur(28px) saturate(120%)",
+        border: "1px solid rgba(255,255,255,0.10)", borderRadius: 20,
+        boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
+        padding: "26px 26px 22px", color: "#f2f4f2", fontFamily: "var(--cb-body)",
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 6 }}>
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: "-0.02em", flex: 1 }}>
+            Background film credits
+          </h2>
+          <button onClick={onClose} aria-label="Close credits" style={{
+            border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
+            color: "rgba(242,244,242,0.72)", cursor: "pointer", borderRadius: 999,
+            padding: "6px 14px", fontSize: 12.5, fontFamily: "var(--cb-body)",
+          }}>Close</button>
+        </div>
+
+        <p style={{ margin: "0 0 18px", fontSize: 13, lineHeight: 1.6, color: "rgba(242,244,242,0.62)" }}>
+          {FILM_MODIFICATIONS}
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {FILM_CREDITS.map((c) => (
+            <div key={c.n} style={{
+              display: "grid", gridTemplateColumns: "26px 1fr", gap: 12,
+              padding: "11px 0", borderTop: "1px solid rgba(255,255,255,0.07)",
+            }}>
+              <span style={{
+                fontFamily: "var(--cb-mono)", fontSize: 11, color: withAlpha(accent, 0.9),
+                paddingTop: 2, fontVariantNumeric: "tabular-nums",
+              }}>{c.n}</span>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.4, marginBottom: 3 }}>{c.title}</div>
+                <div style={{ fontSize: 12, color: "rgba(242,244,242,0.62)", lineHeight: 1.55 }}>
+                  {c.credit}
+                  {" · "}
+                  <a href={c.source} target="_blank" rel="noopener noreferrer" style={link}>Source</a>
+                  {" · "}
+                  {c.licenseUrl
+                    ? <a href={c.licenseUrl} target="_blank" rel="noopener noreferrer" style={link}>{c.license}</a>
+                    : <span>{c.license}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ margin: "18px 0 0", fontSize: 12, lineHeight: 1.6, color: "rgba(242,244,242,0.46)" }}>
+          Clips are decorative. They are not data, not results, and not evidence of anything
+          Cerebrum reports.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* One answer to "may the reel run", shared by the component and by every
+   call site that needs to know whether to mount the still fallback
+   instead. Two copies of this rule is how a visitor who asked for reduced
+   motion ends up with both backdrops mounted at once. */
+function filmBlocked(animationMode, paused) {
+  if (paused || animationMode === "off") return true;
+  if (typeof navigator !== "undefined" && navigator.connection && navigator.connection.saveData) return true;
+  if (typeof window !== "undefined" && window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches) return true;
+  return false;
+}
+
+function CinematicFilm({ intensity = 1, animationMode = "off", paused = false }) {
+  const aRef = useRef(null);
+  const bRef = useRef(null);
+  const curRef = useRef(0);
+  const idxRef = useRef(0);
+  const missRef = useRef(0);
+  const timerRef = useRef(0);
+  const orderRef = useRef(null);
+  if (!orderRef.current) {
+    const o = FILM_CLIPS.slice();
+    for (let i = o.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = o[i]; o[i] = o[j]; o[j] = t;
+    }
+    orderRef.current = o;
+  }
+
+  /* One honest test for "should this be playing at all", consulted by the
+     effect below and by every event that can change the answer. A visitor
+     who asked for less motion, or whose phone is on a metered connection,
+     gets the still ground — the same contract every other animated surface
+     in this file follows. */
+  const blocked = filmBlocked(animationMode, paused);
+
+  useEffect(() => {
+    const els = [aRef.current, bRef.current];
+    if (!els[0] || !els[1]) return;
+
+    const stop = () => {
+      clearTimeout(timerRef.current);
+      for (const el of els) { try { el.pause(); } catch {} }
+    };
+
+    if (blocked) { stop(); return; }
+
+    const play = (el, src) => {
+      el.onerror = () => {
+        /* One unplayable clip must not take the backdrop down with it. */
+        if (++missRef.current < orderRef.current.length) {
+          idxRef.current = (idxRef.current + 1) % orderRef.current.length;
+          play(el, orderRef.current[idxRef.current]);
+        } else {
+          /* The whole reel failed — no codec, blocked assets, an offline
+             cache miss. Leave the poster frame visible rather than fading
+             to the bare ground: a still graded frame is a better backdrop
+             than a gradient, and it costs nothing once decoding has been
+             abandoned. */
+          stop();
+          el.style.opacity = "1";
+        }
+      };
+      if (el.getAttribute("src") !== src) { el.src = src; el.load(); }
+      const p = el.play();
+      if (p && p.catch) p.catch(() => {});
+    };
+
+    const cycle = () => {
+      const next = 1 - curRef.current;
+      idxRef.current = (idxRef.current + 1) % orderRef.current.length;
+      play(els[next], orderRef.current[idxRef.current]);
+      els[next].style.opacity = "1";
+      els[curRef.current].style.opacity = "0";
+      curRef.current = next;
+      timerRef.current = setTimeout(cycle, FILM_HOLD_MS);
+    };
+
+    play(els[curRef.current], orderRef.current[idxRef.current]);
+    els[curRef.current].style.opacity = "1";
+    timerRef.current = setTimeout(cycle, FILM_HOLD_MS);
+
+    const onVis = () => { if (document.hidden) stop(); else { const p = els[curRef.current].play(); if (p && p.catch) p.catch(() => {}); timerRef.current = setTimeout(cycle, FILM_HOLD_MS); } };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { document.removeEventListener("visibilitychange", onVis); stop(); };
+  }, [blocked]);
+
+  const vid = {
+    position: "absolute", top: "50%", left: "50%",
+    width: "100%", height: "100%", objectFit: "cover",
+    transform: "translate(-50%, -50%)",
+    opacity: 0, transition: "opacity 2.2s cubic-bezier(0.22, 1, 0.36, 1)",
+    filter: "grayscale(30%) contrast(115%) brightness(" + (0.6 * intensity).toFixed(2) + ")",
+    pointerEvents: "none",
+  };
+
+  return (
+    <div className="cb-film" aria-hidden="true">
+      <video ref={aRef} style={vid} className="cb-film-clip" muted loop playsInline preload="auto" poster={FILM_POSTER} />
+      <video ref={bRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={FILM_POSTER} />
+    </div>
+  );
+}
+
+
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const isMobile = useIsMobile();
+  const [seed, setSeed] = useState("");
+  const [creditsOpen, setCreditsOpen] = useState(false);
 
-  // This screen's surface is unconditionally black (see `background:
-  // "#000000"` below) — a fixed splash look, independent of whichever
-  // palette the visitor has chosen for the app itself. `accent` is NOT
-  // fixed, though: this app's only built-in accent scheme is real
-  // monochrome (white in dark mode, black in light mode — see App()'s own
-  // accent computation, and ACCENTS itself), so a visitor who last used the
-  // app in light mode arrives here with accent === black. Every
-  // accent-colored element on this permanently-black screen — both wordmark
-  // glyphs and the "We'll find the paper." line — would render invisible
-  // without this guard. A real luminance check rather than a literal
-  // string-match against "#000000" also catches a custom accent color a
-  // visitor picked in Settings that happens to be too dark to read here.
-  const introAccent = relLuminance(accent) < 0.15 ? "#5be8b0" : accent;
+  /* This screen is its own surface, independent of the palette the visitor
+     chose for the app: film, smoked glass, sage. `accent` still comes from
+     their settings, but a very dark custom accent would vanish against it,
+     so it is floored the same way it always has been. */
+  const introAccent = relLuminance(accent) < 0.15 ? "#A3B899" : accent;
 
-  // GSAP-driven reveal (replaces the old per-element CSS-transition
-  // fade/blur choreography): a real staggered timeline that fires once on
-  // mount, plus a matching reverse timeline on exit so leaving the intro
-  // feels like one continuous motion instead of a hard cut. `animationMode
-  // === "off"` skips both entirely — every ref'd element gets full opacity
-  // immediately via its own inline style below, same "opt out of motion
-  // gets a flat, static screen" contract every other animated surface in
-  // this file follows.
+  /* The same seven refs the entrance and exit timelines have always
+     animated. What each one POINTS AT changed with the layout — the two
+     head refs are now the two lines of a sans headline, `descRef` is the
+     search pill, `tagsRef` the suggestion chips — but the choreography is
+     untouched, so leaving the intro is still one continuous motion into
+     the app rather than a hard cut. */
   const navRef = useRef(null);
   const logoRef = useRef(null);
   const head1Ref = useRef(null);
@@ -3039,168 +3357,200 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   useEffect(() => {
     if (animationMode === "off") return;
     const tl = gsap.timeline();
-    tl.fromTo(navRef.current, { y: -15, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.33, ease: EASE }, 0)
-      .fromTo(logoRef.current, { scale: 0.4, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 1.33, ease: EASE }, 0)
-      .fromTo(head1Ref.current, { y: -25, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.66, ease: EASE }, 0.2)
-      .fromTo(head2Ref.current, { y: -25, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.66, ease: EASE }, 0.3)
-      .fromTo(descRef.current, { y: -15, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.33, ease: EASE }, 0.5)
-      .fromTo(tagsRef.current, { y: -10, autoAlpha: 0 }, { y: 0, autoAlpha: 0.85, duration: 1.33, ease: EASE }, 0.6)
-      .fromTo(btnsRef.current, { y: -10, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.33, ease: EASE }, 0.7);
+    tl.fromTo(navRef.current, { y: -15, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0)
+      .fromTo(logoRef.current, { scale: 0.6, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.05)
+      .fromTo(head1Ref.current, { y: 18, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.3, ease: EASE }, 0.15)
+      .fromTo(head2Ref.current, { y: 18, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.3, ease: EASE }, 0.24)
+      .fromTo(descRef.current, { y: 22, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.3, ease: EASE }, 0.36)
+      .fromTo(tagsRef.current, { y: 14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.5)
+      .fromTo(btnsRef.current, { y: 10, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.6);
     return () => tl.kill();
   }, [animationMode]);
 
-  const go = () => {
-    if (animationMode === "off") { onEnter(); return; }
-    const tl = gsap.timeline({ onComplete: onEnter });
-    tl.to(btnsRef.current, { y: 15, autoAlpha: 0, duration: 0.6, ease: EASE }, 0)
-      .to(tagsRef.current, { y: 15, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.05)
-      .to(descRef.current, { y: 20, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.1)
-      .to(head2Ref.current, { y: 25, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.2)
-      .to(head1Ref.current, { y: 25, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.25)
-      .to(logoRef.current, { scale: 0.8, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.3)
-      .to(navRef.current, { y: -15, autoAlpha: 0, duration: 0.6, ease: EASE }, 0.4);
+  const go = (q) => {
+    const payload = typeof q === "string" ? q : seed;
+    if (animationMode === "off") { onEnter(payload); return; }
+    const tl = gsap.timeline({ onComplete: () => onEnter(payload) });
+    tl.to(btnsRef.current, { y: 12, autoAlpha: 0, duration: 0.5, ease: EASE }, 0)
+      .to(tagsRef.current, { y: 12, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.04)
+      .to(descRef.current, { y: 16, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.08)
+      .to(head2Ref.current, { y: 18, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.14)
+      .to(head1Ref.current, { y: 18, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.18)
+      .to(logoRef.current, { scale: 0.85, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.22)
+      .to(navRef.current, { y: -12, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.28);
   };
 
-  // Commit 92 — "AI illustrations" was removed; the landing page should not
-// advertise a feature that no longer exists, and the replacement is a
-// better thing to advertise anyway.
-const FEATURE_TAGS = ["Cited answers", "Compare investigations", "Source network", "Literature timeline", "Evidence table"];
+  /* Openers, not fake activity. These are questions Cerebrum can actually
+     answer well, drawn from the same pool the command palette uses — NOT a
+     mocked-up "your recent searches" row, which would be inventing a
+     history for someone who has not searched yet. */
+  const OPENERS = [
+    "How do mRNA vaccines remain stable at room temperature?",
+    "What limits perovskite solar cell lifetime?",
+    "Is intermittent fasting supported by RCT evidence?",
+    "How do CRISPR off-target rates differ across tissues?",
+  ];
+
+  const hidden = animationMode === "off" ? 1 : 0;
+  const glassPanel = {
+    background: "rgba(15, 17, 21, 0.70)",
+    backdropFilter: "blur(24px) saturate(120%)",
+    WebkitBackdropFilter: "blur(24px) saturate(120%)",
+    border: "1px solid rgba(255,255,255,0.09)",
+  };
 
   return (
     <div id="cb-intro-wrap" style={{
       minHeight: "100dvh", display: "flex", flexDirection: "column",
-      background: "#000000", position: "relative", overflow: "hidden",
+      position: "relative", overflow: "hidden",
       fontFamily: "var(--cb-body)",
+      /* The ground under the film. Painted unconditionally, so a browser
+         that cannot decode the reel still gets a graded surface rather
+         than a black rectangle behind the glass. */
+      background:
+        "radial-gradient(120% 90% at 72% 16%, rgba(163,184,153,0.16), transparent 58%)," +
+        "radial-gradient(90% 70% at 16% 92%, rgba(120,150,170,0.10), transparent 60%)," +
+        "#0b0d10",
     }}>
-      {/* The animated LivingBackground field — gated on animationMode
-          exactly like the main app and InfoPage, so a visitor who has
-          opted out of animation gets a flat, static screen here too. */}
-      {animationMode !== "off" && (
-        <div style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }}>
-          {/* Arrival. The core is prominent and centred, the field is at its
-              most expressive, and this is the one screen that gets to be
-              dramatic — everything after it inherits the same material at
-              lower intensity. */}
-          <CerebrumFieldCanvas
-            accent={accent} P={P}
-            mode="arrival"
-            core={1} corePos={[0, 0.06]} coreScale={1}
-            animationMode={animationMode}
-          />
-        </div>
-      )}
+      <CinematicFilm animationMode={animationMode} intensity={1} />
 
-      {/* NO MUDDY FOG .cb-ambient LAYER ALLOWED HERE. This screen is meant
-          to read as a real landing-page hero shot with the WebGL field
-          full-bleed and undimmed behind it — a scrim over the whole
-          viewport defeats that. Legibility over the brightest parts of the
-          field is instead handled per-element with a tight text-shadow
-          below, which costs nothing when animation is off and the
-          background is flat black anyway. */}
+      {/* Contrast floor. Deliberately light and bottom-weighted: the film
+          is meant to be seen, and a full-viewport scrim is how a cinematic
+          backdrop turns back into a grey wall. */}
+      <div aria-hidden="true" style={{
+        position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
+        background:
+          "radial-gradient(140% 100% at 50% 0%, transparent 42%, rgba(11,13,16,0.55) 100%)," +
+          "linear-gradient(0deg, rgba(11,13,16,0.78), transparent 46%)",
+      }} />
 
       <nav ref={navRef} style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: isMobile ? "16px 20px" : "20px 40px",
-        position: "relative", zIndex: 3,
-        opacity: animationMode === "off" ? 1 : 0,
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+        margin: isMobile ? "12px 12px 0" : "16px 18px 0",
+        padding: isMobile ? "9px 10px 9px 16px" : "10px 12px 10px 20px",
+        borderRadius: 999, position: "relative", zIndex: 3, opacity: hidden,
+        boxShadow: "0 18px 50px rgba(0,0,0,0.45)",
+        ...glassPanel,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Mark size={20} accent={introAccent} glow />
-          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#ffffff", letterSpacing: "0.01em", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>Cerebrum</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <Mark size={19} accent={introAccent} glow />
+          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#ffffff", letterSpacing: "-0.015em" }}>Cerebrum</span>
         </div>
-        <div style={{ display: "flex", gap: isMobile ? 16 : 28 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 6 }}>
           {["About", "Privacy", "Contact"].map((item) => (
-            <a key={item} href={`/${item.toLowerCase()}`} style={{ fontSize: FONT_SIZES.caption, color: "#a3b0c2", textDecoration: "none", fontWeight: 600, letterSpacing: "0.01em", transition: "color 0.2s", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}
-              onMouseEnter={(e) => e.target.style.color = "#e8edf5"} onMouseLeave={(e) => e.target.style.color = "#a3b0c2"}>{item}</a>
+            <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navpill" style={{
+              fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.72)", textDecoration: "none",
+              fontWeight: 500, padding: "7px 14px", borderRadius: 999,
+            }}>{item}</a>
           ))}
         </div>
       </nav>
 
       <main style={{
-        flex: 1, display: "flex", flexDirection: "column", justifyContent: "center",
-        padding: isMobile ? "0 24px 60px" : "0 clamp(48px, 8vw, 140px) 80px",
-        position: "relative", zIndex: 10, pointerEvents: "auto", maxWidth: 820,
+        flex: 1, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", textAlign: "center",
+        padding: isMobile ? "0 20px 80px" : "0 40px 100px",
+        position: "relative", zIndex: 10,
       }}>
-        {/* Commit 84 — the aurora ribbon sweeps straight through the lede on
-            wide viewports, and a text-shadow alone is not enough contrast
-            against the bright part of it. This is a soft scrim anchored to
-            the copy column: it darkens what is behind the words without
-            putting a visible panel on the page or dimming the artwork
-            anywhere else. */}
-        <div aria-hidden="true" style={{
-          position: "absolute", zIndex: -1,
-          top: -60, bottom: -40, left: isMobile ? -24 : "-8vw", right: isMobile ? -24 : -120,
-          background: isMobile
-            ? "linear-gradient(180deg, rgba(6,8,10,0.55) 0%, rgba(6,8,10,0.62) 55%, rgba(6,8,10,0) 100%)"
-            : "linear-gradient(100deg, rgba(6,8,10,0.78) 0%, rgba(6,8,10,0.66) 45%, rgba(6,8,10,0.24) 72%, rgba(6,8,10,0) 100%)",
-          pointerEvents: "none",
-        }} />
-
-        <div ref={logoRef} style={{ marginBottom: 32, opacity: animationMode === "off" ? 1 : 0 }}>
-          <Mark size={36} accent={introAccent} glow />
+        <div ref={logoRef} style={{ marginBottom: 22, opacity: hidden }}>
+          <Mark size={34} accent={introAccent} glow />
         </div>
 
+        {/* One weight, one family, no gradient fill. The second line is
+            dimmed rather than accent-coloured: at this size a sage line
+            reads as a highlighted link, not as a second clause. */}
         <h1 style={{
-          fontSize: isMobile ? 48 : "clamp(64px, 8vw, 96px)",
-          // Commit 98 — Newsreader is a serif with real descenders; -0.05em
-          // and a 1.0 leading were carried over from the sans this hero used
-          // to be set in, and at 96px the "y" of "anything" ran into the cap
-          // line of "We'll" below it. Loosened to values a display serif can
-          // actually take.
-          fontWeight: 800, letterSpacing: "-0.035em", lineHeight: 1.05,
-          color: "#ffffff", margin: "0 0 28px",
-          fontFamily: "var(--cb-display)",
+          fontSize: isMobile ? 34 : "clamp(38px, 5vw, 60px)",
+          fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.05,
+          color: "#ffffff", margin: "0 0 34px",
+          fontFamily: "var(--cb-body)",
+          textShadow: "0 2px 34px rgba(0,0,0,0.55)",
+          maxWidth: 780,
         }}>
-          <div ref={head1Ref} style={{ opacity: animationMode === "off" ? 1 : 0, textShadow: "0 4px 32px rgba(0,0,0,0.65)" }}>Ask anything.</div>
-          <div ref={head2Ref} style={{ color: introAccent, opacity: animationMode === "off" ? 1 : 0, textShadow: "0 4px 32px rgba(0,0,0,0.65)" }}>We'll find the paper.</div>
+          <div ref={head1Ref} style={{ opacity: hidden }}>Ask anything.</div>
+          <div ref={head2Ref} style={{ opacity: hidden, color: "rgba(242,244,242,0.62)", fontWeight: 500 }}>We'll find the papers.</div>
         </h1>
 
-        <p ref={descRef} style={{
-          fontSize: isMobile ? FONT_SIZES.body : FONT_SIZES.subhead, color: "#c3cbd9", lineHeight: 1.65,
-          margin: "0 0 32px", maxWidth: 520, fontWeight: 400,
-          textShadow: "0 2px 16px rgba(0,0,0,0.7)",
-          opacity: animationMode === "off" ? 1 : 0,
-        }}>
-          Cerebrum searches 15 scholarly databases in parallel and writes you
-          an answer where every claim traces back to a real, citable source.
-          One research instrument, not just a chatbot.
-        </p>
+        {/* The search pill. This is the front door: a question typed here
+            is carried straight into the app rather than being thrown away
+            at a "Start exploring" button. */}
+        <form
+          ref={descRef}
+          onSubmit={(e) => { e.preventDefault(); go(seed); }}
+          className="cb-intro-search"
+          style={{
+            display: "flex", alignItems: "center", gap: 8,
+            width: "min(720px, 100%)", opacity: hidden,
+            borderRadius: 9999, padding: isMobile ? "7px 7px 7px 16px" : "9px 9px 9px 22px",
+            boxShadow: "0 30px 80px rgba(0,0,0,0.60)",
+            ...glassPanel,
+            border: "1px solid rgba(255,255,255,0.16)",
+          }}>
+          <span style={{ display: "flex", color: "rgba(242,244,242,0.46)", flex: "none" }}>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+          </span>
+          <input
+            value={seed}
+            onChange={(e) => setSeed(e.target.value)}
+            placeholder={isMobile ? "Ask a research question" : "Ask a research question, or paste a DOI"}
+            aria-label="Ask a research question"
+            style={{
+              flex: 1, minWidth: 0, background: "none", border: "none", outline: "none",
+              color: "#f2f4f2", fontSize: isMobile ? 15 : 16, fontWeight: 450,
+              padding: "12px 0", fontFamily: "var(--cb-body)",
+            }} />
+          <button type="submit" className="cb-intro-go" style={{
+            flex: "none", border: "none", cursor: "pointer", borderRadius: 9999,
+            padding: isMobile ? "11px 18px" : "12px 26px",
+            background: introAccent, color: "#11140f",
+            fontWeight: 600, fontSize: isMobile ? 14 : 15, fontFamily: "var(--cb-body)",
+            boxShadow: "0 6px 20px rgba(163,184,153,0.28)",
+          }}>Search</button>
+        </form>
 
-        {/* Feature-discovery row: `tagsRef` is already choreographed into
-            both the entrance and exit timelines above, so this needs to
-            exist in the DOM for those tweens to have anything to animate —
-            also doubles as the "not just a chatbot" positioning line this
-            app has carried since it added Compare/Source-network/Timeline/
-            Illustration as real features. */}
         <div ref={tagsRef} style={{
-          display: "flex", flexWrap: "wrap", gap: "7px 18px", marginBottom: 32,
-          opacity: animationMode === "off" ? 0.85 : 0,
+          display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center",
+          marginTop: 20, opacity: hidden, maxWidth: 760,
         }}>
-          {FEATURE_TAGS.map((f) => (
-            <span key={f} style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: "#a3b0c2", letterSpacing: "0.01em", fontFamily: "var(--cb-body)", textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>{f}</span>
+          {OPENERS.slice(0, isMobile ? 2 : 4).map((o) => (
+            <button key={o} type="button" onClick={() => go(o)} className="cb-intro-chip" style={{
+              cursor: "pointer", borderRadius: 9999,
+              padding: "9px 16px", fontSize: FONT_SIZES.caption, fontWeight: 450,
+              color: "rgba(242,244,242,0.72)", fontFamily: "var(--cb-body)",
+              background: "rgba(15,17,21,0.52)",
+              backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)",
+              border: "1px solid rgba(255,255,255,0.09)",
+            }}>{o}</button>
           ))}
         </div>
 
-        <div ref={btnsRef} style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", opacity: animationMode === "off" ? 1 : 0 }}>
-          <button onClick={go} style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            padding: "16px 36px", fontSize: FONT_SIZES.body, fontWeight: 700,
-            letterSpacing: "0.01em",
-            background: "#ffffff", color: "#000000", border: "none", borderRadius: 0,
-            // Commit 98 — the CTA is a control, not a headline. Setting it in
-            // the same serif as the h1 directly above flattened the contrast
-            // between "thing you read" and "thing you press"; the sans reads
-            // as the button it is.
-            cursor: "pointer", fontFamily: "var(--cb-body)",
-            transition: "opacity 0.2s ease",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}>
-            Start exploring
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" strokeLinejoin="miter"><path d="M5 12h13M12 5.5l6.5 6.5-6.5 6.5"/></svg>
-          </button>
+        <div ref={btnsRef} style={{
+          marginTop: 26, opacity: hidden,
+          fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.46)",
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center",
+        }}>
+          <span><b style={{ color: "rgba(242,244,242,0.72)", fontWeight: 500 }}>Free.</b> No account required</span>
+          <span style={{ opacity: 0.4 }}>·</span>
+          <span>15 scholarly databases</span>
+          <span style={{ opacity: 0.4 }}>·</span>
+          <button type="button" onClick={() => go("")} style={{
+            background: "none", border: "none", padding: 0, cursor: "pointer",
+            color: "rgba(242,244,242,0.72)", fontSize: FONT_SIZES.caption,
+            fontFamily: "var(--cb-body)", textDecoration: "underline", textUnderlineOffset: 3,
+          }}>Skip to the app</button>
+          <span style={{ opacity: 0.4 }}>·</span>
+          {/* Three of the background clips are CC BY 4.0. This link is the
+              licence condition being met, so it is on the screen the film
+              plays on rather than buried on a policy page. */}
+          <button type="button" onClick={() => setCreditsOpen(true)} style={{
+            background: "none", border: "none", padding: 0, cursor: "pointer",
+            color: "rgba(242,244,242,0.46)", fontSize: FONT_SIZES.caption,
+            fontFamily: "var(--cb-body)", textDecoration: "underline", textUnderlineOffset: 3,
+          }}>Film credits</button>
         </div>
       </main>
+
+      {creditsOpen && <FilmCreditsDialog accent={introAccent} onClose={() => setCreditsOpen(false)} />}
     </div>
   );
 }
@@ -3283,6 +3633,7 @@ function CerebrumFieldCanvas({
 
     (async () => {
       try {
+        const { createField } = await import("./cerebrumField.js");
         if (disposed || !canvasRef.current) return;
         handle = await createField(canvasRef.current, {
           accent, deep, mode, core, corePos, coreScale, light: isLight,
@@ -3312,7 +3663,7 @@ function CerebrumFieldCanvas({
 
   const fallbackStyle = {
     position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-    background: staticFieldCss(accent, deep, { core: mode === "arrival" }),
+    background: staticFieldCss(accent, deep),
   };
 
   // Animation off, or WebGL unavailable: the same palette and roughly the
@@ -3331,7 +3682,7 @@ function CerebrumFieldCanvas({
         zIndex: 0, pointerEvents: "none", display: "block",
         // Painted underneath while the shader module loads, so there is never
         // a black rectangle between first paint and first frame.
-        background: staticFieldCss(accent, deep, { core: mode === "arrival" }),
+        background: staticFieldCss(accent, deep),
       }}
     />
   );
@@ -3478,7 +3829,7 @@ function SelectionAsk({ onAsk, P, accent, containerRef }) {
         color: P.ink, whiteSpace: "nowrap",
         background: P.dark ? "rgba(20,24,22,0.94)" : "rgba(255,255,255,0.96)",
         border: `1px solid ${withAlpha(accent, 0.45)}`,
-        backdropFilter: "none", WebkitBackdropFilter: "none",
+        backdropFilter: "blur(14px) saturate(1.3)", WebkitBackdropFilter: "blur(14px) saturate(1.3)",
         boxShadow: P.dark ? "0 8px 26px rgba(0,0,0,0.55)" : "0 8px 26px rgba(0,0,0,0.16)",
       }}
     >
@@ -3772,7 +4123,7 @@ function InfoPage({ page }) {
   // v29: default flipped to "cinematic" alongside App()'s own default — see
   // the comment on App's animationMode state for why "off" was the actual
   // reason the WebGL background never appeared for new visitors.
-  const animationMode = (() => { try { return getCookie("cb_anim2") || (window.matchMedia("(max-width: 899px), (prefers-reduced-motion: reduce)").matches ? "off" : "cinematic"); } catch { return "cinematic"; } })();
+  const animationMode = (() => { try { return getCookie("cb_anim2") || "cinematic"; } catch { return "cinematic"; } })();
   const goHome = () => { window.location.href = "/"; };
   const PAGES = LEGAL_PAGES;
   const data = PAGES[page]; if (!data) return null;
@@ -3838,7 +4189,7 @@ function InfoPage({ page }) {
             `willChange: "transform"` compositor hint this used to also carry
             was removed (v25) to match the same edit in makeStyles' `header`
             — see that comment for the full reasoning. */}
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: withAlpha(P.bg, 0.85), backdropFilter: "none", WebkitBackdropFilter: "none", borderBottom: `1px solid ${P.line}` }} />
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}` }} />
         <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
@@ -3923,7 +4274,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   return (
-    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "none", WebkitBackdropFilter: "none" }} className="cb-fade">
+    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap", paddingBottom: 16, borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 3, height: 18, background: accent, borderRadius: 8 }} />
@@ -4084,7 +4435,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
     <div onClick={onClose} role="dialog" aria-modal="true" aria-label="Report data issue" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 220, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
-        backdropFilter: "none", WebkitBackdropFilter: "none",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 8, maxWidth: 460, width: "100%", padding: "28px", outline: "none",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -4146,7 +4497,7 @@ const TOUR_STEPS = [
   {
     title: "Command Line",
     icon: "⌘",
-    text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel, PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more, then synthesizes a fully cited answer from the retrieved evidence. AI synthesizes retrieved papers; open the citations to verify important claims.",
+    text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel, PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more, then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
     hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to focus the search bar from anywhere.`,
   },
   {
@@ -4222,15 +4573,15 @@ function GuidedTour({ P, accent }) {
       position: "fixed", inset: 0, zIndex: 300,
       display: "flex", alignItems: "center", justifyContent: "center",
       background: "rgba(0, 0, 0, 0.6)",
-      backdropFilter: "none", WebkitBackdropFilter: "none",
+      backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
       opacity: entering ? 0 : 1,
       transition: "opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
     }} onClick={(e) => { if (e.target === e.currentTarget) dismiss(); }}>
       <div style={{
         width: "min(480px, calc(100vw - 48px))",
         background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)",
-        backdropFilter: "none",
-        WebkitBackdropFilter: "none",
+        backdropFilter: "blur(40px) saturate(150%)",
+        WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
         borderRadius: 16,
         boxShadow: P.dark
@@ -5392,7 +5743,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
         borderLeft: "1px solid " + P.line,
         boxShadow: "-8px 0 32px rgba(0,0,0,0.15)",
         zIndex: 51, display: "flex", flexDirection: "column",
-        backdropFilter: "none", WebkitBackdropFilter: "none",
+        backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
       }}>
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid " + P.line, flexShrink: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -6090,7 +6441,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
     <div onClick={close} role="dialog" aria-modal="true" aria-label={item.title || "Article"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 217, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
-        backdropFilter: "none", WebkitBackdropFilter: "none",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
@@ -6823,7 +7174,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
 
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Sign in to Cerebrum" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 215, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "none", WebkitBackdropFilter: "none", borderRadius: 8, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", borderRadius: 8, maxWidth: 400, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", outline: "none" }} className="cb-modal">
         <div style={{ padding: "26px 26px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>{step === "email" ? (intent === "signup" ? "Create your account" : "Sign in") : "Enter your code"}</div>
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
@@ -6973,7 +7324,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
         background: P.dark ? "rgba(18,19,24,0.96)" : "rgba(255,255,255,0.98)",
         border: `1px solid ${P.line2}`,
         boxShadow: "0 18px 60px rgba(0,0,0,0.4)",
-        backdropFilter: "none", WebkitBackdropFilter: "none",
+        backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
       }}
       className="cb-modal"
     >
@@ -7631,7 +7982,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         </div>
       ) : (<>
       {/* Top bar: who you're calling, reachable even before the call connects */}
-      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 100, background: "rgba(0,0,0,0.4)", backdropFilter: "none", WebkitBackdropFilter: "none" }}>
+      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 100, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
         <span style={{ width: 26, height: 26, borderRadius: "50%", background: withAlpha(accent, 0.35), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-mono)" }}>{(name || "?")[0]?.toUpperCase()}</span>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
         {dataSaver && <span title="Data saver is on: video quality lowered" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="zap" size={11} />Saver</span>}
@@ -7641,7 +7992,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           so the rest of the app is usable mid-call (see the block comment
           above this component for the FaceTime/Messenger-style rationale). */}
       {status === "ready" && (
-        <button onClick={() => setMinimized(true)} aria-label="Minimize call" title="Minimize" style={{ position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.4)", backdropFilter: "none", WebkitBackdropFilter: "none", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
+        <button onClick={() => setMinimized(true)} aria-label="Minimize call" title="Minimize" style={{ position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
           <Icon name="minimize2" size={16} />
         </button>
       )}
@@ -7676,7 +8027,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           position: "absolute", bottom: isMobile ? 20 : 32, left: "50%", transform: "translateX(-50%)",
           display: "flex", alignItems: "center", gap: 14, padding: 10, borderRadius: 100,
           background: "rgba(28,28,32,0.55)",
-          backdropFilter: "none", WebkitBackdropFilter: "none",
+          backdropFilter: "blur(24px) saturate(180%)", WebkitBackdropFilter: "blur(24px) saturate(180%)",
           border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 14px 40px rgba(0,0,0,0.45)",
         }}>
           {controlBtn(micMuted, toggleMic, "mic", "micOff", micMuted ? "Unmute microphone" : "Mute microphone")}
@@ -7773,7 +8124,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
     <div onClick={onClose} role="dialog" aria-modal="true" aria-label={title} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 310, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
-        backdropFilter: "none", WebkitBackdropFilter: "none",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 8, maxWidth: 420, width: "100%", padding: "26px", outline: "none",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -9835,7 +10186,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
         width: "100%", maxHeight: "none", display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
       } : {
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
-        backdropFilter: "none", WebkitBackdropFilter: "none",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
         borderRadius: 12, maxWidth: 480, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
@@ -10611,7 +10962,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     }
   };
 
-  const paneBase = { flex: 1, minWidth: 0, minHeight: isMobile ? 320 : 0, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden" };
+  const paneBase = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
   const inputBg = P.dark ? "rgba(255,255,255,0.03)" : "#fff";
   const dimBtnBg = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
@@ -10635,7 +10986,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     <div
       {...(asPage ? { role: "region", "aria-label": "Document Mode" } : { role: "dialog", "aria-modal": "true", "aria-label": "Document Mode" })}
       style={asPage
-        ? { display: "flex", flexDirection: "column", minHeight: 0, height: isMobile ? "auto" : "calc(100dvh - 96px)", background: P.bg }
+        ? { display: "flex", flexDirection: "column", minHeight: 0, height: "calc(100dvh - 96px)", background: P.bg }
         : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "14px 16px" : "16px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -10653,11 +11004,11 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
         <button onClick={close} aria-label="Close Document Mode" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="close" size={20} /></button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: isMobile ? "visible" : "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
         {/* LEFT PANE — the source, tabbed between pasting text directly and
             loading it from a file. Only one sub-view renders at a time now
             instead of stacking the dropzone above the textarea always. */}
-        <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: "none", minHeight: isMobile ? 340 : 0, flex: isMobile ? "0 0 auto" : 1 }}>
+        <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
           <div role="tablist" aria-label="Document source" style={{ display: "flex", gap: 4, marginBottom: 14, flexShrink: 0, background: dimBtnBg, borderRadius: 8, padding: 3 }}>
             {[["paste", "Paste text"], ["upload", "Upload a file"]].map(([key, label]) => (
               <button key={key} role="tab" aria-selected={leftTab === key} onClick={() => setLeftTab(key)}
@@ -11335,7 +11686,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const Section = ({ title, footer, children }) => (
     <div style={{ marginBottom: 22 }}>
       {title && <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, marginBottom: 8, paddingLeft: 2, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>{title}</div>}
-      <div style={{ background: bg, border: glassBorderS, borderRadius: 8, overflow: "hidden", backdropFilter: "none", WebkitBackdropFilter: "none" }}>{children}</div>
+      <div style={{ background: bg, border: glassBorderS, borderRadius: 8, overflow: "hidden", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, paddingLeft: 2, lineHeight: 1.5 }}>{footer}</div>}
     </div>
   );
@@ -11983,7 +12334,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // (Strike 5): the whole point of Sage/Dark/Mid/Light now is that the
     // page itself is warm stone, cool slate, or paper-white depending on
     // what's selected — P.bg is that selection, so this reads it directly.
-    page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
+    /* Transparent on the dark palettes so the reel behind the shell is
+       actually visible between panels — an opaque page background is the
+       one thing that turns a cinematic backdrop back into a screenshot.
+       The light palette stays opaque: white glass over moving footage is
+       not legible at any blur radius, and pretending otherwise would ship
+       an unreadable theme. The reel's own graded ground (.cb-film) is what
+       shows through, so there is never bare white behind the type. */
+    page: { minHeight: "100dvh", background: P.dark ? "transparent" : P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
     // v32: SoftAurora (see its own comment block) is a deliberately loud,
     // saturated, constantly-moving field — nothing like the 0.04-opacity
     // dot-grid it replaced. Sitting reading text directly on top of it would
@@ -12098,8 +12456,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none",
       borderBottom: glassBorder,
       background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85),
-      backdropFilter: "none",
-      WebkitBackdropFilter: "none",
+      backdropFilter: "blur(14px) saturate(1.3)",
+      WebkitBackdropFilter: "blur(14px) saturate(1.3)",
     },
     headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
     // v36: headActions picked up a 7th button ("Find People") without any
@@ -12143,7 +12501,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarWidth: 260,
     sidebar: {
       position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 30,
-      background: P.bg, borderRight: `1px solid ${P.line}`,
+      /* Smoked glass, not a solid rail. The reel moves behind it, which is
+         where most of the shell's depth comes from — but the blur and the
+         0.72 floor are doing real work, not decoration: a nav label has to
+         stay readable when a bright frame drifts under it. */
+      background: P.dark ? "rgba(15, 17, 21, 0.72)" : P.surface,
+      backdropFilter: P.dark ? "blur(24px) saturate(120%)" : "none",
+      WebkitBackdropFilter: P.dark ? "blur(24px) saturate(120%)" : "none",
+      borderRight: `1px solid ${P.dark ? "rgba(255,255,255,0.09)" : P.line}`,
       display: "flex", flexDirection: "column",
       transform: isMobile ? "translateX(-100%)" : "none",
       transition: "transform 240ms cubic-bezier(0.4, 0, 0.2, 1)",
@@ -12166,7 +12531,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // kept as a supporting wash. Two channels, not one — which also means
     // the state survives High Contrast mode flattening the tint.
     sidebarItemActive: {
-      background: withAlpha(accent, 0.07), color: P.ink, fontWeight: 600,
+      background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600,
       boxShadow: `inset 2px 0 0 ${accent}`,
     },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" },
@@ -12247,7 +12612,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // See the comment at the hero's <Reveal>.
     heroCompact: {
       flex: "0 0 auto",
-      padding: isMobile ? "64px 0 24px" : "64px 0 32px",
+      padding: isMobile ? "18px 0 8px" : "20px 0 10px",
     },
     heroTitleCompact: {
       fontSize: isMobile ? 34 : 50,
@@ -12264,11 +12629,6 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       fontSize: isMobile ? 52 : 84, fontWeight: 700,
       letterSpacing: "-0.05em", lineHeight: 0.92,
       color: P.ink, marginBottom: 24, position: "relative",
-      // v29: was `--cb-display` fed through `--cb-body` (Inter) — the round,
-      // friendly grotesque the user called out by name on the wordmark.
-      // `--cb-display` is Space Grotesk, this file's own designated
-      // "engineered" face (see the typography comment at the top of the
-      // file) — that's what a command-center wordmark should be set in.
       fontFamily: "var(--cb-display)",
     },
     heroSub: {
@@ -12293,8 +12653,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     searchShell: {
       display: "flex", alignItems: "center", gap: 10,
       width: "100%", maxWidth: 700,
-      backdropFilter: "none",
-      WebkitBackdropFilter: "none",
+      backdropFilter: "blur(40px) saturate(150%)",
+      WebkitBackdropFilter: "blur(40px) saturate(150%)",
       // This is the one control the entire product exists to serve, and it
       // was the least defined element on the page: an 8%-alpha border and a
       // single 32px shadow at 8% opacity, sitting on top of the animated
@@ -12313,7 +12673,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       //     is what makes a surface read as raised rather than printed).
       background: P.dark ? "rgba(15, 17, 26, 0.92)" : "rgba(255, 255, 255, 0.94)",
       border: P.dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.13)",
-      borderRadius: 20,
+      borderRadius: 100,
       padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
       boxShadow: P.dark
         ? "inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.35), 0 18px 48px rgba(0,0,0,0.45)"
@@ -12435,8 +12795,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     answerCard: {
       position: "relative",
       background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
-      backdropFilter: "none",
-      WebkitBackdropFilter: "none",
+      backdropFilter: "blur(40px) saturate(150%)",
+      WebkitBackdropFilter: "blur(40px) saturate(150%)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 8,
       padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
@@ -12458,9 +12818,9 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       borderRadius: 8, fontSize: FONT_SIZES.body, lineHeight: 1.6,
       border: `1px solid ${withAlpha(STATUS.bad, 0.2)}`,
       display: "flex", alignItems: "flex-start", gap: 12,
-      backdropFilter: "none", WebkitBackdropFilter: "none",
+      backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
     },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)", backdropFilter: "none", WebkitBackdropFilter: "none", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-body)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
@@ -12496,8 +12856,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     panel: {
       position: "sticky", top: 24,
       background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
-      backdropFilter: "none",
-      WebkitBackdropFilter: "none",
+      backdropFilter: "blur(40px) saturate(150%)",
+      WebkitBackdropFilter: "blur(40px) saturate(150%)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 8,
       padding: "20px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
@@ -12564,8 +12924,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     footDbs: { fontSize: FONT_SIZES.micro, letterSpacing: "0.01em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-body)" },
 
     /* ── Mobile sources FAB ── */
-    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 8, padding: "14px 20px", fontSize: FONT_SIZES.small, fontWeight: 600, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}, 0 2px 8px rgba(0,0,0,0.2)`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8, backdropFilter: "none", WebkitBackdropFilter: "none" },
-    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "none", WebkitBackdropFilter: "none", zIndex: 25 },
+    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 8, padding: "14px 20px", fontSize: FONT_SIZES.small, fontWeight: 600, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}, 0 2px 8px rgba(0,0,0,0.2)`, zIndex: 20, fontFamily: "var(--cb-mono)", display: "inline-flex", alignItems: "center", gap: 8, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" },
+    scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", zIndex: 25 },
 
     /* ── Command palette ── */
     cmdWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "14vh", zIndex: 50 },
@@ -12578,7 +12938,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
 
     /* ── Modals ── */
     modalWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 16 },
-    modal: { background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)", backdropFilter: "none", WebkitBackdropFilter: "none", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
+    modal: { background: P.dark ? "rgba(15, 17, 26, 0.85)" : "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: 28, width: 480, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", fontFamily: font, boxShadow: "0 24px 80px rgba(0,0,0,0.6)" },
     modalTitle: { fontSize: FONT_SIZES.display, fontWeight: 400, color: P.ink, marginBottom: 24, letterSpacing: "-0.03em", fontFamily: "var(--cb-display)" },
     // v7.0 cleanup: setLabel/palRow/palCard/accentRow/accentDot/customDot
     // removed — leftovers from an older, untabbed Settings layout with an
@@ -12727,14 +13087,14 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
       ["new", "New investigation", "plus", null],
       ["search", "Search", "search", null],
     ] },
+    { label: "Explore", items: [
+      ["document", "Document Mode", "bookOpen", null],
+      ["trending", "Trending", "chart", null],
+    ] },
     { label: "Your work", items: [
       ["investigations", "Investigations", "history", history.length || null],
       ["library", "Library", "bookmark", saved.length || null],
       ...(user ? [["collections", "Collections", "folder", (collections && collections.length) || null]] : []),
-    ] },
-    { label: "Explore", items: [
-      ["document", "Document Mode", "bookOpen", null],
-      ["trending", "Trending", "chart", null],
     ] },
     ...(user ? [{ label: "People", items: [
       ["inbox", "Inbox", "mail", threads.filter((t) => t.unread).length || null],
@@ -12754,12 +13114,11 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   const navRevealRef = useGsapReveal([], { y: 8, stagger: 0.04, duration: 0.6, descend: false });
 
   const body = (
-    <nav hidden={isMobile && !mobileOpen} ref={navRevealRef} aria-label="Main" style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), display: isMobile && !mobileOpen ? "none" : "flex" }}>
+    <nav ref={navRevealRef} aria-label="Main" style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}) }}>
       <div style={S.sidebarBrand} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
         <Mark size={18} accent={accent} glow={P.dark} />
         <span style={{ fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-display)" }}>Cerebrum</span>
       </div>
-      {isMobile && <button type="button" onClick={onCloseMobile} style={{ ...S.sidebarItem, minHeight: 44 }} aria-label="Close menu">Close menu ×</button>}
       <div style={S.sidebarNav}>
         {NAV_GROUPS.map((group, gi) => (
           <React.Fragment key={group.label || `g${gi}`}>
@@ -12945,7 +13304,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
     <div role="dialog" aria-modal="true" aria-labelledby="cb-consent-title" style={{
       position: "fixed", inset: 0, zIndex: 9000,
       background: P.dark ? "rgba(0,0,0,0.86)" : "rgba(20,24,28,0.72)",
-      backdropFilter: "none", WebkitBackdropFilter: "none",
+      backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)",
       display: "flex", alignItems: "center", justifyContent: "center",
       padding: isMobile ? 16 : 28, overflowY: "auto",
     }}>
@@ -13040,6 +13399,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
+  const [filmCreditsOpen, setFilmCreditsOpen] = useState(false);
   // V5 "what's new" announcement — shows once per browser, the first time
   // someone lands on the main app after this ships. Keyed off its own
   // localStorage flag rather than the entry cookie above, since a returning
@@ -13305,10 +13665,6 @@ function App() {
     reader.readAsDataURL(file);
   }
   const [turns, setTurns] = useState([]);
-  const lastRequestRef = useRef(null);
-  const searchControllerRef = useRef(null);
-  const requestGenerationRef = useRef(0);
-  useEffect(() => () => { requestGenerationRef.current++; searchControllerRef.current?.abort(); }, []);
   const [pinnedSources, setPinnedSources] = useState([]);
   const [corrections, setCorrections] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -13368,9 +13724,9 @@ function App() {
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(true);
-  const [muted, setMuted] = useState(() => getCookie("cb_muted") !== "0");
+  const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
-  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") === "1");
+  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
   // v6.6: this used to default every first-time visitor into "cinematic" —
   // a continuously-rendering CDN-loaded WebGL scene (Vanta.js/three.js, long
@@ -13399,7 +13755,7 @@ function App() {
   // field checks it independently), so this doesn't fight accessibility —
   // it only changes what people who haven't opted out of motion get by
   // default. Respects an explicit stored preference either way.
-  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim2") || (window.matchMedia("(max-width: 899px), (prefers-reduced-motion: reduce)").matches ? "off" : "cinematic"));
+  const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim2") || "cinematic");
   // v5: this used to swap the chip row's content out from under the user
   // every 8s unconditionally — a real interaction hazard, not just a CSS
   // animation, since a keyboard user who tabs to a chip and takes >8s to
@@ -13523,7 +13879,7 @@ function App() {
   // persist anything — genuinely just for whoever finds it.
   const dpEggRef = useRef({ longPressed: false, timer: null });
   const threadRef = useRef(null);
-  const mutedRef = useRef(muted);
+  const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
   const P = PALETTES[paletteName] || PALETTES.Sage;
@@ -13578,13 +13934,8 @@ function App() {
     // the app. See readStreak/bumpStreak for why that distinction matters.
     try { bumpStreak(); } catch {}
     const question = (q ?? input).trim();
-    const imageToSend = opts.image ?? attachedImage;
-    if ((!question && !imageToSend) || busy || searchControllerRef.current) return;
-    const generation = ++requestGenerationRef.current;
-    const controller = new AbortController();
-    searchControllerRef.current = controller;
-    lastRequestRef.current = { question, image: imageToSend };
-    const timeout = setTimeout(() => controller.abort(), 120000);
+    const imageToSend = attachedImage;
+    if ((!question && !imageToSend) || busy) return;
     // Commit 85 — auto-read is for an answer the reader just asked for, not
     // for one restored from history. Reopening a saved investigation was
     // enough to start narrating its last answer at you, unprompted, which
@@ -13592,20 +13943,18 @@ function App() {
     // now requires an ask in THIS session.
     setAskedThisSession(true);
     if (!mutedRef.current) Audio.click();
-    setInput(question); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
       const videosPromise = imageToSend ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
-      const res = await fetch("/api/search", { signal: controller.signal, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections }) });
-      if (generation !== requestGenerationRef.current) return;
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections }) });
       if (!res.ok) {
         let errData = {};
         try { errData = await res.json(); } catch {}
-        if (generation !== requestGenerationRef.current) return;
-        setError(errData.error || `Search is temporarily unavailable (HTTP ${res.status}). Your question is saved below.`); setBusy(false); return;
+        setError(errData.error || "Something went sideways. Try that again?"); setBusy(false); return;
       }
       // Stream response body via ReadableStream — reads chunks as they arrive.
       // Currently the backend sends a single JSON payload; when it's upgraded
@@ -13619,14 +13968,10 @@ function App() {
         if (value) buf += decoder.decode(value, { stream: !done });
         if (done) break;
       }
-      if (generation !== requestGenerationRef.current) return;
       let data;
       try { data = JSON.parse(buf); }
       catch { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
-      if (generation !== requestGenerationRef.current) return;
-      if (!data.answer && !(Array.isArray(data.sources) && data.sources.length)) throw new Error("The server returned no answer or papers.");
-      setInput(""); setAttachedImage(null); setAttachedImageName("");
       const turnId = Date.now() + Math.random();
       const nt = { id: turnId, answerId: data.answerId || "", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
@@ -13636,16 +13981,9 @@ function App() {
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Audio.pop();
       videosPromise.then(({ videos }) => { if (videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
-    } catch (e) {
-      if (generation === requestGenerationRef.current) setError(e.name === "AbortError"
-        ? "The search took too long. Your question is saved; try again."
-        : "Search could not finish. Your question is saved; check your connection and try again.");
-    } finally {
-      clearTimeout(timeout);
-      if (searchControllerRef.current === controller) searchControllerRef.current = null;
-      if (generation === requestGenerationRef.current) setBusy(false);
-    }
-  }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter, askMode]);
+    } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
+    finally { setBusy(false); }
+  }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
 
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
 
@@ -13781,7 +14119,7 @@ function App() {
   // (the standard robust scroll-lock pattern) and restore that exact
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
-    const anyOverlayOpen = (isMobile && sidebarMobileOpen) || cmdOpen || howItWorksOpen || mobilePanel
+    const anyOverlayOpen = cmdOpen || howItWorksOpen || mobilePanel
       || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!evidenceTableSources || !!importPrompt || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
@@ -13802,7 +14140,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [isMobile, sidebarMobileOpen, cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource]);
+  }, [cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
@@ -13967,7 +14305,6 @@ function App() {
     setSaved((prev) => prev.map((s) => sourceKey(s) === sourceKey(source) ? { ...s, collectionId } : s));
   }
   function newSession() {
-    requestGenerationRef.current++; searchControllerRef.current?.abort(); searchControllerRef.current = null; lastRequestRef.current = null; setBusy(false);
     if (!mutedRef.current) Audio.click();
     if (turns.length > 0) {
       const firstQ = turns[0]?.q || input || "Untitled investigation";
@@ -13979,7 +14316,6 @@ function App() {
     setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50);
   }
   function openHistoryItem(entry) {
-    requestGenerationRef.current++; searchControllerRef.current?.abort(); searchControllerRef.current = null; setBusy(false);
     sfx();
     setTurns(entry.turns || []);
     setAllSources(entry.allSources || []);
@@ -14146,7 +14482,7 @@ function App() {
     // interactive thing anyone sees is the agreement.
     return (
       <>
-        <Intro accent={accent} P={P} onEnter={() => { sfx(); setEntered(true); }} animationMode={animationMode} />
+        <Intro accent={accent} P={P} onEnter={(seed) => { sfx(); if (seed) setInput(seed); setEntered(true); }} animationMode={animationMode} />
         {!legalOk && (
           <ConsentGate
             P={P} accent={accent} at={at} user={user}
@@ -14158,7 +14494,7 @@ function App() {
     );
   }
 
-  const started = turns.length > 0 || busy || Boolean(error);
+  const started = turns.length > 0 || busy;
   const exportList = saved.length ? saved : allSources;
   const relColor = (r) => r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint;
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
@@ -14279,18 +14615,36 @@ function App() {
           coherent environment; the renderer already stops on its own when the
           tab is hidden or the canvas is off-screen, which is the case that
           actually costs anything. */}
-      <CerebrumFieldCanvas
-        accent={accent}
-        P={P}
-        mode={started ? "reading" : "ambient"}
-        energy={busy ? 1 : 0}
-        core={started ? 0.34 : 0.85}
-        corePos={started ? [0.72, 0.58] : (isMobile ? [0.35, 0.52] : [0.72, 0.48])}
-        coreScale={started ? 0.42 : (isMobile ? 0.5 : 0.68)}
-        animationMode="off"
-      />
-      {/* No full-screen grain compositing layer. */}
-      {/* Guidance remains available through How it works; no blocking tour. */}
+      {/* One backdrop at a time, never both.
+
+          The reel is the application's atmosphere when it can run. When it
+          cannot — reduced motion, Save-Data, animation switched off — the
+          generated field takes its place rather than leaving a flat panel,
+          so the shell has depth under every condition. `filmBlocked` is the
+          single rule both branches read; asking the question twice in two
+          slightly different ways is how you end up mounting two WebGL/video
+          backdrops on the same screen.
+
+          Intensity drops once an investigation is underway: the reel is a
+          front door, and a bright cut behind a paragraph someone is reading
+          is a distraction, not atmosphere. */}
+      {filmBlocked(animationMode, false) ? (
+        <CerebrumFieldCanvas
+          accent={accent}
+          P={P}
+          mode={started ? "reading" : "ambient"}
+          energy={busy ? 1 : 0}
+          core={started ? 0.34 : 0.85}
+          corePos={started ? [0.72, 0.58] : [0, 0.08]}
+          coreScale={started ? 0.42 : 0.9}
+          animationMode={animationMode}
+        />
+      ) : (
+        <CinematicFilm animationMode={animationMode} intensity={started ? 0.62 : 1} />
+      )}
+      <div style={S.grain} />
+      {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
+      <GuidedTour P={P} accent={accent} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {/* Back to top. Two mobile fixes: it sat at 10% white over the page,
           so the Home Deck's rows read straight through it (a watchlist
@@ -14299,7 +14653,7 @@ function App() {
           edge of a card is its quiet side. Opaque, shadowed, and on the
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
-      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? 80 : 24) /* clears the Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? 16 : 24, width: 38, height: 38, borderRadius: "50%", background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95), border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "none", WebkitBackdropFilter: "none", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
+      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? 80 : 24) /* clears the Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? 16 : 24, width: 38, height: 38, borderRadius: "50%", background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95), border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -14334,7 +14688,7 @@ function App() {
           title="Menu"
           style={{
             position: "fixed", top: 14, left: 14, zIndex: 21,
-            width: 44, height: 44, borderRadius: "50%",
+            width: 38, height: 38, borderRadius: "50%",
             display: "flex", alignItems: "center", justifyContent: "center",
             // Was 0.75/0.85 — translucent enough that the Home Deck's first
             // stat read straight through the button as it scrolled under.
@@ -14342,7 +14696,7 @@ function App() {
             // smudge.
             background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95),
             border: `1px solid ${P.line}`,
-            backdropFilter: "none", WebkitBackdropFilter: "none",
+            backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)",
             boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)",
             color: P.ink, cursor: "pointer",
           }}
@@ -14409,20 +14763,18 @@ function App() {
                   has not been introduced yet.
                   ══════════════════════════════════════════════════════ */}
               {deckHasContent ? (
-                <div style={{ marginBottom: 36, position: "relative", width: "100%", maxWidth: 880, textAlign: "left" }}>
+                <div style={{ marginBottom: 26, position: "relative" }}>
                   <h1 style={{
-                    fontSize: isMobile ? 32 : 48, fontWeight: 500, letterSpacing: "-0.045em",
+                    fontSize: isMobile ? 30 : 40, fontWeight: 700, letterSpacing: "-0.03em",
                     lineHeight: 1.1, color: P.ink, margin: "0 0 8px", fontFamily: "var(--cb-display)",
                   }}>
-                    What are you investigating?
+                    {greeting()}{firstName ? <>, <span style={{ color: accent }}>{firstName}</span></> : null}
                   </h1>
                   <p style={{
                     fontSize: FONT_SIZES.small, color: P.faint, margin: 0,
                     fontFamily: "var(--cb-body)", display: "flex", flexWrap: "wrap",
                     alignItems: "center", gap: 10, letterSpacing: "-0.005em",
                   }}>
-                    <span>{greeting()}{firstName ? `, ${firstName}` : ""}</span>
-                    <span aria-hidden="true" style={{ opacity: 0.4 }}>·</span>
                     <span>{todayLabel()}</span>
                     {streakDays > 0 && (
                       <>
@@ -14434,8 +14786,12 @@ function App() {
                 </div>
               ) : (
                 <>
-                  <h1 style={{ ...S.heroTitle, fontSize: isMobile ? 34 : 52, lineHeight: 1.1, letterSpacing: "-0.045em" }}>What are you investigating?</h1>
-                  <p style={S.heroSub}>Find the papers. Compare the evidence. Build your investigation.</p>
+                  <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+                    <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
+                    <Mark size={44} accent={accent} glow={P.dark} />
+                  </div>
+                  <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
+                  <p style={S.heroSub}>Ask a real research question. Every claim traces to a paper you can open.</p>
                 </>
               )}
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
@@ -14446,8 +14802,8 @@ function App() {
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
               )}
-              <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 880 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey || !e.shiftKey)) { e.preventDefault(); ask(); } }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
+              <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 700 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
@@ -14508,7 +14864,7 @@ function App() {
                   is what 6 named + 9 more already said. The count is right;
                   the note about it was not.) */}
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginBottom: 8, lineHeight: 1.5 }}>
-                Search across scholarly databases. Open the papers to check the evidence:
+                Every question is sent to 15 public research databases at once. These are the largest:
               </div>
               <div style={S.trustRow}>
                 {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
@@ -14520,8 +14876,8 @@ function App() {
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} done={false} /></div>)}
-                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { const retry = lastRequestRef.current; if (retry) ask(retry.question, { image: retry.image }); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
-                {!busy && (<>
+                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
+                {turns.length > 0 && !busy && (<>
                   {attachedImage && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
                       <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: 8, objectFit: "cover" }} />
@@ -14543,7 +14899,7 @@ function App() {
                     ))}
                   </div>
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
-                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey || !e.shiftKey)) { e.preventDefault(); ask(); } }} placeholder="Follow up: I remember the whole thread" />
+                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up: I remember the whole thread" />
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
@@ -14565,6 +14921,10 @@ function App() {
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: "8px 14px", maxWidth: 620, margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
               {[
                 ["how", "How it works"],
+                /* The reel plays behind the whole application, not just the
+                   intro, so its attribution has to be reachable from in here
+                   too — the CC BY clips are on screen either way. */
+                ["credits", "Film credits"],
                 ["/about", "About"],
                 ["/privacy", "Privacy"],
                 ["/terms", "Terms"],
@@ -14582,9 +14942,9 @@ function App() {
                   textDecoration: "underline", textDecorationStyle: "dotted",
                   textDecorationColor: withAlpha(P.faint, 0.55), textUnderlineOffset: "3px",
                 };
-                return href === "how"
-                  ? <button key={label} type="button" onClick={() => setHowItWorksOpen(true)} style={st}>{label}</button>
-                  : <a key={label} href={href} style={st}>{label}</a>;
+                if (href === "how") return <button key={label} type="button" onClick={() => setHowItWorksOpen(true)} style={st}>{label}</button>;
+                if (href === "credits") return <button key={label} type="button" onClick={() => setFilmCreditsOpen(true)} style={st}>{label}</button>;
+                return <a key={label} href={href} style={st}>{label}</a>;
               })}
               <span style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · v{APP_VERSION}</span>
             </div>
@@ -14951,8 +15311,8 @@ function App() {
           Background animation setting. Someone who turns effects off was
           still getting grain and a vignette over everything, which is not
           what "off" means. */}
-      
-      
+      {animationMode !== "off" && <div className="cb-grain" aria-hidden="true" />}
+      {animationMode !== "off" && <div className="cb-vignette" aria-hidden="true" />}
       <ToastHost P={P} accent={accent} />
       {/* Commit 69 — rendered last so it sits above every other layer, and
           unconditionally blocking: no query runs, no data loads into view,
@@ -14976,13 +15336,51 @@ function App() {
    ════════════════════════════════════════════════════════════════ */
 const CSS = `
 :root {
-  /* Workspace headings and controls use the same sans-serif family.
-     Long-form reading keeps Newsreader through --cb-read.
-     Every family has an offline system fallback. */
-  --cb-display: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --cb-read:    Georgia, 'Times New Roman', serif;
-  --cb-body:    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --cb-mono:    ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  /* ══════════════════════════════════════════════════════════════
+     Commit 96 — the typeface was the tell.
+
+     This shipped on Space Grotesk + Inter + JetBrains Mono. That trio is
+     the default of every Vercel starter, every YC SaaS landing page and
+     every AI wrapper built between 2021 and 2024. None of the three is a
+     bad typeface. Together they are ANONYMOUS, and anonymous is what
+     "doesn't feel premium" actually means here: the page announces that it
+     came out of a template before a single word is read.
+
+     Replaced with a system where each face has one job:
+
+       Newsreader   a screen-first serif with a real optical-size axis
+                    (6..72) and weights 300-700. Headings AND, more
+                    importantly, the answer prose. Setting eight hundred
+                    words of research writing in a UI sans is what made
+                    this read as a dashboard; setting it in a serif built
+                    for reading is what makes it read as a publication.
+                    This is the single biggest change in the commit.
+
+       Inter Tight  chrome only. Buttons, labels, nav, chips, meta. Inter
+                    is superb at small sizes and the Tight cut is drawn
+                    for exactly this, so the interface stays crisp while
+                    the reading surfaces get character.
+
+       IBM Plex Mono  numbers, IDs, counts. Plex was drawn for a research
+                    and technology company and carries that; JetBrains
+                    Mono reads as a code editor, which this is not.
+
+     --cb-read exists so the intent is legible at every call site: it is
+     the same family as --cb-display, but it marks text a person actually
+     reads at length rather than scans. ══════════════════════════════ */
+  /* Display is a SANS. Interface chrome — the wordmark, page titles,
+     section headings, dialog titles — is set in the same geometric family
+     as the body, one size and weight step up. A display serif at 84px
+     reads as a magazine masthead, and Cerebrum is software.
+
+     --cb-read stays a serif, and only long-form prose uses it: policy
+     pages and the answer body, where a reader is settling in rather than
+     scanning. The two tokens exist so the difference is a decision at the
+     call site, not an accident. */
+  --cb-display: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
+  --cb-read:    'Newsreader', Georgia, 'Times New Roman', serif;
+  --cb-body:    'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
+  --cb-mono:    'IBM Plex Mono', 'SF Mono', ui-monospace, monospace;
   --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
   --cb-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --cb-ease-out: cubic-bezier(0, 0, 0.2, 1);
@@ -15023,15 +15421,6 @@ button, input, select, textarea, optgroup { font-family: var(--cb-body); }
    own, which is exactly the kind of nested scrolling context this fix is
    trying to get rid of; \`clip\` suppresses the paint without doing that. */
 html, body { margin: 0; }
-button, a, input, textarea { touch-action: manipulation; }
-@media (max-width: 899px) {
-  input, textarea, select { font-size: 16px !important; }
-  button { min-height: 44px; }
-  [role="dialog"] { max-width: 100vw; overscroll-behavior: contain; }
-  .cb-page-enter, .cb-fade, .cb-answer-enter { animation: none !important; opacity: 1 !important; filter: none !important; }
-  table { display: block; max-width: 100%; overflow-x: auto; }
-}
-
 /* Commit 43: iOS/macOS Safari runs its own automatic text-inflation
    algorithm on top of every font-size this app already sets — it silently
    scales body text up or down (independent of pinch-zoom) based on column
@@ -15342,6 +15731,67 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 /* Glass panel depth — multi-layer shadows for 3D float effect */
+/* ════════════════════════════════════════════════════════════════
+   THE FILM
+
+   The reel sits behind everything at z-index 0 and is the only thing in
+   the application allowed to be bright. Interface panels float over it on
+   smoked glass; the gaps between them are transparent on purpose, which is
+   what gives the shell depth instead of looking like a screenshot pasted
+   onto a video.
+
+   The slow scale drift matters more than it looks: a locked-off clip reads
+   as a still after about four seconds, and the drift is what keeps a
+   ten-second loop feeling like footage rather than wallpaper. It is one
+   compositor-thread transform, so it costs nothing to run.
+   ════════════════════════════════════════════════════════════════ */
+.cb-film {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 72% 16%, rgba(163,184,153,0.16), transparent 58%),
+    radial-gradient(90% 70% at 16% 92%, rgba(120,150,170,0.10), transparent 60%),
+    #0b0d10;
+}
+.cb-film-clip { animation: cbFilmDrift 22s ease-in-out infinite alternate; will-change: transform, opacity; }
+@keyframes cbFilmDrift {
+  from { transform: translate(-50%, -50%) scale(1.06); }
+  to   { transform: translate(-50%, -50%) scale(1.16); }
+}
+
+/* ── Intro controls ──
+   Pills, and every one of them lifts a hair on hover. The lift is the
+   whole trick: it is what separates a control you can press from a shape
+   that happens to be rounded. */
+.cb-intro-navpill { transition: background 260ms var(--cb-ease), color 260ms var(--cb-ease); }
+.cb-intro-navpill:hover { background: rgba(255,255,255,0.09); color: #f2f4f2 !important; }
+.cb-intro-search { transition: border-color 300ms var(--cb-ease), box-shadow 300ms var(--cb-ease), transform 300ms var(--cb-ease); }
+.cb-intro-search:focus-within {
+  border-color: rgba(163,184,153,0.42) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 34px 90px rgba(0,0,0,0.65), 0 0 0 4px rgba(163,184,153,0.10);
+}
+.cb-intro-go { transition: transform 260ms var(--cb-ease), box-shadow 260ms var(--cb-ease), filter 260ms var(--cb-ease); }
+.cb-intro-go:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 10px 28px rgba(163,184,153,0.40); }
+.cb-intro-go:active { transform: translateY(0); }
+.cb-intro-chip { transition: background 260ms var(--cb-ease), color 260ms var(--cb-ease), transform 260ms var(--cb-ease), border-color 260ms var(--cb-ease); }
+.cb-intro-chip:hover {
+  background: rgba(255,255,255,0.12) !important;
+  border-color: rgba(255,255,255,0.16) !important;
+  color: #f2f4f2 !important;
+  transform: translateY(-2px);
+}
+
+/* A visitor who asked for less motion gets the reel as a still frame, not
+   a drifting one, and no dissolves — the component has already stopped
+   loading clips by then, so this only governs what is on screen. */
+@media (prefers-reduced-motion: reduce) {
+  .cb-film-clip { animation: none !important; transition: none !important; }
+}
+
 .cb-glass-panel {
   box-shadow: 
     0 0 0 0.5px rgba(255,255,255,0.05) inset,
@@ -15757,7 +16207,16 @@ button, a, .cb-tap {
    top edge that wipes in from the left — a small "this one is live"
    signal that doesn't cost a color change or a size change. */
 .cb-deck-card { position: relative; overflow: hidden; }
-.cb-deck-card::before { display: none; }
+.cb-deck-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--cb-accent, #34d399) 70%, transparent),
+    transparent);
+  transform: scaleX(0); transform-origin: left center;
+  transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
 .cb-deck-card:hover::before { transform: scaleX(1); }
 
 /* The stats strip lifts as one object rather than per-number — the four
