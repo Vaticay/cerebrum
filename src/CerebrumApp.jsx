@@ -3206,6 +3206,15 @@ const FILM_CLIPS = [
      restoring it is uncommenting this line; a landscape re-crop of the
      same source would fix it properly. */
   // "/assets/cinematic/science-05.mp4",
+  /* science-06 is re-cut. The source is a published lab video: it opened
+     on a title card and carried burned-in captions ("MAPbBr3 crystal growth
+     by Inverse Temperature Crystallization", "Time accelerated video 720x")
+     and a running HOURS:MINUTES counter for its whole length. Text baked
+     into a backdrop sits under the interface's own type and reads as a
+     rendering fault. Trimmed past the card and cropped to the clean band
+     between the caption and the counter, so the frame is wider than the
+     others — the vial stays centred, which is what `object-fit: cover`
+     keeps. */
   "/assets/cinematic/science-06.mp4", // Perovskite crystal growth — Makhsud I. Saidaminov et al.
   "/assets/cinematic/science-07.mp4", // Laboratory reaction — cottonbro studio
   "/assets/cinematic/science-08.mp4", // Blue ink dispersing in water — MART PRODUCTION
@@ -3219,6 +3228,11 @@ const FILM_CLIPS = [
   "/assets/cinematic/science-16.mp4", // Plasma globe — Mathias De Rivo
   "/assets/cinematic/science-17.mp4", // Industrial robot arm — Usman AbdulrasheedGambo
   "/assets/cinematic/science-18.mp4", // Laser beams over Paranal — ESO/F. Kamphues
+  /* science-19 is re-cut: the excerpt opened on ESO's logo card with
+     "www.eso.org" under it, full screen, for the first ~2.5 seconds. The
+     licence requires the credit, not the bumper — the credit is in the
+     film-credits dialog where a reader can actually use it. Trimmed to the
+     starfield. */
   "/assets/cinematic/science-19.mp4", // Helix Nebula zoom — ESO
   "/assets/cinematic/science-20.mp4", // Earth night lights rotating globe — NASA Scientific Visualization Studio; NASA Earth Observatory / NASA-NOAA Suomi NPP data
 ];
@@ -12852,14 +12866,18 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          50% reads as slightly low. Everything else starts below the fold,
          which is the point: the question is the screen, and your work is
          what you scroll to. */
-      minHeight: isMobile ? "auto" : "calc(100dvh - 190px)",
+      /* A phone gets the same treatment at phone proportions. With
+         `auto` the band collapsed to its content and the search bar sat
+         66px from the top of an 844px screen — technically centred inside
+         a box that had no height to centre in. */
+      minHeight: isMobile ? "calc(100dvh - 200px)" : "calc(100dvh - 190px)",
       /* Bias, because centring the GROUP is not the same as centring the
          BAR. The heading sits above it and the mode row, the blurb and the
          evidence filter sit below, so a perfectly centred block leaves the
          search bar itself riding about 12% high. Padding at the top pushes
          the content box down by half its value, which lands the bar on the
          optical middle of the window rather than the group's middle. */
-      paddingTop: isMobile ? 0 : 150,
+      paddingTop: isMobile ? 120 : 150,
       paddingBottom: isMobile ? 8 : 16,
     },
     heroTitleCompact: {
