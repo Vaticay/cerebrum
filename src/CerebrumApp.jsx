@@ -1941,6 +1941,26 @@ function ImageCredit({ image, style }) {
 
    `explain` stays the default and is exactly what the box did before, so
    nobody who ignores all of this loses anything. */
+/* The line above the search bar.
+
+   One is chosen per page load, so the screen is not identical every time
+   you open it without anything actually changing. They are all plain
+   questions a colleague would ask — no exclamation marks, no "Let's dive
+   in", nothing that reads as an assistant performing enthusiasm. The point
+   is to hand you the floor, not to have a personality. */
+const COMPOSER_PROMPTS = [
+  "What's on your mind?",
+  "What are you trying to find out?",
+  "What are we looking into?",
+  "Where do you want to start?",
+  "What's the question?",
+  "What are you working on?",
+  "What do you want to know?",
+  "What are you curious about?",
+  "What are you chasing today?",
+  "What should we look up?",
+];
+
 const ASK_MODES = [
   {
     key: "explain",
@@ -1951,7 +1971,7 @@ const ASK_MODES = [
        chatbot — it is a query line against fifteen scholarly databases.
        Asking what someone is trying to find out invites a real question
        instead of a prompt. */
-    placeholder: "What are you trying to find out?",
+    placeholder: "Type a question, or paste a DOI",
     /* Not a sparkle either. The four-point sparkle is the universal "an AI
        did this" badge; on a control whose entire promise is that answers
        come from retrieved papers rather than from a model's imagination,
@@ -12791,7 +12811,21 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     composerBand: {
       width: "100%", display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "center",
-      minHeight: isMobile ? "auto" : "min(46vh, 420px)",
+      /* Tall enough that its centre IS the centre of the window.
+         The workspace starts 72px down, so the band runs to within ~120px
+         of the bottom edge and the composer sits at roughly 48% of the
+         viewport — the optical middle, which reads as centred where a true
+         50% reads as slightly low. Everything else starts below the fold,
+         which is the point: the question is the screen, and your work is
+         what you scroll to. */
+      minHeight: isMobile ? "auto" : "calc(100dvh - 190px)",
+      /* Bias, because centring the GROUP is not the same as centring the
+         BAR. The heading sits above it and the mode row, the blurb and the
+         evidence filter sit below, so a perfectly centred block leaves the
+         search bar itself riding about 12% high. Padding at the top pushes
+         the content box down by half its value, which lands the bar on the
+         optical middle of the window rather than the group's middle. */
+      paddingTop: isMobile ? 0 : 150,
       paddingBottom: isMobile ? 8 : 16,
     },
     heroTitleCompact: {
@@ -13890,6 +13924,9 @@ function App() {
   const [sessions, setSessions] = useState([]);
   const [mobilePanel, setMobilePanel] = useState(false);
   const [suggestions, setSuggestions] = useState(pick());
+  /* Chosen once per mount, not per render — a line that reshuffled every
+     time React re-rendered would flicker while you type. */
+  const [composerPrompt] = useState(() => COMPOSER_PROMPTS[Math.floor(Math.random() * COMPOSER_PROMPTS.length)]);
   const chipsPausedRef = useRef(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState("answers");
   const [drawerSource, setDrawerSource] = useState(null);
@@ -14997,6 +15034,19 @@ function App() {
                 </div>
               )}
               <div style={S.composerBand}>
+              {/* Shown only on the returning-user screen. A first-time
+                  visitor already has the wordmark and a line of copy above
+                  this point; a third heading stacked on those two would be
+                  the app introducing itself three times. */}
+              {deckHasContent && (
+                <h2 style={{
+                  margin: isMobile ? "0 0 20px" : "0 0 28px",
+                  fontSize: isMobile ? 24 : 32, fontWeight: 600,
+                  letterSpacing: "-0.03em", lineHeight: 1.1, textAlign: "center",
+                  color: P.ink, fontFamily: "var(--cb-display)",
+                  textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
+                }}>{composerPrompt}</h2>
+              )}
               <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
