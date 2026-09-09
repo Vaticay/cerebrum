@@ -3225,8 +3225,22 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-15.mp4", // Laboratory sample work — Pexels contributor
   "/assets/cinematic/science-16.mp4", // Plasma globe — Mathias De Rivo
   "/assets/cinematic/science-17.mp4", // Industrial robot arm — Usman AbdulrasheedGambo
-  "/assets/cinematic/science-18.mp4", // Laser beams over Paranal — ESO/F. Kamphues
-  "/assets/cinematic/science-19.mp4", // Helix Nebula zoom — ESO (re-cut past the logo card)
+  /* Both ESO clips are out of the reel — 18 (laser beams over Paranal) and
+     19 (Helix Nebula zoom).
+
+     Every frame of every clip was checked at 8fps, and neither file
+     contains a logo: 19's ESO title card was trimmed off and 18 never had
+     one. The card kept appearing on the live site anyway, which means the
+     old 19 is still being served from somewhere — the repo, an edge cache,
+     a browser. Chasing that is the wrong fight. A backdrop is decoration;
+     two clips out of thirty-one is nothing, and removing them makes the
+     bug impossible instead of unlikely. Nothing requests these files now,
+     so a stale copy in the repo can never play.
+
+     Their credit rows are gone too, because a credits list that names
+     clips nobody can see is not a credits list. If you ever want them
+     back, restore both here AND in FILM_CREDITS — the CC BY licence needs
+     the attribution to travel with the footage. */
   "/assets/cinematic/science-20.mp4", // Earth night lights — NASA SVS
   "/assets/cinematic/science-21.mp4", // Forest mushroom — Andrei Ignia
   "/assets/cinematic/science-22.mp4", // Droplets on a leaf — K
@@ -3284,8 +3298,6 @@ const FILM_CREDITS = [
   { n: "15", title: "Laboratory sample work", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/scientists-working-in-a-lab-8852423/" },
   { n: "16", title: "Plasma globe", credit: "Mathias De Rivo", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-footage-of-a-plasma-ball-6738879/" },
   { n: "17", title: "Industrial robot arm", credit: "Usman AbdulrasheedGambo", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/industrial-robot-arm-in-high-tech-factory-32386532/" },
-  { n: "18", title: "Laser beams over Paranal", credit: "ESO/F. Kamphues", license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/", source: "https://www.eso.org/public/videos/fk_vlt_platform_laser02/" },
-  { n: "19", title: "Helix Nebula zoom", credit: "ESO", license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/", source: "https://www.eso.org/public/videos/eso0907a/" },
   { n: "20", title: "Earth night lights rotating globe", credit: "NASA Scientific Visualization Studio; NASA Earth Observatory / NASA-NOAA Suomi NPP data", license: "NASA media-use guidelines", licenseUrl: "https://www.nasa.gov/nasa-brand-center/images-and-media/", source: "https://svs.gsfc.nasa.gov/30878/" },
   { n: "21", title: "Forest mushroom", credit: "Andrei Ignia", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-of-a-mushroom-4938893/" },
   { n: "22", title: "Droplets on a leaf", credit: "K", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-shot-of-water-droplets-from-a-leaf-5210325/" },
