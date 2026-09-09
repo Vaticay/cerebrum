@@ -1946,8 +1946,18 @@ const ASK_MODES = [
     key: "explain",
     label: "Explain",
     blurb: "How something works, according to published research",
-    placeholder: "Ask anything...",
-    icon: "sparkle",
+    /* Not "Ask anything...". That placeholder is the single most
+       recognisable chatbot string on the internet, and this is not a
+       chatbot — it is a query line against fifteen scholarly databases.
+       Asking what someone is trying to find out invites a real question
+       instead of a prompt. */
+    placeholder: "What are you trying to find out?",
+    /* Not a sparkle either. The four-point sparkle is the universal "an AI
+       did this" badge; on a control whose entire promise is that answers
+       come from retrieved papers rather than from a model's imagination,
+       it is the wrong flag to plant. An open book is what this mode
+       actually does. */
+    icon: "bookOpen",
   },
   {
     key: "verify",
@@ -9083,9 +9093,23 @@ function UIButton({
 }) {
   const pad = size === "sm" ? "6px 13px" : size === "lg" ? "12px 22px" : "9px 17px";
   const fs = size === "sm" ? FONT_SIZES.caption : FONT_SIZES.small;
+  /* Every skin gets a lit top edge and a shadow that belongs to it.
+     A primary button that is a flat block of accent with no highlight and
+     no shadow is the default a framework gives you; the inset hairline and
+     the tinted drop shadow are what make it look moulded from the same
+     material as the panels around it. `secondary` stops being fully
+     transparent so it holds its own shape over moving footage — a
+     transparent outline over a bright frame is just an outline. */
   const skins = {
-    primary:     { background: accent, color: at, border: "1px solid transparent" },
-    secondary:   { background: "transparent", color: P.ink, border: `1px solid ${P.line2}` },
+    primary: {
+      background: accent, color: at, border: "1px solid transparent",
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 2px rgba(0,0,0,0.18), 0 8px 22px ${withAlpha(accent, 0.28)}`,
+    },
+    secondary: {
+      background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)",
+      color: P.ink, border: `1px solid ${P.line2}`,
+      boxShadow: P.dark ? "inset 0 1px 0 rgba(255,255,255,0.06)" : "inset 0 1px 0 rgba(255,255,255,0.8)",
+    },
     ghost:       { background: "transparent", color: P.ink2, border: "1px solid transparent" },
     destructive: { background: "transparent", color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}` },
   };
@@ -9096,7 +9120,8 @@ function UIButton({
       style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center", gap: SP.sm,
         padding: pad, borderRadius: RADIUS.pill, cursor: disabled ? "not-allowed" : "pointer",
-        fontSize: fs, ...TYPE.label, fontWeight: 700,
+        fontSize: fs, ...TYPE.label, fontWeight: 600, letterSpacing: "-0.005em",
+        transition: "transform 0.32s var(--cb-ease), box-shadow 0.32s var(--cb-ease), background 0.32s var(--cb-ease), border-color 0.32s var(--cb-ease), filter 0.32s var(--cb-ease)",
         width: full ? "100%" : undefined,
         opacity: disabled ? 0.5 : 1,
         ...skins[variant],
@@ -9118,9 +9143,26 @@ function UICard({ children, P, pad = true, className = "", style, onClick }) {
       onClick={onClick}
       className={"cb-card " + className}
       style={{
-        borderRadius: RADIUS.md,
-        background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
-        border: `1px solid ${P.line}`,
+        borderRadius: RADIUS.lg,
+        /* A real glass panel, not a 2.8%-white tint.
+           The page behind these cards is transparent now — the film plays
+           through it — and a fill that faint meant footage was legible
+           straight through the card's own text. The fill carries the
+           contrast, the blur keeps whatever is moving behind it from
+           competing with a headline, and the inset top hairline is the
+           lit edge that makes a surface read as raised rather than
+           printed on.
+           12px of blur rather than the composer's 30: there are several of
+           these on screen at once and backdrop blur is charged per frame
+           against the area behind it, so the fill does most of the work
+           and the blur only has to soften what is left. */
+        background: P.dark ? "rgba(15, 17, 21, 0.72)" : "rgba(255, 255, 255, 0.86)",
+        backdropFilter: "blur(12px) saturate(140%)",
+        WebkitBackdropFilter: "blur(12px) saturate(140%)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${P.line2}`,
+        boxShadow: P.dark
+          ? "inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 2px rgba(0,0,0,0.30), 0 16px 40px rgba(0,0,0,0.26)"
+          : "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(0,0,0,0.05), 0 14px 34px rgba(0,0,0,0.08)",
         padding: pad ? `${SP.lg}px ${SP.lg + 3}px ${SP.lg - 1}px` : 0,
         overflow: "hidden", minWidth: 0,
         cursor: onClick ? "pointer" : undefined,
@@ -9205,7 +9247,11 @@ function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3,
 
    Use these when adding anything new. A fifth value is a decision to
    defend, not a default. */
-const RADIUS = { sm: 8, md: 12, lg: 16, pill: 100 };
+/* Corner radii. Nudged up a step across the board: at 8/12/16 over a
+   moving film backdrop the panels read as cut rectangles, and the extra
+   couple of pixels is what makes a surface look moulded rather than
+   trimmed. `pill` is unchanged — a pill is a pill. */
+const RADIUS = { sm: 10, md: 14, lg: 18, pill: 100 };
 
 const BADGE_DISPLAY = {
   founder: { label: "Founder & Owner", icon: "sparkle", tint: "#c9a227" },
@@ -12714,9 +12760,24 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     // Commit 66 — compact variants used when the Home Deck has content.
     // See the comment at the hero's <Reveal>.
+    /* The returning-user hero.
+
+       This used to be 20px of padding around a greeting, which was fine
+       while the greeting was the thing in it. With the greeting moved down
+       to head the deck, the composer inherited that padding and ended up
+       pinned to the top edge of the viewport — reading as a toolbar bolted
+       to the chrome rather than the one control the screen is built around.
+
+       A minimum height plus centring is what makes it a focal point: the
+       composer lands around a third of the way down, with real air above
+       and below it and nothing else competing in that band. The deck starts
+       below the fold on purpose — search is what you came for, your own
+       work is what you scroll to. */
     heroCompact: {
       flex: "0 0 auto",
-      padding: isMobile ? "18px 0 8px" : "20px 0 10px",
+      minHeight: isMobile ? "auto" : "56vh",
+      justifyContent: "center",
+      padding: isMobile ? "28px 0 12px" : "0 0 24px",
     },
     heroTitleCompact: {
       fontSize: isMobile ? 34 : 50,
@@ -12757,8 +12818,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     searchShell: {
       display: "flex", alignItems: "center", gap: 10,
       width: "100%", maxWidth: 700,
-      backdropFilter: "blur(40px) saturate(150%)",
-      WebkitBackdropFilter: "blur(40px) saturate(150%)",
+      backdropFilter: "blur(30px) saturate(180%)",
+      WebkitBackdropFilter: "blur(30px) saturate(180%)",
       // This is the one control the entire product exists to serve, and it
       // was the least defined element on the page: an 8%-alpha border and a
       // single 32px shadow at 8% opacity, sitting on top of the animated
@@ -12775,14 +12836,20 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       //     plus a wide ambient shadow that does the lifting, plus a 1px
       //     inset top highlight (the standard glass trick: a lit top edge
       //     is what makes a surface read as raised rather than printed).
-      background: P.dark ? "rgba(15, 17, 26, 0.92)" : "rgba(255, 255, 255, 0.94)",
-      border: P.dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.13)",
+      /* 0.92 was effectively opaque: the film moving behind this control
+         never showed, so the most important surface on the screen was the
+         one place the material stopped. At 0.66 with a heavier saturate the
+         footage reads through it as colour and movement while the blur
+         keeps the placeholder crisp — which is the whole point of glass,
+         as opposed to a dark rectangle that merely has a blur property. */
+      background: P.dark ? "rgba(15, 17, 26, 0.66)" : "rgba(255, 255, 255, 0.80)",
+      border: P.dark ? "1px solid rgba(255,255,255,0.16)" : "1px solid rgba(0,0,0,0.13)",
       borderRadius: 100,
       padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
       boxShadow: P.dark
         ? "inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.35), 0 18px 48px rgba(0,0,0,0.45)"
         : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px rgba(0,0,0,0.06), 0 18px 44px rgba(0,0,0,0.10)",
-      transition: "border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease",
+      transition: "border-color 0.4s var(--cb-ease), box-shadow 0.4s var(--cb-ease), background 0.4s var(--cb-ease), transform 0.4s var(--cb-ease)",
       position: "relative"
     },
     // Hover previously swapped in P.shadow, a smaller shadow than the rest
@@ -12792,6 +12859,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // geometry unchanged so nothing shifts under the cursor.
     searchShellActive: {
       borderColor: withAlpha(accent, 0.55),
+      /* A two-pixel rise on hover and focus. Small enough that it never
+         reads as the layout moving, large enough that the control feels
+         like it comes to meet you. */
+      transform: "translateY(-2px)",
       boxShadow: P.dark
         ? `inset 0 1px 0 rgba(255,255,255,0.09), 0 2px 10px rgba(0,0,0,0.4), 0 22px 56px rgba(0,0,0,0.5), 0 0 0 4px ${withAlpha(accent, 0.1)}`
         : `inset 0 1px 0 rgba(255,255,255,0.95), 0 2px 10px rgba(0,0,0,0.07), 0 22px 52px rgba(0,0,0,0.12), 0 0 0 4px ${withAlpha(accent, 0.12)}`,
@@ -15802,7 +15873,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
      edge readable, plus the wide ambient one that sells the lift. A single
      40px-blur shadow at 15% is nearly invisible on a light surface, which
      is why hover felt like it did nothing in light mode. */
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 16px 40px rgba(0,0,0,0.14);
+  /* The inset hairline is repeated here on purpose: box-shadow replaces
+     the whole stack, so omitting it made the lit top edge vanish at the
+     exact moment the card lifts — the one frame where a raised surface
+     most needs to look raised. */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08),
+              0 2px 10px rgba(0,0,0,0.22),
+              0 22px 54px rgba(0,0,0,0.30);
   /* Motion alone isn't a state change - the border responding is what
      makes a card feel interactive rather than just animated. --cb-accent
      is already set per-theme on :root, so this tracks the user's accent. */
@@ -16295,12 +16372,26 @@ button, a, .cb-tap {
 
 /* Opt-in press feedback. A control that doesn't move when you push it
    reads as a picture of a button. */
+/* A press should ease out and snap back. The rise is slower than the
+   return on purpose: 0.32s lifting, 0.09s dropping, which is roughly how a
+   physical key behaves and why it reads as a control rather than a
+   transition. Brightening the fill on hover keeps a primary pill from
+   needing a second colour defined for its hover state. */
 .cb-deck-btn, .cb-press {
-  transition: transform 0.14s cubic-bezier(0.16, 1, 0.3, 1),
-              background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.32s ease, background-color 0.24s ease,
+              border-color 0.24s ease, color 0.24s ease, box-shadow 0.32s ease;
 }
-.cb-deck-btn:hover, .cb-press:hover { transform: translateY(-1px); }
-.cb-deck-btn:active, .cb-press:active { transform: translateY(0) scale(0.97); }
+.cb-deck-btn:hover, .cb-press:hover { transform: translateY(-1.5px); filter: brightness(1.06); }
+.cb-deck-btn:active, .cb-press:active {
+  transform: translateY(0) scale(0.975);
+  transition-duration: 0.09s;
+  filter: brightness(0.98);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-deck-btn, .cb-press { transition: none !important; }
+  .cb-deck-btn:hover, .cb-press:hover, .cb-deck-btn:active, .cb-press:active { transform: none !important; }
+}
 
 /* ── Home Deck cards ──
    .cb-card already supplies the lift, the two-layer shadow and the accent
