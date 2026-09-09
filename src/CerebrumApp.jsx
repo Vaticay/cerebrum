@@ -3229,6 +3229,14 @@ function FilmCreditsDialog({ onClose, accent }) {
    motion ends up with both backdrops mounted at once. */
 function filmBlocked(animationMode, paused) {
   if (paused || animationMode === "off") return true;
+  /* Genuinely low-end devices, where a full-viewport filtered video makes
+     the whole interface stutter. Deliberately a hard floor rather than a
+     guess at "slow": deviceMemory is only reported by Chromium and only in
+     coarse buckets, so anything cleverer would be inventing a capability
+     signal the browser is not giving us. Everyone else gets the film and
+     the pause control. */
+  if (typeof navigator !== "undefined" && typeof navigator.deviceMemory === "number" &&
+      navigator.deviceMemory > 0 && navigator.deviceMemory <= 2) return true;
   if (typeof navigator !== "undefined" && navigator.connection && navigator.connection.saveData) return true;
   if (typeof window !== "undefined" && window.matchMedia &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches) return true;
@@ -3242,6 +3250,7 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
   const idxRef = useRef(0);
   const missRef = useRef(0);
   const timerRef = useRef(0);
+  const fadeRef = useRef(0);
   const orderRef = useRef(null);
   if (!orderRef.current) {
     const o = FILM_CLIPS.slice();
@@ -3265,12 +3274,18 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
 
     const stop = () => {
       clearTimeout(timerRef.current);
+      clearTimeout(fadeRef.current);
       for (const el of els) { try { el.pause(); } catch {} }
     };
 
     if (blocked) { stop(); return; }
 
     const play = (el, src) => {
+      /* A clip that loads clears the miss counter. Without this the count
+         only ever climbs: a long session that skips a handful of absent
+         files over an hour would eventually cross the give-up threshold
+         and stop a reel that was working perfectly well. */
+      el.onloadeddata = () => { missRef.current = 0; };
       el.onerror = () => {
         /* One unplayable clip must not take the backdrop down with it. */
         if (++missRef.current < orderRef.current.length) {
@@ -3296,8 +3311,15 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
       idxRef.current = (idxRef.current + 1) % orderRef.current.length;
       play(els[next], orderRef.current[idxRef.current]);
       els[next].style.opacity = "1";
-      els[curRef.current].style.opacity = "0";
+      const outgoing = els[curRef.current];
+      outgoing.style.opacity = "0";
       curRef.current = next;
+      /* Stop decoding the clip nobody can see. It used to keep playing —
+         and looping — behind the visible one for the whole eleven-second
+         hold, so the page was decoding two videos at all times instead of
+         one. The delay clears the 2.2s dissolve; pausing immediately would
+         freeze the outgoing frame mid-fade. */
+      fadeRef.current = setTimeout(() => { try { outgoing.pause(); } catch {} }, 2400);
       timerRef.current = setTimeout(cycle, FILM_HOLD_MS);
     };
 
@@ -3330,21 +3352,15 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
 
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const isMobile = useIsMobile();
-  const [seed, setSeed] = useState("");
   const [creditsOpen, setCreditsOpen] = useState(false);
 
-  /* This screen is its own surface, independent of the palette the visitor
-     chose for the app: film, smoked glass, sage. `accent` still comes from
-     their settings, but a very dark custom accent would vanish against it,
-     so it is floored the same way it always has been. */
   const introAccent = relLuminance(accent) < 0.15 ? "#A3B899" : accent;
 
   /* The same seven refs the entrance and exit timelines have always
-     animated. What each one POINTS AT changed with the layout — the two
-     head refs are now the two lines of a sans headline, `descRef` is the
-     search pill, `tagsRef` the suggestion chips — but the choreography is
-     untouched, so leaving the intro is still one continuous motion into
-     the app rather than a hard cut. */
+     animated, all of them on the hero. Everything below the fold is
+     static: choreographing a landing page a visitor has not scrolled to
+     yet means running tweens on off-screen elements over a playing video,
+     which is exactly the work that made this screen stutter. */
   const navRef = useRef(null);
   const logoRef = useRef(null);
   const head1Ref = useRef(null);
@@ -3357,56 +3373,84 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   useEffect(() => {
     if (animationMode === "off") return;
     const tl = gsap.timeline();
-    tl.fromTo(navRef.current, { y: -15, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0)
-      .fromTo(logoRef.current, { scale: 0.6, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.05)
-      .fromTo(head1Ref.current, { y: 18, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.3, ease: EASE }, 0.15)
-      .fromTo(head2Ref.current, { y: 18, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.3, ease: EASE }, 0.24)
-      .fromTo(descRef.current, { y: 22, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.3, ease: EASE }, 0.36)
-      .fromTo(tagsRef.current, { y: 14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.5)
-      .fromTo(btnsRef.current, { y: 10, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.6);
+    tl.fromTo(navRef.current, { y: -14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.0, ease: EASE }, 0)
+      .fromTo(logoRef.current, { scale: 0.7, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 1.0, ease: EASE }, 0.05)
+      .fromTo(head1Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, ease: EASE }, 0.14)
+      .fromTo(head2Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, ease: EASE }, 0.22)
+      .fromTo(descRef.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, ease: EASE }, 0.32)
+      .fromTo(tagsRef.current, { y: 18, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, ease: EASE }, 0.42)
+      .fromTo(btnsRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.0, ease: EASE }, 0.54);
     return () => tl.kill();
   }, [animationMode]);
 
   const go = (q) => {
-    const payload = typeof q === "string" ? q : seed;
+    const payload = typeof q === "string" ? q : "";
     if (animationMode === "off") { onEnter(payload); return; }
     const tl = gsap.timeline({ onComplete: () => onEnter(payload) });
-    tl.to(btnsRef.current, { y: 12, autoAlpha: 0, duration: 0.5, ease: EASE }, 0)
-      .to(tagsRef.current, { y: 12, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.04)
-      .to(descRef.current, { y: 16, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.08)
-      .to(head2Ref.current, { y: 18, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.14)
-      .to(head1Ref.current, { y: 18, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.18)
-      .to(logoRef.current, { scale: 0.85, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.22)
-      .to(navRef.current, { y: -12, autoAlpha: 0, duration: 0.5, ease: EASE }, 0.28);
+    tl.to(btnsRef.current, { y: 12, autoAlpha: 0, duration: 0.45, ease: EASE }, 0)
+      .to(tagsRef.current, { y: 12, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.04)
+      .to(descRef.current, { y: 14, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.08)
+      .to(head2Ref.current, { y: 16, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.13)
+      .to(head1Ref.current, { y: 16, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.17)
+      .to(logoRef.current, { scale: 0.85, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.2)
+      .to(navRef.current, { y: -12, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.26);
   };
 
-  /* Openers, not fake activity. These are questions Cerebrum can actually
-     answer well, drawn from the same pool the command palette uses — NOT a
-     mocked-up "your recent searches" row, which would be inventing a
-     history for someone who has not searched yet. */
-  const OPENERS = [
-    "How do mRNA vaccines remain stable at room temperature?",
-    "What limits perovskite solar cell lifetime?",
-    "Is intermittent fasting supported by RCT evidence?",
-    "How do CRISPR off-target rates differ across tissues?",
+
+  /* The actual list, in the order the retrieval ladder reaches for them.
+     Naming them is the claim: "fifteen databases" is marketing, fifteen
+     names a researcher recognises is evidence. */
+  const DATABASES = [
+    "PubMed", "Europe PMC", "OpenAlex", "Crossref", "Semantic Scholar",
+    "arXiv", "bioRxiv", "medRxiv", "DOAJ", "PLOS",
+    "CORE", "BASE", "OpenAIRE", "PMC", "Unpaywall",
   ];
 
+
+
   const hidden = animationMode === "off" ? 1 : 0;
-  const glassPanel = {
-    background: "rgba(15, 17, 21, 0.70)",
-    backdropFilter: "blur(24px) saturate(120%)",
-    WebkitBackdropFilter: "blur(24px) saturate(120%)",
+
+  /* Two surface recipes, and the difference is deliberate.
+
+     `frosted` uses backdrop-filter and is spent ONLY on the two elements
+     that sit still at the top of the screen. Every frosted surface makes
+     the compositor re-blur what is behind it on every frame of the film,
+     and this page had seven of them — the nav, the search bar, four chips
+     and the whole sidebar — which is what made it stutter.
+
+     `solid` is a flat translucent fill. Over footage graded this dark it
+     is visually almost the same and costs nothing, so it is what every
+     card below the fold uses. */
+  const frosted = {
+    background: "rgba(15, 17, 21, 0.72)",
+    backdropFilter: "blur(14px)",
+    WebkitBackdropFilter: "blur(14px)",
     border: "1px solid rgba(255,255,255,0.09)",
+  };
+  const solid = {
+    background: "rgba(15, 17, 21, 0.74)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  };
+
+  const sectionPad = isMobile ? "56px 20px" : "88px 40px";
+  const wrap = { maxWidth: 1040, margin: "0 auto", width: "100%" };
+  const kicker = {
+    fontFamily: "var(--cb-mono)", fontSize: 11, letterSpacing: "0.18em",
+    textTransform: "uppercase", color: "rgba(242,244,242,0.46)", margin: "0 0 14px",
+  };
+  const h2 = {
+    fontSize: isMobile ? 26 : 34, fontWeight: 600, letterSpacing: "-0.03em",
+    lineHeight: 1.15, color: "#f2f4f2", margin: "0 0 14px",
+  };
+  const body = {
+    fontSize: isMobile ? 14.5 : 15.5, lineHeight: 1.7,
+    color: "rgba(242,244,242,0.66)", margin: 0,
   };
 
   return (
     <div id="cb-intro-wrap" style={{
-      minHeight: "100dvh", display: "flex", flexDirection: "column",
-      position: "relative", overflow: "hidden",
+      minHeight: "100dvh", position: "relative", overflow: "hidden",
       fontFamily: "var(--cb-body)",
-      /* The ground under the film. Painted unconditionally, so a browser
-         that cannot decode the reel still gets a graded surface rather
-         than a black rectangle behind the glass. */
       background:
         "radial-gradient(120% 90% at 72% 16%, rgba(163,184,153,0.16), transparent 58%)," +
         "radial-gradient(90% 70% at 16% 92%, rgba(120,150,170,0.10), transparent 60%)," +
@@ -3414,134 +3458,110 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
     }}>
       <CinematicFilm animationMode={animationMode} intensity={1} />
 
-      {/* Contrast floor. Deliberately light and bottom-weighted: the film
-          is meant to be seen, and a full-viewport scrim is how a cinematic
-          backdrop turns back into a grey wall. */}
+      {/* Contrast floor, fixed so it costs one composite rather than
+          repainting as the page scrolls. */}
       <div aria-hidden="true" style={{
-        position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
+        position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
         background:
-          "radial-gradient(140% 100% at 50% 0%, transparent 42%, rgba(11,13,16,0.55) 100%)," +
-          "linear-gradient(0deg, rgba(11,13,16,0.78), transparent 46%)",
+          "radial-gradient(140% 100% at 50% 0%, transparent 42%, rgba(11,13,16,0.58) 100%)," +
+          "linear-gradient(0deg, rgba(11,13,16,0.80), transparent 46%)",
       }} />
 
       <nav ref={navRef} style={{
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+        position: "relative", zIndex: 20,
         margin: isMobile ? "12px 12px 0" : "16px 18px 0",
         padding: isMobile ? "9px 10px 9px 16px" : "10px 12px 10px 20px",
-        borderRadius: 999, position: "relative", zIndex: 3, opacity: hidden,
+        borderRadius: 999, opacity: hidden,
         boxShadow: "0 18px 50px rgba(0,0,0,0.45)",
-        ...glassPanel,
+        ...frosted,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <Mark size={19} accent={introAccent} glow />
           <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#ffffff", letterSpacing: "-0.015em" }}>Cerebrum</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 2 : 6 }}>
           {["About", "Privacy", "Contact"].map((item) => (
             <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navpill" style={{
               fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.72)", textDecoration: "none",
               fontWeight: 500, padding: "7px 14px", borderRadius: 999,
             }}>{item}</a>
           ))}
+          <button type="button" onClick={() => go("")} className="cb-intro-go" style={{
+            border: "none", cursor: "pointer", borderRadius: 999, marginLeft: 4,
+            padding: "8px 18px", background: introAccent, color: "#11140f",
+            fontWeight: 600, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)",
+          }}>Open</button>
         </div>
       </nav>
 
       <main style={{
-        flex: 1, display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", textAlign: "center",
-        padding: isMobile ? "0 20px 80px" : "0 40px 100px",
         position: "relative", zIndex: 10,
+        minHeight: isMobile ? "auto" : "calc(100dvh - 96px)",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", textAlign: "center",
+        padding: isMobile ? "40px 20px 48px" : "40px 40px 56px",
       }}>
-        <div ref={logoRef} style={{ marginBottom: 22, opacity: hidden }}>
+        <div ref={logoRef} style={{ marginBottom: 24, opacity: hidden }}>
           <Mark size={34} accent={introAccent} glow />
         </div>
 
-        {/* One weight, one family, no gradient fill. The second line is
-            dimmed rather than accent-coloured: at this size a sage line
-            reads as a highlighted link, not as a second clause. */}
         <h1 style={{
-          fontSize: isMobile ? 34 : "clamp(38px, 5vw, 60px)",
+          fontSize: isMobile ? 34 : "clamp(38px, 5vw, 58px)",
           fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.05,
-          color: "#ffffff", margin: "0 0 34px",
-          fontFamily: "var(--cb-body)",
+          color: "#ffffff", margin: "0 0 18px", maxWidth: 800,
           textShadow: "0 2px 34px rgba(0,0,0,0.55)",
-          maxWidth: 780,
         }}>
           <div ref={head1Ref} style={{ opacity: hidden }}>Ask anything.</div>
-          <div ref={head2Ref} style={{ opacity: hidden, color: "rgba(242,244,242,0.62)", fontWeight: 500 }}>We'll find the papers.</div>
+          <div ref={head2Ref} style={{ opacity: hidden, color: "rgba(242,244,242,0.62)", fontWeight: 500 }}>We&rsquo;ll find the papers.</div>
         </h1>
 
-        {/* The search pill. This is the front door: a question typed here
-            is carried straight into the app rather than being thrown away
-            at a "Start exploring" button. */}
-        <form
-          ref={descRef}
-          onSubmit={(e) => { e.preventDefault(); go(seed); }}
-          className="cb-intro-search"
-          style={{
-            display: "flex", alignItems: "center", gap: 8,
-            width: "min(720px, 100%)", opacity: hidden,
-            borderRadius: 9999, padding: isMobile ? "7px 7px 7px 16px" : "9px 9px 9px 22px",
-            boxShadow: "0 30px 80px rgba(0,0,0,0.60)",
-            ...glassPanel,
-            border: "1px solid rgba(255,255,255,0.16)",
-          }}>
-          <span style={{ display: "flex", color: "rgba(242,244,242,0.46)", flex: "none" }}>
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
-          </span>
-          <input
-            value={seed}
-            onChange={(e) => setSeed(e.target.value)}
-            placeholder={isMobile ? "Ask a research question" : "Ask a research question, or paste a DOI"}
-            aria-label="Ask a research question"
-            style={{
-              flex: 1, minWidth: 0, background: "none", border: "none", outline: "none",
-              color: "#f2f4f2", fontSize: isMobile ? 15 : 16, fontWeight: 450,
-              padding: "12px 0", fontFamily: "var(--cb-body)",
-            }} />
-          <button type="submit" className="cb-intro-go" style={{
-            flex: "none", border: "none", cursor: "pointer", borderRadius: 9999,
-            padding: isMobile ? "11px 18px" : "12px 26px",
-            background: introAccent, color: "#11140f",
-            fontWeight: 600, fontSize: isMobile ? 14 : 15, fontFamily: "var(--cb-body)",
-            boxShadow: "0 6px 20px rgba(163,184,153,0.28)",
-          }}>Search</button>
-        </form>
-
-        <div ref={tagsRef} style={{
-          display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center",
-          marginTop: 20, opacity: hidden, maxWidth: 760,
+        {/* There is no search field on this screen, deliberately. The
+            composer inside the app is the real one — it carries modes,
+            attachments, voice, evidence filters and the whole conversation
+            it starts. A second, simpler box out here looks like the same
+            control and is not, so a visitor's first interaction would be
+            with the weaker of the two. This screen's job is to introduce
+            the product and open the door. */}
+        <div ref={descRef} style={{
+          display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+          justifyContent: "center", opacity: hidden,
         }}>
-          {OPENERS.slice(0, isMobile ? 2 : 4).map((o) => (
-            <button key={o} type="button" onClick={() => go(o)} className="cb-intro-chip" style={{
-              cursor: "pointer", borderRadius: 9999,
-              padding: "9px 16px", fontSize: FONT_SIZES.caption, fontWeight: 450,
-              color: "rgba(242,244,242,0.72)", fontFamily: "var(--cb-body)",
-              background: "rgba(15,17,21,0.52)",
-              backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)",
-              border: "1px solid rgba(255,255,255,0.09)",
-            }}>{o}</button>
-          ))}
+          <button type="button" onClick={() => go("")} className="cb-intro-go" style={{
+            border: "none", cursor: "pointer", borderRadius: 9999,
+            padding: isMobile ? "14px 30px" : "16px 38px",
+            background: introAccent, color: "#11140f",
+            fontWeight: 600, fontSize: isMobile ? 15 : 16, fontFamily: "var(--cb-body)",
+            boxShadow: "0 12px 34px rgba(163,184,153,0.30)",
+          }}>Start exploring</button>
+          <a href="/about" className="cb-intro-chip" style={{
+            textDecoration: "none", borderRadius: 9999,
+            padding: isMobile ? "13px 24px" : "15px 28px",
+            fontSize: isMobile ? 14.5 : 15, fontWeight: 500,
+            color: "rgba(242,244,242,0.80)", fontFamily: "var(--cb-body)",
+            ...solid,
+          }}>How it works</a>
+        </div>
+
+        {/* The proof, carried as a quiet band rather than a paragraph.
+            Fifteen names a researcher recognises say more than a sentence
+            claiming fifteen databases, and cost one line to say. */}
+        <div ref={tagsRef} style={{
+          display: "flex", flexWrap: "wrap", gap: "6px 14px", justifyContent: "center",
+          fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em",
+          color: "rgba(242,244,242,0.34)", maxWidth: 720,
+          margin: isMobile ? "40px auto 0" : "62px auto 0", opacity: hidden,
+        }}>
+          {DATABASES.map((d) => <span key={d}>{d}</span>)}
         </div>
 
         <div ref={btnsRef} style={{
-          marginTop: 26, opacity: hidden,
+          marginTop: 18, opacity: hidden, display: "flex", gap: 10,
+          justifyContent: "center", flexWrap: "wrap",
           fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.46)",
-          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center",
         }}>
           <span><b style={{ color: "rgba(242,244,242,0.72)", fontWeight: 500 }}>Free.</b> No account required</span>
           <span style={{ opacity: 0.4 }}>·</span>
-          <span>15 scholarly databases</span>
-          <span style={{ opacity: 0.4 }}>·</span>
-          <button type="button" onClick={() => go("")} style={{
-            background: "none", border: "none", padding: 0, cursor: "pointer",
-            color: "rgba(242,244,242,0.72)", fontSize: FONT_SIZES.caption,
-            fontFamily: "var(--cb-body)", textDecoration: "underline", textUnderlineOffset: 3,
-          }}>Skip to the app</button>
-          <span style={{ opacity: 0.4 }}>·</span>
-          {/* Three of the background clips are CC BY 4.0. This link is the
-              licence condition being met, so it is on the screen the film
-              plays on rather than buried on a policy page. */}
           <button type="button" onClick={() => setCreditsOpen(true)} style={{
             background: "none", border: "none", padding: 0, cursor: "pointer",
             color: "rgba(242,244,242,0.46)", fontSize: FONT_SIZES.caption,
@@ -12505,9 +12525,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          where most of the shell's depth comes from — but the blur and the
          0.72 floor are doing real work, not decoration: a nav label has to
          stay readable when a bright frame drifts under it. */
-      background: P.dark ? "rgba(15, 17, 21, 0.72)" : P.surface,
-      backdropFilter: P.dark ? "blur(24px) saturate(120%)" : "none",
-      WebkitBackdropFilter: P.dark ? "blur(24px) saturate(120%)" : "none",
+      /* blur(14px), and no saturate(). Backdrop blur is charged per frame
+         against the area behind it, and this rail is 260px by the full
+         viewport height sitting over playing video — the most expensive
+         single surface in the app. 24px to 14px is most of the cost for
+         almost none of the look at this opacity, and dropping saturate()
+         removes a whole second filter pass over the same region. */
+      background: P.dark ? "rgba(15, 17, 21, 0.76)" : P.surface,
+      backdropFilter: P.dark ? "blur(14px)" : "none",
+      WebkitBackdropFilter: P.dark ? "blur(14px)" : "none",
       borderRight: `1px solid ${P.dark ? "rgba(255,255,255,0.09)" : P.line}`,
       display: "flex", flexDirection: "column",
       transform: isMobile ? "translateX(-100%)" : "none",
@@ -15751,16 +15777,27 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+  /* Its own stacking and paint context, so a repaint anywhere in the
+     interface above never drags the video surface into the same paint. */
+  contain: strict;
+  transform: translateZ(0);
   background:
     radial-gradient(120% 90% at 72% 16%, rgba(163,184,153,0.16), transparent 58%),
     radial-gradient(90% 70% at 16% 92%, rgba(120,150,170,0.10), transparent 60%),
     #0b0d10;
 }
-.cb-film-clip { animation: cbFilmDrift 22s ease-in-out infinite alternate; will-change: transform, opacity; }
-@keyframes cbFilmDrift {
-  from { transform: translate(-50%, -50%) scale(1.06); }
-  to   { transform: translate(-50%, -50%) scale(1.16); }
-}
+/* There used to be a slow scale drift on the clip here, and it was the
+   single most expensive thing on the page. Animating a transform on a
+   full-viewport video that also carries a CSS filter defeats the
+   compositor's fast path: the browser cannot just move a cached layer,
+   it re-rasterises a ~2M-pixel filtered surface every frame, and on an
+   integrated GPU that is the difference between a smooth page and the
+   stutter reported here. The footage already moves on its own; it did
+   not need help.
+
+   Promoting opacity stays, because the cross-dissolve does still animate
+   it and promoting that one property is cheap. */
+.cb-film-clip { will-change: opacity; }
 
 /* ── Intro controls ──
    Pills, and every one of them lifts a hair on hover. The lift is the
