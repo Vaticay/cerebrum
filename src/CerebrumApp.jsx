@@ -1678,7 +1678,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
          above it is the instrument you type into, below it is your own
          work. At 34px the two zones read as one long undifferentiated
          column. */
-      marginTop: deckIsEmpty ? 0 : (isMobile ? 32 : 64),
+      marginTop: deckIsEmpty ? 0 : (isMobile ? 24 : 40),
       display: "flex", flexDirection: "column", gap: 14,
     }}>
       {/* The greeting, in its new home: left-aligned, at the size of a
@@ -12775,9 +12775,24 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        work is what you scroll to. */
     heroCompact: {
       flex: "0 0 auto",
-      minHeight: isMobile ? "auto" : "56vh",
+      padding: isMobile ? "20px 0 12px" : "24px 0 16px",
+    },
+    /* The composer's own band.
+
+       Centring the hero container did nothing, and it took a measurement to
+       see why: that container is not a hero at all, it holds the whole home
+       screen — composer, mode row, greeting, deck, source list. Its content
+       filled it exactly, so `justify-content: center` had no free space to
+       distribute and the composer stayed pinned to the top of it.
+
+       So the band is explicit. Only the composer and its controls live in
+       here, it is given a height of its own, and the centring finally has
+       something to centre inside. Everything below starts after it. */
+    composerBand: {
+      width: "100%", display: "flex", flexDirection: "column", alignItems: "center",
       justifyContent: "center",
-      padding: isMobile ? "28px 0 12px" : "0 0 24px",
+      minHeight: isMobile ? "auto" : "min(46vh, 420px)",
+      paddingBottom: isMobile ? 8 : 16,
     },
     heroTitleCompact: {
       fontSize: isMobile ? 34 : 50,
@@ -14160,7 +14175,16 @@ function App() {
     finally { setBusy(false); }
   }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
 
-  useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus(); }, [entered, isMobile, cmdOpen]);
+  /* preventScroll, and it is not a micro-optimisation.
+     Focusing an element makes the browser scroll it into view, and this
+     effect runs while the hero's entrance animation still has its elements
+     translated — so the browser scrolled to where the composer was
+     mid-tween and left the page there. The visible result was the search
+     bar jammed against the top edge of the window on every load, under a
+     screen that was silently scrolled down: the layout was centred
+     correctly and nobody could tell, because the viewport was never
+     looking at the top of it. */
+  useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus({ preventScroll: true }); }, [entered, isMobile, cmdOpen]);
 
   // Keyboard navigation: J/K steps through source cards, Enter opens
   // PaperDrawer for the focused card, Escape closes it. Only active when
@@ -14258,6 +14282,16 @@ function App() {
   // about turns.length (a real new turn was appended) and busy (streaming
   // started/stopped) — not incidental field mutations on existing turns.
   useEffect(() => {
+    /* Only while there is a conversation to stay at the bottom of.
+       Without this guard the effect also ran on the home screen, where
+       there are no turns at all: the page is short, so "within 300px of the
+       bottom" is trivially true on load, and the very first thing the app
+       did was scroll the home screen to its own footer. The composer was
+       centred correctly the whole time — the viewport was simply never
+       pointed at it, which is why it read as a bar bolted to the top of the
+       window. Sticking to the bottom is answer-thread behaviour and it now
+       lives only there. */
+    if (!turns.length) return;
     const doc = document.documentElement;
     const distanceFromBottom = doc.scrollHeight - (window.scrollY + doc.clientHeight);
     const wasNearBottom = distanceFromBottom < 300;
@@ -14488,7 +14522,7 @@ function App() {
         ...h.filter((entry) => entry.turns?.[0]?.id !== turns[0]?.id),
       ].slice(0, 40));
     }
-    setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); setTimeout(() => inputRef.current?.focus(), 50);
+    setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
   }
   function openHistoryItem(entry) {
     sfx();
@@ -14962,6 +14996,7 @@ function App() {
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
               )}
+              <div style={S.composerBand}>
               <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
@@ -15003,6 +15038,7 @@ function App() {
                 onChange={(v) => { sfx(); setEvidenceFilter(v); }}
                 P={P} accent={accent} isMobile={isMobile}
               />
+              </div>
 
               {/* Commit 66 — the Home Deck replaces the loose stack of
                   cards that used to sit here. See HomeDeck. */}
