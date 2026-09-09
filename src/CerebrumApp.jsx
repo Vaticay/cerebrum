@@ -1972,6 +1972,9 @@ const ASK_MODES = [
        Asking what someone is trying to find out invites a real question
        instead of a prompt. */
     placeholder: "Type a question, or paste a DOI",
+    /* The full string is clipped mid-word in a 390px bar, and a placeholder
+       that ends in "paste a D" reads as a rendering bug. */
+    placeholderShort: "Ask a question",
     /* Not a sparkle either. The four-point sparkle is the universal "an AI
        did this" badge; on a control whose entire promise is that answers
        come from retrieved papers rather than from a model's imagination,
@@ -1984,6 +1987,7 @@ const ASK_MODES = [
     label: "Check a claim",
     blurb: "Paste something you've heard and see if the research backs it",
     placeholder: "Paste a claim to test against the evidence...",
+    placeholderShort: "Paste a claim to test",
     icon: "check",
   },
   {
@@ -1991,6 +1995,7 @@ const ASK_MODES = [
     label: "Compare",
     blurb: "Two treatments, theories or methods, weighed against each other",
     placeholder: "Compare two theories, methods or findings...",
+    placeholderShort: "Compare two things",
     icon: "compare",
   },
   {
@@ -1998,6 +2003,7 @@ const ASK_MODES = [
     label: "Map a field",
     blurb: "Who studies this, what they've found, and what's still unsettled",
     placeholder: "Name a field to map. Who works on what, and what's open...",
+    placeholderShort: "Name a field to map",
     icon: "network",
   },
   {
@@ -2141,9 +2147,24 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
       style={{
         display: "flex", gap: 7, marginTop: 18, marginBottom: 4,
         justifyContent: isMobile ? "flex-start" : "center",
-        overflowX: "auto", maxWidth: "100%", padding: "2px 0",
+        /* width:100%, not just maxWidth. This row lives in a column with
+           `align-items: center`, which sizes a child to its content — so
+           `max-width: 100%` was measured against a box that had already
+           grown to fit all five pills, and the overflow scroller never had
+           anything to scroll. On a phone the last two modes simply ran off
+           the right edge of the screen with no way to reach them. */
+        width: "100%",
+        /* On a phone these wrap onto two lines instead of scrolling.
+           A horizontal scroller hides two of the five modes behind a
+           gesture nobody is told about — the row looked like it had been
+           cut off rather than like it slides, which is exactly how a
+           feature goes unused. Two visible rows beat one hidden one. */
+        ...(isMobile
+          ? { flexWrap: "wrap", justifyContent: "center", overflowX: "visible", rowGap: 7 }
+          : { overflowX: "auto" }),
+        maxWidth: "100%", padding: "2px 0",
         WebkitOverflowScrolling: "touch",
-        ...maskStyle,
+        ...(isMobile ? null : maskStyle),
       }}
     >
       {ASK_MODES.map((m) => {
@@ -3589,7 +3610,12 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#ffffff", letterSpacing: "-0.015em" }}>Cerebrum</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 2 : 6 }}>
-          {["About", "Privacy", "Contact"].map((item) => (
+          {/* The three legal links are desktop-only. On a 390px screen the
+              brand, three links and the button did not fit, and the button
+              — the only thing in the bar anyone presses — was the part that
+              ran off the edge. All three are in the footer of this same
+              screen and in the app itself. */}
+          {(isMobile ? [] : ["About", "Privacy", "Contact"]).map((item) => (
             <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navpill" style={{
               fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.72)", textDecoration: "none",
               fontWeight: 500, padding: "7px 14px", borderRadius: 999,
@@ -3605,7 +3631,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
 
       <main style={{
         position: "relative", zIndex: 10,
-        minHeight: isMobile ? "auto" : "calc(100dvh - 96px)",
+        minHeight: isMobile ? "calc(100dvh - 88px)" : "calc(100dvh - 96px)",
         display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center", textAlign: "center",
         padding: isMobile ? "40px 20px 48px" : "40px 40px 56px",
@@ -3660,7 +3686,12 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           color: "rgba(242,244,242,0.34)", maxWidth: 720,
           margin: isMobile ? "40px auto 0" : "62px auto 0", opacity: hidden,
         }}>
-          {DATABASES.map((d) => <span key={d}>{d}</span>)}
+          {/* Eight on a phone, not fifteen. At 390px the full list wrapped
+              to three dense mono lines that read as a wall rather than a
+              credential; the count is stated in the line underneath, so the
+              band only has to be long enough to be recognisably real. */}
+          {(isMobile ? DATABASES.slice(0, 8) : DATABASES).map((d) => <span key={d}>{d}</span>)}
+          {isMobile && <span style={{ opacity: 0.7 }}>+7 more</span>}
         </div>
 
         <div ref={btnsRef} style={{
@@ -3669,7 +3700,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.46)",
         }}>
           <span><b style={{ color: "rgba(242,244,242,0.72)", fontWeight: 500 }}>Free.</b> No account required</span>
-          <span style={{ opacity: 0.4 }}>·</span>
+          {/* The separator goes with the line break. On a phone this row
+              wrapped and left a middle dot stranded at the end of the first
+              line, pointing at nothing. */}
+          {!isMobile && <span style={{ opacity: 0.4 }}>·</span>}
           <button type="button" onClick={() => setCreditsOpen(true)} style={{
             background: "none", border: "none", padding: 0, cursor: "pointer",
             color: "rgba(242,244,242,0.46)", fontSize: FONT_SIZES.caption,
@@ -15048,7 +15082,10 @@ function App() {
                 }}>{composerPrompt}</h2>
               )}
               <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
+                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={isMobile
+                    ? ((ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholderShort ||
+                       (ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder)
+                    : (ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
