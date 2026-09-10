@@ -1,3 +1,4 @@
+import { contextAction } from "../functions/lib/conversation.js";
 /**
  * CerebrumApp — the Cerebrum interface.
  *
@@ -3597,7 +3598,7 @@ function useIsMobile() {
    If a future version streams real progress events, they belong here. Until
    then this shows elapsed time and nothing it cannot substantiate.
    ════════════════════════════════════════════════════════════════════════ */
-function AgentTrace({ P, accent, sourcesQueried = null, done = false }) {
+function AgentTrace({ P, accent, sourcesQueried = null, done = false, contextual = false }) {
   const startRef = useRef(performance.now());
   const [elapsed, setElapsed] = useState(0);
   const reduced = usePrefersReducedMotion();
@@ -3617,7 +3618,7 @@ function AgentTrace({ P, accent, sourcesQueried = null, done = false }) {
      milestone has been reached — they describe the shape of the work, and
      which one is shown depends only on how long it has been, which is a fact
      the client actually has. */
-  const waitingLine =
+  const waitingLine = contextual ? "Working with the previous answer — no new literature search" :
     seconds < 3 ? "Searching the literature"
     : seconds < 9 ? "Searching the literature. Some databases are slower than others."
     : "Still searching. A few databases are taking their time.";
@@ -3778,7 +3779,6 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-14.mp4", // Neuronal image-volume reconstruction — Economo, Clack et al.
   "/assets/cinematic/science-15.mp4", // Laboratory sample work — Pexels contributor
   "/assets/cinematic/science-16.mp4", // Plasma globe — Mathias De Rivo
-  "/assets/cinematic/science-17.mp4", // Industrial robot arm — Usman AbdulrasheedGambo
   /* Both ESO clips are out of the reel — 18 (laser beams over Paranal) and
      19 (Helix Nebula zoom).
 
@@ -3851,7 +3851,6 @@ const FILM_CREDITS = [
   { n: "14", title: "Neuronal image-volume reconstruction", credit: "Michael N Economo, Nathan G Clack and colleagues", license: "CC0", licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/", source: "https://elifesciences.org/articles/10566#video1" },
   { n: "15", title: "Laboratory sample work", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/scientists-working-in-a-lab-8852423/" },
   { n: "16", title: "Plasma globe", credit: "Mathias De Rivo", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-footage-of-a-plasma-ball-6738879/" },
-  { n: "17", title: "Industrial robot arm", credit: "Usman AbdulrasheedGambo", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/industrial-robot-arm-in-high-tech-factory-32386532/" },
   { n: "20", title: "Earth night lights rotating globe", credit: "NASA Scientific Visualization Studio; NASA Earth Observatory / NASA-NOAA Suomi NPP data", license: "NASA media-use guidelines", licenseUrl: "https://www.nasa.gov/nasa-brand-center/images-and-media/", source: "https://svs.gsfc.nasa.gov/30878/" },
   { n: "21", title: "Forest mushroom", credit: "Andrei Ignia", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-of-a-mushroom-4938893/" },
   { n: "22", title: "Droplets on a leaf", credit: "K", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-shot-of-water-droplets-from-a-leaf-5210325/" },
@@ -4007,7 +4006,6 @@ const FILM_SCENES = {
   "/assets/cinematic/science-14.mp4": { subject: "Neuroscience", question: "How do researchers trace a single neuron across a whole brain?" },
   "/assets/cinematic/science-15.mp4": { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
   "/assets/cinematic/science-16.mp4": { subject: "Physics", question: "What is plasma, and where does it occur naturally?" },
-  "/assets/cinematic/science-17.mp4": { subject: "Robotics", question: "How do robots learn to handle objects they have never gripped?" },
   "/assets/cinematic/science-20.mp4": { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
   "/assets/cinematic/science-21.mp4": { subject: "Mycology", question: "How do fungi move nutrients through a forest?" },
   "/assets/cinematic/science-22.mp4": { subject: "Plant science", question: "Why does water bead up on some leaves and not others?" },
@@ -6380,7 +6378,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
         ) : null}
         {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} />}
       </div>
-      {done && interactive && onStress && (t.factCheck || t.sources?.length) ? (
+      {done && interactive && t.responseKind !== "context" && onStress && (t.factCheck || t.sources?.length) ? (
         <StressTest turn={t} P={P} accent={accent} at={at} onStress={onStress} busy={busyNow}
           isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
       ) : null}
@@ -6476,7 +6474,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
           answer because that is the one moment we know the reader cares
           about this subject. Only on the LAST turn: repeating it under
           every answer in a long thread turns a useful offer into nagging. */}
-      {interactive && done && last && (
+      {interactive && done && last && t.responseKind !== "context" && (
         <WatchTopicButton q={t.q} P={P} accent={accent} user={user} onChanged={onWatchChanged} />
       )}
       {/* Related questions */}
@@ -15446,6 +15444,8 @@ function App() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [entered]);
 
+  const [contextBusy, setContextBusy] = useState(false);
+  const lastAskRef = useRef(null);
   const ask = useCallback(async (q, opts = {}) => {
     // Counts a day only when a real investigation runs — not for opening
     // the app. See readStreak/bumpStreak for why that distinction matters.
@@ -15453,12 +15453,14 @@ function App() {
     const question = (q ?? input).trim();
     const imageToSend = attachedImage;
     if ((!question && !imageToSend) || busy) return;
+    lastAskRef.current = { q: question, opts };
     // Commit 85 — auto-read is for an answer the reader just asked for, not
     // for one restored from history. Reopening a saved investigation was
     // enough to start narrating its last answer at you, unprompted, which
     // is most of what "it is also automatically playing TTS" is. Narration
     // now requires an ask in THIS session.
     setAskedThisSession(true);
+    setContextBusy(!imageToSend && !!contextAction(question));
     if (!mutedRef.current) Audio.click();
     setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
@@ -15466,7 +15468,7 @@ function App() {
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
-      const videosPromise = imageToSend ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
+      const videosPromise = (imageToSend || contextAction(question)) ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
       const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections,
         /* A stress test is the same request with constraints attached, not a
            second endpoint — the point is that the answer being compared is
@@ -15496,14 +15498,14 @@ function App() {
       catch { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      const nt = { id: turnId, answerId: data.answerId || "", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       setTurns((t) => [...t, nt]);
       setAllSources((prev) => { const seen = new Set(prev.map(sourceKey)); return [...prev, ...(data.sources || []).filter((s) => !seen.has(sourceKey(s)))]; });
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Audio.pop();
-      videosPromise.then(({ videos }) => { if (videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
+      videosPromise.then(({ videos }) => { if (data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
     } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
     finally { setBusy(false); }
   }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
@@ -16497,8 +16499,8 @@ function App() {
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} onStress={(o) => ask(t.q, o)} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} />))}
-                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} done={false} /></div>)}
-                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
+                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} done={false} contextual={contextBusy} /></div>)}
+                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
                   {attachedImage && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
