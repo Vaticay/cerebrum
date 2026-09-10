@@ -24,6 +24,9 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalContent.js";
 import { staticFieldCss } from "./cerebrumField.js";
+/* The one list of databases, shared with the search handler. See the note
+   where DATABASES is derived from it. */
+import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
 import { createPortal } from "react-dom";
 import gsap from "gsap";
 
@@ -3597,11 +3600,13 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   /* The actual list, in the order the retrieval ladder reaches for them.
      Naming them is the claim: "fifteen databases" is marketing, fifteen
      names a researcher recognises is evidence. */
-  const DATABASES = [
-    "PubMed", "Europe PMC", "OpenAlex", "Crossref", "Semantic Scholar",
-    "arXiv", "bioRxiv", "medRxiv", "DOAJ", "PLOS",
-    "CORE", "BASE", "OpenAIRE", "PMC", "Unpaywall",
-  ];
+  /* Derived, not typed. This list used to be fifteen names written by hand,
+     and it had drifted: it advertised Unpaywall and medRxiv, neither of which
+     the backend queries, and omitted Zenodo, which it does. A product whose
+     entire argument is that claims trace to real sources cannot name a
+     database it never asks. SCHOLARLY_SOURCES is the same array the search
+     handler iterates, so the two can no longer disagree. */
+  const DATABASES = SCHOLARLY_SOURCES.map((x) => x.name);
 
 
 
