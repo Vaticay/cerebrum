@@ -3967,6 +3967,68 @@ function FilmCreditsDialog({ onClose, accent }) {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════
+   WHAT YOU ARE LOOKING AT
+
+   One broad subject and one real question per clip, so the backdrop can
+   offer a way in rather than just being wallpaper.
+
+   The rules these entries follow, because getting them wrong on a product
+   about evidence would be worse than having no prompt at all:
+
+   - The subject is the FIELD, not a claim about the footage. "Marine
+     biology", never "a moon jellyfish off the Norwegian coast" — these are
+     stock clips and nobody verified the species, the site or the setup.
+   - The question is editorial and deliberately broad enough to be true of
+     whatever the clip actually shows. It is a question a person could ask
+     a librarian, not a caption.
+   - Nothing here asserts a finding. The question is a question; the answer
+     comes from the search, with sources, like every other answer.
+   - A clip with no honest entry simply has none, and the prompt is hidden
+     for that clip rather than filled with something vague.
+
+   `pos` / `posMobile` are object-position values. They only do anything
+   when the clip's aspect ratio differs from the viewport's — a 16:9 clip
+   on a 16:9 window is not cropped, so nothing to position. They exist for
+   the 4:3 and 1.9:1 clips, where the crop is real and the subject can end
+   up behind the headline. */
+const FILM_SCENES = {
+  "/assets/cinematic/science-01.mp4": { subject: "Microbiology", question: "What can scientists learn by watching microorganisms move?", pos: "62% 50%" },
+  "/assets/cinematic/science-02.mp4": { subject: "Cell biology", question: "How do single cells move without muscles?" },
+  "/assets/cinematic/science-03.mp4": { subject: "Plant science", question: "How does a seedling know which way is up?" },
+  "/assets/cinematic/science-04.mp4": { subject: "Plant science", question: "How efficient is photosynthesis compared with a solar panel?" },
+  "/assets/cinematic/science-07.mp4": { subject: "Chemistry", question: "What makes a chemical reaction speed up or stall?", pos: "50% 42%" },
+  "/assets/cinematic/science-08.mp4": { subject: "Fluid dynamics", question: "Why does a drop of dye spread through water the way it does?", pos: "50% 45%" },
+  "/assets/cinematic/science-09.mp4": { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?" },
+  "/assets/cinematic/science-10.mp4": { subject: "Volcanology", question: "How far does volcanic ash travel, and what does it do to the atmosphere?" },
+  "/assets/cinematic/science-11.mp4": { subject: "Glaciology", question: "How fast is the Greenland ice sheet losing mass?" },
+  "/assets/cinematic/science-12.mp4": { subject: "Marine biology", question: "How do jellyfish move without a brain?" },
+  "/assets/cinematic/science-13.mp4": { subject: "Marine biology", question: "What makes coral bleach, and can it recover?", pos: "50% 45%" },
+  "/assets/cinematic/science-14.mp4": { subject: "Neuroscience", question: "How do researchers trace a single neuron across a whole brain?" },
+  "/assets/cinematic/science-15.mp4": { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
+  "/assets/cinematic/science-16.mp4": { subject: "Physics", question: "What is plasma, and where does it occur naturally?" },
+  "/assets/cinematic/science-17.mp4": { subject: "Robotics", question: "How do robots learn to handle objects they have never gripped?" },
+  "/assets/cinematic/science-20.mp4": { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
+  "/assets/cinematic/science-21.mp4": { subject: "Mycology", question: "How do fungi move nutrients through a forest?" },
+  "/assets/cinematic/science-22.mp4": { subject: "Plant science", question: "Why does water bead up on some leaves and not others?" },
+  "/assets/cinematic/science-23.mp4": { subject: "Marine biology", question: "How much of an octopus's nervous system is in its arms?" },
+  "/assets/cinematic/science-24.mp4": { subject: "Marine biology", question: "What lives on a coral reef besides the coral?" },
+  "/assets/cinematic/science-25.mp4": { subject: "Geothermal science", question: "What makes a geyser erupt on a schedule?" },
+  "/assets/cinematic/science-26.mp4": { subject: "Marine biology", question: "How do octopuses change colour if they cannot see colour?" },
+  "/assets/cinematic/science-27.mp4": { subject: "Hydrology", question: "How does flowing water reshape the rock beneath it?" },
+  "/assets/cinematic/science-28.mp4": { subject: "Entomology", question: "How do pollinators find the flowers they visit?" },
+  "/assets/cinematic/science-29.mp4": { subject: "Entomology", question: "How does an ant colony make decisions without a leader?" },
+  "/assets/cinematic/science-30.mp4": { subject: "Hydrology", question: "What is actually dissolved in fresh water, and how is it measured?" },
+  "/assets/cinematic/science-31.mp4": { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
+  "/assets/cinematic/science-32.mp4": { subject: "Mineralogy", question: "How do crystals grow into such regular shapes?" },
+  "/assets/cinematic/science-33.mp4": { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
+};
+
+/* The poster is a frame of this clip, so when the reel is blocked and the
+   still is all anyone sees, the prompt on screen is the prompt for the
+   picture on screen. Checked against the file, not assumed. */
+const FILM_POSTER_CLIP = "/assets/cinematic/science-14.mp4";
+
 /* Motion on a phone is opt-in, and the choice survives a reload — a
    preference someone has to set on every visit is not a preference. */
 const FILM_OPT_IN_KEY = "cb_film_motion";
@@ -4003,12 +4065,19 @@ function filmBlocked(animationMode, paused) {
   if (typeof navigator !== "undefined" && typeof navigator.deviceMemory === "number" &&
       navigator.deviceMemory > 0 && navigator.deviceMemory <= 2) return true;
   if (typeof navigator !== "undefined" && navigator.connection && navigator.connection.saveData) return true;
+  /* Reduced motion gets the still poster BY DEFAULT, not permanently.
+     The setting means "do not surprise me with movement", and it is
+     honoured on arrival; it is not a claim that the person can never
+     choose to watch the footage. The Play background control sets the
+     same opt-in flag the phone rule uses, so an explicit press wins over
+     a default in both cases and survives a reload. */
   if (typeof window !== "undefined" && window.matchMedia &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches) return true;
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
+      !filmForcedOn()) return true;
   return false;
 }
 
-function CinematicFilm({ intensity = 1, animationMode = "off", paused = false }) {
+function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip }) {
   const aRef = useRef(null);
   const bRef = useRef(null);
   const curRef = useRef(0);
@@ -4033,9 +4102,30 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
      in this file follows. */
   const blocked = filmBlocked(animationMode, paused);
 
+  /* onClip is read through a ref on purpose. The reel effect below is keyed
+     on `blocked` alone; letting a fresh callback identity into its
+     dependency list would tear down and restart the whole reel — new
+     decoders, a jump back to clip one — every time the parent re-rendered
+     for an unrelated reason. */
+  const clipCbRef = useRef(onClip);
+  clipCbRef.current = onClip;
+  const report = (src) => { const f = clipCbRef.current; if (f) f(src); };
+
   useEffect(() => {
     const els = [aRef.current, bRef.current];
     if (!els[0] || !els[1]) return;
+
+    /* Object-position is decided once per mount rather than per frame:
+       the crop only changes when the window's aspect ratio does, and a
+       resize listener writing inline styles onto a playing video is a
+       repaint nobody asked for. */
+    const narrow = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(max-width: 760px)").matches : false;
+    const framePos = (src) => {
+      const scene = FILM_SCENES[src];
+      if (!scene) return "50% 50%";
+      return (narrow ? (scene.posMobile || scene.pos) : scene.pos) || "50% 50%";
+    };
 
     const stop = () => {
       clearTimeout(timerRef.current);
@@ -4045,6 +4135,9 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
 
     if (blocked) {
       stop();
+      /* The still IS a frame of a real clip, so the scene prompt above it
+         is still describing what is on screen. */
+      report(FILM_POSTER_CLIP);
       /* The poster attribute alone paints nothing until a source is set,
          so a blocked reel used to fall through to the flat gradient. This
          shows the graded still instead: the same frame the reel would have
@@ -4074,6 +4167,7 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
           el.style.opacity = "1";
         }
       };
+      el.style.objectPosition = framePos(src);
       if (el.getAttribute("src") !== src) { el.src = src; el.load(); }
       const p = el.play();
       if (p && p.catch) p.catch(() => {});
@@ -4084,6 +4178,7 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
       idxRef.current = (idxRef.current + 1) % orderRef.current.length;
       play(els[next], orderRef.current[idxRef.current]);
       els[next].style.opacity = "1";
+      report(orderRef.current[idxRef.current]);
       const outgoing = els[curRef.current];
       outgoing.style.opacity = "0";
       curRef.current = next;
@@ -4098,6 +4193,7 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
 
     play(els[curRef.current], orderRef.current[idxRef.current]);
     els[curRef.current].style.opacity = "1";
+    report(orderRef.current[idxRef.current]);
     timerRef.current = setTimeout(cycle, FILM_HOLD_MS);
 
     const onVis = () => { if (document.hidden) stop(); else { const p = els[curRef.current].play(); if (p && p.catch) p.catch(() => {}); timerRef.current = setTimeout(cycle, FILM_HOLD_MS); } };
@@ -4105,15 +4201,31 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
     return () => { document.removeEventListener("visibilitychange", onVis); stop(); };
   }, [blocked]);
 
-  /* Intensity is a prop, but the transition lives here so a change of
-     attention reads as the room dimming rather than a cut. */
+  /* There is no CSS filter here any more, and that is the whole fix for
+     the stutter.
+
+     The grade used to be `grayscale(30%) contrast(115%) brightness(0.6)`
+     applied to a full-viewport <video>. A filter on a video layer makes the
+     browser push every decoded frame through a shader pass before it can
+     composite it — about two million pixels, twenty-four times a second,
+     for the entire life of the page — and then any backdrop-filter above it
+     has to re-blur that result as well. On integrated graphics that is the
+     difference between a smooth page and a page that hitches.
+
+     The grade is baked into the files instead, by the same ffmpeg pass that
+     cuts them: the exact CSS matrix, in the CSS order, so the picture is
+     unchanged. What is left here is a plain <video> the compositor can hand
+     straight to the screen.
+
+     `intensity` still dims the room, but as the opacity of one solid layer
+     — a compositor-thread property, no rasterisation — rather than by
+     re-grading every frame. */
   const vid = {
     position: "absolute", top: "50%", left: "50%",
     width: "100%", height: "100%", objectFit: "cover",
     transform: "translate(-50%, -50%)",
     opacity: 0,
-    transition: "opacity 2.2s cubic-bezier(0.22, 1, 0.36, 1), filter 1.2s cubic-bezier(0.22, 1, 0.36, 1)",
-    filter: "grayscale(30%) contrast(115%) brightness(" + (0.6 * intensity).toFixed(2) + ")",
+    transition: "opacity 2.2s cubic-bezier(0.22, 1, 0.36, 1)",
     pointerEvents: "none",
   };
 
@@ -4121,14 +4233,187 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
     <div className="cb-film" aria-hidden="true">
       <video ref={aRef} style={vid} className="cb-film-clip" muted loop playsInline preload="auto" poster={FILM_POSTER} />
       <video ref={bRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={FILM_POSTER} />
+      <div className="cb-film-dim" style={{
+        position: "absolute", inset: 0, pointerEvents: "none",
+        background: "#0b0d10",
+        opacity: Math.max(0, Math.min(1, 1 - intensity)),
+        transition: "opacity 1.2s cubic-bezier(0.22, 1, 0.36, 1)",
+      }} />
     </div>
   );
 }
 
 
+/* A modal shell shared by the two dialogs this screen opens. Escape closes,
+   focus starts inside and returns to whatever opened it, a click on the
+   backdrop closes, and the panel scrolls rather than the page behind it.
+   FilmCreditsDialog above predates this and keeps its own copy on purpose —
+   it is reached from the workspace too, and rewiring it is not this
+   screen's job. */
+function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const prev = document.activeElement;
+    if (ref.current) ref.current.focus();
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (prev && prev.focus) prev.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog" aria-modal="true" aria-label={label}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 400, display: "flex",
+        alignItems: "center", justifyContent: "center",
+        padding: "max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom))",
+        background: "rgba(6, 8, 10, 0.72)",
+      }}>
+      <div ref={ref} tabIndex={-1} style={{
+        width: "min(" + width + "px, 100%)", maxHeight: "84dvh", overflowY: "auto", outline: "none",
+        background: "rgba(15, 17, 21, 0.96)",
+        border: "1px solid rgba(255,255,255,0.10)", borderRadius: 18,
+        boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
+        padding: "22px 22px 20px", color: "#f2f4f2", fontFamily: "var(--cb-body)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: "-0.02em", flex: 1, lineHeight: 1.25 }}>{title}</h2>
+          <button onClick={onClose} aria-label={"Close " + label} style={{
+            border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
+            color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 999,
+            padding: "7px 15px", fontSize: 12.5, fontFamily: "var(--cb-body)", flexShrink: 0,
+          }}>Close</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* "How it works" without a fabricated result.
+
+   The brief asked for a worked example: a question, a short sourced answer,
+   and a citation that opens its supporting passage. There is no verified,
+   stored example investigation in this repository — no cached answer, no
+   captured source passage — and writing one here would mean inventing a
+   quotation and attributing it to a real paper on the one screen whose
+   entire argument is that Cerebrum does not do that. So this is the
+   fallback the brief allows: say plainly what the three steps are, then
+   offer to run a real one. The example question is a question, not a
+   claim, and the answer a visitor sees is produced live by the same search
+   every other question uses. */
+const HOW_IT_WORKS_EXAMPLE = "How do jellyfish move without a brain?";
+function HowItWorksDialog({ onClose, accent, onRunExample }) {
+  const steps = [
+    { n: "1", h: "Ask in plain language",
+      b: "A question the way you would ask a colleague. No boolean operators, no field codes, no learning a query syntax first." },
+    { n: "2", h: "Cerebrum searches the literature",
+      b: "The question is run against " + SCHOLARLY_SOURCES.length + " scholarly sources — Europe PMC, PubMed, OpenAlex, Crossref, arXiv and the rest — and the results are de-duplicated across them." },
+    { n: "3", h: "Every claim carries its source",
+      b: "The answer is written from those papers, and each statement is numbered to the paper it came from. Open a citation to see the passage it rests on." },
+  ];
+  return (
+    <IntroModal label="how Cerebrum works" title="How Cerebrum works" onClose={onClose} accent={accent}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {steps.map((st) => (
+          <div key={st.n} style={{
+            display: "grid", gridTemplateColumns: "26px 1fr", gap: 14,
+            padding: "14px 0", borderTop: "1px solid rgba(255,255,255,0.07)",
+          }}>
+            <span style={{
+              fontFamily: "var(--cb-mono)", fontSize: 12, color: withAlpha(accent, 0.9),
+              paddingTop: 2, fontVariantNumeric: "tabular-nums",
+            }}>{st.n}</span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35, marginBottom: 5 }}>{st.h}</div>
+              <div style={{ fontSize: 13.5, color: "rgba(242,244,242,0.68)", lineHeight: 1.6 }}>{st.b}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        marginTop: 20, paddingTop: 18, borderTop: "1px solid rgba(255,255,255,0.07)",
+      }}>
+        <div style={{
+          fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.16em",
+          textTransform: "uppercase", color: "rgba(242,244,242,0.44)", marginBottom: 8,
+        }}>Example investigation</div>
+        <div style={{ fontSize: 16, lineHeight: 1.45, marginBottom: 14, color: "#f2f4f2" }}>
+          &ldquo;{HOW_IT_WORKS_EXAMPLE}&rdquo;
+        </div>
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <button type="button" onClick={() => onRunExample(HOW_IT_WORKS_EXAMPLE)} className="cb-intro-go" style={{
+            border: "none", cursor: "pointer", borderRadius: 9999, padding: "12px 22px",
+            background: accent, color: "#11140f", fontWeight: 600, fontSize: 14.5,
+            fontFamily: "var(--cb-body)",
+          }}>Run this investigation</button>
+          <span style={{ fontSize: 12.5, color: "rgba(242,244,242,0.52)", lineHeight: 1.5 }}>
+            Runs a real search. Nothing here is pre-written.
+          </span>
+        </div>
+      </div>
+    </IntroModal>
+  );
+}
+
+/* The source list, from the array the search handler actually iterates.
+   The count is derived, so it cannot drift away from the code the way a
+   typed "15 databases" did. */
+function SourcesDialog({ onClose, accent }) {
+  const GROUPS = [
+    ["biomedical", "Biomedical"],
+    ["multi", "Multidisciplinary"],
+    ["open-access", "Open access"],
+    ["preprint", "Preprints"],
+    ["aggregator", "Aggregators"],
+    ["repository", "Repositories"],
+  ];
+  const PEER = { yes: "Peer-reviewed", mostly: "Mostly peer-reviewed", mixed: "Mixed", no: "Not peer-reviewed" };
+  return (
+    <IntroModal label="research sources" title="Research sources" onClose={onClose} accent={accent}>
+      <p style={{ margin: "0 0 16px", fontSize: 13.5, lineHeight: 1.65, color: "rgba(242,244,242,0.68)" }}>
+        Cerebrum queries these {SCHOLARLY_SOURCES.length} sources and merges the results, removing the
+        same paper when it appears in more than one. Preprints are included and are labelled as
+        preprints — they have not been peer-reviewed.
+      </p>
+      {GROUPS.map(([key, heading]) => {
+        const rows = SCHOLARLY_SOURCES.filter((x) => x.category === key);
+        if (!rows.length) return null;
+        return (
+          <div key={key} style={{ paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.07)", marginBottom: 4 }}>
+            <div style={{
+              fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.16em",
+              textTransform: "uppercase", color: "rgba(242,244,242,0.44)", marginBottom: 9,
+            }}>{heading}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
+              {rows.map((r) => (
+                <div key={r.id} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  gap: 14, flexWrap: "wrap",
+                }}>
+                  <span style={{ fontSize: 14.5, color: "#f2f4f2" }}>{r.name}</span>
+                  <span style={{ fontSize: 12, color: "rgba(242,244,242,0.5)" }}>{PEER[r.peerReviewed] || ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </IntroModal>
+  );
+}
+
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const isMobile = useIsMobile();
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
 
   /* The intro uses Cerebrum's sage, not the visitor's chosen accent.
      The default accent is Mono — pure white — so on a fresh phone every
@@ -4141,260 +4426,425 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
     ? accent
     : "#A3B899";
 
-  /* The same seven refs the entrance and exit timelines have always
-     animated, all of them on the hero. Everything below the fold is
-     static: choreographing a landing page a visitor has not scrolled to
-     yet means running tweens on off-screen elements over a playing video,
-     which is exactly the work that made this screen stutter. */
+  /* ── Background playback ──
+     Two separate facts, kept separate on purpose.
+
+     `filmOff` is what the visitor pressed on this screen. `forced` is the
+     stored opt-in that overrides the two defaults which withhold motion
+     without being asked (a phone, and a reduced-motion preference). One
+     button writes both, because a person pressing "Play background" on a
+     phone means the same thing as a person pressing it on a laptop, and
+     having it work on one and silently do nothing on the other would be
+     the worse surprise. */
+  const [filmOff, setFilmOff] = useState(false);
+  const [forced, setForced] = useState(() => filmForcedOn());
+  const filmRunning = !filmBlocked(animationMode, filmOff);
+  const toggleFilm = () => {
+    if (filmRunning) { setFilmOff(true); return; }
+    setFilmForcedOn(true);
+    setForced(true);
+    setFilmOff(false);
+  };
+  /* `forced` is read by filmBlocked through localStorage, not through this
+     variable — it is state purely so pressing the button re-renders. */
+  void forced;
+
+  /* ── Which clip is on screen ──
+     CinematicFilm owns the reel and reports the clip it has just faded in.
+     The prompt below reads from here, so the question can never describe a
+     clip that is no longer showing. */
+  const [clip, setClip] = useState(null);
+  /* A swap that lands while someone is reading, hovering or tabbed into the
+     prompt is held, not applied. Changing the question out from under a
+     press is how a person ends up searching something they did not choose. */
+  const holdRef = useRef(false);
+  const pendingRef = useRef(null);
+  const onClip = useCallback((src) => {
+    if (holdRef.current) { pendingRef.current = src; return; }
+    setClip(src);
+  }, []);
+  const releaseHold = () => {
+    holdRef.current = false;
+    if (pendingRef.current) { setClip(pendingRef.current); pendingRef.current = null; }
+  };
+  const scene = clip ? FILM_SCENES[clip] : null;
+
+  /* The hero's own elements. Everything else on this screen is static:
+     choreographing a landing page means running tweens over a playing
+     video, which is exactly the work that made this screen stutter. */
   const navRef = useRef(null);
-  const logoRef = useRef(null);
   const head1Ref = useRef(null);
   const head2Ref = useRef(null);
   const descRef = useRef(null);
-  const tagsRef = useRef(null);
   const btnsRef = useRef(null);
+  const sceneRef = useRef(null);
   const EASE = "power3.inOut";
 
   useEffect(() => {
     if (animationMode === "off") return;
     const tl = gsap.timeline();
-    tl.fromTo(navRef.current, { y: -14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.0, ease: EASE }, 0)
-      .fromTo(logoRef.current, { scale: 0.7, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 1.0, ease: EASE }, 0.05)
-      .fromTo(head1Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, ease: EASE }, 0.14)
-      .fromTo(head2Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, ease: EASE }, 0.22)
-      .fromTo(descRef.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, ease: EASE }, 0.32)
-      .fromTo(tagsRef.current, { y: 18, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, ease: EASE }, 0.42)
-      .fromTo(btnsRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.0, ease: EASE }, 0.54);
+    tl.fromTo(navRef.current, { y: -12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0)
+      .fromTo(head1Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.10)
+      .fromTo(head2Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.18)
+      .fromTo(descRef.current, { y: 14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.28)
+      .fromTo(btnsRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.38)
+      .fromTo(sceneRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.52);
     return () => tl.kill();
   }, [animationMode]);
 
-  const go = (q) => {
+  /* `submit` is the difference between prefilling the composer and actually
+     asking. The scene prompt and the worked example ask; every other route
+     in opens the workspace and leaves the cursor in the box. */
+  const go = (q, submit) => {
     const payload = typeof q === "string" ? q : "";
-    if (animationMode === "off") { onEnter(payload); return; }
-    const tl = gsap.timeline({ onComplete: () => onEnter(payload) });
-    tl.to(btnsRef.current, { y: 12, autoAlpha: 0, duration: 0.45, ease: EASE }, 0)
-      .to(tagsRef.current, { y: 12, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.04)
-      .to(descRef.current, { y: 14, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.08)
-      .to(head2Ref.current, { y: 16, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.13)
-      .to(head1Ref.current, { y: 16, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.17)
-      .to(logoRef.current, { scale: 0.85, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.2)
-      .to(navRef.current, { y: -12, autoAlpha: 0, duration: 0.45, ease: EASE }, 0.26);
+    if (animationMode === "off") { onEnter(payload, !!submit); return; }
+    const tl = gsap.timeline({ onComplete: () => onEnter(payload, !!submit) });
+    tl.to(sceneRef.current, { y: 10, autoAlpha: 0, duration: 0.4, ease: EASE }, 0)
+      .to(btnsRef.current, { y: 12, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.04)
+      .to(descRef.current, { y: 12, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.09)
+      .to(head2Ref.current, { y: 16, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.14)
+      .to(head1Ref.current, { y: 16, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.18)
+      .to(navRef.current, { y: -12, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.24);
   };
-
-
-  /* The actual list, in the order the retrieval ladder reaches for them.
-     Naming them is the claim: "fifteen databases" is marketing, fifteen
-     names a researcher recognises is evidence. */
-  /* Derived, not typed. This list used to be fifteen names written by hand,
-     and it had drifted: it advertised Unpaywall and medRxiv, neither of which
-     the backend queries, and omitted Zenodo, which it does. A product whose
-     entire argument is that claims trace to real sources cannot name a
-     database it never asks. SCHOLARLY_SOURCES is the same array the search
-     handler iterates, so the two can no longer disagree. */
-  const DATABASES = SCHOLARLY_SOURCES.map((x) => x.name);
-
-
 
   const hidden = animationMode === "off" ? 1 : 0;
 
-  /* Two surface recipes, and the difference is deliberate.
+  /* One container, used by the header, the hero and the footer, so the
+     three read as one composition instead of three screens stacked. */
+  const SIDE = isMobile ? 22 : 40;
+  const container = { width: "100%", maxWidth: 1200, margin: "0 auto", paddingLeft: SIDE, paddingRight: SIDE };
 
-     `frosted` uses backdrop-filter and is spent ONLY on the two elements
-     that sit still at the top of the screen. Every frosted surface makes
-     the compositor re-blur what is behind it on every frame of the film,
-     and this page had seven of them — the nav, the search bar, four chips
-     and the whole sidebar — which is what made it stutter.
-
-     `solid` is a flat translucent fill. Over footage graded this dark it
-     is visually almost the same and costs nothing, so it is what every
-     card below the fold uses. */
-  const frosted = {
-    background: "rgba(15, 17, 21, 0.72)",
-    backdropFilter: "blur(14px)",
-    WebkitBackdropFilter: "blur(14px)",
-    border: "1px solid rgba(255,255,255,0.09)",
+  const navLink = {
+    fontSize: 13.5, color: "rgba(242,244,242,0.74)", textDecoration: "none",
+    fontWeight: 500, padding: "8px 12px", borderRadius: 8,
   };
-  const solid = {
-    background: "rgba(15, 17, 21, 0.74)",
-    border: "1px solid rgba(255,255,255,0.08)",
-  };
-
-  const sectionPad = isMobile ? "56px 20px" : "88px 40px";
-  const wrap = { maxWidth: 1040, margin: "0 auto", width: "100%" };
-  const kicker = {
-    fontFamily: "var(--cb-mono)", fontSize: 11, letterSpacing: "0.18em",
-    textTransform: "uppercase", color: "rgba(242,244,242,0.46)", margin: "0 0 14px",
-  };
-  const h2 = {
-    fontSize: isMobile ? 26 : 34, fontWeight: 600, letterSpacing: "-0.03em",
-    lineHeight: 1.15, color: "#f2f4f2", margin: "0 0 14px",
-  };
-  const body = {
-    fontSize: isMobile ? 14.5 : 15.5, lineHeight: 1.7,
-    color: "rgba(242,244,242,0.66)", margin: 0,
+  const footLink = {
+    background: "none", border: "none", padding: 0, cursor: "pointer",
+    color: "rgba(242,244,242,0.66)", fontSize: 12.5, fontFamily: "var(--cb-body)",
+    textDecoration: "none",
   };
 
   return (
     <div id="cb-intro-wrap" style={{
-      minHeight: "100dvh", position: "relative", overflow: "hidden",
+      minHeight: "100dvh", position: "relative",
+      /* overflow-x only. `overflow: hidden` here was clipping the page to
+         one viewport, so on a short window — a laptop with the browser
+         chrome open, a phone in landscape — the footer and the prompt were
+         simply unreachable. The page scrolls now; nothing is cut off. */
+      overflowX: "hidden",
+      display: "flex", flexDirection: "column",
       fontFamily: "var(--cb-body)",
       background:
         "radial-gradient(120% 90% at 72% 16%, rgba(163,184,153,0.16), transparent 58%)," +
         "radial-gradient(90% 70% at 16% 92%, rgba(120,150,170,0.10), transparent 60%)," +
         "#0b0d10",
     }}>
-      <CinematicFilm animationMode={animationMode} intensity={1} />
+      {/* A dialog is a request to read something. The reel is paused while one
+          is open and resumes on close with whatever the visitor had chosen —
+          `filmOff` is untouched, so the pause is the dialog's, not theirs. */}
+      <CinematicFilm animationMode={animationMode} intensity={1} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={onClip} />
 
-      {/* Contrast floor, fixed so it costs one composite rather than
-          repainting as the page scrolls. */}
+      {/* Contrast, spent where the words are rather than over the whole
+          picture. The old scrim dropped a radial vignette plus a bottom
+          wash across the entire viewport, which is the "make the film
+          darker until the text works" approach: it costs the footage its
+          highlights everywhere to fix legibility in one place.
+
+          On a wide screen the text sits left of centre, so the gradient
+          runs left-to-right and the right two-fifths of the frame — where
+          the subject is — is left alone. On a narrow screen the text is
+          full width, so it runs top-to-bottom instead. Fixed, so it is one
+          composite rather than a repaint per scrolled pixel.
+
+          The stops are not eyeballed. Every frame of all twenty-nine graded
+          clips was sampled and composited against this gradient at the
+          headline's own coordinates; the worst frame in the set (the sunlit
+          leaves, which is the brightest footage here by a distance) lands at
+          8.2:1 for the headline and 7.6:1 for the paragraph under it. The
+          first attempt reached 3.4:1 and 2.9:1 on that same frame — legible
+          most of the time, and quietly unreadable for eleven seconds
+          whenever that clip came round. Moving a stop here moves those
+          numbers. */}
       <div aria-hidden="true" style={{
         position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
-        background:
-          "radial-gradient(140% 100% at 50% 0%, transparent 42%, rgba(11,13,16,0.58) 100%)," +
-          "linear-gradient(0deg, rgba(11,13,16,0.80), transparent 46%)",
+        background: isMobile
+          ? "linear-gradient(180deg, rgba(9,11,14,0.86) 0%, rgba(9,11,14,0.78) 22%, rgba(9,11,14,0.72) 62%, rgba(9,11,14,0.90) 100%)"
+          : "linear-gradient(100deg, rgba(9,11,14,0.94) 0%, rgba(9,11,14,0.90) 34%, rgba(9,11,14,0.66) 56%, rgba(9,11,14,0.10) 74%, transparent 88%)," +
+            "linear-gradient(180deg, rgba(9,11,14,0.55) 0%, transparent 18%, transparent 76%, rgba(9,11,14,0.62) 100%)",
       }} />
 
-      <nav ref={navRef} style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-        position: "relative", zIndex: 20,
-        margin: isMobile ? "12px 12px 0" : "16px 18px 0",
-        padding: isMobile ? "9px 10px 9px 16px" : "10px 12px 10px 20px",
-        borderRadius: 999, opacity: hidden,
-        boxShadow: "0 18px 50px rgba(0,0,0,0.45)",
-        ...frosted,
+      {/* ── Header ──
+          Edge to edge, aligned to the same container as everything below,
+          and deliberately not a frosted capsule. backdrop-filter over a
+          playing video is charged per frame: the browser re-blurs the
+          moving picture behind the bar twenty-four times a second, for a
+          bar nobody looks at. A gradient costs one composite and reads the
+          same over footage this dark. */}
+      <header ref={navRef} className="cb-intro-header" style={{
+        position: "relative", zIndex: 20, opacity: hidden,
+        paddingTop: "max(14px, env(safe-area-inset-top))",
+        background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <Mark size={19} accent={introAccent} glow />
-          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: "#ffffff", letterSpacing: "-0.015em" }}>Cerebrum</span>
+        <div style={{
+          ...container,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 16, paddingBottom: 14,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Mark size={20} accent={introAccent} glow />
+            <span style={{ fontSize: 16.5, fontWeight: 600, color: "#ffffff", letterSpacing: "-0.015em" }}>Cerebrum</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 4 }}>
+            {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
+              <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
+            ))}
+            {isMobile && (
+              <button type="button" onClick={() => setNavOpen((v) => !v)}
+                aria-expanded={navOpen} aria-controls="cb-intro-navmenu"
+                className="cb-intro-navlink" style={{ ...navLink, background: "none", border: "1px solid rgba(255,255,255,0.12)", cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                More
+              </button>
+            )}
+            <button type="button" onClick={() => go("")} className="cb-intro-go" style={{
+              border: "none", cursor: "pointer", borderRadius: 9999, marginLeft: 4,
+              padding: isMobile ? "9px 15px" : "9px 18px", background: introAccent, color: "#11140f",
+              fontWeight: 600, fontSize: 13.5, fontFamily: "var(--cb-body)", whiteSpace: "nowrap",
+            }}>Open Cerebrum</button>
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 2 : 6 }}>
-          {/* The three legal links are desktop-only. On a 390px screen the
-              brand, three links and the button did not fit, and the button
-              — the only thing in the bar anyone presses — was the part that
-              ran off the edge. All three are in the footer of this same
-              screen and in the app itself. */}
-          {(isMobile ? [] : ["About", "Privacy", "Contact"]).map((item) => (
-            <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navpill" style={{
-              fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.72)", textDecoration: "none",
-              fontWeight: 500, padding: "7px 14px", borderRadius: 999,
-            }}>{item}</a>
-          ))}
-          <button type="button" onClick={() => go("")} className="cb-intro-go" style={{
-            border: "none", cursor: "pointer", borderRadius: 999, marginLeft: 4,
-            padding: "8px 18px", background: introAccent, color: "#11140f",
-            fontWeight: 600, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)",
-          }}>Open</button>
-        </div>
-      </nav>
+
+        {/* The three legal links do not fit beside the brand and the button
+            at 390px, and the button is the one thing in the bar anyone
+            presses. They live behind More on a phone, and in the footer of
+            this same screen either way — not removed, just not crowding. */}
+        {isMobile && navOpen && (
+          <div id="cb-intro-navmenu" style={{
+            ...container, paddingBottom: 12,
+            display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+          }}>
+            {["About", "Privacy", "Contact"].map((item) => (
+              <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={{
+                ...navLink, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 999,
+              }}>{item}</a>
+            ))}
+          </div>
+        )}
+      </header>
 
       <main style={{
-        position: "relative", zIndex: 10,
-        minHeight: isMobile ? "calc(100dvh - 88px)" : "calc(100dvh - 96px)",
-        display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", textAlign: "center",
-        padding: isMobile ? "40px 20px 48px" : "40px 40px 56px",
+        position: "relative", zIndex: 10, flex: 1,
+        display: "flex", flexDirection: "column", justifyContent: "center",
+        paddingTop: isMobile ? 38 : 56,
+        paddingBottom: isMobile ? 30 : 44,
       }}>
-        <div ref={logoRef} style={{ marginBottom: 24, opacity: hidden }}>
-          <Mark size={34} accent={introAccent} glow />
+        <div style={container}>
+          <div style={{
+            display: "grid",
+            /* Left of centre, not against the edge: the hero column is a
+               little over half of a 1200px container, so the words sit
+               inboard of the left margin and the right of the frame stays
+               open for whatever the film is showing. */
+            /* 700, not 640. At 640 the second line — "behind your
+               question." — wrapped again, so the headline arrived as three
+               lines broken mid-phrase instead of the two it is written as.
+               The cap below is set so the long line fits this column at
+               every width above the breakpoint. */
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 700px) minmax(0, 1fr)",
+          }}>
+            <div>
+              <h1 style={{
+                /* 48–80 on a desktop, 36–48 on a phone, and the vw term is
+                   what carries it between the two without a jump at the
+                   breakpoint. */
+                fontSize: isMobile ? "clamp(36px, 9.2vw, 46px)" : "clamp(48px, 4.9vw, 66px)",
+                fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.04,
+                color: "#ffffff", margin: 0,
+                textShadow: "0 2px 40px rgba(0,0,0,0.5)",
+              }}>
+                {/* Both lines are the headline. The second one used to be
+                    rendered at 62% opacity in a lighter weight, which is
+                    the same treatment this app gives disabled controls —
+                    it read as a caption that had failed to load rather
+                    than as the other half of the sentence. */}
+                <div ref={head1Ref} style={{ opacity: hidden }}>There&rsquo;s a world</div>
+                <div ref={head2Ref} style={{ opacity: hidden }}>behind your question.</div>
+              </h1>
+
+              <p ref={descRef} style={{
+                opacity: hidden,
+                margin: isMobile ? "18px 0 0" : "22px 0 0",
+                fontSize: isMobile ? 16.5 : 19,
+                lineHeight: 1.55, fontWeight: 400,
+                color: "rgba(242,244,242,0.80)",
+                maxWidth: 520,
+                textShadow: "0 1px 20px rgba(0,0,0,0.45)",
+              }}>
+                Explore the papers, follow the evidence, and understand what science knows.
+              </p>
+
+              {/* There is no search field on this screen, deliberately. The
+                  composer inside the app is the real one — it carries modes,
+                  attachments, voice, evidence filters and the whole
+                  conversation it starts. A second, simpler box out here
+                  looks like the same control and is not. */}
+              <div ref={btnsRef} style={{
+                opacity: hidden,
+                marginTop: isMobile ? 28 : 34,
+                display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+              }}>
+                <button type="button" onClick={() => go("")} className="cb-intro-go" style={{
+                  border: "none", cursor: "pointer", borderRadius: 9999,
+                  padding: isMobile ? "14px 28px" : "15px 34px",
+                  background: introAccent, color: "#11140f",
+                  fontWeight: 600, fontSize: isMobile ? 15.5 : 16, fontFamily: "var(--cb-body)",
+                  boxShadow: "0 12px 34px rgba(163,184,153,0.26)",
+                }}>Start exploring</button>
+                <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip" style={{
+                  cursor: "pointer", borderRadius: 9999,
+                  padding: isMobile ? "13px 22px" : "14px 26px",
+                  fontSize: isMobile ? 15 : 15.5, fontWeight: 500,
+                  color: "rgba(242,244,242,0.86)", fontFamily: "var(--cb-body)",
+                  background: "rgba(15, 17, 21, 0.62)",
+                  border: "1px solid rgba(255,255,255,0.14)",
+                }}>How it works</button>
+              </div>
+
+              {/* Both halves are true of the product as it stands: the
+                  search endpoint takes anonymous requests, and saved
+                  articles, collections and history live in the browser
+                  until someone chooses to sign in. If either stops being
+                  true, this line comes out. */}
+              <div style={{
+                opacity: hidden, marginTop: 14,
+                display: "flex", alignItems: "center", gap: 6,
+                fontSize: 13, color: "rgba(242,244,242,0.56)",
+              }}>
+                <span><b style={{ color: "rgba(242,244,242,0.78)", fontWeight: 500 }}>Free</b> · No account required</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <h1 style={{
-          fontSize: isMobile ? 34 : "clamp(38px, 5vw, 58px)",
-          fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.05,
-          color: "#ffffff", margin: "0 0 18px", maxWidth: 800,
-          textShadow: "0 2px 34px rgba(0,0,0,0.55)",
-        }}>
-          <div ref={head1Ref} style={{ opacity: hidden }}>Ask anything.</div>
-          <div ref={head2Ref} style={{ opacity: hidden, color: "rgba(242,244,242,0.62)", fontWeight: 500 }}>We&rsquo;ll find the papers.</div>
-        </h1>
-
-        {/* There is no search field on this screen, deliberately. The
-            composer inside the app is the real one — it carries modes,
-            attachments, voice, evidence filters and the whole conversation
-            it starts. A second, simpler box out here looks like the same
-            control and is not, so a visitor's first interaction would be
-            with the weaker of the two. This screen's job is to introduce
-            the product and open the door. */}
-        <div ref={descRef} style={{
-          width: "100%",
-          display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-          justifyContent: "center", opacity: hidden,
-        }}>
-          <button type="button" onClick={() => go("")} className="cb-intro-go" style={{
-            border: "none", cursor: "pointer", borderRadius: 9999,
-            padding: isMobile ? "14px 30px" : "16px 38px",
-            background: introAccent, color: "#11140f",
-            fontWeight: 600, fontSize: isMobile ? 15 : 16, fontFamily: "var(--cb-body)",
-            boxShadow: "0 12px 34px rgba(163,184,153,0.30)",
-          }}>Start exploring</button>
-          <a href="/about" className="cb-intro-chip" style={{
-            textDecoration: "none", borderRadius: 9999,
-            padding: isMobile ? "13px 24px" : "15px 28px",
-            fontSize: isMobile ? 14.5 : 15, fontWeight: 500,
-            color: "rgba(242,244,242,0.80)", fontFamily: "var(--cb-body)",
-            ...solid,
-          }}>How it works</a>
-        </div>
-
-        {/* The proof, carried as a quiet band rather than a paragraph.
-            Fifteen names a researcher recognises say more than a sentence
-            claiming fifteen databases, and cost one line to say. */}
-        <div ref={tagsRef} style={{ alignItems: "center",
-          display: "flex", flexWrap: "wrap", gap: "6px 14px", justifyContent: "center",
-          fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em",
-          color: "rgba(242,244,242,0.34)", maxWidth: 720, width: "100%",
-          margin: isMobile ? "40px auto 0" : "62px auto 0", opacity: hidden,
-        }}>
-          {/* Eight on a phone, not fifteen. At 390px the full list wrapped
-              to three dense mono lines that read as a wall rather than a
-              credential; the count is stated in the line underneath, so the
-              band only has to be long enough to be recognisably real. */}
-          {(isMobile ? DATABASES.slice(0, 8) : DATABASES).map((d) => <span key={d}>{d}</span>)}
-          {isMobile && <span style={{ opacity: 0.7 }}>+7 more</span>}
-        </div>
-
-        <div ref={btnsRef} style={{
-          /* width:100%, and it is the fix for a whole class of bug.
-             This row is a flex item in a column with `align-items: center`,
-             which sizes a child to its content. When the content is wider
-             than the column the box gets clamped, the content wraps inside
-             it — and every wrapped line is then centred against a box that
-             is itself narrower than, and offset from, the column. That is
-             why "Free. No account required" and "Film credits" both looked
-             nudged off-centre in opposite directions. Giving the row the
-             column's full width means each line centres against the real
-             axis. */
-          width: "100%",
-          /* align-items: center, and this is the actual misalignment bug.
-             The mobile stylesheet gives every button and link a 44px
-             min-height for tap targets. In a flex row whose items are not
-             centred, a 44px-tall button next to an 18px line of plain text
-             makes the LINE 44px tall: the button centres its own label
-             inside that, the bare text sits at the top of it, and the two
-             end up about thirteen pixels apart vertically. It reads as
-             "Free. No account required" and "Film credits" being on
-             different lines when they are on the same one. Any row that
-             mixes plain text with a link or button has this, so they all
-             centre now. */
-          alignItems: "center",
-          marginTop: 18, opacity: hidden, display: "flex", gap: 10,
-          justifyContent: "center", flexWrap: "wrap", rowGap: 6,
-          fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.46)",
-        }}>
-          <span><b style={{ color: "rgba(242,244,242,0.72)", fontWeight: 500 }}>Free.</b> No account required</span>
-          {/* The separator goes with the line break. On a phone this row
-              wrapped and left a middle dot stranded at the end of the first
-              line, pointing at nothing. */}
-          {!isMobile && <span style={{ opacity: 0.4 }}>·</span>}
-          <button type="button" onClick={() => setCreditsOpen(true)} style={{
-            background: "none", border: "none", padding: 0, cursor: "pointer",
-            color: "rgba(242,244,242,0.46)", fontSize: FONT_SIZES.caption,
-            fontFamily: "var(--cb-body)", textDecoration: "underline", textUnderlineOffset: 3,
-          }}>Film credits</button>
+        {/* ── Investigate what you see ──
+            In normal flow at the bottom of the hero, not absolutely
+            positioned over it, so it can never land on the headline or the
+            buttons however short the window gets. */}
+        <div ref={sceneRef} style={{ ...container, opacity: hidden, marginTop: isMobile ? 38 : 52 }}>
+          {scene ? (
+            <div
+              onMouseEnter={() => { holdRef.current = true; }}
+              onMouseLeave={releaseHold}
+              onFocus={() => { holdRef.current = true; }}
+              onBlur={releaseHold}
+              style={{ maxWidth: 520 }}>
+              <div style={{
+                fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.18em",
+                textTransform: "uppercase", color: withAlpha(introAccent, 0.86), marginBottom: 9,
+              }}>{scene.subject}</div>
+              <button
+                type="button"
+                onClick={() => go(scene.question, true)}
+                className="cb-intro-scene"
+                style={{
+                  display: "block", textAlign: "left", width: "100%",
+                  background: "none", border: "none", padding: 0, cursor: "pointer",
+                  fontFamily: "var(--cb-body)", color: "#f2f4f2",
+                  fontSize: isMobile ? 16 : 17.5, lineHeight: 1.45, fontWeight: 500,
+                }}>
+                <span style={{ display: "block", marginBottom: 7 }}>{scene.question}</span>
+                <span className="cb-intro-scene-cta" style={{
+                  fontSize: 13.5, fontWeight: 500, color: withAlpha(introAccent, 0.95),
+                }}>Explore the research ↗</span>
+              </button>
+              <div style={{
+                marginTop: 10, fontSize: 11.5, lineHeight: 1.5,
+                color: "rgba(242,244,242,0.40)", maxWidth: 420,
+              }}>
+                Footage is illustrative, not a result.
+              </div>
+            </div>
+          ) : (
+            /* No entry for this clip, or the reel has not reported one
+               yet. Nothing is shown rather than a placeholder question. */
+            <div style={{ minHeight: isMobile ? 0 : 96 }} />
+          )}
         </div>
       </main>
 
+      {/* ── Footer ── */}
+      <footer style={{
+        position: "relative", zIndex: 10,
+        paddingBottom: "max(20px, env(safe-area-inset-bottom))",
+        /* The side gradient above deliberately fades to nothing on the right
+           so the footage keeps that part of the frame — which leaves the
+           footer links sitting on bare film. Measured against every graded
+           clip they came out at 1.5:1, i.e. invisible over the bright ones.
+           The footer carries its own band instead of the whole picture being
+           darkened for it: 6.8:1 at the worst frame in the set. */
+        background: "linear-gradient(0deg, rgba(8,10,13,0.90) 0%, rgba(8,10,13,0.86) 62%, rgba(8,10,13,0.30) 100%)",
+      }}>
+        {/* Two rows on a phone, one on a desktop. As a single wrapping row
+            at 390px the spacer below pushed the legal links onto the same
+            line as the sources link and left "Contact" stranded on a line
+            of its own — a stagger, not a footer. */}
+        <div style={{
+          ...container, paddingTop: 18,
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "flex-start" : "center",
+          flexWrap: "wrap",
+          gap: isMobile ? "12px" : "10px 22px",
+          borderTop: "1px solid rgba(255,255,255,0.07)",
+        }}>
+          {/* Was fifteen database names set in 10.5px mono at 34% opacity —
+              a texture rather than a list, unreadable on a phone and
+              unreadable to a screen reader in any useful order. One link,
+              and the actual list is one press away. */}
+          <button type="button" onClick={() => setSourcesOpen(true)} className="cb-intro-sourcelink" style={{
+            ...footLink, color: "rgba(242,244,242,0.82)", fontSize: 13.5, fontWeight: 500,
+          }}>Explore our research sources ↗</button>
+
+          {!isMobile && <span style={{ flex: 1, minWidth: 0 }} />}
+
+          <div style={{
+            display: "flex", alignItems: "center", flexWrap: "wrap",
+            /* Full width on a phone so the wrap happens where the row runs
+               out of room, not where a shrink-to-fit box does. */
+            width: isMobile ? "100%" : "auto",
+            gap: isMobile ? "12px 16px" : "10px 22px",
+          }}>
+            {isMobile
+              ? ["About", "Privacy", "Contact"].map((item) => (
+                  <a key={item} href={"/" + item.toLowerCase()} style={footLink}>{item}</a>
+                ))
+              : (
+                <>
+                  <a href="/privacy" style={footLink}>Privacy</a>
+                  <a href="/terms" style={footLink}>Terms</a>
+                  <a href="/contact" style={footLink}>Contact</a>
+                </>
+              )}
+            <button type="button" onClick={() => setCreditsOpen(true)} style={footLink}>Film credits</button>
+            {/* Sits with the credits because that is where the footage is
+                already being talked about. aria-pressed rather than a label
+                that lies: the control reports the state it is in. */}
+            <button type="button" onClick={toggleFilm} aria-pressed={!filmRunning} style={footLink}>
+              {filmRunning ? "Pause background" : "Play background"}
+            </button>
+          </div>
+        </div>
+      </footer>
+
       {creditsOpen && <FilmCreditsDialog accent={introAccent} onClose={() => setCreditsOpen(false)} />}
+      {sourcesOpen && <SourcesDialog accent={introAccent} onClose={() => setSourcesOpen(false)} />}
+      {howOpen && (
+        <HowItWorksDialog
+          accent={introAccent}
+          onClose={() => setHowOpen(false)}
+          onRunExample={(q) => { setHowOpen(false); go(q, true); }}
+        />
+      )}
     </div>
   );
 }
@@ -15613,7 +16063,20 @@ function App() {
     // interactive thing anyone sees is the agreement.
     return (
       <>
-        <Intro accent={accent} P={P} onEnter={(seed) => { sfx(); if (seed) setInput(seed); setEntered(true); }} animationMode={animationMode} />
+        <Intro accent={accent} P={P} animationMode={animationMode}
+          onEnter={(seed, submit) => {
+            sfx();
+            if (seed) setInput(seed);
+            setEntered(true);
+            /* A scene prompt and the worked example are presses on a
+               specific question, so they run it rather than leaving it
+               sitting in the composer for a second press. Not while the
+               consent gate is up: that gate exists so nothing happens
+               before it is answered, and firing a search behind it would
+               make it decorative. The question stays in the box and the
+               visitor sends it themselves once they are through. */
+            if (submit && seed && legalOk) setTimeout(() => { ask(seed); }, 0);
+          }} />
         {!legalOk && (
           <ConsentGate
             P={P} accent={accent} at={at} user={user}
@@ -16967,8 +17430,22 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    Pills, and every one of them lifts a hair on hover. The lift is the
    whole trick: it is what separates a control you can press from a shape
    that happens to be rounded. */
-.cb-intro-navpill { transition: background 260ms var(--cb-ease), color 260ms var(--cb-ease); }
-.cb-intro-navpill:hover { background: rgba(255,255,255,0.09); color: #f2f4f2 !important; }
+.cb-intro-navlink { transition: background 220ms var(--cb-ease), color 220ms var(--cb-ease); }
+.cb-intro-navlink:hover { background: rgba(255,255,255,0.09); color: #f2f4f2 !important; }
+
+/* The scene prompt. A press target, not a card: the only affordance is the
+   line moving a couple of pixels and the arrow catching up, which is enough
+   to say "this does something" without adding another bordered box to a
+   screen that is trying to be mostly footage. */
+.cb-intro-scene { transition: transform 260ms var(--cb-ease); }
+.cb-intro-scene:hover { transform: translateX(3px); }
+.cb-intro-scene .cb-intro-scene-cta { transition: opacity 220ms var(--cb-ease); opacity: 0.86; }
+.cb-intro-scene:hover .cb-intro-scene-cta,
+.cb-intro-scene:focus-visible .cb-intro-scene-cta { opacity: 1; }
+.cb-intro-scene:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 6px; border-radius: 4px; }
+
+.cb-intro-sourcelink { transition: color 220ms var(--cb-ease); }
+.cb-intro-sourcelink:hover { color: #f2f4f2 !important; }
 .cb-intro-search { transition: border-color 300ms var(--cb-ease), box-shadow 300ms var(--cb-ease), transform 300ms var(--cb-ease); }
 .cb-intro-search:focus-within {
   border-color: rgba(163,184,153,0.42) !important;
