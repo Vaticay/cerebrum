@@ -2544,7 +2544,7 @@ function stripStrayHashes(s) {
 const SECTION_LABELS = [
   "The short answer", "What the research shows", "Where researchers disagree",
   "Where the studies disagree", "How solid is this", "What this does not establish",
-  "Core synthesis", "Evidence and mechanisms", "Divergent findings and gaps",
+  "What would change this", "Core synthesis", "Evidence and mechanisms", "Divergent findings and gaps",
   "Methodological confidence", "Key evidence", "What we know", "Bottom line",
   "What changed", "Limitations", "Methods",
 ];
@@ -2865,6 +2865,174 @@ function flyToLibrary(fromEl, accent) {
       setTimeout(() => target.classList.remove("cb-nav-received"), 700);
     }, 580);
   } catch {}
+}
+
+
+/* EVIDENCE STRUCTURE — the one panel on this screen that is not an opinion.
+
+   Ten papers agreeing is not ten pieces of evidence if six are the same lab
+   or all of them rest on one 2003 result. This says so in numbers, and the
+   numbers come from OpenAlex author IDs and reference lists — set
+   intersections, not a model's reading.
+
+   That is stated on the panel, not just in this comment, because the whole
+   value of it is that a reader can tell it apart from the synthesis above
+   it. It also says what it does NOT do: sharing a reference is normal and
+   does not merge two papers into one line of evidence. A tool that quietly
+   counted it that way would be manufacturing doubt as confidently as a bad
+   answer manufactures certainty. */
+function EvidenceStructure({ data, P, accent, isMobile }) {
+  if (!data || !data.papers || data.papers < 2) return null;
+  const { papers, lines, sharedAuthorPairs, ancestors } = data;
+  const collapsed = lines < papers;
+
+  return (
+    <div style={{
+      marginTop: 18, padding: isMobile ? "16px 16px 14px" : "18px 20px 16px",
+      borderRadius: RADIUS.lg,
+      background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
+      border: "1px solid " + P.line,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint }}>
+          How independent is this evidence
+        </span>
+        <span style={{
+          marginLeft: "auto", fontFamily: "var(--cb-mono)", fontSize: 9.5,
+          color: P.faint, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "2px 8px",
+        }}>counted, not written</span>
+      </div>
+
+      <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.6, color: P.ink }}>
+        <b style={{ fontFamily: "var(--cb-mono)", color: accent, fontWeight: 600 }}>{papers}</b>
+        {" papers · "}
+        <b style={{ fontFamily: "var(--cb-mono)", color: accent, fontWeight: 600 }}>{lines}</b>
+        {lines === 1 ? " independent line of evidence" : " independent lines of evidence"}
+      </div>
+
+      <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, marginTop: 7 }}>
+        {collapsed
+          ? "Some of these papers share an author, so they are not separate confirmations of each other. " +
+            "Papers by the same group are counted as one line."
+          : "No two of these papers share an author, so each is a separate group's work."}
+      </div>
+
+      {ancestors && ancestors.length > 0 && (
+        <div style={{ marginTop: 13, paddingTop: 12, borderTop: "1px solid " + P.line }}>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 8 }}>
+            Work that several of them build on:
+          </div>
+          {ancestors.map((a, i) => (
+            <div key={i} style={{ display: "flex", gap: 9, alignItems: "flex-start", marginBottom: 6 }}>
+              <span style={{
+                fontFamily: "var(--cb-mono)", fontSize: 10, color: accent, flexShrink: 0, paddingTop: 2,
+                whiteSpace: "nowrap",
+              }}>{a.citedBy}/{papers}</span>
+              <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5 }}>
+                {a.url
+                  ? <a href={a.url} target="_blank" rel="noopener noreferrer" style={{ color: P.ink2, textDecoration: "underline", textUnderlineOffset: 2 }}>{a.title}</a>
+                  : a.title}
+                {a.year ? " · " + a.year : ""}
+              </span>
+            </div>
+          ))}
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.55, marginTop: 8 }}>
+            Citing the same earlier work is normal and is not counted against independence — it is
+            shown so you can see where a shared assumption would sit if there is one.
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.55, marginTop: 10 }}>
+        From OpenAlex author identifiers and reference lists. Author matching is by ID, not by name.
+        {sharedAuthorPairs > 0 ? " " + sharedAuthorPairs + (sharedAuthorPairs === 1 ? " pair of papers shares" : " pairs of papers share") + " at least one author." : ""}
+      </div>
+    </div>
+  );
+}
+
+
+/* STRESS TEST — does the conclusion survive its own evidence being cut?
+
+   The panel is short because the result should be. Three constraints, one
+   click each, and a verdict stated in the plainest available words. The
+   critical design decision is which outcome is loudest: it is "held".
+
+   A tool that only ever announced change would train people to read every
+   re-run as a discovery, and re-running a language model always produces
+   different sentences. So the diff is over the fact-check's extracted
+   claims, not over prose, and an unchanged conclusion is reported as an
+   unchanged conclusion rather than as a subtly reworded new one. */
+function StressTest({ turn, P, accent, at, onStress, busy, isMobile }) {
+  const claims = ((turn.factCheck && turn.factCheck.claims) || []).map((c) => c.claim).filter(Boolean);
+  const res = turn.stress;
+
+  const run = (opts) => onStress({ ...opts, stressBaseClaims: claims });
+  const btn = {
+    background: "none", border: "1px solid " + P.line2, color: P.ink2, cursor: busy ? "wait" : "pointer",
+    borderRadius: RADIUS.pill, padding: "6px 13px", fontSize: FONT_SIZES.caption,
+    fontFamily: "var(--cb-body)", opacity: busy ? 0.55 : 1,
+  };
+
+  const verdictCopy = res && ({
+    held: { t: "The conclusion held.", d: "Every claim the original answer made is still supported after the change." },
+    shifted: { t: "The conclusion moved.", d: "Some claims did not survive the reduced evidence." },
+    collapsed: { t: "The conclusion did not survive.", d: "None of the original claims remain supported." },
+    "no-baseline": { t: "Re-run complete.", d: "There were no extracted claims from the original answer to compare against." },
+    inconclusive: { t: "Inconclusive — the re-run itself failed.", d: "No papers survived retrieval, or every model was unavailable. This says nothing about the original conclusion; try again in a moment." },
+  }[res.verdict]);
+
+  return (
+    <div style={{
+      marginTop: 14, padding: isMobile ? "14px 16px" : "16px 20px",
+      borderRadius: RADIUS.lg, border: "1px solid " + P.line,
+      background: P.dark ? "rgba(255,255,255,0.022)" : "rgba(0,0,0,0.015)",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: P.faint }}>
+          Stress-test this answer
+        </span>
+      </div>
+
+      <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, marginBottom: 11 }}>
+        Ask the same question again with the evidence changed, and see whether the conclusion holds.
+      </div>
+
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+        <button disabled={busy} style={btn} onClick={() => run({ stressFilter: "human" })}>Only human studies</button>
+        <button disabled={busy} style={btn} onClick={() => run({ stressFilter: "direct" })}>Direct measurements only</button>
+        {(turn.sources || []).slice(0, 1).map((s) => s && s.url ? (
+          <button key={s.url} disabled={busy} style={btn} onClick={() => run({ stressExclude: [s.url] })}>
+            Remove the top source
+          </button>
+        ) : null)}
+      </div>
+
+      {res && verdictCopy && (
+        <div style={{
+          marginTop: 13, paddingTop: 12, borderTop: "1px solid " + P.line,
+        }}>
+          <div style={{
+            fontSize: FONT_SIZES.small, fontWeight: 600, color: res.verdict === "held" ? accent : P.ink,
+            marginBottom: 5,
+          }}>{verdictCopy.t}</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6 }}>{verdictCopy.d}</div>
+          <div style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 8, lineHeight: 1.7 }}>
+            {res.droppedPapers} paper{res.droppedPapers === 1 ? "" : "s"} removed · {res.remainingPapers} used ·{" "}
+            {res.kept} of {res.claimsBefore} claim{res.claimsBefore === 1 ? "" : "s"} kept
+            {res.lost > 0 ? " · " + res.lost + " lost" : ""}
+          </div>
+          {res.added && res.added.length > 0 && (
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 9, lineHeight: 1.6 }}>
+              <span style={{ color: P.faint }}>New claim in the re-run: </span>{res.added[0]}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite) {
@@ -5513,7 +5681,7 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
   );
 }
 
-function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, interactive = true, user = null, onWatchChanged = () => {} }) {
+function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   // Only fires once the text has stopped changing (see the comment at the
@@ -5760,6 +5928,14 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
         ) : null}
         {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} />}
       </div>
+      {done && interactive && onStress && (t.factCheck || t.sources?.length) ? (
+        <StressTest turn={t} P={P} accent={accent} at={at} onStress={onStress} busy={busyNow}
+          isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+      ) : null}
+      {done && t.evidenceStructure && (
+        <EvidenceStructure data={t.evidenceStructure} P={P} accent={accent}
+          isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+      )}
       {/* Points of Friction — conflicting claims detected across sources */}
       {done && t.literatureConflicts && t.literatureConflicts.length > 0 && (
         <div style={{ marginTop: 20, padding: "20px 24px", border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: 8, background: withAlpha(STATUS.warn, 0.04) }} className="cb-fade">
@@ -14839,7 +15015,13 @@ function App() {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
       const videosPromise = imageToSend ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections }) });
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections,
+        /* A stress test is the same request with constraints attached, not a
+           second endpoint — the point is that the answer being compared is
+           produced by identical machinery. */
+        stressExclude: opts.stressExclude || undefined,
+        stressFilter: opts.stressFilter || undefined,
+        stressBaseClaims: opts.stressBaseClaims || undefined }) });
       if (!res.ok) {
         let errData = {};
         try { errData = await res.json(); } catch {}
@@ -14862,7 +15044,7 @@ function App() {
       catch { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      const nt = { id: turnId, answerId: data.answerId || "", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       setTurns((t) => [...t, nt]);
@@ -15849,7 +16031,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} />))}
+                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} onStress={(o) => ask(t.q, o)} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} done={false} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(turns.length ? turns[turns.length - 1].q : input); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
