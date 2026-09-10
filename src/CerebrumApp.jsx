@@ -525,7 +525,17 @@ const PALETTES = {
   // it stays a real alternative and not a fourth near-duplicate. Ink
   // softened off pure white to match the other three's restraint.
   Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#9a9ca2", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
-  Light: { dark: false, bg: "#f5f4f1", surface: "#fbfaf8", raised: "#ffffff", ink: "#29261f", ink2: "#5a5548", faint: "#736e62", line: "rgba(41,38,31,0.07)", line2: "rgba(41,38,31,0.12)", shadow: "0 1px 2px rgba(41,38,31,0.05), 0 6px 18px rgba(41,38,31,0.07)", shadowSm: "0 1px 2px rgba(41,38,31,0.05)", grain: 0.006, skel: "linear-gradient(90deg, #efeeea 25%, #f6f5f2 50%, #efeeea 75%)" },
+  /* Light — designed as its own material, not as dark mode inverted.
+     Archival paper rather than white: a warm, slightly cool-shadowed stock
+     at #f1f0ec, the colour of a journal offprint. Ink is graphite (#22252a)
+     with a blue-grey cast rather than the old warm brown, because printed
+     scientific text is cool and warm ink at this size reads as sepia.
+     Borders are silver — a real hairline you can see — instead of a 7%
+     wash that vanished on any screen not at full brightness. The shadows
+     are wider and weaker than dark mode's: paper on a desk has a diffuse
+     shadow, not a drop shadow. Grain stays, and slightly stronger, because
+     it is what keeps large pale surfaces from looking like a blank div. */
+  Light: { dark: false, bg: "#f1f0ec", surface: "#f9f9f7", raised: "#ffffff", ink: "#22252a", ink2: "#4b5058", faint: "#6c727b", line: "rgba(34,37,42,0.10)", line2: "rgba(34,37,42,0.17)", shadow: "0 1px 2px rgba(34,37,42,0.04), 0 10px 30px rgba(34,37,42,0.07)", shadowSm: "0 1px 2px rgba(34,37,42,0.05)", grain: 0.009, skel: "linear-gradient(90deg, #e9e8e3 25%, #f3f2ef 50%, #e9e8e3 75%)" },
   // Sage — "Modern Organic," and now the default palette a fresh browser
   // lands on (see App()'s paletteName useState below): near-black stone
   // instead of neutral charcoal, paired by default with the muted
@@ -768,6 +778,48 @@ function Icon({ name, size = 17, className, style }) {
     case "screenShare": return <svg {...common}><rect x="2" y="4" width="20" height="14" rx="2" /><path d="M12 15V8M9 11l3-3 3 3" /><path d="M8 21h8" /></svg>;
     default: return null;
   }
+}
+
+/* THE SIGNATURE — the one moment the mark gets to perform.
+
+   It fires once, when a question becomes an investigation, and nowhere
+   else. That restraint is the whole idea: an effect used everywhere is
+   decoration, and an effect used at exactly one threshold becomes the
+   thing people remember the product by. The mark draws itself along its
+   own two strokes, holds for a beat, and the workspace arrives behind it.
+
+   The geometry is the real logo's path data, not an approximation, so the
+   animation and the wordmark in the sidebar are provably the same shape.
+
+   About 900ms, non-blocking (pointer-events: none from the start), and
+   skipped entirely under reduced motion — where it would be a flash of
+   overlay with no motion to justify it. */
+function InvestigationOpening({ accent, animationMode }) {
+  const [gone, setGone] = useState(false);
+  const skip = animationMode === "off" ||
+    (typeof window !== "undefined" && window.matchMedia &&
+     window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  useEffect(() => {
+    if (skip) { setGone(true); return; }
+    const t = setTimeout(() => setGone(true), 1100);
+    return () => clearTimeout(t);
+  }, [skip]);
+
+  if (skip || gone) return null;
+  return (
+    <div aria-hidden="true" className="cb-open-veil" style={{
+      position: "fixed", inset: 0, zIndex: 220, pointerEvents: "none",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <svg width="96" height="96" viewBox="0 0 24 24" fill="none"
+        stroke={accent} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"
+        style={{ filter: "drop-shadow(0 0 26px " + withAlpha(accent, 0.55) + ")" }}>
+        <path className="cb-open-stroke" d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
+        <path className="cb-open-stroke cb-open-stroke-b" d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
+      </svg>
+    </div>
+  );
 }
 
 function Mark({ size = 26, accent, glow }) {
@@ -1138,6 +1190,27 @@ function useCallTone(kind, active) {
    because that is the behavior worth reinforcing, it never scolds, and
    breaking it costs nothing but the number. That's the line between a habit
    that serves the person and a slot machine. */
+/* Turn a question into the few words it is actually about.
+   Deliberately mechanical — strip the interrogative opening, drop trailing
+   punctuation, cap the length — rather than asking a model to name the
+   topic. A summariser here would occasionally rename someone's own
+   question back at them, and being wrong about what you were working on is
+   a worse failure than being a little clumsy about it. If nothing useful
+   is left, the caller falls back to the greeting. */
+function shortSubject(q) {
+  let t = String(q || "").trim()
+    .replace(/^(explain the science behind:?|explain|what is|what are|what do we know about|how does|how do|does|is|are|why does|why do|tell me about)\s+/i, "")
+    .replace(/[?.!,;:]+\s*$/, "")
+    .replace(/\s+/g, " ");
+  if (!t) return "";
+  if (t.length > 64) {
+    const cut = t.slice(0, 64);
+    const sp = cut.lastIndexOf(" ");
+    t = (sp > 30 ? cut.slice(0, sp) : cut) + "\u2026";
+  }
+  return "your investigation into " + t.charAt(0).toLowerCase() + t.slice(1);
+}
+
 /* Commit 87 — greeting + date line for the returning-user hero.
    Deliberately time-of-day rather than a fixed "Welcome back": the second
    is a string, the first is the app noticing something true about right
@@ -1691,17 +1764,27 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           be the most important thing on the screen. */}
       {!deckIsEmpty && (
         <div style={{ order: 0, marginBottom: isMobile ? 4 : 8 }}>
+          {/* The greeting is the fallback, not the headline.
+              "Good afternoon" is the same sentence for every person on every
+              day and tells you nothing; the question you left half-finished
+              is specific, yours, and the actual reason to come back. When
+              there is work in progress it leads, and the greeting steps
+              down to the quiet line underneath with the date. */}
           <h2 style={{
             margin: "0 0 4px", fontSize: isMobile ? 19 : 22, fontWeight: 600,
             letterSpacing: "-0.025em", color: P.ink, fontFamily: "var(--cb-display)",
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
           }}>
-            {greeting()}{greetingName ? <>, <span style={{ color: accent }}>{greetingName}</span></> : null}
+            {lastQ
+              ? <>Continue <span style={{ color: accent }}>{shortSubject(lastQ)}</span></>
+              : <>{greeting()}{greetingName ? <>, <span style={{ color: accent }}>{greetingName}</span></> : null}</>}
           </h2>
           <p style={{
             margin: 0, fontSize: FONT_SIZES.caption, color: P.faint,
             fontFamily: "var(--cb-mono)", display: "flex", flexWrap: "wrap",
             alignItems: "center", gap: 8,
           }}>
+            {lastQ && <><span>{greeting()}{greetingName ? ", " + greetingName : ""}</span><span aria-hidden="true" style={{ opacity: 0.4 }}>·</span></>}
             <span>{todayLabel()}</span>
             {streakDays > 0 && (
               <>
@@ -2503,6 +2586,243 @@ function revealSource(n, accent) {
   } catch {}
 }
 
+
+/* CITATION PEEK — the answer's most important interaction.
+
+   A citation used to do one thing: scroll the sources panel and flash. That
+   is a jump, and a jump costs you your place in the sentence. What a reader
+   actually wants at that moment is small and specific — what IS this, and
+   did anyone actually read it — answered without leaving the paragraph.
+
+   So hovering (or tapping, on a phone) opens a card beside the marker with
+   the paper's identity, the opening of its abstract, and, stated plainly,
+   whether Cerebrum had the full text or only the abstract. That last line
+   is the honest part and the reason this is worth building: an answer that
+   cites a paper it only ever saw the abstract of should say so at the exact
+   moment you are deciding whether to trust the sentence.
+
+   It positions itself from the marker's own rect and flips above the line
+   when there is no room below, so it never covers the text you are reading.
+   Clicking still does the old thing — reveal it in the sources panel — so
+   nothing is taken away. */
+function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
+  const [pos, setPos] = useState(null);
+  const src = sources && sources[n - 1];
+
+  useLayoutEffect(() => {
+    if (!n) { setPos(null); return; }
+    const el = document.querySelector('[data-cite="' + n + '"]');
+    if (!el) { setPos(null); return; }
+    const r = el.getBoundingClientRect();
+    const W = isMobile ? Math.min(340, window.innerWidth - 24) : 340;
+    const below = window.innerHeight - r.bottom;
+    setPos({
+      left: Math.max(12, Math.min(window.innerWidth - W - 12, r.left + r.width / 2 - W / 2)),
+      top: below > 240 ? r.bottom + 10 : Math.max(12, r.top - 260),
+      width: W,
+    });
+  }, [n, isMobile]);
+
+  if (!n || !src || !pos) return null;
+
+  /* "Full text" is only claimed when the retrieval actually had it. A
+     missing flag means abstract, not unknown-so-assume-the-best. */
+  const fullText = !!(src.fullText || src.hasFullText || src.oaFullText);
+  const meta = [src.journal, src.year].filter(Boolean).join(" · ");
+  const snippet = String(src.tldr || src.abstract || "").trim();
+
+  return createPortal(
+    <div
+      role="dialog" aria-label={"Source " + n}
+      onMouseEnter={() => {}} onMouseLeave={onClose}
+      style={{
+        /* The flip is baked into `top` at measure time rather than applied
+           as a transform, because the entrance animation owns transform and
+           the two would cancel each other out. */
+        position: "fixed", left: pos.left, top: pos.top, width: pos.width, zIndex: 260,
+        background: P.dark ? "rgba(14, 16, 20, 0.97)" : "rgba(255,255,255,0.98)",
+        backdropFilter: "blur(14px) saturate(130%)", WebkitBackdropFilter: "blur(14px) saturate(130%)",
+        border: "1px solid " + (P.dark ? "rgba(255,255,255,0.11)" : P.line2),
+        borderRadius: RADIUS.lg,
+        boxShadow: P.dark
+          ? "inset 0 1px 0 rgba(255,255,255,0.06), 0 20px 56px rgba(0,0,0,0.55)"
+          : "0 20px 48px rgba(34,37,42,0.16)",
+        padding: "14px 16px 13px", fontFamily: "var(--cb-body)",
+        animation: "cbPeekIn .22s cubic-bezier(0.16,1,0.3,1) both",
+      }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{
+          fontFamily: "var(--cb-mono)", fontSize: 10.5, fontWeight: 600, color: accent,
+          background: withAlpha(accent, 0.13), border: "1px solid " + withAlpha(accent, 0.28),
+          borderRadius: RADIUS.pill, padding: "1px 8px",
+        }}>{n}</span>
+        <span style={{
+          fontSize: 9.5, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase",
+          borderRadius: RADIUS.pill, padding: "2px 8px",
+          background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
+          color: fullText ? accent : P.faint,
+          border: "1px solid " + (fullText ? withAlpha(accent, 0.26) : P.line),
+        }}>{fullText ? "Full text read" : "Abstract only"}</span>
+        {isMobile && (
+          <button onClick={onClose} aria-label="Close" style={{
+            marginLeft: "auto", background: "none", border: "none", color: P.faint,
+            cursor: "pointer", padding: 2, display: "inline-flex",
+          }}><Icon name="close" size={15} /></button>
+        )}
+      </div>
+
+      <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{src.title}</div>
+      {meta && <div style={{ fontFamily: "var(--cb-mono)", fontSize: 10.5, color: P.faint, marginBottom: 8 }}>{meta}</div>}
+
+      {snippet
+        ? <div style={{
+            fontSize: 12.5, lineHeight: 1.55, color: P.ink2, marginBottom: 10,
+            display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden",
+          }}>{snippet}</div>
+        : <div style={{ fontSize: 12.5, lineHeight: 1.55, color: P.faint, marginBottom: 10 }}>
+            No abstract was returned for this record.
+          </div>}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => onOpen(n)} style={{
+          background: "none", border: "1px solid " + P.line2, color: P.ink2, cursor: "pointer",
+          borderRadius: RADIUS.pill, padding: "5px 12px", fontSize: 11.5, fontFamily: "var(--cb-body)",
+        }}>Show in sources</button>
+        {src.url && (
+          <a href={src.url} target="_blank" rel="noopener noreferrer" style={{
+            textDecoration: "none", border: "1px solid " + P.line2, color: P.ink2,
+            borderRadius: RADIUS.pill, padding: "5px 12px", fontSize: 11.5,
+            display: "inline-flex", alignItems: "center", gap: 5,
+          }}>Open paper <Icon name="external" size={11} /></a>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+
+/* INVESTIGATION COVERS — recognisable without being invented.
+
+   A list of identical cards makes you read every title to find the one you
+   want. A picture would fix that instantly, and that is exactly why it is
+   the wrong answer here: any image we attached to "does KAR3 affect spindle
+   assembly" would be decoration implying a subject it cannot know, on a
+   product whose argument is that nothing is asserted without a source.
+
+   So the cover is generated from the investigation's own identity. The
+   title is hashed to a stable hue pair and a stable stroke pattern, and the
+   result is a small abstract mark that is always the same for that
+   investigation and almost never the same as its neighbour. It carries no
+   claim about the science. It is a colour you learn to recognise, which is
+   all a cover has to be.
+
+   The geometry is drawn from the logo's own rounded-lobe motif, so the
+   covers look like they belong to this product rather than to a random
+   gradient generator. */
+function investigationCover(title, accent, P) {
+  let h = 2166136261;
+  for (let i = 0; i < String(title || "").length; i++) {
+    h ^= String(title).charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const u = Math.abs(h);
+  const hue = u % 360;
+  const hue2 = (hue + 40 + (u >> 8) % 60) % 360;
+  const sat = P.dark ? 26 : 34;
+  const lum = P.dark ? 26 : 84;
+  const rot = (u >> 4) % 180;
+  const lobes = 2 + (u >> 12) % 3;
+  return { hue, hue2, sat, lum, rot, lobes,
+    background: "linear-gradient(" + rot + "deg, hsl(" + hue + " " + sat + "% " + lum + "%), hsl(" + hue2 + " " + sat + "% " + (lum + (P.dark ? 8 : -8)) + "%))" };
+}
+
+function InvestigationCover({ title, accent, P, size = 52 }) {
+  const c = investigationCover(title, accent, P);
+  return (
+    <span aria-hidden="true" style={{
+      width: size, height: size, flexShrink: 0, borderRadius: RADIUS.md,
+      background: c.background, position: "relative", overflow: "hidden",
+      border: "1px solid " + (P.dark ? "rgba(255,255,255,0.08)" : "rgba(34,37,42,0.10)"),
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <svg width={size * 0.56} height={size * 0.56} viewBox="0 0 24 24" fill="none"
+        stroke={P.dark ? "rgba(255,255,255,0.55)" : "rgba(34,37,42,0.45)"}
+        strokeWidth="1.3" strokeLinecap="round"
+        style={{ transform: "rotate(" + (c.rot % 30 - 15) + "deg)" }}>
+        {Array.from({ length: c.lobes }).map((_, i) => (
+          <circle key={i} cx="12" cy={7 + i * 4.5} r={3.4 - i * 0.5} />
+        ))}
+        <path d="M12 3v18" opacity="0.35" />
+      </svg>
+    </span>
+  );
+}
+
+
+/* MOTION THAT MEANS SOMETHING — a saved paper travels to the Library.
+
+   Every other animation in this file is a state change dressed up: a fade,
+   a lift, a colour. This one carries information. When you save a source,
+   the thing you clicked physically moves to the place it is now kept, so
+   "where did that go" is answered by having watched it go there. That is
+   the whole justification for the effect — if it did not answer a question
+   a person actually has, it would be noise.
+
+   Implemented as a throwaway clone on a fixed layer rather than by moving
+   the real element: the real card must not leave the sources list mid-
+   scroll, and the clone can be discarded without touching React's tree.
+   Both endpoints are measured at fire time, so it lands on the Library row
+   wherever the sidebar happens to be — including when the rail is scrolled
+   or the window has been resized.
+
+   Silent no-op if either end is missing, and skipped entirely under
+   reduced motion, where a 550ms flight across the screen is exactly what
+   the setting exists to prevent. */
+function flyToLibrary(fromEl, accent) {
+  try {
+    if (!fromEl) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const target = document.querySelector('[data-nav="library"]');
+    if (!target) return;
+
+    const a = fromEl.getBoundingClientRect();
+    const b = target.getBoundingClientRect();
+    if (!a.width || !b.width) return;
+
+    const dot = document.createElement("div");
+    dot.setAttribute("aria-hidden", "true");
+    Object.assign(dot.style, {
+      position: "fixed", zIndex: "300", pointerEvents: "none",
+      left: a.left + a.width / 2 - 7 + "px",
+      top: a.top + a.height / 2 - 7 + "px",
+      width: "14px", height: "14px", borderRadius: "50%",
+      background: accent || "#A3B899",
+      boxShadow: "0 0 0 6px " + (accent || "#A3B899") + "22, 0 6px 18px rgba(0,0,0,0.4)",
+      transition: "transform .55s cubic-bezier(0.4, 0, 0.2, 1), opacity .55s ease",
+    });
+    document.body.appendChild(dot);
+
+    /* Two frames, not one. A single rAF still lands inside the same style
+       recalculation often enough that the transition never starts and the
+       dot teleports. */
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      dot.style.transform =
+        "translate(" + (b.left + b.width / 2 - (a.left + a.width / 2)) + "px," +
+        (b.top + b.height / 2 - (a.top + a.height / 2)) + "px) scale(0.45)";
+      dot.style.opacity = "0.15";
+    }));
+
+    setTimeout(() => {
+      dot.remove();
+      /* The destination acknowledges the arrival. Without it the dot
+         vanishes at the edge of the rail and the trip has no ending. */
+      target.classList.add("cb-nav-received");
+      setTimeout(() => target.classList.remove("cb-nav-received"), 700);
+    }, 580);
+  } catch {}
+}
+
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite) {
   let clean = normalizeSectionHeaders(text || "")
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
@@ -2762,6 +3082,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
          stays marked until a different one is chosen, so after reading the
          source you can find your way back to the sentence it belonged to. */
       return <a key={si} href={`#ref-${n}`} title={src?.title || ""}
+        data-cite={n}
         aria-label={src?.title ? `Source ${n}: ${src.title}` : `Source ${n}`}
         aria-current={isActive ? "true" : undefined}
         onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)}
@@ -3414,12 +3735,33 @@ function FilmCreditsDialog({ onClose, accent }) {
   );
 }
 
+/* Motion on a phone is opt-in, and the choice survives a reload — a
+   preference someone has to set on every visit is not a preference. */
+const FILM_OPT_IN_KEY = "cb_film_motion";
+function filmForcedOn() {
+  try { return localStorage.getItem(FILM_OPT_IN_KEY) === "1"; } catch { return false; }
+}
+function setFilmForcedOn(on) {
+  try { on ? localStorage.setItem(FILM_OPT_IN_KEY, "1") : localStorage.removeItem(FILM_OPT_IN_KEY); } catch {}
+}
+
 /* One answer to "may the reel run", shared by the component and by every
    call site that needs to know whether to mount the still fallback
    instead. Two copies of this rule is how a visitor who asked for reduced
    motion ends up with both backdrops mounted at once. */
 function filmBlocked(animationMode, paused) {
   if (paused || animationMode === "off") return true;
+  /* Phones get the still poster, not a decoder.
+     A full-viewport video behind a translucent interface is the single most
+     expensive thing this app can do, and it is worst exactly where the
+     hardware is weakest and the battery matters. The poster frame is the
+     same footage, graded the same way — the page still looks like itself,
+     it just stops decoding thirty frames a second to do it. Anyone who
+     wants the motion can turn it on; the control is in the footer and it
+     remembers the answer. */
+  if (typeof window !== "undefined" && window.matchMedia &&
+      window.matchMedia("(pointer: coarse) and (max-width: 900px)").matches &&
+      !filmForcedOn()) return true;
   /* Genuinely low-end devices, where a full-viewport filtered video makes
      the whole interface stutter. Deliberately a hard floor rather than a
      guess at "slow": deviceMemory is only reported by Chromium and only in
@@ -3469,7 +3811,15 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
       for (const el of els) { try { el.pause(); } catch {} }
     };
 
-    if (blocked) { stop(); return; }
+    if (blocked) {
+      stop();
+      /* The poster attribute alone paints nothing until a source is set,
+         so a blocked reel used to fall through to the flat gradient. This
+         shows the graded still instead: the same frame the reel would have
+         opened on, at the same brightness, with no decoding at all. */
+      els[0].style.opacity = "1";
+      return;
+    }
 
     const play = (el, src) => {
       /* A clip that loads clears the miss counter. Without this the count
@@ -3523,11 +3873,14 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false })
     return () => { document.removeEventListener("visibilitychange", onVis); stop(); };
   }, [blocked]);
 
+  /* Intensity is a prop, but the transition lives here so a change of
+     attention reads as the room dimming rather than a cut. */
   const vid = {
     position: "absolute", top: "50%", left: "50%",
     width: "100%", height: "100%", objectFit: "cover",
     transform: "translate(-50%, -50%)",
-    opacity: 0, transition: "opacity 2.2s cubic-bezier(0.22, 1, 0.36, 1)",
+    opacity: 0,
+    transition: "opacity 2.2s cubic-bezier(0.22, 1, 0.36, 1), filter 1.2s cubic-bezier(0.22, 1, 0.36, 1)",
     filter: "grayscale(30%) contrast(115%) brightness(" + (0.6 * intensity).toFixed(2) + ")",
     pointerEvents: "none",
   };
@@ -5334,6 +5687,15 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
             <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           </div>
         )}
+        {interactive && (hoverCite || activeCite) ? (
+          <CitationPeek
+            n={hoverCite || activeCite}
+            sources={t.sources}
+            P={P} accent={accent} isMobile={typeof window !== "undefined" && window.innerWidth < 900}
+            onOpen={(n) => { setActiveCite(n); revealSource(n, accent); setHoverCite && setHoverCite(0); }}
+            onClose={() => { setHoverCite && setHoverCite(0); setActiveCite(0); }}
+          />
+        ) : null}
         {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} />}
       </div>
       {/* Points of Friction — conflicting claims detected across sources */}
@@ -6874,7 +7236,11 @@ const TRENDING_POLL_MS = 5 * 60 * 1000;
    ══════════════════════════════════════════════════════════════════ */
 function WorkspacePage({ P, accent, isMobile, title, count, description, actions, children, wide = false }) {
   return (
-    <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+    /* minHeight 100%, or the reading floor below stops where the content
+       stops and leaves a hard horizontal seam across the page — the scrim
+       is absolutely positioned inside this box, so the box has to be as
+       tall as the view. */
+    <div style={{ flex: 1, minHeight: "100%", position: "relative" }}>
       {/* A soft floor under the reading column on the dark palettes.
           These pages are dense text over moving footage, and a bright frame
           drifting under a paragraph took the contrast below anything
@@ -6882,7 +7248,13 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
           the screen. It is a gradient, not a panel: the film still shows at
           the edges and behind the header, so the page keeps its depth. */}
       <div aria-hidden="true" style={{
-        position: "absolute", inset: 0, pointerEvents: "none",
+        /* Fixed to the workspace, not absolute inside the content.
+           Absolute made the scrim exactly as tall as whatever happened to
+           be on the page, so a short list left a hard horizontal seam
+           across the middle of the window where the floor stopped. */
+        position: "fixed", top: 0, bottom: 0, right: 0,
+        left: isMobile ? 0 : 260,
+        pointerEvents: "none", zIndex: 0,
         background: P.dark
           ? "linear-gradient(180deg, rgba(11,13,16,0.55) 0%, rgba(11,13,16,0.78) 22%, rgba(11,13,16,0.82) 100%)"
           : "none",
@@ -13223,9 +13595,17 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        canvas is doing underneath it. */
     answerCard: {
       position: "relative",
-      background: P.dark ? "rgba(15, 17, 26, 0.75)" : "rgba(255, 255, 255, 0.85)",
-      backdropFilter: "blur(40px) saturate(150%)",
-      WebkitBackdropFilter: "blur(40px) saturate(150%)",
+      /* Depth, with restraint: glass belongs on navigation and overlays —
+         things you pass through — not under a thousand words you are going
+         to read. At 0.75 with a 40px blur, a bright frame drifting behind
+         this card changed the paper colour under the text while you read
+         it, which is the kind of thing you feel as eye strain before you
+         notice it as a design. The card is now nearly opaque and barely
+         blurred: still the same material, still lit at the top edge, but
+         steady. The film keeps its presence in the margins around it. */
+      background: P.dark ? "rgba(14, 16, 20, 0.94)" : "rgba(255, 255, 255, 0.96)",
+      backdropFilter: "blur(14px) saturate(120%)",
+      WebkitBackdropFilter: "blur(14px) saturate(120%)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 8,
       padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
@@ -13553,7 +13933,10 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
           <React.Fragment key={group.label || `g${gi}`}>
             {group.label && <div style={S.sidebarSectionLabel}>{group.label}</div>}
             {group.items.map(([key, label, icon, badge]) => (
-              <button key={key} onClick={() => onNavigate(key)} style={itemStyle(key)} aria-current={view === key ? "page" : undefined}
+              /* data-nav: the landing target for the save-to-library flight.
+                 A stable hook on the row itself, so the animation never has
+                 to guess at the rail's structure. */
+              <button key={key} data-nav={key} onClick={() => onNavigate(key)} style={itemStyle(key)} aria-current={view === key ? "page" : undefined}
                 onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
                 <Icon name={icon} size={17} />
                 <span>{label}</span>
@@ -13829,6 +14212,18 @@ function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
   const [filmCreditsOpen, setFilmCreditsOpen] = useState(false);
+  /* Attention, as a piece of state. The backdrop is at its most present
+     when someone is looking around, and steps back the moment they start
+     doing something — typing a question, or reading an answer. */
+  const [composerFocused, setComposerFocused] = useState(false);
+  /* On by default on a desktop, off by default on a phone, and whatever
+     the person last chose after that. The control says what it will do,
+     not what it currently is. */
+  const [filmMotion, setFilmMotion] = useState(() => {
+    const phone = typeof window !== "undefined" && window.matchMedia &&
+      window.matchMedia("(pointer: coarse) and (max-width: 900px)").matches;
+    return phone ? filmForcedOn() : true;
+  });
   // V5 "what's new" announcement — shows once per browser, the first time
   // someone lands on the main app after this ships. Keyed off its own
   // localStorage flag rather than the entry cookie above, since a returning
@@ -14938,6 +15333,32 @@ function App() {
   const sourceIndexMap = useMemo(() => new Map(allSources.map((s, i) => [s, i])), [allSources]);
   const grouped = useMemo(() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; }, [sortedSources, srcSort]);
 
+  /* These hooks live above the `!entered` early return on purpose.
+
+     React identifies a hook by its call order, so a hook declared after a
+     conditional return only runs on some renders — and the first render
+     that takes the other branch hits "rendered more hooks than during the
+     previous render" and the whole screen is replaced by the error
+     boundary. That is exactly what happened when this was written next to
+     `started` further down: the intro renders, returns early, and the app
+     render then had three hooks the intro render did not.
+
+     Fires on the edge, not the state: the signature belongs to the moment a
+     question becomes an investigation, so it plays once on the transition
+     into `started` and never again while you are in there. */
+  const [opening, setOpening] = useState(false);
+  const wasStarted = useRef(false);
+  const startedNow = turns.length > 0 || busy;
+  useEffect(() => {
+    if (startedNow && !wasStarted.current) {
+      setOpening(true);
+      wasStarted.current = true;
+      const t = setTimeout(() => setOpening(false), 1150);
+      return () => clearTimeout(t);
+    }
+    if (!startedNow) wasStarted.current = false;
+  }, [startedNow]);
+
   if (!entered) {
     // Commit 69 — the gate rides above the Intro too. The Intro is a
     // landing screen rather than "use of the Service", but there is no
@@ -15003,7 +15424,7 @@ function App() {
       <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? renderCleanTitle(s.title) : s.url)}</a>
       <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
       <div style={S.srcRow}>
-        <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); toggleSave(s); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
+        <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
         <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isPinned(s) ? at : P.ink2, background: isPinned(s) ? accent : "transparent", borderColor: isPinned(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow-ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={11} />{isPinned(s) ? "Pinned" : "Pin"}</button>
         {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
       </div>
@@ -15106,14 +15527,25 @@ function App() {
       ) : (
         <CinematicFilm
           animationMode={animationMode}
+          paused={!filmMotion}
           /* Brightest on the search screen, dimmer once you are reading an
              answer, dimmest on a working view like Inbox or Find people —
              those are dense text on a wide column, and footage at full
              strength behind them cost real legibility. */
-          intensity={view && view !== "search" ? 0.42 : (started ? 0.62 : 1)}
+          intensity={
+            /* Four states, in order of how much attention the page is
+               asking for. Reading wins over everything: an answer is the
+               one screen where the footage is purely in the way. */
+            started ? 0.34
+              : (view && view !== "search") ? 0.42
+              : composerFocused ? 0.45
+              : (input && input.length > 0) ? 0.5
+              : 1
+          }
         />
       )}
       <div style={S.grain} />
+      {opening && <InvestigationOpening accent={accent} animationMode={animationMode} />}
       {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
       <GuidedTour P={P} accent={accent} />
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
@@ -15273,7 +15705,10 @@ function App() {
                 }}>{composerPrompt}</h2>
               )}
               <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <input ref={inputRef} style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={isMobile
+                  <input ref={inputRef} style={S.searchInput} value={input}
+                    onFocus={() => setComposerFocused(true)}
+                    onBlur={() => setComposerFocused(false)}
+                    onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={isMobile
                     ? ((ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholderShort ||
                        (ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder)
                     : (ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
@@ -15403,6 +15838,7 @@ function App() {
                    intro, so its attribution has to be reachable from in here
                    too — the CC BY clips are on screen either way. */
                 ["credits", "Film credits"],
+                ["motion", filmMotion ? "Pause background" : "Play background"],
                 ["/about", "About"],
                 ["/privacy", "Privacy"],
                 ["/terms", "Terms"],
@@ -15422,6 +15858,12 @@ function App() {
                 };
                 if (href === "how") return <button key={label} type="button" onClick={() => setHowItWorksOpen(true)} style={st}>{label}</button>;
                 if (href === "credits") return <button key={label} type="button" onClick={() => setFilmCreditsOpen(true)} style={st}>{label}</button>;
+                if (href === "motion") return (
+                  <button key="motion" type="button" style={st} onClick={() => {
+                    const next = !filmMotion;
+                    setFilmMotion(next); setFilmForcedOn(next);
+                  }}>{label}</button>
+                );
                 return <a key={label} href={href} style={st}>{label}</a>;
               })}
               <span style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · v{APP_VERSION}</span>
@@ -15584,7 +16026,9 @@ function App() {
                     {visibleHistory.map((h) => (
                       <UICard key={h.id} P={P}>
                         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                          <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit" }}>
+                          <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit", display: "flex", gap: 14, alignItems: "flex-start" }}>
+                            <InvestigationCover title={h.title} accent={accent} P={P} size={isMobile ? 44 : 52} />
+                            <span style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em" }}>{h.title}</div>
                             <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-body)" }}>
                               <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
@@ -15597,6 +16041,22 @@ function App() {
                                 <span>{relativeTime(h.ts)}</span>
                               </>)}
                             </div>
+                            {/* A preview of the actual material, not a
+                                generic subtitle: the first paper this
+                                investigation turned up, by name. It is the
+                                fastest way to recognise which one this is
+                                when four titles start the same way. */}
+                            {(h.allSources || []).length > 0 && h.allSources[0] && h.allSources[0].title && (
+                              <div style={{
+                                fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 7,
+                                fontFamily: "var(--cb-body)", lineHeight: 1.45,
+                                display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden",
+                              }}>
+                                {h.allSources[0].title}
+                                {h.allSources.length > 1 ? " · and " + (h.allSources.length - 1) + " more" : ""}
+                              </div>
+                            )}
+                            </span>
                           </button>
                           {historyConfirmId === h.id ? (
                             <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
@@ -16710,6 +17170,40 @@ button, a, .cb-tap {
   .cb-deck-btn:hover, .cb-press:hover, .cb-deck-btn:active, .cb-press:active { transform: none !important; }
 }
 
+/* ── The opening signature ──
+   The veil is a wash, not a curtain: it never fully hides the workspace,
+   so the transition reads as the room resolving rather than a loading
+   screen. Both strokes draw at once with a small offset between them,
+   which is what gives the mark its sense of being two halves of one
+   object. */
+.cb-open-veil {
+  animation: cbVeil 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  background: radial-gradient(closest-side, rgba(11,13,16,0.72), rgba(11,13,16,0.30) 70%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+@keyframes cbVeil {
+  0%   { opacity: 0; }
+  18%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.cb-open-stroke {
+  stroke-dasharray: 62;
+  stroke-dashoffset: 62;
+  animation: cbDraw 0.86s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.cb-open-stroke-b { animation-delay: 0.1s; }
+@keyframes cbDraw {
+  0%   { stroke-dashoffset: 62; opacity: 0; transform: scale(0.94); }
+  20%  { opacity: 1; }
+  70%  { stroke-dashoffset: 0; transform: scale(1); }
+  100% { stroke-dashoffset: 0; opacity: 0; transform: scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-open-veil { display: none !important; }
+}
+
 /* ── Home Deck cards ──
    .cb-card already supplies the lift, the two-layer shadow and the accent
    border on hover. What a deck cell adds is a hairline of accent along its
@@ -16733,6 +17227,21 @@ button, a, .cb-tap {
    nothing and it is the difference between a card that reacts and a
    picture sitting in a rectangle. Deliberately small: 6% over 0.9s reads
    as the card waking up, 20% over 0.2s reads as a slideshow. */
+/* The Library row's acknowledgement. Deliberately a ring rather than a
+   colour change: a colour change on a nav row reads as selection, and this
+   is not a navigation event. */
+.cb-nav-received { animation: cbReceived .7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes cbReceived {
+  0%   { box-shadow: 0 0 0 0 var(--cb-accent, #A3B899); }
+  35%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #A3B899) 45%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .cb-nav-received { animation: none !important; } }
+
+@keyframes cbPeekIn {
+  from { opacity: 0; transform: translateY(4px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
 .cb-deck-media { transform-origin: center; will-change: transform; }
 .cb-card:hover .cb-deck-media,
 .cb-deck-card:hover .cb-deck-media { transform: scale(1.06); }
