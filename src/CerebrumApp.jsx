@@ -3872,11 +3872,13 @@ const FILM_CREDITS = [
    with no detail is not an adaptation notice. */
 const FILM_MODIFICATIONS =
   "Each clip is a silent excerpt of up to 15 seconds, re-encoded as H.264 and colour-graded in " +
-  "the browser at display time (desaturated, contrast raised, brightness reduced). The 4K " +
-  "sources are shipped as 1080p playback derivatives — full resolution is invisible behind a " +
-  "grade this dark and costs several times the decode — and portrait clips keep their own " +
-  "orientation rather than being stretched. Two clips are trimmed past a title card. No clip " +
-  "is re-timed or reversed, and no frames are composited between clips.";
+  "the browser at display time (desaturated, contrast raised, brightness reduced). Every clip " +
+  "is cut from the highest-resolution master its source publishes and shipped as a 1080p " +
+  "playback derivative — full resolution is invisible behind a grade this dark and costs " +
+  "several times the decode. Where a source publishes nothing above 1080p, the clip ships at " +
+  "its native size rather than being upscaled. Portrait clips keep their own orientation " +
+  "rather than being stretched. Two clips are trimmed past a title card. No clip is re-timed " +
+  "or reversed, and no frames are composited between clips.";
 
 function FilmCreditsDialog({ onClose, accent }) {
   const ref = useRef(null);
