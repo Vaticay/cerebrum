@@ -1,3 +1,4 @@
+import { contextAction, answerFromContext } from "../lib/conversation.js";
 // Cerebrum backend - Cloudflare Pages Function.
 // Full rewrite for stability. Queries 14 scholarly databases in parallel,
 // races video proxies, synthesizes answers with sanitization.
@@ -4535,87 +4536,6 @@ function buildConversationContext(history, prevSources) {
 // Answer meta-questions (questions about the conversation itself, like "where
 // are the papers" or "what sources did you use"). These don't need a new search
 // — they need the LLM to reference the EXISTING conversation and sources.
-async function answerMetaQuestion(query, history, prevSources, conversationCtx, env) {
-  const token = env.OPENROUTER_KEY;
-  if (!token) return null;
-
-  const sourceList = (prevSources || [])
-    .map(
-      (s, i) =>
-        "[" + (i + 1) + '] "' + (s.title || "Untitled") + '" — ' +
-        (s.authors || "Unknown") + ", " + (s.journal || "Unknown") +
-        ", " + (s.year || "n/a") +
-        (s.url ? "\n    URL: " + s.url : "")
-    )
-    .join("\n");
-
-  const historyText = (history || [])
-    .slice(-6)
-    .map((t) => {
-      const role = t.role === "user" ? "User" : "Cerebrum";
-      return role + ": " + String(t.content || "").slice(0, 600);
-    })
-    .join("\n\n");
-
-  const ctxNote = conversationCtx && conversationCtx.summary ? "\n\nCONVERSATION SUMMARY: " + conversationCtx.summary : "";
-
-  const messages = [
-    {
-      role: "system",
-      content:
-        "You are Cerebrum, a scientific research engine built by Vaticay. " +
-        "The user is asking a question about your PREVIOUS response or the sources you already found. " +
-        "Answer based on the conversation history and source list below.\n\n" +
-        "RULES:\n" +
-        "- Reference specific papers by their citation number [1], [2], etc.\n" +
-        '- If they ask "where are the papers" or "what sources", list the papers you cited with brief descriptions of what each one covers.\n' +
-        '- If they ask to "summarize" or "recap", give a concise summary of what you\'ve discussed.\n' +
-        "- If they ask about specific claims, reference which paper(s) supported them.\n" +
-        "- Be conversational and direct — don't re-search, don't apologize, don't hedge.\n" +
-        "- If there are no previous sources, say so honestly and offer to search for them.\n" +
-        "- Keep species names italicized: _E. coli_, _H. illucens_.\n" +
-        "- Bold **key terms** for readability.\n" +
-        "- NEVER fabricate papers or citations. Only reference what's in the source list below.\n\n" +
-        "CONVERSATION SO FAR:\n" +
-        (historyText || "(first message)") +
-        "\n\nSOURCES PREVIOUSLY CITED:\n" +
-        (sourceList || "(no sources cited yet)") +
-        ctxNote,
-    },
-    { role: "user", content: query },
-  ];
-
-  try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 10000);
-    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + token,
-        "HTTP-Referer": "https://askcerebrum.org",
-        "X-Title": "Cerebrum",
-      },
-      body: JSON.stringify({
-        model: "deepseek/deepseek-chat-v3-0324:free",
-        temperature: 0.3,
-        max_tokens: 1200,
-        messages,
-      }),
-      signal: c.signal,
-    });
-    clearTimeout(t);
-    if (!r.ok) return null;
-    const j = await r.json();
-    const txt = (j?.choices?.[0]?.message?.content || "").trim();
-    if (txt.length > 20) return cleanAIResponse(txt);
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-
 // Self-reasoning chain: before the main search, the system reasons about what
 // to search for and why. This is the "asks itself things" capability — the system
 // decomposes complex questions, identifies sub-questions, and plans the most
@@ -6594,6 +6514,16 @@ export async function onRequest(context) {
       }
     }
 
+    // Context-only requests precede shared caches, query expansion and all retrieval.
+    const respondFromContext = async (action) => {
+      const contextual = await answerFromContext(query, body.history, env, action);
+      if (!contextual) return new Response(JSON.stringify({ error: "I couldn't process that follow-up right now. Please retry; no new paper search was performed." }), { status: 503, headers: { ...cors, "Cache-Control": "no-store" } });
+      contextual.answer = cleanAIResponse(contextual.answer);
+      return new Response(JSON.stringify(contextual), { status: 200, headers: { ...cors, "Cache-Control": "no-store" } });
+    };
+    const action = !hasImage && !body.scopedSource && !body.stressFilter && !body.stressExclude && contextAction(query);
+    if (action) return await respondFromContext(action);
+
     // Special query shortcuts — small moments of personality.
     // These must catch EVERY non-science query before it reaches the search
     // pipeline. "Who made you and why" was being treated as a species-name
@@ -7110,44 +7040,7 @@ export async function onRequest(context) {
 
       switch (resolverResult.intent) {
         case "meta_question": {
-          // ═══ META-QUESTION: "where are the papers", "what sources", etc. ═══
-          // Answer from existing context WITHOUT doing a new search.
-          // This is the #1 fix — previously these got searched literally.
-          const allMetaSources = [...pinnedSources, ...prevSources];
-          const metaAnswer = await answerMetaQuestion(
-            query, body.history || [], allMetaSources, conversationCtx, env
-          );
-          if (metaAnswer) {
-            const metaAnswerId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-            return new Response(
-              JSON.stringify({
-                answer: metaAnswer,
-                answerId: metaAnswerId,
-                sources: allMetaSources.length > 0 ? allMetaSources.map(
-                  ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType }) => ({
-                    title, url, journal, authors, year, citations,
-                    relevance: relevance == null ? null : relevance,
-                    type: type || "Reference", tldr: tldr || null,
-                    retracted: !!retracted, concern: !!concern,
-                    updateType: updateType || null,
-                  })
-                ) : [],
-                videos,
-                factCheck: null,
-                related: [],
-                source: "Conversation context",
-                _resolverUsed: true,
-                _resolverIntent: "meta_question",
-              }),
-              { status: 200, headers: cors }
-            );
-          }
-          // If meta-answer generation failed, fall through to followup mode
-          if (prevSources.length > 0 || pinnedSources.length > 0) {
-            isFollowupMode = true;
-            forceNewSearch = false;
-          }
-          break;
+          return await respondFromContext(contextAction(query) || "explain");
         }
 
         case "source_request": {
@@ -7221,41 +7114,7 @@ export async function onRequest(context) {
         }
       }
     } else if (asksAboutExistingSources && (prevSources.length > 0 || pinnedSources.length > 0)) {
-      // ═══ REGEX FALLBACK for meta-questions ═══
-      // The LLM resolver failed/timed out, but the regex detected a meta-question.
-      // This is the safety net that catches "where are the papers" even without the LLM.
-      const allMetaSourcesFb = [...pinnedSources, ...prevSources];
-      const metaAnswer = await answerMetaQuestion(
-        query, body.history || [], allMetaSourcesFb, conversationCtx, env
-      );
-      if (metaAnswer) {
-        const metaAnswerIdFb = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-        return new Response(
-          JSON.stringify({
-            answer: metaAnswer,
-            answerId: metaAnswerIdFb,
-            sources: allMetaSourcesFb.map(
-              ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType }) => ({
-                title, url, journal, authors, year, citations,
-                relevance: relevance == null ? null : relevance,
-                type: type || "Reference", tldr: tldr || null,
-                retracted: !!retracted, concern: !!concern,
-                updateType: updateType || null,
-              })
-            ),
-            videos,
-            factCheck: null,
-            related: [],
-            source: "Conversation context",
-            _resolverUsed: false,
-            _regexFallback: "asksAboutExistingSources",
-          }),
-          { status: 200, headers: cors }
-        );
-      }
-      // If meta-answer generation failed, treat as followup
-      isFollowupMode = true;
-      forceNewSearch = false;
+      return await respondFromContext("sources");
     }
 
     // Also use cached D1 intelligence if available and resolver didn't fire
