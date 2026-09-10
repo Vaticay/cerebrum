@@ -6379,6 +6379,128 @@ async function resolveDoi(doi, env) {
   };
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════
+   EVIDENCE STRUCTURE — how independent is this evidence, actually?
+
+   Ten papers agreeing is not ten pieces of evidence if six of them are the
+   same lab, or if they all rest on one 2003 result. That is the single most
+   common way a reader over-reads a literature search, and it is the one
+   question on this screen that can be answered WITHOUT a language model:
+   OpenAlex publishes each work's authors and its reference list, so shared
+   authorship and shared ancestry are set intersections, not opinions.
+
+   That distinction is the whole point. Everything else in an answer is a
+   model's reading of the evidence; this is arithmetic over identifiers, and
+   it is labelled as such so a reader knows which is which.
+
+   Method, stated plainly because the UI states it too:
+     · Two papers are treated as NOT independent when they share an author.
+       Author identity is OpenAlex's author ID, not a name string, so
+       "J. Smith" and "John Smith" do not merge by accident and two
+       different J. Smiths do not either.
+     · "Lines of evidence" is the number of connected components once those
+       links are drawn. Four papers by one group is one line, not four.
+     · A "common ancestor" is a work cited by at least two of the papers.
+       Shared references are reported but deliberately do NOT merge papers
+       into one line: citing the same foundational study is normal and is
+       not the same thing as depending on it.
+
+   Everything here is best-effort. One request, a hard deadline, and any
+   failure just omits the field — an answer without this panel is the status
+   quo, and the status quo is fine.
+   ══════════════════════════════════════════════════════════════════════ */
+async function evidenceStructure(papers) {
+  try {
+    const dois = [];
+    for (const p of papers || []) {
+      const m = String((p && p.url) || "").match(/doi\.org\/(10\.[^\s?#]+)/i);
+      if (m) dois.push(m[1].toLowerCase().replace(/[.,;)\]]+$/, ""));
+      if (dois.length >= 25) break;
+    }
+    if (dois.length < 2) return null;
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    let works = [];
+    try {
+      const url = "https://api.openalex.org/works?per-page=50&select=id,doi,title,authorships,referenced_works" +
+        "&filter=doi:" + dois.map((d) => encodeURIComponent(d)).join("|");
+      const r = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": POLITE_UA } });
+      if (!r.ok) return null;
+      const j = await r.json();
+      works = Array.isArray(j.results) ? j.results : [];
+    } finally { clearTimeout(timer); }
+    if (works.length < 2) return null;
+
+    /* ── shared authorship → lines of evidence ── */
+    const authorsOf = works.map((w) => new Set(
+      (w.authorships || []).map((a) => a.author && a.author.id).filter(Boolean)));
+
+    const parent = works.map((_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+    let sharedAuthorPairs = 0;
+    for (let i = 0; i < works.length; i++) {
+      for (let k = i + 1; k < works.length; k++) {
+        let shared = false;
+        for (const id of authorsOf[i]) if (authorsOf[k].has(id)) { shared = true; break; }
+        if (shared) { sharedAuthorPairs++; union(i, k); }
+      }
+    }
+    const lines = new Set(works.map((_, i) => find(i))).size;
+
+    /* ── shared references → common ancestors ── */
+    const refCount = new Map();
+    for (const w of works) {
+      for (const ref of (w.referenced_works || []).slice(0, 300)) {
+        refCount.set(ref, (refCount.get(ref) || 0) + 1);
+      }
+    }
+    const top = [...refCount.entries()]
+      .filter(([, n]) => n >= 2)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    let ancestors = [];
+    if (top.length) {
+      /* One more request, for the titles of at most three works. Worth it:
+         "cited by 6 of 8" means nothing without knowing what it is. */
+      const c2 = new AbortController();
+      const t2 = setTimeout(() => c2.abort(), 5000);
+      try {
+        const ids = top.map(([id]) => id.replace("https://openalex.org/", ""));
+        const r2 = await fetch(
+          "https://api.openalex.org/works?per-page=3&select=id,title,publication_year,doi&filter=openalex_id:" + ids.join("|"),
+          { signal: c2.signal, headers: { "User-Agent": POLITE_UA } });
+        if (r2.ok) {
+          const j2 = await r2.json();
+          const byId = new Map((j2.results || []).map((w) => [w.id, w]));
+          ancestors = top.map(([id, n]) => {
+            const w = byId.get(id);
+            return w ? {
+              title: stripTags(w.title || "").slice(0, 160),
+              year: w.publication_year || null,
+              url: w.doi || null,
+              citedBy: n,
+            } : null;
+          }).filter(Boolean);
+        }
+      } catch {} finally { clearTimeout(t2); }
+    }
+
+    return {
+      papers: works.length,
+      lines,
+      sharedAuthorPairs,
+      ancestors,
+      /* Named so the UI cannot accidentally present this as a model's
+         judgement. Both facts here come from OpenAlex identifiers. */
+      basis: "openalex-identifiers",
+    };
+  } catch { return null; }
+}
+
 export async function onRequest(context) {
   // Opportunistic retention sweep. See lib/retention.js for why this is
   // not a cron. Runs in the background; never delays this response.
@@ -7422,6 +7544,60 @@ export async function onRequest(context) {
 
     // `let`, not `const` — the English-language filter below reassigns it.
     let papers = gResult.papers || [];
+
+    /* ══════════════════════════════════════════════════════════════
+       STRESS TEST — the same question, under different assumptions.
+
+       A conclusion that survives losing its most-cited paper is a
+       different thing from one that does not, and no amount of prose can
+       tell you which you have. This is the whole feature: the client sends
+       back the sources it already has, minus the ones being challenged,
+       plus an optional evidence constraint, and the ordinary pipeline runs
+       again over the reduced set.
+
+       Deliberately implemented as a filter on the gathered papers rather
+       than as a second pipeline: the answer you are stress-testing has to
+       be produced by exactly the same machinery as the original, or the
+       comparison is between two systems rather than two evidence bases.
+
+       Retrieval still runs, because "only human studies" may legitimately
+       surface papers the first pass ranked below the cut. What changes is
+       what survives to synthesis.
+       ══════════════════════════════════════════════════════════════ */
+    const stressExclude = Array.isArray(body.stressExclude)
+      ? new Set(body.stressExclude.map((u) => String(u || "").trim().toLowerCase()).filter(Boolean))
+      : null;
+    const stressFilter = ["human", "direct"].includes(body.stressFilter) ? body.stressFilter : null;
+    const stressBase = Array.isArray(body.stressBaseClaims) ? body.stressBaseClaims.slice(0, 40) : null;
+    const stressing = !!(stressExclude && stressExclude.size) || !!stressFilter;
+    let stressDropped = 0;
+
+    if (stressing && papers.length) {
+      const before = papers.length;
+      papers = papers.filter((p) => {
+        const url = String((p && p.url) || "").trim().toLowerCase();
+        if (stressExclude && stressExclude.has(url)) return false;
+        if (stressFilter === "human") {
+          /* Conservative on purpose. Only excludes papers whose own text
+             says they are animal, cell or in-silico work; a paper that does
+             not say is KEPT, because dropping everything unproven would
+             quietly narrow the evidence base and then report the narrowing
+             as a finding. */
+          const t = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+          if (/\b(in vitro|in silico|cell line|mouse|mice|murine|rat|zebrafish|drosophila|c\. elegans|yeast|xenograft|rodent|porcine|canine|primate model)\b/.test(t)
+              && !/\b(patients?|human subjects?|participants?|randomi[sz]ed controlled trial|cohort study|clinical trial)\b/.test(t)) return false;
+        }
+        if (stressFilter === "direct") {
+          /* Drops work that is explicitly a synthesis of other people's
+             measurements. Reviews are valuable; they are just not direct
+             observation, which is what this constraint asks for. */
+          const t = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+          if (/\b(systematic review|meta-analysis|meta analysis|narrative review|scoping review|umbrella review|review of the literature)\b/.test(t)) return false;
+        }
+        return true;
+      });
+      stressDropped = before - papers.length;
+    }
     const hasPapers = papers.length > 0;
 
     // ============ D1 PAPER-LEVEL LEARNING (read) ============
@@ -8035,7 +8211,16 @@ export async function onRequest(context) {
       "## Where researchers disagree\n" +
       "Where the literature actually disagrees first — papers reaching different conclusions, conflicting methodologies, results that sit at odds with the emerging consensus, stated plainly rather than smoothed into false agreement — then what the retrieved literature doesn't settle yet and where the field is visibly heading. If the evidence is genuinely airtight with no real disagreement or open question, say that in one sentence rather than inventing either.\n\n" +
       "## How solid is this?\n" +
-      "Your actual confidence in the answer above and why — sample sizes, study designs (in vitro vs in vivo vs clinical), replication status, conflicting results, or papers too tangential to use. Be concrete, not a generic disclaimer.\n\n";
+      "Your actual confidence in the answer above and why — sample sizes, study designs (in vitro vs in vivo vs clinical), replication status, conflicting results, or papers too tangential to use. Be concrete, not a generic disclaimer.\n\n" +
+      /* The falsification section.
+         A conclusion that cannot say what would overturn it is not a
+         scientific claim, it is an assertion — and this is the section a
+         researcher can actually act on: it turns a saved answer into a
+         standing question with conditions attached. Constrained hard to
+         findings, because the failure mode is a model writing "more
+         research is needed" three times and calling it falsifiable. */
+      "## What would change this\n" +
+      "2-4 bullet points, each a SPECIFIC finding that would force the answer above to be revised — not a generic call for more research. Name the study design, population, measurement or effect size that would do it: \"a randomised trial in humans showing no difference at 12 months\", \"failure to replicate the 2019 knockout result in a second species\". If a claim above genuinely cannot be falsified by any plausible study, say which one and why.\n\n";
 
 
     /* One line, and it is the whole difference between a chatbot and an
@@ -9440,6 +9625,12 @@ export async function onRequest(context) {
 
     const literatureConflicts = extractLiteratureConflicts(answer, sourceList);
 
+    /* Computed, not generated. Runs only when there is enough to compare and
+       never blocks the answer for more than its own deadline. */
+    const evidenceMap = (useEvidence && sourceList.length >= 3)
+      ? await evidenceStructure(sourceList).catch(() => null)
+      : null;
+
     // Run last, after every pass above has already read the plain-text
     // `answer` (fact-check, literature-conflict extraction) — see
     // italicizeScientificTerms()'s own comment for why order matters here.
@@ -9452,6 +9643,47 @@ export async function onRequest(context) {
         videos,
         factCheck: factCheckResult,
         literature_conflicts: literatureConflicts.length > 0 ? literatureConflicts : null,
+        evidenceStructure: evidenceMap,
+        /* The result of a stress test, or null. `changed` is computed from
+           the fact-check's own extracted claims rather than from the prose,
+           because a language model asked the same question twice writes
+           different sentences whether or not it reached a different
+           conclusion — and a tool that reported wording churn as a finding
+           would be manufacturing significance. */
+        stress: stressing ? (() => {
+          const now = ((factCheckResult && factCheckResult.claims) || []).map((c) => String(c.claim || "").trim()).filter(Boolean);
+          const norm = (x) => x.toLowerCase().replace(/[^a-z0-9 ]+/g, "").replace(/\s+/g, " ").trim();
+          const before = (stressBase || []).map(norm).filter(Boolean);
+          const after = now.map(norm);
+          const kept = after.filter((c) => before.includes(c));
+          const lost = before.filter((c) => !after.includes(c));
+          const added = now.filter((c, i) => !before.includes(after[i]));
+          return {
+            droppedPapers: stressDropped,
+            remainingPapers: papers.length,
+            filter: stressFilter,
+            claimsBefore: before.length,
+            claimsAfter: after.length,
+            kept: kept.length,
+            lost: lost.length,
+            added,
+            /* Said explicitly so the UI does not have to infer it. The most
+               common and most important outcome is that nothing moved. */
+            /* "Inconclusive" comes first, and it is the guard that keeps
+               this feature honest. If the re-run failed for its own reasons
+               — every provider rate-limited, or retrieval returned nothing
+               at all — then zero surviving claims says something about the
+               run, not about the conclusion. Reporting that as "the
+               conclusion did not survive" would be the exact failure this
+               panel exists to prevent: manufacturing significance out of
+               an outage. */
+            verdict: (!aiOK || papers.length === 0) ? "inconclusive"
+              : before.length === 0 ? "no-baseline"
+              : (lost.length === 0 && added.length === 0) ? "held"
+              : lost.length > 0 && kept.length === 0 ? "collapsed"
+              : "shifted",
+          };
+        })() : null,
         related: [],
         answerId, // frontend can use this for upvote/downvote
         source:
