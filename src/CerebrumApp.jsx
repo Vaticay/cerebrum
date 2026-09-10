@@ -2520,6 +2520,50 @@ function stripStrayHashes(s) {
    that can produce a section heading (its own paragraph, glued to the body
    text below it, or a bare unmarked first line) all render identically
    instead of drifting apart. */
+/* A heading marker glued to a whole paragraph.
+
+   `/^##\s+(.+)$/` has no length guard and, without the /m flag, `$` is the
+   end of the paragraph — so when the model emits
+
+       ## The short answer Computer-aided detection (CADe) using **deep
+       learning** demonstrates reduced missed gastric cancer rates [1].
+
+   as ONE line, the entire sentence became an h2. That is the bug behind a
+   whole answer rendering as giant bold sans with literal `**` and a literal
+   `[1]`: heading blocks print their text raw, so no inline formatting and
+   no citation chips ever run on it.
+
+   The rule now is the obvious one: a heading is short. If a marked line is
+   long, it is prose that was mis-marked — unless it opens with one of the
+   section labels the synthesis prompt actually asks for, in which case the
+   label is the heading and the rest is the paragraph it was glued to.
+
+   Returning an empty `head` means "this is not a heading, render it as
+   body", which is a safer failure than inventing a heading by cutting a
+   sentence at an arbitrary word. */
+const SECTION_LABELS = [
+  "The short answer", "What the research shows", "Where researchers disagree",
+  "Where the studies disagree", "How solid is this", "What this does not establish",
+  "Core synthesis", "Evidence and mechanisms", "Divergent findings and gaps",
+  "Methodological confidence", "Key evidence", "What we know", "Bottom line",
+  "What changed", "Limitations", "Methods",
+];
+const HEADING_MAX = 70;
+function splitGluedHeading(line) {
+  const t = String(line == null ? "" : line).trim();
+  if (!t) return { head: "", body: "" };
+  if (t.length <= HEADING_MAX) return { head: t, body: "" };
+  for (const label of SECTION_LABELS) {
+    const re = new RegExp("^" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b[\\s:.\u2014-]*", "i");
+    const m = t.match(re);
+    if (m) {
+      const body = t.slice(m[0].length).trim();
+      if (body) return { head: label, body };
+    }
+  }
+  return { head: "", body: t };
+}
+
 function h2Block(text, key, P, accent) {
   return (
     <div key={key} style={{ margin: "46px 0 18px" }}>
@@ -2886,9 +2930,21 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     // heavy frame line v30 removed, and it reads as designed rather than as
     // default markdown, which was the gap on a screen that carries the
     // whole product's credibility.
-    if (h2) return h2Block(h2[1], pi, P, accent);
+    if (h2) {
+      const { head, body } = splitGluedHeading(h2[1]);
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</React.Fragment>;
+      return body
+        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</div>
+        : h2Block(head, pi, P, accent);
+    }
     const h3 = para.match(/^###\s+(.+)$/);
-    if (h3) return h3Block(h3[1], pi, P);
+    if (h3) {
+      const { head, body } = splitGluedHeading(h3[1]);
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</React.Fragment>;
+      return body
+        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</div>
+        : h3Block(head, pi, P);
+    }
 
     /* Commit 85 -- a heading marker glued to the body text under it. This is
        the actual source of the "###" reaching the page: the two regexes
@@ -2901,8 +2957,14 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
        heading". */
     const markedHead = para.match(/^[ \t]*(#{1,6})[ \t]+([^\n]+)(?:\n([\s\S]*))?$/);
     if (markedHead) {
-      const title = stripStrayHashes(markedHead[2].replace(/\*\*/g, "")).replace(/[ \t]*#+[ \t]*$/, "").trim();
-      const below = (markedHead[3] || "").trim();
+      const rawTitle = stripStrayHashes(markedHead[2].replace(/\*\*/g, "")).replace(/[ \t]*#+[ \t]*$/, "").trim();
+      /* Same length rule as the h2/h3 branches: an explicit marker is a
+         strong signal, but it is not strong enough to turn a paragraph into
+         a heading. A long marked line gives up its heading and any prose
+         split off the front of it joins the body. */
+      const split = splitGluedHeading(rawTitle);
+      const title = split.head;
+      const below = [split.body, (markedHead[3] || "").trim()].filter(Boolean).join("\n\n");
       const head = markedHead[1].length <= 2 ? h2Block(title, pi + "-h", P, accent) : h3Block(title, pi + "-h", P);
       if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</React.Fragment> : null;
       return below
