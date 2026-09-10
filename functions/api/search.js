@@ -6309,6 +6309,76 @@ async function operatorDiagnostics(request, env, payload) {
   }
 }
 
+
+/* Resolve one DOI to one work. Crossref is authoritative for registration,
+   OpenAlex fills in what Crossref omits (abstracts, citation counts). Both
+   are asked in parallel and either alone is enough; neither answering means
+   the DOI does not resolve, which is a real answer rather than a failure. */
+async function resolveDoi(doi, env) {
+  const enc = encodeURIComponent(doi);
+  const timeout = 7000;
+  const get = async (url) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const r = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": POLITE_UA } });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch { return null; } finally { clearTimeout(t); }
+  };
+  const [cr, oa] = await Promise.all([
+    get("https://api.crossref.org/works/" + enc),
+    get("https://api.openalex.org/works/doi:" + enc),
+  ]);
+  const c = cr && cr.message;
+  if (!c && !oa) return null;
+
+  const title = (c && Array.isArray(c.title) && c.title[0]) || (oa && oa.title) || "";
+  if (!title) return null;
+
+  const authors = (c && Array.isArray(c.author)
+    ? c.author.map((a) => [a.given, a.family].filter(Boolean).join(" ")).filter(Boolean)
+    : (oa && Array.isArray(oa.authorships)
+      ? oa.authorships.map((a) => a.author && a.author.display_name).filter(Boolean)
+      : []));
+
+  const journal = (c && Array.isArray(c["container-title"]) && c["container-title"][0]) ||
+    (oa && oa.primary_location && oa.primary_location.source && oa.primary_location.source.display_name) || "";
+
+  const year = (c && c.issued && c.issued["date-parts"] && c.issued["date-parts"][0] && c.issued["date-parts"][0][0]) ||
+    (oa && oa.publication_year) || null;
+
+  /* Conference abstracts are the reason this flag exists. Crossref types
+     them "proceedings-article" or leaves them as a journal article whose
+     title literally begins "Abstract 1234:", and presenting either as a
+     peer-reviewed paper overstates what the record is. */
+  const ctype = (c && c.type) || "";
+  const isAbstractRecord =
+    /proceedings|posted-content/i.test(ctype) ||
+    /^abstract\s+[a-z0-9-]+\s*:/i.test(title) ||
+    /^(supplement|meeting|poster)\b/i.test(String((c && c.subtitle && c.subtitle[0]) || ""));
+
+  let abstract = "";
+  if (oa && oa.abstract_inverted_index) {
+    try {
+      const idx = oa.abstract_inverted_index;
+      const words = [];
+      for (const w of Object.keys(idx)) for (const pos of idx[w]) words[pos] = w;
+      abstract = words.filter(Boolean).join(" ").slice(0, 2400);
+    } catch {}
+  }
+  if (!abstract && c && typeof c.abstract === "string") {
+    abstract = stripTags(c.abstract).slice(0, 2400);
+  }
+
+  return {
+    title: stripTags(title), authors, journal, year,
+    citations: (oa && oa.cited_by_count) || (c && c["is-referenced-by-count"]) || 0,
+    url: "https://doi.org/" + doi,
+    abstract, isAbstractRecord,
+  };
+}
+
 export async function onRequest(context) {
   // Opportunistic retention sweep. See lib/retention.js for why this is
   // not a cron. Runs in the background; never delays this response.
@@ -6512,6 +6582,82 @@ export async function onRequest(context) {
         }),
         { status: 200, headers: cors }
       );
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       A PASTED DOI IS A LOOKUP, NOT A SEARCH.
+
+       The composer invites you to "paste a DOI" and nothing here honoured
+       that: the identifier went through the ordinary keyword pipeline, so
+       "10.1234/jneurosci.2025.04123" was tokenised, matched loosely against
+       fifteen databases, and came back with a pancreatic-cancer meeting
+       abstract that had nothing to do with it — which the model then
+       dutifully synthesised four sections about, opening with a sentence
+       admitting the abstract did not address the question. Everything
+       downstream inherited the mistake: the related-video panel matched on
+       the substring "jneurosci" and offered two neuroscience lectures, and
+       "Watch this topic" offered to track new literature on a DOI string.
+
+       A DOI resolves or it does not. Both outcomes are short, certain, and
+       far more useful than a synthesis built on a near-miss.
+       ══════════════════════════════════════════════════════════════ */
+    const doiOnly = (() => {
+      const t = String(query || "").trim()
+        .replace(/^(?:https?:\/\/)?(?:dx\.)?doi\.org\//i, "")
+        .replace(/^doi:\s*/i, "");
+      return /^10\.\d{4,9}\/[^\s]+$/.test(t) ? t.replace(/[.,;)\]]+$/, "") : null;
+    })();
+
+    if (doiOnly) {
+      const work = await resolveDoi(doiOnly, env);
+      if (!work) {
+        /* Deliberately not a fallback search. A DOI that does not resolve
+           is a fact — a typo, an unregistered prefix, or an identifier that
+           simply does not exist — and answering it with the nearest
+           keyword match is how a placeholder DOI ends up with a confident
+           four-paragraph answer attached to someone else's paper. */
+        return new Response(JSON.stringify({
+          answer:
+            "## No work found with that DOI\n\n" +
+            "`" + doiOnly + "` did not resolve at Crossref or OpenAlex. That usually means a " +
+            "typo, or an identifier that was never registered — the `10.1234` prefix in " +
+            "particular is a documentation placeholder rather than a real registrant.\n\n" +
+            "Cerebrum has deliberately not run a keyword search on the identifier. Matching " +
+            "the characters of a DOI against paper titles returns whatever happens to be " +
+            "closest, which is not the paper you asked for.\n\n" +
+            "Check the DOI, or describe the paper in words and search for that instead.",
+          sources: [], videos: [], factCheck: null, related: [],
+          source: "DOI lookup",
+        }), { status: 200, headers: cors });
+      }
+
+      const yr = work.year ? " (" + work.year + ")" : "";
+      const authors = (work.authors || []).slice(0, 6).join(", ") +
+        ((work.authors || []).length > 6 ? ", et al." : "");
+      const kind = work.isAbstractRecord
+        ? "This record is a **conference abstract**, not a full journal article. Meeting " +
+          "abstracts are not peer reviewed to the standard of a paper and often never appear " +
+          "in one — treat it as a claim someone presented, not as a finding.\n\n"
+        : "";
+      return new Response(JSON.stringify({
+        answer:
+          "## " + work.title + "\n\n" +
+          (authors ? "**" + authors + "**" + (work.journal ? " · " + work.journal : "") + yr + "\n\n" : "") +
+          kind +
+          (work.abstract
+            ? work.abstract
+            : "No abstract is available for this record. The link below goes to the publisher's page.") +
+          "\n\n---\n\nThis is the work that DOI points to, retrieved directly rather than " +
+          "searched for. Ask a question in words if you want it read against other literature.",
+        sources: [{
+          title: work.title, url: work.url, journal: work.journal, year: work.year,
+          authors: work.authors || [], citations: work.citations || 0,
+          type: work.isAbstractRecord ? "Conference abstract" : "Journal",
+          relevance: 100, tldr: "",
+        }],
+        videos: [], factCheck: null, related: [],
+        source: "DOI lookup",
+      }), { status: 200, headers: cors });
     }
 
     const settings = body.settings || {};
