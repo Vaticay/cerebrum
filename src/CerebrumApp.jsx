@@ -1583,7 +1583,7 @@ function MilestoneCard({ P, accent, at, user, refreshKey }) {
           Every milestone earned. That's a real research habit.
         </div>
       )}
-      <div style={{ paddingTop: 16, display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <div style={{ alignItems: "center", paddingTop: 16, display: "flex", gap: 6, flexWrap: "wrap" }}>
         {data.items.filter((i) => i.earned).slice(-6).map((i) => (
           <span key={i.key} title={`${i.label} — ${i.desc}`} style={{
             display: "inline-flex", alignItems: "center", gap: 5,
@@ -1771,7 +1771,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
               marginBottom: 16, display: "-webkit-box", WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical", overflow: "hidden",
             }}>{lastQ}</div>
-            <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ alignItems: "center", marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
               <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Keep going</DeckBtn>
               <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>Everything else</DeckBtn>
             </div>
@@ -1796,7 +1796,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
               fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", marginBottom: 12,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>{[revisit.journal, revisit.year].filter(Boolean).join(" · ")}</div>
-            <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ alignItems: "center", marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
               <DeckBtn primary accent={accent} at={at} P={P}
                 onClick={() => onAsk(`What are the key findings and limitations of "${String(revisit.title).slice(0, 140)}"?`)}>
                 Break it down
@@ -2301,7 +2301,7 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
           </div>
         )}
         <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45, marginBottom: 13, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.title}</div>
-        <div style={{ marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ alignItems: "center", marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={ask} className="cb-deck-btn" style={{
             padding: "7px 15px", borderRadius: 100, border: "1px solid transparent", cursor: "pointer",
             background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
@@ -2908,7 +2908,7 @@ function FactCheck({ fc, P, accent }) {
               </>
             )}
             {isTerms && total > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
                 {claims.map((c, i) => (
                   <span key={i} style={{
                     fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 600,
@@ -3089,7 +3089,7 @@ function AgentTrace({ P, accent, sourcesQueried = null, done = false }) {
 
       {/* The per-database breakdown, only once it is real. */}
       {done && total > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", marginTop: 4 }}>
+        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "4px 10px", marginTop: 4 }}>
           {sourcesQueried.map((s) => (
             <span key={s.source} style={{
               fontSize: FONT_SIZES.micro,
@@ -3542,7 +3542,16 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const isMobile = useIsMobile();
   const [creditsOpen, setCreditsOpen] = useState(false);
 
-  const introAccent = relLuminance(accent) < 0.15 ? "#A3B899" : accent;
+  /* The intro uses Cerebrum's sage, not the visitor's chosen accent.
+     The default accent is Mono — pure white — so on a fresh phone every
+     button on this screen rendered as a white pill on black: correct code,
+     no brand, and the "Start exploring" button read as a system alert. The
+     accent is a preference for the workspace; the front door is the brand,
+     and it is the same for everyone. A custom accent that is legible here
+     is still honoured. */
+  const introAccent = (accent && relLuminance(accent) >= 0.15 && relLuminance(accent) <= 0.82)
+    ? accent
+    : "#A3B899";
 
   /* The same seven refs the entrance and exit timelines have always
      animated, all of them on the hero. Everything below the fold is
@@ -3717,6 +3726,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             with the weaker of the two. This screen's job is to introduce
             the product and open the door. */}
         <div ref={descRef} style={{
+          width: "100%",
           display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
           justifyContent: "center", opacity: hidden,
         }}>
@@ -3739,10 +3749,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         {/* The proof, carried as a quiet band rather than a paragraph.
             Fifteen names a researcher recognises say more than a sentence
             claiming fifteen databases, and cost one line to say. */}
-        <div ref={tagsRef} style={{
+        <div ref={tagsRef} style={{ alignItems: "center",
           display: "flex", flexWrap: "wrap", gap: "6px 14px", justifyContent: "center",
           fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.08em",
-          color: "rgba(242,244,242,0.34)", maxWidth: 720,
+          color: "rgba(242,244,242,0.34)", maxWidth: 720, width: "100%",
           margin: isMobile ? "40px auto 0" : "62px auto 0", opacity: hidden,
         }}>
           {/* Eight on a phone, not fifteen. At 390px the full list wrapped
@@ -3754,8 +3764,31 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         </div>
 
         <div ref={btnsRef} style={{
+          /* width:100%, and it is the fix for a whole class of bug.
+             This row is a flex item in a column with `align-items: center`,
+             which sizes a child to its content. When the content is wider
+             than the column the box gets clamped, the content wraps inside
+             it — and every wrapped line is then centred against a box that
+             is itself narrower than, and offset from, the column. That is
+             why "Free. No account required" and "Film credits" both looked
+             nudged off-centre in opposite directions. Giving the row the
+             column's full width means each line centres against the real
+             axis. */
+          width: "100%",
+          /* align-items: center, and this is the actual misalignment bug.
+             The mobile stylesheet gives every button and link a 44px
+             min-height for tap targets. In a flex row whose items are not
+             centred, a 44px-tall button next to an 18px line of plain text
+             makes the LINE 44px tall: the button centres its own label
+             inside that, the bare text sits at the top of it, and the two
+             end up about thirteen pixels apart vertically. It reads as
+             "Free. No account required" and "Film credits" being on
+             different lines when they are on the same one. Any row that
+             mixes plain text with a link or button has this, so they all
+             centre now. */
+          alignItems: "center",
           marginTop: 18, opacity: hidden, display: "flex", gap: 10,
-          justifyContent: "center", flexWrap: "wrap",
+          justifyContent: "center", flexWrap: "wrap", rowGap: 6,
           fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.46)",
         }}>
           <span><b style={{ color: "rgba(242,244,242,0.72)", fontWeight: 500 }}>Free.</b> No account required</span>
@@ -4471,7 +4504,7 @@ function InfoPage({ page }) {
       <footer style={{ borderTop: `1px solid ${P.line}`, padding: "28px 20px", textAlign: "center", position: "relative", zIndex: 1 }}>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-display)" }}><Mark size={16} accent={accent} /> Cerebrum</div>
-          <nav style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
+          <nav style={{ alignItems: "center", display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
             {NAV.map(([slug, label]) => (<a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.small, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "5px 10px", fontWeight: page === slug ? 700 : 500 }}>{label}</a>))}
           </nav>
           <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-mono)" }}>© 2026 Cerebrum</div>
@@ -4677,7 +4710,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
             </div>
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 8 }}>Category</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {categories.map((c) => (
                   <button key={c.id} type="button" onClick={() => setCategory(c.id)} style={{
                     fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
@@ -5328,7 +5361,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
       {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
       {/* AI suggestions */}
       {interactive && done && t.suggestions && t.suggestions.length > 0 && (
-        <div style={{ marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
+        <div style={{ alignItems: "center", marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
           {t.suggestions.map((s, i) => (
             <button key={i} onClick={() => s.query && onRelated && onRelated(s.query)} disabled={!s.query}
               style={{ padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: s.query ? withAlpha(accent, 0.08) : "transparent", color: s.query ? accent : P.faint, border: `1px solid ${s.query ? withAlpha(accent, 0.25) : P.line}`, borderRadius: 8, cursor: s.query ? "pointer" : "default", fontFamily: "inherit" }}>
@@ -6265,7 +6298,7 @@ function EvidenceTableModal({ P, accent, at, sources, close }) {
           <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}><Icon name="close" size={18} /></button>
         </div>
 
-        <div style={{ padding: "12px 22px 0", flexShrink: 0, display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div style={{ alignItems: "center", padding: "12px 22px 0", flexShrink: 0, display: "flex", gap: 6, flexWrap: "wrap" }}>
           {[["cited", "As cited"], ["design", "Strongest design"], ["n", "Largest sample"], ["year", "Newest"]].map(([k, label]) => (
             <button key={k} onClick={() => setSortKey(k)} aria-pressed={sortKey === k}
               style={{
@@ -6692,7 +6725,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
               answer what the science actually says, with citations. Reading
               the original is still one tap away, just no longer the only
               thing on offer. */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 24 }}>
+          <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 24 }}>
             <button
               onClick={() => { if (onAsk) { onAsk(`What does the research actually show about this: ${item.title}`); close(); } }}
               style={{
@@ -6836,8 +6869,21 @@ const TRENDING_POLL_MS = 5 * 60 * 1000;
    ══════════════════════════════════════════════════════════════════ */
 function WorkspacePage({ P, accent, isMobile, title, count, description, actions, children, wide = false }) {
   return (
-    <div style={{ flex: 1, minHeight: 0 }}>
+    <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+      {/* A soft floor under the reading column on the dark palettes.
+          These pages are dense text over moving footage, and a bright frame
+          drifting under a paragraph took the contrast below anything
+          readable — worst on a phone, where the column is the full width of
+          the screen. It is a gradient, not a panel: the film still shows at
+          the edges and behind the header, so the page keeps its depth. */}
+      <div aria-hidden="true" style={{
+        position: "absolute", inset: 0, pointerEvents: "none",
+        background: P.dark
+          ? "linear-gradient(180deg, rgba(11,13,16,0.55) 0%, rgba(11,13,16,0.78) 22%, rgba(11,13,16,0.82) 100%)"
+          : "none",
+      }} />
       <div style={{
+        position: "relative",
         /* 820 is the measure the composer and the Home Deck use. These
            pages sat at 900 with a title 44px from the top edge while the
            home screen gave its content a third of the viewport, so moving
@@ -6864,7 +6910,7 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
                 padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums",
               }}>{count}</span>
             )}
-            {actions && <div style={{ marginLeft: isMobile ? 0 : "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>{actions}</div>}
+            {actions && <div style={{ alignItems: "center", marginLeft: isMobile ? 0 : "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>{actions}</div>}
           </div>
           {description && (
             <p style={{
@@ -7277,7 +7323,7 @@ function LiteratureTimeline({ P, accent, at, sources, close }) {
                   <strong style={{ color: P.ink }}>{points[hoverIdx].s.title}</strong>{points[hoverIdx].s.journal ? ` — ${points[hoverIdx].s.journal}` : ""} · {points[hoverIdx].year}{typeof points[hoverIdx].s.relevance === "number" ? ` · ${points[hoverIdx].s.relevance}% relevance` : ""}
                 </div>
               ) : (
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "flex", gap: 14, flexWrap: "wrap" }}>
+                <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, display: "flex", gap: 14, flexWrap: "wrap" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS.good, display: "inline-block" }} />Strong</span>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS.warn, display: "inline-block" }} />Partial</span>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: P.faint, display: "inline-block" }} />Weak</span>
@@ -8388,7 +8434,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
             </div>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 8 }}>Reason</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {REPORT_REASONS.map((r) => (
                   <button key={r.id} type="button" onClick={() => setReason(r.id)} style={{
                     fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
@@ -8583,7 +8629,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialThreadId]);
 
-  useEffect(() => { if (!activeId && !initialThreadId && threads.length > 0) setActiveId(threads[0].id); }, [threads, activeId, initialThreadId]);
+  /* Auto-open the first conversation on desktop only.
+     On a phone the two panes are one at a time — list, or thread with a
+     back arrow — and this effect selected a thread the instant the view
+     mounted, so the list was replaced before it could ever be seen. The
+     Inbox looked like an app that had exactly one conversation in it and
+     no way to reach the others. A phone opens on the list, which is what
+     every messaging app does. */
+  useEffect(() => {
+    if (isMobile) return;
+    if (!activeId && !initialThreadId && threads.length > 0) setActiveId(threads[0].id);
+  }, [threads, activeId, initialThreadId, isMobile]);
 
   useEffect(() => {
     setDraft("");
@@ -9972,7 +10028,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
             )}
             {!editing && (profile.link_site || profile.link_orcid || profile.link_scholar) && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
                 {[["link", "Website", profile.link_site], ["sparkle", "ORCID", profile.link_orcid], ["history", "Scholar", profile.link_scholar]]
                   .filter(([, , href]) => !!href)
                   .map(([icon, label, href]) => (
@@ -10023,7 +10079,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 </div>
                 <div>
                   <div style={{ ...cardLabel, marginBottom: 8 }}>Cover</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {COVER_KEYS.map((k) => (
                       <button key={k} type="button"
                         onClick={() => setProfile((p2) => ({ ...p2, cover: p2.cover === k ? "" : k }))}
@@ -10047,7 +10103,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             {/* Stats bar. A social profile leads with its numbers; this page
                 previously mentioned a follower count mid-sentence in a
                 metadata line and showed nothing else countable at all. */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: isMobile ? 20 : 34, marginTop: 16 }}>
+            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: isMobile ? 20 : 34, marginTop: 16 }}>
               {/* Commit 87 — a stat that reads 0 is an accusation, not a
                   number. "0 Collections / 0 Followers" set in the same
                   weight as real counts made every new profile open with
@@ -10068,7 +10124,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               ))}
             </div>
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
+            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
               <button
                 onClick={() => setEditing((v) => !v)}
                 style={{
@@ -10087,7 +10143,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 }}
               >Account &amp; security</button>
             </div>
-            {editing && (<div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            {editing && (<div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
               <div style={{ position: "relative", flex: "1 1 200px" }}>
                 <input
                   value={profile.degree || ""}
@@ -10311,7 +10367,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             {badges.length > 1 && (
               <div style={cardStyle}>
                 <div style={cardLabel}>Badges</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {badges.map((b) => (
                     <span key={b.label} style={{
                       display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
@@ -10553,7 +10609,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5, margin: "11px 0 12px" }}>
                 {founder.prompt || "Have a question for the owner?"} A message here goes straight to the person who builds this.
               </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ alignItems: "center", display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={() => messageResearcher(founder)} disabled={messageBusy.has(founder.id)} className="cb-press" style={{
                   padding: "8px 16px", borderRadius: 100, border: "none", cursor: "pointer",
                   background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
@@ -10906,7 +10962,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
 
                   {/* Relationship buttons sit on the avatar's line, the way
                       every profile people already use puts them. */}
-                  <div style={{ display: "flex", gap: 8, paddingBottom: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <div style={{ alignItems: "center", display: "flex", gap: 8, paddingBottom: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button
                       onClick={toggleFollow}
                       disabled={busy}
@@ -10966,7 +11022,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                 )}
 
                 {links.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
                     {links.map((l) => (
                       <a
                         key={l.label}
@@ -10994,7 +11050,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                 </div>
 
                 {(data.badges || []).length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14 }}>
+                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14 }}>
                     {data.badges.map((b) => (
                       <span key={b} style={{
                         fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
@@ -11342,7 +11398,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
                 people actually think in, and the count no longer implies a
                 limit is being approached: long documents are analyzed with a
                 visible note rather than refused. */}
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", gap: 10, flexWrap: "wrap" }}>
               {(() => {
                 const t = documentText.trim();
                 if (!t) return <span>Paste a paper, report, or any long document</span>;
@@ -11689,7 +11745,7 @@ function ConfigStatus({ P, accent }) {
         </div>
       )}
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8 }}>
         {[["Database", bindings.DB], ["Workers AI", bindings.AI], ["Shared rate limit", bindings.RATE_LIMIT_KV]].map(([label, ok]) => (
           <span key={label} style={{
             display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.caption,
@@ -12959,6 +13015,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       paddingTop: isMobile ? 120 : 150,
       paddingBottom: isMobile ? 8 : 16,
     },
+    /* The first-time screen already has a mark, a 52px wordmark and a line
+       of copy above the composer, so it does not need the band's height as
+       well — stacked, the two pushed the search bar most of a phone screen
+       below the fold. The band's job is to centre the composer when it is
+       the only thing there, which is the returning-user case. */
+    composerBandFlush: {
+      minHeight: "auto",
+      paddingTop: isMobile ? 4 : 12,
+    },
     heroTitleCompact: {
       fontSize: isMobile ? 34 : 50,
       marginBottom: 12,
@@ -13068,7 +13133,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        along with the rest of the terminal aesthetic. Fully rounded,
        minimal tags with a subtle border that gently lights up on hover;
        the label is now just the question, nothing prefixed onto it. */
-    chips: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 820 },
+    chips: { alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 28, position: "relative", maxWidth: 820, width: "100%" },
     chip: {
       // Commit 46: was P.ink2 (secondary) at rest — explicit direction that
       // chips are one of the surfaces that must never render as dark grey
@@ -13091,7 +13156,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       boxShadow: `0 0 0 1px ${P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"}`,
       outline: "none",
     },
-    trustRow: { display: "flex", flexWrap: "wrap", gap: 20, marginTop: 56, opacity: 0.4 },
+    /* Full width and centred. Same shrink-to-fit trap as the intro's meta
+       row: as a flex item in a centred column this box was only as wide as
+       its content, so on a narrow window the wrapped second line sat off
+       the page's centre line while the first line did not. */
+    trustRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 20px", justifyContent: "center", width: "100%", marginTop: 56, opacity: 0.4 },
     trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.01em", fontFamily: "var(--cb-body)" },
 
     /* ── Workspace: single-column editorial flow ──
@@ -13721,7 +13790,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
               </label>
             </div>
 
-            <div style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
+            <div style={{ alignItems: "center", display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
               <button
                 onClick={accept} disabled={!checked || busy}
                 className="cb-press"
@@ -14479,7 +14548,20 @@ function App() {
     if (wasNearBottom) window.scrollTo({ top: doc.scrollHeight, left: 0, behavior: "instant" });
   }, [turns.length, busy]);
   useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
-  useEffect(() => { document.body.style.background = P.bg; }, [P]);
+  /* The film is position:fixed, so it only ever paints the viewport. On
+     iOS the rubber-band overscroll drags PAST that and reveals whatever
+     colour the document itself is — which was P.bg, a different, lighter
+     shade than the reel's ground. The result was a slab of flat grey below
+     the footer that read as the page running out of content, and it is
+     what "infinite scroll" looked like from the outside. Matching the two
+     removes the seam; overscroll-behavior tames the bounce itself. */
+  useEffect(() => {
+    const ground = P.dark ? "#0b0d10" : P.bg;
+    document.body.style.background = ground;
+    document.documentElement.style.background = ground;
+    document.body.style.overscrollBehaviorY = "none";
+    return () => { document.body.style.overscrollBehaviorY = ""; };
+  }, [P]);
   // v6.4: the page now uses natural document scrolling (see makeStyles'
   // `page` note) instead of a fixed non-scrolling shell. The old fixed
   // shell had a free side effect: the background could never scroll behind
@@ -15017,7 +15099,14 @@ function App() {
           animationMode={animationMode}
         />
       ) : (
-        <CinematicFilm animationMode={animationMode} intensity={started ? 0.62 : 1} />
+        <CinematicFilm
+          animationMode={animationMode}
+          /* Brightest on the search screen, dimmer once you are reading an
+             answer, dimmest on a working view like Inbox or Find people —
+             those are dense text on a wide column, and footage at full
+             strength behind them cost real legibility. */
+          intensity={view && view !== "search" ? 0.42 : (started ? 0.62 : 1)}
+        />
       )}
       <div style={S.grain} />
       {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
@@ -15164,7 +15253,7 @@ function App() {
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
               )}
-              <div style={S.composerBand}>
+              <div style={{ ...S.composerBand, ...(deckHasContent ? null : S.composerBandFlush) }}>
               {/* Shown only on the returning-user screen. A first-time
                   visitor already has the wordmark and a line of copy above
                   this point; a third heading stacked on those two would be
@@ -15244,7 +15333,10 @@ function App() {
                   14 — `sourceNames` in functions/api/search.js lists 15, which
                   is what 6 named + 9 more already said. The count is right;
                   the note about it was not.) */}
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 40 : 72) : (isMobile ? 30 : 44), marginBottom: 10, lineHeight: 1.5 }}>
+              {/* width:100% for the same reason as the row below it — a
+                  text-align:center block still needs the full column, or it
+                  centres its lines inside a shrink-to-fit box. */}
+              <div style={{ width: "100%", maxWidth: 640, fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 40 : 72) : (isMobile ? 30 : 44), marginBottom: 12, lineHeight: 1.5 }}>
                 Every question is sent to 15 public research databases at once. These are the largest:
               </div>
               <div style={S.trustRow}>
@@ -15266,7 +15358,7 @@ function App() {
                       <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  <div style={{ alignItems: "center", display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                     {[["all", "All"], ["systematic-review", "Reviews"], ["rct", "RCTs"], ["in-vivo-vitro", "In Vivo/Vitro"]].map(([val, label]) => (
                       <button key={val} onClick={() => { sfx(); setEvidenceFilter(val); }}
                         style={{
@@ -15299,7 +15391,7 @@ function App() {
           )}
           <div style={S.foot}>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: "8px 14px", maxWidth: 620, margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: isMobile ? "2px 12px" : "8px 14px", maxWidth: 620, width: "100%", margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
               {[
                 ["how", "How it works"],
                 /* The reel plays behind the whole application, not just the
@@ -15434,7 +15526,7 @@ function App() {
                           {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
                           {typeof sv.citations === "number" && ` · ${sv.citations.toLocaleString()} citations`}
                         </div>
-                        <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
+                        <div style={{ alignItems: "center", display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
                           {sv.authors && <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }}>More by these authors</UIButton>}
                           <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(sv)))}>Remove</UIButton>
                         </div>
