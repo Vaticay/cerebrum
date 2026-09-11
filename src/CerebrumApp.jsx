@@ -2399,85 +2399,182 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
   );
 }
 
-/* ── QueryLens: the search screen, reimagined as an instrument ──────────
-   The pill search bar is the most imitated control on the internet. This
-   replaces it with something that belongs to this product: a circular
-   query dial — a lens — with the fifteen databases as satellites on a slow
-   orbit around it. The question goes in the middle; the literature
-   revolves around it, literally. Focus tightens the orbit and lights the
-   dial; while a search runs, the orbit slows to a drift (honest motion —
-   it says "working", never "42% done").
+/* ── SignalComposer: the search screen as a transmitter ────────────────
+   The dial was a shape without a meaning — a circle says nothing about
+   asking a question. This is the same product idea with the meaning put
+   back in: your question is a SIGNAL. You transmit it; it propagates out
+   to fifteen databases; echoes come back; Cerebrum synthesises them.
 
-   Everything the pill did is preserved: the same input value, Enter to
-   ask, image attach, voice, the busy dots, the mode-aware placeholder.
-   Only the shape changed. */
-function QueryLens({
+   The band is a strip of oscilloscope. Idle, the line drifts. Every
+   keystroke injects energy and the line ripples — typing visibly becomes
+   the signal that is about to be transmitted. On submit, the loading
+   screen (EchoField, below) continues the same metaphor: the pulse you
+   just fired, travelling outward, with the databases as the nodes it
+   passes through. One continuous narrative, not two decorations.
+
+   Everything the old controls did is preserved: the same input value,
+   Enter to ask, image attach, voice dictation, the busy dots, the
+   mode-aware placeholder. */
+function SignalComposer({
   input, setInput, inputRef, ask, busy,
   askMode, isMobile, accent, P,
   imageInputRef, attachedImage,
   focused, setFocused,
 }) {
   const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
-  const placeholder = mode.placeholderShort || mode.placeholder;
+  const placeholder = isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder;
+  const reduced = usePrefersReducedMotion();
+  const waveRef = useRef(null);
+  const energyRef = useRef(0);
+  const lenRef = useRef(0);
+
+  /* Keystrokes inject energy into the line; it decays back to a drift. */
+  useEffect(() => {
+    const added = input.length - lenRef.current;
+    lenRef.current = input.length;
+    if (added > 0) energyRef.current = Math.min(1.6, energyRef.current + 0.28 + added * 0.10);
+  }, [input]);
+
+  useEffect(() => {
+    if (reduced) return undefined;
+    const canvas = waveRef.current;
+    if (!canvas) return undefined;
+    const ctx = canvas.getContext("2d");
+    let raf = 0;
+    let t = Math.random() * 10;
+    const draw = () => {
+      t += 0.016;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (w === 0) { raf = requestAnimationFrame(draw); return; }
+      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      energyRef.current *= 0.962;
+      const e = energyRef.current;
+      const amp = (0.05 + Math.min(1.3, e)) * h * 0.30;
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 3) {
+        const p = x / w;
+        /* Swell mid-band, calm at the edges — the signal lives in the
+           middle of the instrument, the way a voice lives in a wire. */
+        const env = Math.sin(p * Math.PI);
+        const y = h * 0.5
+          + Math.sin(x * 0.021 + t * 2.2) * amp * env
+          + Math.sin(x * 0.047 - t * 3.4) * amp * 0.42 * env
+          + Math.sin(x * 0.009 + t * 0.8) * h * 0.04;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      const a = Math.min(0.9, 0.22 + e * 0.45 + (focused ? 0.18 : 0));
+      ctx.strokeStyle = withAlpha(accent, a);
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = "round";
+      ctx.shadowColor = withAlpha(accent, 0.55);
+      ctx.shadowBlur = 6 + Math.min(16, e * 12);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [reduced, focused, accent]);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
-      <div
-        role="search"
-        className={"cb-lens" + (focused ? " cb-lens-live" : "") + (busy ? " cb-lens-working" : "")}
-        style={{ "--cb-lens-d": isMobile ? "min(80vw, 340px)" : "min(36vw, 400px)" }}
-      >
-        {/* The fifteen databases, one satellite each, on a slow orbit. */}
-        <div className="cb-lens-orbit" aria-hidden="true">
-          {SCHOLARLY_SOURCES.map((s, i) => (
-            <span
-              key={s.id}
-              className="cb-lens-sat"
-              title={s.name}
-              style={{ transform: `rotate(${(i * 360) / SCHOLARLY_SOURCES.length}deg) translateY(calc(var(--cb-lens-d) / -2 - 16px))` }}
-            />
-          ))}
-        </div>
-        <div className="cb-lens-face">
-          <div className="cb-lens-ticks" aria-hidden="true" />
-          <div className="cb-lens-core">
-            <div className="cb-lens-modelabel">Query&nbsp;&nbsp;//&nbsp;&nbsp;{mode.label}</div>
-            <input
-              ref={inputRef}
-              className="cb-lens-input"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }}
-              placeholder={placeholder}
-              aria-label="Ask a research question"
-              autoComplete="off"
-              spellCheck="true"
-            />
-            <div className="cb-lens-actions">
-              <button
-                onClick={() => imageInputRef.current?.click()}
-                title="Attach an image" aria-label="Attach an image"
-                className="cb-lens-toolbtn"
-                style={{ color: attachedImage ? accent : "rgba(242,244,242,0.6)" }}
-              ><Icon name="image" size={17} /></button>
-              {/* The mic button brings its own 34px square styling from its
-                  other call sites; the wrapper gives it the same 40px circle
-                  as its neighbours here without touching the component. */}
-              <span className="cb-lens-micwrap"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
-              <button
-                onClick={() => ask()}
-                title="Ask" aria-label={busy ? "Searching" : "Ask"}
-                className="cb-lens-askbtn cb-magnetic cb-shine"
-                style={{ background: accent, color: "#11140f" }}
-              >{busy
-                ? <span className="cb-search-dots" aria-hidden="true"><i /><i /><i /></span>
-                : <Icon name="arrowRight" size={18} />}</button>
-            </div>
-          </div>
+    <div role="search" style={{ "--cb-acc": accent }}
+      className={"cb-signal" + (focused ? " cb-signal-live" : "")}>
+      <div className="cb-signal-top" aria-hidden="true">
+        <span>Transmit&ensp;//&ensp;{mode.label}</span>
+        <span>15 databases</span>
+      </div>
+      <div className="cb-signal-main">
+        <input
+          ref={inputRef}
+          className="cb-signal-input"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }}
+          placeholder={placeholder}
+          aria-label="Ask a research question"
+          autoComplete="off"
+          spellCheck="true"
+        />
+        <div className="cb-signal-btns">
+          <button
+            onClick={() => imageInputRef.current?.click()}
+            title="Attach an image" aria-label="Attach an image"
+            className="cb-signal-toolbtn"
+            style={{ color: attachedImage ? accent : "rgba(242,244,242,0.6)" }}
+          ><Icon name="image" size={17} /></button>
+          {/* The voice button is shared with other call sites and brings
+              its own 34px square styling; the wrapper gives it the same
+              40px circle as its neighbours here without touching it. */}
+          <span className="cb-tool-micwrap"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
+          <button
+            onClick={() => ask()}
+            title="Ask" aria-label={busy ? "Searching" : "Ask"}
+            className="cb-signal-askbtn cb-magnetic cb-shine"
+            style={{ background: accent, color: "#11140f" }}
+          >{busy
+            ? <span className="cb-search-dots" aria-hidden="true"><i /><i /><i /></span>
+            : <Icon name="arrowRight" size={18} />}</button>
         </div>
       </div>
-      <div className="cb-lens-sub" aria-hidden="true">Fifteen databases&ensp;·&ensp;one question</div>
+      {reduced
+        ? <div className="cb-signal-waveflat" aria-hidden="true" />
+        : <canvas ref={waveRef} className="cb-signal-wave" aria-hidden="true" />}
+    </div>
+  );
+}
+
+/* ── EchoField: the loading screen as a signal in flight ─────────────────
+   The old loading state was a grey shimmer card — the most generic object
+   on the internet. This is the second half of the transmission metaphor:
+   the pulse you fired in the composer, now propagating outward through
+   the fifteen databases, which flash faintly as the wavefront passes.
+
+   Honesty rules, same as the AgentTrace below it: the rings are the
+   OUTGOING query visualised — the question genuinely is in flight — and
+   the elapsed readout plus the status line stay the only claims about the
+   work itself. Nothing here implies a percentage or a phase. */
+function EchoField({ q, accent }) {
+  const reduced = usePrefersReducedMotion();
+  const N = SCHOLARLY_SOURCES.length;
+  const R = 38; // node ring radius, as a percent of the field
+  return (
+    <div className="cb-echo" style={{ "--cb-acc": accent }}>
+      <div className="cb-echo-kicker">Transmitting</div>
+      <div className="cb-echo-q">{q}</div>
+      <div className="cb-echo-field" aria-hidden="true">
+        {!reduced && (
+          <>
+            <span className="cb-echo-ring" />
+            <span className="cb-echo-ring" style={{ animationDelay: "1.33s" }} />
+            <span className="cb-echo-ring" style={{ animationDelay: "2.66s" }} />
+          </>
+        )}
+        <span className="cb-echo-core" />
+        {SCHOLARLY_SOURCES.map((s, i) => {
+          const a = (i / N) * Math.PI * 2 - Math.PI / 2;
+          return (
+            <span
+              key={s.id}
+              title={s.name}
+              className="cb-echo-node"
+              style={{
+                left: `calc(${50 + R * Math.cos(a)}% - 3px)`,
+                top: `calc(${50 + R * Math.sin(a)}% - 3px)`,
+                animationDelay: reduced ? undefined : `${(3.1 + (i / N) * 0.7).toFixed(2)}s`,
+              }}
+            />
+          );
+        })}
+      </div>
+      <div className="cb-echo-sub">Fifteen databases&ensp;·&ensp;listening for echoes</div>
     </div>
   );
 }
@@ -16644,6 +16741,10 @@ function App() {
      when someone is looking around, and steps back the moment they start
      doing something — typing a question, or reading an answer. */
   const [composerFocused, setComposerFocused] = useState(false);
+  /* Shared hover token for the follow-up composer and the source cards.
+     (This state was briefly removed with the dial; the follow-up composer
+     and SourceCard still read it, so removing it crashed them.) */
+  const [hover, setHover] = useState("");
   /* On by default everywhere — desktop and phone alike — and whatever the
      person last chose after that. The control says what it will do, not
      what it currently is. */
@@ -18182,9 +18283,10 @@ function App() {
                   textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
                 }}>{composerPrompt}</h2>
               )}
-              {/* The pill search bar is gone — see QueryLens. The question goes
-                  in the middle of the dial; the fifteen databases orbit it. */}
-              <QueryLens
+              {/* The pill search bar is gone — see SignalComposer. The question
+                  is a signal; typing makes the line ripple, and asking
+                  transmits it. */}
+              <SignalComposer
                 input={input} setInput={setInput} inputRef={inputRef}
                 ask={ask} busy={busy}
                 askMode={askMode} isMobile={isMobile}
@@ -18283,7 +18385,15 @@ function App() {
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} onStress={(o) => ask(t.q, o)} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} onShowFlowchart={(turn) => setFlowchartOpen({ title: (turn.q || "Untitled flowchart").slice(0, 80), answerText: turn.answer, sources: turn.sources, chartId: null })} />))}
-                {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} done={false} contextual={contextBusy} /></div>)}
+                {busy && (<div style={S.turn}>
+                  {/* The grey shimmer card is gone. The loading screen is the
+                      second half of the transmission metaphor — see EchoField:
+                      the pulse just fired, propagating out through the fifteen
+                      databases, with the AgentTrace's honest elapsed readout
+                      and status line beneath it. */}
+                  <EchoField q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} accent={accent} />
+                  <AgentTrace P={P} accent={accent} done={false} contextual={contextBusy} />
+                </div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
                   {attachedImage && (
@@ -19199,117 +19309,69 @@ summary::-webkit-details-marker { display: none; }
   50%      { transform: translateY(-3px); opacity: 1; }
 }
 
-/* ── QueryLens: the search screen as an instrument ──
-   A circular query dial with the fifteen databases as satellites on a
-   slow orbit. The dial is sized by --cb-lens-d so one rule serves phone
-   and desktop; the satellites ride at dial-radius + 16px. */
-.cb-lens {
-  --cb-lens-d: min(36vw, 400px);
-  position: relative;
-  width: var(--cb-lens-d);
-  height: var(--cb-lens-d);
-  margin: 36px auto 6px;
-  flex-shrink: 0;
-  animation: cbLensIn 1s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes cbLensIn {
-  from { opacity: 0; transform: scale(0.94); }
-  to   { opacity: 1; transform: scale(1); }
-}
-.cb-lens-orbit {
-  position: absolute; inset: 0;
-  animation: cbLensOrbit 110s linear infinite;
-}
-/* Focus tightens the orbit; work slows it to a drift. Neither is progress. */
-.cb-lens-live .cb-lens-orbit { animation-duration: 34s; }
-.cb-lens-working .cb-lens-orbit { animation-duration: 220s; }
-@keyframes cbLensOrbit { to { transform: rotate(360deg); } }
-.cb-lens-sat {
-  position: absolute; left: 50%; top: 50%;
-  width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%,
-    rgba(255,255,255,0.95), rgba(163,184,153,0.8) 55%, rgba(163,184,153,0.25));
-  box-shadow: 0 0 10px rgba(163,184,153,0.55);
-}
-.cb-lens-face {
-  position: absolute; inset: 0;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 36%, rgba(255,255,255,0.07), transparent 56%),
-    rgba(13, 15, 20, 0.72);
-  border: 1px solid rgba(255,255,255,0.14);
+/* ── SignalComposer: the search screen as a transmitter ──
+   A horizontal instrument band. The top strip names the act (transmit)
+   and the reach (15 databases); the input is a large open field; the
+   canvas beneath it draws the question as a living signal line. */
+.cb-signal {
+  --cb-acc: #a3b899;
+  width: 100%; max-width: 820px; margin: 0 auto;
+  border-radius: 20px;
+  background: rgba(13, 15, 20, 0.66);
+  border: 1px solid rgba(255,255,255,0.13);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.08),
-    inset 0 0 60px rgba(0,0,0,0.45),
-    0 24px 80px rgba(0,0,0,0.5),
-    0 0 90px rgba(163,184,153,0.07);
+    inset 0 1px 0 rgba(255,255,255,0.07),
+    0 24px 70px rgba(0,0,0,0.5),
+    0 0 80px rgba(0,0,0,0.25);
   backdrop-filter: blur(18px) saturate(1.25);
   -webkit-backdrop-filter: blur(18px) saturate(1.25);
-  display: flex; align-items: center; justify-content: center;
-  transition: border-color 0.5s ease, box-shadow 0.5s ease;
+  padding: 14px 18px 8px;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease;
+  animation: cbSignalIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.cb-lens-live .cb-lens-face {
-  border-color: rgba(163,184,153,0.5);
+@keyframes cbSignalIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.cb-signal-live {
+  border-color: color-mix(in srgb, var(--cb-acc) 55%, transparent);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.10),
-    inset 0 0 60px rgba(0,0,0,0.45),
-    0 24px 80px rgba(0,0,0,0.5),
-    0 0 120px rgba(163,184,153,0.18);
+    inset 0 1px 0 rgba(255,255,255,0.09),
+    0 24px 70px rgba(0,0,0,0.5),
+    0 0 110px color-mix(in srgb, var(--cb-acc) 16%, transparent);
 }
-/* Instrument tick ring, masked to a thin band near the rim. */
-.cb-lens-ticks {
-  position: absolute; inset: 12px; border-radius: 50%;
-  background: repeating-conic-gradient(rgba(255,255,255,0.13) 0deg 0.8deg, transparent 0.8deg 6deg);
-  -webkit-mask: radial-gradient(closest-side, transparent 81%, #000 81.5%);
-  mask: radial-gradient(closest-side, transparent 81%, #000 81.5%);
-  opacity: 0.75;
-  pointer-events: none;
-}
-.cb-lens-core {
-  position: relative; z-index: 1;
-  width: 70%;
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-}
-.cb-lens-modelabel {
+.cb-signal-top {
+  display: flex; align-items: center; justify-content: space-between;
   font-family: var(--cb-mono); font-size: 10px; font-weight: 500;
-  letter-spacing: 0.26em; text-transform: uppercase;
-  color: rgba(163,184,153,0.9);
-  margin-bottom: 14px;
+  letter-spacing: 0.24em; text-transform: uppercase;
+  color: rgba(242,244,242,0.42);
+  margin-bottom: 4px;
 }
-.cb-lens-input {
-  width: 100%;
+.cb-signal-live .cb-signal-top {
+  color: color-mix(in srgb, var(--cb-acc) 75%, white);
+}
+.cb-signal-main {
+  display: flex; align-items: center; gap: 12px;
+}
+.cb-signal-input {
+  flex: 1; min-width: 0;
   background: transparent; border: none; outline: none;
   color: #f2f4f2;
   font-family: var(--cb-display); font-weight: 500;
-  font-size: clamp(18px, 2.2vw, 23px);
-  letter-spacing: -0.01em; line-height: 1.35;
-  text-align: center;
-  padding: 4px 2px;
-  caret-color: rgba(163,184,153,0.9);
-  /* A dial is round: long placeholders fade at the rim instead of
-     clipping mid-word. */
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  font-size: clamp(19px, 2.6vw, 26px);
+  letter-spacing: -0.01em; line-height: 1.3;
+  padding: 10px 0;
+  caret-color: var(--cb-acc);
 }
-.cb-lens-input::placeholder { color: rgba(242,244,242,0.38); }
-.cb-lens-actions {
-  display: flex; align-items: center; justify-content: center;
-  gap: 10px; margin-top: 18px;
+.cb-signal-input::placeholder { color: rgba(242,244,242,0.35); }
+/* The band itself is the focus indicator (it lights up via .cb-signal-live),
+   so the input suppresses the global :focus-visible ring — otherwise the
+   ring draws a second rectangle inside the instrument. */
+.cb-signal-input:focus-visible { outline: none; box-shadow: none; }
+.cb-signal-btns {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
 }
-.cb-lens-toolbtn {
-  width: 40px; height: 40px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.13);
-  cursor: pointer; flex-shrink: 0;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
-}
-.cb-lens-toolbtn:hover { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); }
-/* The voice button is shared with other call sites and brings its own
-   34px square styling; inside the lens it rides in a matching 40px circle
-   so the three controls read as one instrument row. */
-.cb-lens-micwrap {
+.cb-signal-toolbtn {
   width: 40px; height: 40px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   background: rgba(255,255,255,0.04);
@@ -19317,21 +19379,99 @@ summary::-webkit-details-marker { display: none; }
   cursor: pointer; flex-shrink: 0;
   transition: border-color 0.2s ease, background 0.2s ease;
 }
-.cb-lens-micwrap:hover { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); }
-.cb-lens-micwrap .cb-hbtn:hover:not(:disabled) { background: transparent !important; }
-.cb-lens-askbtn {
+.cb-signal-toolbtn:hover { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); }
+/* The voice button is shared with other call sites and brings its own
+   34px square styling; inside the composer it rides in a matching 40px
+   circle so the three controls read as one instrument row. */
+.cb-tool-micwrap {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.13);
+  cursor: pointer; flex-shrink: 0;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.cb-tool-micwrap:hover { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); }
+.cb-tool-micwrap .cb-hbtn:hover:not(:disabled) { background: transparent !important; }
+.cb-signal-askbtn {
   width: 48px; height: 48px; border-radius: 50%;
   display: inline-flex;
   align-items: center; justify-content: center;
   border: none; cursor: pointer; flex-shrink: 0;
-  box-shadow: 0 8px 28px rgba(163,184,153,0.35);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--cb-acc) 35%, transparent);
 }
-.cb-lens-sub {
-  margin-top: 30px;
-  font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
-  letter-spacing: 0.24em; text-transform: uppercase;
-  color: rgba(242,244,242,0.42);
+.cb-signal-wave {
+  display: block; width: 100%; height: 46px; margin-top: 2px;
+}
+/* Reduced-motion fallback: the canvas never draws, so the band gets a
+   plain rule instead of an empty strip. */
+.cb-signal-waveflat {
+  height: 1px; background: rgba(255,255,255,0.12); margin: 22px 0;
+}
+
+/* ── EchoField: the loading screen as a signal in flight ──
+   The transmitted pulse propagates outward through the fifteen database
+   nodes, which flash faintly as the wavefront passes. Pure ambience for
+   the outgoing query — the elapsed readout and the status line below
+   stay the only claims about the work itself. */
+.cb-echo {
+  --cb-acc: #a3b899;
+  display: flex; flex-direction: column; align-items: center;
   text-align: center;
+  padding: 14px 0 6px;
+  animation: cbSignalIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.cb-echo-kicker {
+  font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.3em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--cb-acc) 85%, white);
+  margin-bottom: 14px;
+}
+.cb-echo-q {
+  font-family: var(--cb-display); font-weight: 600;
+  letter-spacing: -0.02em; line-height: 1.25;
+  font-size: clamp(22px, 4.6vw, 32px);
+  color: #f2f4f2;
+  max-width: 660px; margin: 0;
+}
+.cb-echo-field {
+  position: relative;
+  width: min(64vw, 300px); height: min(64vw, 300px);
+  margin: 20px auto 4px;
+}
+.cb-echo-ring {
+  position: absolute; inset: 6%;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--cb-acc) 60%, transparent);
+  opacity: 0; transform: scale(0.06);
+  animation: cbEchoRing 4s cubic-bezier(0.25, 0.6, 0.35, 1) infinite;
+}
+@keyframes cbEchoRing {
+  0%   { transform: scale(0.06); opacity: 0; }
+  14%  { opacity: 0.5; }
+  100% { transform: scale(1); opacity: 0; }
+}
+.cb-echo-core {
+  position: absolute; left: calc(50% - 4px); top: calc(50% - 4px);
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--cb-acc);
+  box-shadow: 0 0 14px var(--cb-acc);
+  animation: cbBreathe 2.8s ease-in-out infinite;
+}
+.cb-echo-node {
+  position: absolute; width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,0.26);
+  animation: cbEchoFlash 4s ease-in-out infinite;
+}
+@keyframes cbEchoFlash {
+  0%, 90%, 100% { background: rgba(255,255,255,0.26); box-shadow: none; }
+  95%           { background: var(--cb-acc); box-shadow: 0 0 12px var(--cb-acc); }
+}
+.cb-echo-sub {
+  margin-top: 14px;
+  font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: rgba(242,244,242,0.4);
 }
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
@@ -19665,7 +19805,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-search-scanning::after, .cb-search-scanning,
   .cb-search-dots i, .cb-trace-comet, .cb-trace-chip { animation: none; }
   .cb-search-scanning::after { display: none; }
-  .cb-lens, .cb-lens-orbit { animation: none; }
+  .cb-signal, .cb-echo { animation: none; }
+  .cb-echo-ring, .cb-echo-node, .cb-echo-core { animation: none; }
+  .cb-echo-ring { display: none; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
 }
 
