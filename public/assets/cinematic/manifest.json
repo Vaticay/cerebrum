@@ -8,10 +8,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Microscopy; not verified as dividing cells or phase contrast.",
     "duration_seconds": 15,
-    "bytes": 1344591,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1635750,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 960,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-01.webm",
+    "webm_bytes": 743458
   },
   {
     "file": "science-02.mp4",
@@ -22,10 +24,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Source describes bacteria or cells; organism and microscopy modality not verified.",
     "duration_seconds": 15,
-    "bytes": 2234834,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 2671329,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-02.webm",
+    "webm_bytes": 934759
   },
   {
     "file": "science-03.mp4",
@@ -36,10 +40,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Seedling growth; not a close-up of a root breaking the seed coat.",
     "duration_seconds": 12.9,
-    "bytes": 981300,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1257046,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-03.webm",
+    "webm_bytes": 680588
   },
   {
     "file": "science-04.mp4",
@@ -50,10 +56,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Foliage substitute; not stomatal microscopy.",
     "duration_seconds": 14.7,
-    "bytes": 2448917,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 3202195,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-04.webm",
+    "webm_bytes": 2821534
   },
   {
     "file": "science-05.mp4",
@@ -64,10 +72,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Forest canopy footage.",
     "duration_seconds": 15,
-    "bytes": 4742572,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 5558348,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 406,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-05.webm",
+    "webm_bytes": 7326574
   },
   {
     "file": "science-07.mp4",
@@ -78,10 +88,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Reaction in glassware.",
     "duration_seconds": 15,
-    "bytes": 1289901,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1767682,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1366,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-07.webm",
+    "webm_bytes": 754762
   },
   {
     "file": "science-08.mp4",
@@ -92,10 +104,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Fluid-dynamics illustrative footage.",
     "duration_seconds": 15,
-    "bytes": 829846,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1151712,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1366,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-08.webm",
+    "webm_bytes": 477035
   },
   {
     "file": "science-09.mp4",
@@ -106,10 +120,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Close eruption footage, substitute for lava-lake surface.",
     "duration_seconds": 15,
-    "bytes": 3691664,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 4279601,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-09.webm",
+    "webm_bytes": 3549569
   },
   {
     "file": "science-10.mp4",
@@ -120,10 +136,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Volcanic plume footage.",
     "duration_seconds": 13.7,
-    "bytes": 542844,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 711922,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-10.webm",
+    "webm_bytes": 145479
   },
   {
     "file": "science-11.mp4",
@@ -134,10 +152,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Aerial glacier/iceberg footage; no claim of a calving event.",
     "duration_seconds": 11.3,
-    "bytes": 2093338,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 2404160,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-11.webm",
+    "webm_bytes": 2215180
   },
   {
     "file": "science-12.mp4",
@@ -148,10 +168,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Aquarium footage, not deep-sea or confirmed bioluminescence.",
     "duration_seconds": 15,
-    "bytes": 2093204,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 2704288,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-12.webm",
+    "webm_bytes": 1272934
   },
   {
     "file": "science-13.mp4",
@@ -162,10 +184,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Aquarium/coral footage; not verified as coral-polyp macro.",
     "duration_seconds": 14.5,
-    "bytes": 4747098,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 6248395,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1480,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-13.webm",
+    "webm_bytes": 9210507
   },
   {
     "file": "science-14.mp4",
@@ -176,10 +200,12 @@
     "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
     "note": "Real microscopy-derived mouse neuron volume, rendered in 3D; not live electrical activity. DOI: 10.7554/eLife.10566.009.",
     "duration_seconds": 15,
-    "bytes": 3467211,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 4054330,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1140,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-14.webm",
+    "webm_bytes": 2223790
   },
   {
     "file": "science-15.mp4",
@@ -190,10 +216,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "General lab-work substitute. NOT verified as a DNA sequencer or gel.",
     "duration_seconds": 11.5,
-    "bytes": 790787,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1070660,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-15.webm",
+    "webm_bytes": 558892
   },
   {
     "file": "science-16.mp4",
@@ -204,10 +232,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Plasma demonstration globe; not a detector or beamline.",
     "duration_seconds": 15,
-    "bytes": 2190172,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 2506314,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-16.webm",
+    "webm_bytes": 2184759
   },
   {
     "file": "science-17.mp4",
@@ -218,10 +248,12 @@
     "license_url": "https://www.pexels.com/license/",
     "note": "Stock clip labeled robotic arm by source; production method not independently verified.",
     "duration_seconds": 9.9,
-    "bytes": 995384,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1247805,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-17.webm",
+    "webm_bytes": 975912
   },
   {
     "file": "science-18.mp4",
@@ -232,10 +264,12 @@
     "license_url": "https://creativecommons.org/licenses/by/4.0/",
     "note": "Observatory laser footage. Visible credit required.",
     "duration_seconds": 3,
-    "bytes": 336759,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 404785,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-18.webm",
+    "webm_bytes": 211758
   },
   {
     "file": "science-19.mp4",
@@ -246,10 +280,12 @@
     "license_url": "https://creativecommons.org/licenses/by/4.0/",
     "note": "Animated zoom through astronomical imagery, not a physical camera flying into a nebula.",
     "duration_seconds": 12,
-    "bytes": 1079690,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1426768,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-19.webm",
+    "webm_bytes": 532215
   },
   {
     "file": "science-20.mp4",
@@ -260,10 +296,12 @@
     "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
     "note": "Rendered globe from satellite imagery, not ISS orbital-limb footage.",
     "duration_seconds": 15,
-    "bytes": 402824,
-    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 473374,
+    "modifications": "Silent excerpt up to 15 seconds; resized to at most 1280 pixels wide, H.264 MP4, 24 fps. Original speed except source timelapse/slow motion. Additional lossy compression for the under-30-MB pack; dimensions recorded in manifest. Duration and framing preserved. Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
-    "height": 720
+    "height": 720,
+    "webm_file": "science-20.webm",
+    "webm_bytes": 270956
   },
   {
     "file": "science-21.mp4",
@@ -274,11 +312,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 1098866,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1323196,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-21.webm",
+    "webm_bytes": 848393
   },
   {
     "file": "science-22.mp4",
@@ -289,11 +329,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 546089,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 683616,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-22.webm",
+    "webm_bytes": 185239
   },
   {
     "file": "science-23.mp4",
@@ -304,11 +346,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 3190119,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 4002626,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-23.webm",
+    "webm_bytes": 3127130
   },
   {
     "file": "science-24.mp4",
@@ -319,11 +363,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 9.2,
-    "bytes": 932951,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1138137,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 406,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-24.webm",
+    "webm_bytes": 1133175
   },
   {
     "file": "science-25.mp4",
@@ -334,11 +380,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 412970,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 503327,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 406,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-25.webm",
+    "webm_bytes": 221343
   },
   {
     "file": "science-26.mp4",
@@ -349,11 +397,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 3365166,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 4337796,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-26.webm",
+    "webm_bytes": 3770833
   },
   {
     "file": "science-27.mp4",
@@ -364,11 +414,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 2740525,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 3050030,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-27.webm",
+    "webm_bytes": 2922602
   },
   {
     "file": "science-28.mp4",
@@ -379,11 +431,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 418685,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 499394,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 406,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-28.webm",
+    "webm_bytes": 379610
   },
   {
     "file": "science-29.mp4",
@@ -394,11 +448,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 1308828,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 1603907,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1366,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-29.webm",
+    "webm_bytes": 1183229
   },
   {
     "file": "science-30.mp4",
@@ -409,11 +465,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 1629420,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 2051248,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-30.webm",
+    "webm_bytes": 1743779
   },
   {
     "file": "science-31.mp4",
@@ -424,11 +482,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 2387650,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 2723647,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-31.webm",
+    "webm_bytes": 1935864
   },
   {
     "file": "science-32.mp4",
@@ -439,11 +499,13 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 7.1,
-    "bytes": 486299,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 585108,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-32.webm",
+    "webm_bytes": 299948
   },
   {
     "file": "science-33.mp4",
@@ -454,10 +516,92 @@
     "license_url": "",
     "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
     "duration_seconds": 10,
-    "bytes": 2534649,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart \u2014 for smooth background playback.",
+    "bytes": 2858835,
+    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
     "width": 1280,
     "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/"
+    "licenseUrl": "https://www.pexels.com/license/",
+    "webm_file": "science-33.webm",
+    "webm_bytes": 2483822
+  },
+  {
+    "file": "science-34.mp4",
+    "title": "Ferrofluid spikes under a magnet",
+    "credit": "Film Composite",
+    "source": "https://www.pexels.com/video/inky-16296848/",
+    "license": "Pexels",
+    "license_url": "https://www.pexels.com/license/",
+    "note": "Ferrofluid responding to a magnet; dark studio macro.",
+    "duration_seconds": 13.5,
+    "bytes": 2068784,
+    "webm_file": "science-34.webm",
+    "webm_bytes": 1661736,
+    "modifications": "Silent 1.5s excerpt cut from the highest-resolution master the source publishes (original speed, native frame rate); resized to 1280x720, graded to match the reel (desaturate 30%, contrast 1.15, brightness x0.6, baked in). H.264 CRF 20 (preset slow, 4 Mbps cap) + VP9 CRF 28 .webm rendition; player prefers VP9 where supported, H.264 as universal fallback. Added 2026-09-11.",
+    "width": 1280,
+    "height": 720
+  },
+  {
+    "file": "science-35.mp4",
+    "title": "Northern lights timelapse",
+    "credit": "T Honkamies",
+    "source": "https://www.pexels.com/video/northern-lights-timelapse-28492331/",
+    "license": "Pexels",
+    "license_url": "https://www.pexels.com/license/",
+    "note": "Aurora timelapse over a treeline; real sky footage.",
+    "duration_seconds": 14.0,
+    "bytes": 3632691,
+    "webm_file": "science-35.webm",
+    "webm_bytes": 1004049,
+    "modifications": "Silent 1s excerpt cut from the highest-resolution master the source publishes (original speed, native frame rate); resized to 1280x720, graded to match the reel (desaturate 30%, contrast 1.15, brightness x0.6, baked in). H.264 CRF 20 (preset slow, 4 Mbps cap) + VP9 CRF 28 .webm rendition; player prefers VP9 where supported, H.264 as universal fallback. Added 2026-09-11.",
+    "width": 1280,
+    "height": 720
+  },
+  {
+    "file": "science-36.mp4",
+    "title": "Soap bubble freezing, macro",
+    "credit": "Aaron Burden",
+    "source": "https://www.pexels.com/video/a-macro-footage-of-a-water-bubble-slowly-freezing-on-a-cold-winter-s-day-2478688/",
+    "license": "Pexels",
+    "license_url": "https://www.pexels.com/license/",
+    "note": "Ice crystals spreading across a soap-bubble film.",
+    "duration_seconds": 14.0,
+    "bytes": 1682423,
+    "webm_file": "science-36.webm",
+    "webm_bytes": 1129120,
+    "modifications": "Silent 12s excerpt cut from the highest-resolution master the source publishes (original speed, native frame rate); resized to 1280x720, graded to match the reel (desaturate 30%, contrast 1.15, brightness x0.6, baked in). H.264 CRF 20 (preset slow, 4 Mbps cap) + VP9 CRF 28 .webm rendition; player prefers VP9 where supported, H.264 as universal fallback. Added 2026-09-11.",
+    "width": 1280,
+    "height": 720
+  },
+  {
+    "file": "science-37.mp4",
+    "title": "Nebula field with stars",
+    "credit": "Adis Resic",
+    "source": "https://www.pexels.com/video/stunning-cosmic-nebula-with-stars-in-deep-space-31084223/",
+    "license": "Pexels",
+    "license_url": "https://www.pexels.com/license/",
+    "note": "Appears to be a digital space render rather than telescope imagery.",
+    "duration_seconds": 14.0,
+    "bytes": 2147467,
+    "webm_file": "science-37.webm",
+    "webm_bytes": 817825,
+    "modifications": "Silent 2s excerpt cut from the highest-resolution master the source publishes (original speed, native frame rate); resized to 1280x720, graded to match the reel (desaturate 30%, contrast 1.15, brightness x0.6, baked in). H.264 CRF 20 (preset slow, 4 Mbps cap) + VP9 CRF 28 .webm rendition; player prefers VP9 where supported, H.264 as universal fallback. Added 2026-09-11.",
+    "width": 1280,
+    "height": 720
+  },
+  {
+    "file": "science-38.mp4",
+    "title": "Ants on a tiny white flower",
+    "credit": "Vung Nguyen",
+    "source": "https://www.pexels.com/video/ants-on-tiny-white-flower-18275131/",
+    "license": "Pexels",
+    "license_url": "https://www.pexels.com/license/",
+    "note": "Macro of ants on flower buds; no faces or text.",
+    "duration_seconds": 12.9,
+    "bytes": 1603195,
+    "webm_file": "science-38.webm",
+    "webm_bytes": 770358,
+    "modifications": "Silent 0.3s excerpt cut from the highest-resolution master the source publishes (original speed, native frame rate); resized to 1280x720, graded to match the reel (desaturate 30%, contrast 1.15, brightness x0.6, baked in). H.264 CRF 20 (preset slow, 4 Mbps cap) + VP9 CRF 28 .webm rendition; player prefers VP9 where supported, H.264 as universal fallback. Added 2026-09-11.",
+    "width": 1280,
+    "height": 720
   }
 ]

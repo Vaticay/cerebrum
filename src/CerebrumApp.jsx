@@ -4041,6 +4041,11 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-31.mp4", // Ocean waves at rocks — Peter Fowler
   "/assets/cinematic/science-32.mp4", // Clear quartz crystal — Monstera Production
   "/assets/cinematic/science-33.mp4", // Volcanic lava in slow motion — Anoop A Nair
+  "/assets/cinematic/science-34.mp4", // Ferrofluid spikes under a magnet — Film Composite
+  "/assets/cinematic/science-35.mp4", // Northern lights timelapse — T Honkamies
+  "/assets/cinematic/science-36.mp4", // Soap bubble freezing, macro — Aaron Burden
+  "/assets/cinematic/science-37.mp4", // Nebula field with stars — Adis Resic
+  "/assets/cinematic/science-38.mp4", // Ants on a tiny white flower — Vung Nguyen
 ];
 
 /* Portrait. Used when the window is taller than it is wide — a phone held
@@ -4100,19 +4105,25 @@ const FILM_CREDITS = [
   { n: "31", title: "Ocean waves at rocks", credit: "Peter Fowler", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ocean-waves-video-1093652/" },
   { n: "32", title: "Clear quartz crystal", credit: "Monstera Production", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-video-of-a-clear-quartz-crystal-7792946/" },
   { n: "33", title: "Volcanic lava in slow motion", credit: "Anoop A Nair", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/lava-in-volcano-in-slow-motion-13438865/" },
+  { n: "34", title: "Ferrofluid spikes under a magnet", credit: "Film Composite", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/inky-16296848/" },
+  { n: "35", title: "Northern lights timelapse", credit: "T Honkamies", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/northern-lights-timelapse-28492331/" },
+  { n: "36", title: "Soap bubble freezing, macro", credit: "Aaron Burden", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-macro-footage-of-a-water-bubble-slowly-freezing-on-a-cold-winter-s-day-2478688/" },
+  { n: "37", title: "Nebula field with stars", credit: "Adis Resic", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/stunning-cosmic-nebula-with-stars-in-deep-space-31084223/" },
+  { n: "38", title: "Ants on a tiny white flower", credit: "Vung Nguyen", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ants-on-tiny-white-flower-18275131/" },
 ];
 
 /* What was done to the footage. Stated once, plainly, because "adapted"
    with no detail is not an adaptation notice. */
 const FILM_MODIFICATIONS =
-  "Each clip is a silent excerpt of up to 15 seconds, re-encoded as H.264 and colour-graded in " +
-  "the browser at display time (desaturated, contrast raised, brightness reduced). Every clip " +
-  "is cut from the highest-resolution master its source publishes and shipped as a 1080p " +
-  "playback derivative — full resolution is invisible behind a grade this dark and costs " +
-  "several times the decode. Where a source publishes nothing above 1080p, the clip ships at " +
-  "its native size rather than being upscaled. Portrait clips keep their own orientation " +
-  "rather than being stretched. Two clips are trimmed past a title card. No clip is re-timed " +
-  "or reversed, and no frames are composited between clips.";
+  "Each clip is a silent excerpt of up to 15 seconds, cut from the highest-resolution master " +
+  "its source publishes, at its original speed and frame rate. Every clip ships in two " +
+  "renditions: VP9 (.webm), preferred wherever the browser supports it, and H.264 (.mp4) as " +
+  "the universal fallback — both 720p, because full resolution is invisible behind a grade " +
+  "this dark and costs several times the decode. The cinematic grade (desaturated, contrast " +
+  "raised, brightness reduced) is baked into the files rather than applied as a live filter, " +
+  "so playback never pays a per-frame shader cost. Portrait clips keep their own orientation " +
+  "rather than being stretched. No clip is re-timed or reversed, and no frames are composited " +
+  "between clips.";
 
 function FilmCreditsDialog({ onClose, accent }) {
   const ref = useRef(null);
@@ -4255,6 +4266,11 @@ const FILM_SCENES = {
   "/assets/cinematic/science-31.mp4": { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
   "/assets/cinematic/science-32.mp4": { subject: "Mineralogy", question: "How do crystals grow into such regular shapes?" },
   "/assets/cinematic/science-33.mp4": { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
+  "/assets/cinematic/science-34.mp4": { subject: "Physics", question: "How does a magnetic field sculpt a liquid into spikes?" },
+  "/assets/cinematic/science-35.mp4": { subject: "Atmospheric science", question: "What paints the aurora's curtains of light across the sky?" },
+  "/assets/cinematic/science-36.mp4": { subject: "Thermodynamics", question: "What decides the exact moment water becomes ice?" },
+  "/assets/cinematic/science-37.mp4": { subject: "Astronomy", question: "What is a nebula made of, and how are stars born inside one?" },
+  "/assets/cinematic/science-38.mp4": { subject: "Entomology", question: "How do ants coordinate without a leader or words?" },
 };
 
 /* The poster is a frame of this clip, so when the reel is blocked and the
@@ -4385,6 +4401,22 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
        path run inside a preload would start hidden playback mid-buffer. */
     let preloadingEl = null;
 
+    /* VP9-first delivery. Every clip ships as science-NN.mp4 (H.264 — the
+       universal fallback) and science-NN.webm (VP9 — same baked grade,
+       better quality at roughly half the bytes). The clip lists keep the
+       .mp4 paths because FILM_SCENES is keyed by them; only the element's
+       src is remapped, and only when this browser can actually play VP9.
+       The onerror path below still skips a bad file, whatever its
+       container. Support is probed once per session. */
+    let vp9OK = null;
+    const filmFile = (el, mp4) => {
+      if (vp9OK === null) {
+        try { vp9OK = !!el.canPlayType && el.canPlayType('video/webm; codecs="vp9"') !== ""; }
+        catch { vp9OK = false; }
+      }
+      return vp9OK ? mp4.replace(/\.mp4$/i, ".webm") : mp4;
+    };
+
     const play = (el, src) => {
       /* A clip that loads clears the miss counter. Without this the count
          only ever climbs: a long session that skips a handful of absent
@@ -4417,7 +4449,10 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
         }
       };
       el.style.objectPosition = framePos(src);
-      if (el.getAttribute("src") !== src) { el.src = src; el.load(); }
+      /* src stays the .mp4 key for framePos above; the element loads the
+         best rendition this browser can play. */
+      const file = filmFile(el, src);
+      if (el.getAttribute("src") !== file) { el.src = file; el.load(); }
       if (preloadingEl === el) preloadingEl = null;
       const p = el.play();
       if (p && p.catch) p.catch(() => {});
@@ -4427,10 +4462,11 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
        clip's fade has finished — setting src earlier would unload the
        clip mid-dissolve and kill the fade. */
     const preloadInto = (el, src) => {
-      if (!src || el.getAttribute("src") === src) return;
+      const file = filmFile(el, src);
+      if (!file || el.getAttribute("src") === file) return;
       preloadingEl = el;
       el.preload = "auto";
-      el.src = src;
+      el.src = file;
       try { el.load(); } catch {}
     };
 
