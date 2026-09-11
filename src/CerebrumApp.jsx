@@ -2399,6 +2399,89 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
   );
 }
 
+/* ── QueryLens: the search screen, reimagined as an instrument ──────────
+   The pill search bar is the most imitated control on the internet. This
+   replaces it with something that belongs to this product: a circular
+   query dial — a lens — with the fifteen databases as satellites on a slow
+   orbit around it. The question goes in the middle; the literature
+   revolves around it, literally. Focus tightens the orbit and lights the
+   dial; while a search runs, the orbit slows to a drift (honest motion —
+   it says "working", never "42% done").
+
+   Everything the pill did is preserved: the same input value, Enter to
+   ask, image attach, voice, the busy dots, the mode-aware placeholder.
+   Only the shape changed. */
+function QueryLens({
+  input, setInput, inputRef, ask, busy,
+  askMode, isMobile, accent, P,
+  imageInputRef, attachedImage,
+  focused, setFocused,
+}) {
+  const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
+  const placeholder = mode.placeholderShort || mode.placeholder;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
+      <div
+        role="search"
+        className={"cb-lens" + (focused ? " cb-lens-live" : "") + (busy ? " cb-lens-working" : "")}
+        style={{ "--cb-lens-d": isMobile ? "min(80vw, 340px)" : "min(36vw, 400px)" }}
+      >
+        {/* The fifteen databases, one satellite each, on a slow orbit. */}
+        <div className="cb-lens-orbit" aria-hidden="true">
+          {SCHOLARLY_SOURCES.map((s, i) => (
+            <span
+              key={s.id}
+              className="cb-lens-sat"
+              title={s.name}
+              style={{ transform: `rotate(${(i * 360) / SCHOLARLY_SOURCES.length}deg) translateY(calc(var(--cb-lens-d) / -2 - 16px))` }}
+            />
+          ))}
+        </div>
+        <div className="cb-lens-face">
+          <div className="cb-lens-ticks" aria-hidden="true" />
+          <div className="cb-lens-core">
+            <div className="cb-lens-modelabel">Query&nbsp;&nbsp;//&nbsp;&nbsp;{mode.label}</div>
+            <input
+              ref={inputRef}
+              className="cb-lens-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }}
+              placeholder={placeholder}
+              aria-label="Ask a research question"
+              autoComplete="off"
+              spellCheck="true"
+            />
+            <div className="cb-lens-actions">
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                title="Attach an image" aria-label="Attach an image"
+                className="cb-lens-toolbtn"
+                style={{ color: attachedImage ? accent : "rgba(242,244,242,0.6)" }}
+              ><Icon name="image" size={17} /></button>
+              {/* The mic button brings its own 34px square styling from its
+                  other call sites; the wrapper gives it the same 40px circle
+                  as its neighbours here without touching the component. */}
+              <span className="cb-lens-micwrap"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
+              <button
+                onClick={() => ask()}
+                title="Ask" aria-label={busy ? "Searching" : "Ask"}
+                className="cb-lens-askbtn cb-magnetic cb-shine"
+                style={{ background: accent, color: "#11140f" }}
+              >{busy
+                ? <span className="cb-search-dots" aria-hidden="true"><i /><i /><i /></span>
+                : <Icon name="arrowRight" size={18} />}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="cb-lens-sub" aria-hidden="true">Fifteen databases&ensp;·&ensp;one question</div>
+    </div>
+  );
+}
+
 function AskModePicker({ mode, setMode, P, accent, isMobile }) {
   const [scrollRef, maskStyle] = useEdgeMask();
   return (
@@ -4494,20 +4577,34 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
 
     const cycle = () => {
       const next = 1 - curRef.current;
-      idxRef.current = (idxRef.current + 1) % orderRef.current.length;
-      play(els[next], orderRef.current[idxRef.current]);
-      els[next].style.opacity = "1";
-      report(orderRef.current[idxRef.current]);
+      const incoming = els[next];
       const outgoing = els[curRef.current];
-      outgoing.style.opacity = "0";
+      idxRef.current = (idxRef.current + 1) % orderRef.current.length;
+      /* Dip-free dissolve. The old code faded the outgoing to 0 at the same
+         moment it faded the incoming to 1: mid-transition the two opacities
+         summed below 1 and the black ground showed through — the visible
+         "black fade" between clips. Now the outgoing stays fully opaque
+         underneath while the incoming fades up OVER it (staged above via
+         zIndex), so the frame is always fully covered and brightness never
+         dips. Once the incoming is opaque, the outgoing is taken out
+         instantly — invisible, because it is completely hidden behind. */
+      incoming.style.zIndex = "2";
+      outgoing.style.zIndex = "1";
+      play(incoming, orderRef.current[idxRef.current]);
+      incoming.style.opacity = "1";
+      report(orderRef.current[idxRef.current]);
       curRef.current = next;
-      /* Stop decoding the clip nobody can see. It used to keep playing —
-         and looping — behind the visible one for the whole eleven-second
-         hold, so the page was decoding two videos at all times instead of
-         one. The delay clears the 2.2s dissolve; pausing immediately would
-         freeze the outgoing frame mid-fade. */
+      /* Stop decoding the clip nobody can see. The delay clears the 2.2s
+         dissolve; pausing immediately would freeze the outgoing frame
+         mid-fade. */
       fadeRef.current = setTimeout(() => {
         try { outgoing.pause(); } catch {}
+        /* Fully covered: remove without a transition so there is no second
+           fade, then restore the transition for the next dissolve. */
+        outgoing.style.transition = "none";
+        outgoing.style.opacity = "0";
+        void outgoing.offsetWidth;
+        outgoing.style.transition = "";
         /* The element is free now: buffer the clip after next so the
            following dissolve starts from a warm decoder. The incoming clip
            used to begin loading at the exact moment its 2.2s fade started —
@@ -4519,6 +4616,8 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
     };
 
     play(els[curRef.current], orderRef.current[idxRef.current]);
+    els[curRef.current].style.zIndex = "2";
+    els[1 - curRef.current].style.zIndex = "1";
     els[curRef.current].style.opacity = "1";
     report(orderRef.current[idxRef.current]);
     /* Warm the very first dissolve too: the hidden element buffers clip
@@ -5003,11 +5102,9 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 More
               </button>
             )}
-            <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go cb-shine cb-magnetic" style={{
-              border: "none", cursor: "pointer", borderRadius: 9999, marginLeft: 4,
-              padding: isMobile ? "9px 15px" : "9px 18px", background: introAccent, color: "#11140f",
-              fontWeight: 600, fontSize: 13.5, fontFamily: "var(--cb-body)", whiteSpace: "nowrap",
-            }}>Open Cerebrum</button>
+            {/* The header carries no entrance button: "Step inside" below is
+                the single way in. Two buttons doing the same thing read as
+                indecision, not emphasis. */}
           </div>
         </div>
 
@@ -5092,19 +5189,24 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               }}>
                 <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go" style={{
                   border: "none", cursor: "pointer", borderRadius: 9999,
-                  padding: isMobile ? "14px 28px" : "15px 34px",
+                  /* The two hero buttons share one sizing system: identical
+                     padding and type size, so they arrive at exactly the
+                     same height. Hierarchy comes from fill vs. outline and
+                     weight, never from a 1px padding drift. */
+                  padding: isMobile ? "14px 30px" : "15px 36px",
                   background: introAccent, color: "#11140f",
                   fontWeight: 600, fontSize: isMobile ? 15.5 : 16, fontFamily: "var(--cb-body)",
                   boxShadow: "0 12px 34px rgba(163,184,153,0.26)",
-                  display: "inline-flex", alignItems: "center", gap: 10,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
                 }}><span>Step inside</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
                 <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip" style={{
                   cursor: "pointer", borderRadius: 9999,
-                  padding: isMobile ? "13px 22px" : "14px 26px",
-                  fontSize: isMobile ? 15 : 15.5, fontWeight: 500,
+                  padding: isMobile ? "14px 30px" : "15px 36px",
+                  fontSize: isMobile ? 15.5 : 16, fontWeight: 500,
                   color: "rgba(242,244,242,0.86)", fontFamily: "var(--cb-body)",
                   background: "rgba(15, 17, 21, 0.62)",
                   border: "1px solid rgba(255,255,255,0.14)",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
                 }}>How it works</button>
               </div>
 
@@ -15795,48 +15897,6 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        glass pill with a plain conversational placeholder and a circular
        arrow button at the right edge. Enter still submits via the existing
        onKeyDown handler; the circular button is the pointer-friendly path. */
-    searchShell: {
-      display: "flex", alignItems: "center", gap: 10,
-      width: "100%", maxWidth: 700,
-      backdropFilter: isMobile ? "none" : "blur(14px)",
-      WebkitBackdropFilter: isMobile ? "none" : "blur(14px)",
-      // This is the one control the entire product exists to serve, and it
-      // was the least defined element on the page: an 8%-alpha border and a
-      // single 32px shadow at 8% opacity, sitting on top of the animated
-      // WebGL field. Against the bright part of that field the border
-      // disappeared completely and the bar read as a floating placeholder
-      // string with no container around it — verified on a real render, not
-      // assumed. Three changes, each doing a specific job:
-      //   · the fill goes more opaque, so the aurora passing behind stops
-      //     changing the control's own color as it drifts;
-      //   · the border roughly doubles in strength, which is what actually
-      //     draws the edge on a busy background;
-      //   · the flat shadow becomes a layered one — a tight contact shadow
-      //     that separates the pill from whatever is directly behind it,
-      //     plus a wide ambient shadow that does the lifting, plus a 1px
-      //     inset top highlight (the standard glass trick: a lit top edge
-      //     is what makes a surface read as raised rather than printed).
-      /* 0.92 was effectively opaque: the film moving behind this control
-         never showed, so the most important surface on the screen was the
-         one place the material stopped. At 0.66 with a heavier saturate the
-         footage reads through it as colour and movement while the blur
-         keeps the placeholder crisp — which is the whole point of glass,
-         as opposed to a dark rectangle that merely has a blur property. */
-      background: P.dark ? (isMobile ? "rgba(15, 17, 26, 0.94)" : "rgba(15, 17, 26, 0.78)") : "rgba(255, 255, 255, 0.94)",
-      border: P.dark ? "1px solid rgba(255,255,255,0.16)" : "1px solid rgba(0,0,0,0.13)",
-      borderRadius: 100,
-      padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
-      boxShadow: P.dark
-        ? "inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.35), 0 18px 48px rgba(0,0,0,0.45)"
-        : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px rgba(0,0,0,0.06), 0 18px 44px rgba(0,0,0,0.10)",
-      transition: "border-color 0.4s var(--cb-ease), box-shadow 0.4s var(--cb-ease), background 0.4s var(--cb-ease), transform 0.4s var(--cb-ease)",
-      position: "relative"
-    },
-    // Hover previously swapped in P.shadow, a smaller shadow than the rest
-    // state above now carries — so hovering the search bar made it sit DOWN
-    // rather than respond. Hover now reads as the accent waking up: the
-    // border picks up accent tint and the ambient shadow deepens, with the
-    // geometry unchanged so nothing shifts under the cursor.
     searchShellActive: {
       borderColor: withAlpha(accent, 0.55),
       /* A two-pixel rise on hover and focus. Small enough that it never
@@ -17056,7 +17116,6 @@ function App() {
   const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Sage");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Sage");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
-  const [hover, setHover] = useState("");
   const [hoverCite, setHoverCite] = useState(0);
   // Commit 65 — bumped whenever a topic is watched or unwatched, so the
   // home-screen watchlist reflects it without a page reload.
@@ -18123,26 +18182,16 @@ function App() {
                   textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
                 }}>{composerPrompt}</h2>
               )}
-              <div className={"cb-search-glow cb-search-shell cb-spotlight" + (busy ? " cb-search-scanning" : "")} style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
-                  <input ref={inputRef} style={S.searchInput} value={input}
-                    onFocus={() => setComposerFocused(true)}
-                    onBlur={() => setComposerFocused(false)}
-                    onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={isMobile
-                    ? ((ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholderShort ||
-                       (ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder)
-                    : (ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).placeholder} />
-                  <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
-                  <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
-                  <button
-                    style={S.searchBtn} onClick={() => ask()} title="Ask" aria-label={busy ? "Searching" : "Ask"}
-                    className="cb-magnetic cb-shine"
-                  >{busy
-                    /* Innovation refinement: while a search is in flight the
-                       arrow becomes a working pulse — the control admits it
-                       is busy instead of sitting there looking idle. */
-                    ? <span className="cb-search-dots" aria-hidden="true"><i /><i /><i /></span>
-                    : <Icon name="arrowRight" size={17} />}</button>
-              </div>
+              {/* The pill search bar is gone — see QueryLens. The question goes
+                  in the middle of the dial; the fifteen databases orbit it. */}
+              <QueryLens
+                input={input} setInput={setInput} inputRef={inputRef}
+                ask={ask} busy={busy}
+                askMode={askMode} isMobile={isMobile}
+                accent={accent} P={P}
+                imageInputRef={imageInputRef} attachedImage={attachedImage}
+                focused={composerFocused} setFocused={setComposerFocused}
+              />
               {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
               <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
               <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 9, marginBottom: 2, textAlign: "center", minHeight: 15, lineHeight: 1.4 }}>
@@ -19150,6 +19199,141 @@ summary::-webkit-details-marker { display: none; }
   50%      { transform: translateY(-3px); opacity: 1; }
 }
 
+/* ── QueryLens: the search screen as an instrument ──
+   A circular query dial with the fifteen databases as satellites on a
+   slow orbit. The dial is sized by --cb-lens-d so one rule serves phone
+   and desktop; the satellites ride at dial-radius + 16px. */
+.cb-lens {
+  --cb-lens-d: min(36vw, 400px);
+  position: relative;
+  width: var(--cb-lens-d);
+  height: var(--cb-lens-d);
+  margin: 36px auto 6px;
+  flex-shrink: 0;
+  animation: cbLensIn 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes cbLensIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.cb-lens-orbit {
+  position: absolute; inset: 0;
+  animation: cbLensOrbit 110s linear infinite;
+}
+/* Focus tightens the orbit; work slows it to a drift. Neither is progress. */
+.cb-lens-live .cb-lens-orbit { animation-duration: 34s; }
+.cb-lens-working .cb-lens-orbit { animation-duration: 220s; }
+@keyframes cbLensOrbit { to { transform: rotate(360deg); } }
+.cb-lens-sat {
+  position: absolute; left: 50%; top: 50%;
+  width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%,
+    rgba(255,255,255,0.95), rgba(163,184,153,0.8) 55%, rgba(163,184,153,0.25));
+  box-shadow: 0 0 10px rgba(163,184,153,0.55);
+}
+.cb-lens-face {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 36%, rgba(255,255,255,0.07), transparent 56%),
+    rgba(13, 15, 20, 0.72);
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 0 60px rgba(0,0,0,0.45),
+    0 24px 80px rgba(0,0,0,0.5),
+    0 0 90px rgba(163,184,153,0.07);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.5s ease, box-shadow 0.5s ease;
+}
+.cb-lens-live .cb-lens-face {
+  border-color: rgba(163,184,153,0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    inset 0 0 60px rgba(0,0,0,0.45),
+    0 24px 80px rgba(0,0,0,0.5),
+    0 0 120px rgba(163,184,153,0.18);
+}
+/* Instrument tick ring, masked to a thin band near the rim. */
+.cb-lens-ticks {
+  position: absolute; inset: 12px; border-radius: 50%;
+  background: repeating-conic-gradient(rgba(255,255,255,0.13) 0deg 0.8deg, transparent 0.8deg 6deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 81%, #000 81.5%);
+  mask: radial-gradient(closest-side, transparent 81%, #000 81.5%);
+  opacity: 0.75;
+  pointer-events: none;
+}
+.cb-lens-core {
+  position: relative; z-index: 1;
+  width: 70%;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.cb-lens-modelabel {
+  font-family: var(--cb-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: 0.26em; text-transform: uppercase;
+  color: rgba(163,184,153,0.9);
+  margin-bottom: 14px;
+}
+.cb-lens-input {
+  width: 100%;
+  background: transparent; border: none; outline: none;
+  color: #f2f4f2;
+  font-family: var(--cb-display); font-weight: 500;
+  font-size: clamp(18px, 2.2vw, 23px);
+  letter-spacing: -0.01em; line-height: 1.35;
+  text-align: center;
+  padding: 4px 2px;
+  caret-color: rgba(163,184,153,0.9);
+  /* A dial is round: long placeholders fade at the rim instead of
+     clipping mid-word. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+.cb-lens-input::placeholder { color: rgba(242,244,242,0.38); }
+.cb-lens-actions {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; margin-top: 18px;
+}
+.cb-lens-toolbtn {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.13);
+  cursor: pointer; flex-shrink: 0;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+.cb-lens-toolbtn:hover { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); }
+/* The voice button is shared with other call sites and brings its own
+   34px square styling; inside the lens it rides in a matching 40px circle
+   so the three controls read as one instrument row. */
+.cb-lens-micwrap {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.13);
+  cursor: pointer; flex-shrink: 0;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.cb-lens-micwrap:hover { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); }
+.cb-lens-micwrap .cb-hbtn:hover:not(:disabled) { background: transparent !important; }
+.cb-lens-askbtn {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  border: none; cursor: pointer; flex-shrink: 0;
+  box-shadow: 0 8px 28px rgba(163,184,153,0.35);
+}
+.cb-lens-sub {
+  margin-top: 30px;
+  font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.24em; text-transform: uppercase;
+  color: rgba(242,244,242,0.42);
+  text-align: center;
+}
+
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
    The sweep is a radar, not a progress bar — indeterminate by design,
    because the client genuinely does not know what the server is doing
@@ -19481,6 +19665,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-search-scanning::after, .cb-search-scanning,
   .cb-search-dots i, .cb-trace-comet, .cb-trace-chip { animation: none; }
   .cb-search-scanning::after { display: none; }
+  .cb-lens, .cb-lens-orbit { animation: none; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
 }
 
