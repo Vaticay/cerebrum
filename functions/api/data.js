@@ -1149,7 +1149,9 @@ export async function onRequest(context) {
       const stmts = [env.DB.prepare("DELETE FROM user_history WHERE user_id = ?").bind(user.id)];
       for (const item of items) {
         const turnsJson = JSON.stringify({ turns: item?.turns || [], allSources: item?.allSources || [] });
-        if (turnsJson.length > MAX_TURNS_JSON_LEN) continue;
+        if (turnsJson.length > MAX_TURNS_JSON_LEN) {
+          return new Response(JSON.stringify({ error: "An investigation is too large to sync. Existing account history has been preserved." }), { status: 413, headers: cors });
+        }
         const title = (item?.title || "").toString().slice(0, 300);
         const ts = Number(item?.ts) || now;
         stmts.push(env.DB.prepare("INSERT INTO user_history (id, user_id, title, turns_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
