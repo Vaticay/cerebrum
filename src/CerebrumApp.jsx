@@ -2160,6 +2160,7 @@ function CardMedia({ media, alt = "", onReady, onFail }) {
         src={media.url}
         poster={media.poster || undefined}
         autoPlay={!reduce} muted loop playsInline preload="metadata"
+        ref={(el) => { if (el) { try { el.muted = true; el.defaultMuted = true; } catch {} } }}
         onLoadedData={onReady} onError={onFail}
         {...common}
       />
@@ -4294,17 +4295,16 @@ function setFilmForcedOn(on) {
    motion ends up with both backdrops mounted at once. */
 function filmBlocked(animationMode, paused) {
   if (paused || animationMode === "off") return true;
-  /* Phones get the still poster, not a decoder.
-     A full-viewport video behind a translucent interface is the single most
-     expensive thing this app can do, and it is worst exactly where the
-     hardware is weakest and the battery matters. The poster frame is the
-     same footage, graded the same way — the page still looks like itself,
-     it just stops decoding thirty frames a second to do it. Anyone who
-     wants the motion can turn it on; the control is in the footer and it
-     remembers the answer. */
-  if (typeof window !== "undefined" && window.matchMedia &&
-      window.matchMedia("(pointer: coarse) and (max-width: 900px)").matches &&
-      !filmForcedOn()) return true;
+  /* Phones get the full film, not the still poster. An earlier revision
+     held motion back on coarse-pointer small screens to save battery and
+     data, but the cinematic backdrop is the product's identity — a phone
+     that shows a black void where desktop shows the reel reads as broken,
+     not thrifty. Modern phone SoCs hardware-decode H.264 (which is what
+     iOS is served — see filmFile) for a fraction of the cost this comment
+     used to fear, and the guards below still protect the cases that truly
+     need stillness: metered connections, very low-memory devices, reduced
+     motion, and anyone who pauses the background. The footer control
+     remembers a manual pause. */
   /* Genuinely low-end devices, where a full-viewport filtered video makes
      the whole interface stutter. Deliberately a hard floor rather than a
      guess at "slow": deviceMemory is only reported by Chromium and only in
@@ -4317,9 +4317,9 @@ function filmBlocked(animationMode, paused) {
   /* Reduced motion gets the still poster BY DEFAULT, not permanently.
      The setting means "do not surprise me with movement", and it is
      honoured on arrival; it is not a claim that the person can never
-     choose to watch the footage. The Play background control sets the
-     same opt-in flag the phone rule uses, so an explicit press wins over
-     a default in both cases and survives a reload. */
+     choose to watch the footage. The Play background control sets an
+     explicit opt-in flag, so a deliberate press wins over the default and
+     survives a reload. */
   if (typeof window !== "undefined" && window.matchMedia &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
       !filmForcedOn()) return true;
@@ -4363,6 +4363,15 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
   useEffect(() => {
     const els = [aRef.current, bRef.current];
     if (!els[0] || !els[1]) return;
+
+    /* Mobile Safari only honours autoplay when the muted IDL *property* is
+       true. React's `muted` JSX attribute sets the content attribute, which
+       iOS ignores — the classic silent-autoplay failure that leaves phones
+       on a black backdrop while desktop plays fine. Set the property
+       directly, once, on both elements. */
+    for (const el of els) {
+      try { el.muted = true; el.defaultMuted = true; } catch {}
+    }
 
     /* Object-position is decided once per mount rather than per frame:
        the crop only changes when the window's aspect ratio does, and a
@@ -4409,7 +4418,20 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
        The onerror path below still skips a bad file, whatever its
        container. Support is probed once per session. */
     let vp9OK = null;
+    let iosH264 = null;
     const filmFile = (el, mp4) => {
+      /* iOS gets H.264 unconditionally. Its hardware decoder eats H.264
+         for breakfast, while canPlayType('video/webm; codecs="vp9"') has
+         claimed VP9 support on iOS releases that then fail to decode it —
+         a phone that reports "maybe" and plays nothing. */
+      if (iosH264 === null) {
+        try {
+          const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+          iosH264 = /iPad|iPhone|iPod/.test(ua) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        } catch { iosH264 = false; }
+      }
+      if (iosH264) return mp4;
       if (vp9OK === null) {
         try { vp9OK = !!el.canPlayType && el.canPlayType('video/webm; codecs="vp9"') !== ""; }
         catch { vp9OK = false; }
@@ -16562,14 +16584,10 @@ function App() {
      when someone is looking around, and steps back the moment they start
      doing something — typing a question, or reading an answer. */
   const [composerFocused, setComposerFocused] = useState(false);
-  /* On by default on a desktop, off by default on a phone, and whatever
-     the person last chose after that. The control says what it will do,
-     not what it currently is. */
-  const [filmMotion, setFilmMotion] = useState(() => {
-    const phone = typeof window !== "undefined" && window.matchMedia &&
-      window.matchMedia("(pointer: coarse) and (max-width: 900px)").matches;
-    return phone ? filmForcedOn() : true;
-  });
+  /* On by default everywhere — desktop and phone alike — and whatever the
+     person last chose after that. The control says what it will do, not
+     what it currently is. */
+  const [filmMotion, setFilmMotion] = useState(() => true);
   // V5 "what's new" announcement — shows once per browser, the first time
   // someone lands on the main app after this ships. Keyed off its own
   // localStorage flag rather than the entry cookie above, since a returning
