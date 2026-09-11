@@ -1,3 +1,4 @@
+import { saveInvestigation } from "./investigationHistory.js";
 import { contextAction } from "../functions/lib/conversation.js";
 /**
  * CerebrumApp — the Cerebrum interface.
@@ -2262,7 +2263,7 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
             onClick={() => setMode(m.key)}
             title={m.blurb}
             aria-pressed={on}
-            className="cb-press"
+            className="cb-press cb-glass-action cb-glass-action--secondary"
             style={{
               display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0,
               padding: "8px 14px", borderRadius: 100, cursor: "pointer",
@@ -10358,11 +10359,11 @@ function UIButton({
      transparent outline over a bright frame is just an outline. */
   const skins = {
     primary: {
-      background: accent, color: at, border: "1px solid transparent",
+      background: `linear-gradient(180deg, rgba(255,255,255,0.22), transparent 65%), ${accent}`, color: at, border: "1px solid transparent",
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 2px rgba(0,0,0,0.18), 0 8px 22px ${withAlpha(accent, 0.28)}`,
     },
     secondary: {
-      background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)",
+      background: P.dark ? "linear-gradient(160deg, rgba(255,255,255,0.13), rgba(255,255,255,0.035))" : "linear-gradient(160deg, rgba(255,255,255,0.95), rgba(230,235,232,0.6))",
       color: P.ink, border: `1px solid ${P.line2}`,
       boxShadow: P.dark ? "inset 0 1px 0 rgba(255,255,255,0.06)" : "inset 0 1px 0 rgba(255,255,255,0.8)",
     },
@@ -10372,7 +10373,7 @@ function UIButton({
   return (
     <button
       type={type} onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel}
-      className="cb-press"
+      className={"cb-press cb-glass-action cb-glass-action--" + variant}
       style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center", gap: SP.sm,
         padding: pad, borderRadius: RADIUS.pill, cursor: disabled ? "not-allowed" : "pointer",
@@ -10397,7 +10398,7 @@ function UICard({ children, P, pad = true, className = "", style, onClick }) {
   return (
     <div
       onClick={onClick}
-      className={"cb-card " + className}
+      className={"cb-card cb-material-panel " + className}
       style={{
         borderRadius: RADIUS.lg,
         /* A real glass panel, not a 2.8%-white tint.
@@ -10413,13 +10414,14 @@ function UICard({ children, P, pad = true, className = "", style, onClick }) {
            against the area behind it, so the fill does most of the work
            and the blur only has to soften what is left. */
         background: P.dark ? "rgba(15, 17, 21, 0.72)" : "rgba(255, 255, 255, 0.86)",
-        backdropFilter: "blur(12px) saturate(140%)",
-        WebkitBackdropFilter: "blur(12px) saturate(140%)",
+        backgroundImage: "linear-gradient(145deg, rgba(255,255,255,0.065), transparent 45%)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
         border: P.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${P.line2}`,
         boxShadow: P.dark
           ? "inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 2px rgba(0,0,0,0.30), 0 16px 40px rgba(0,0,0,0.26)"
           : "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(0,0,0,0.05), 0 14px 34px rgba(0,0,0,0.08)",
-        padding: pad ? `${SP.lg}px ${SP.lg + 3}px ${SP.lg - 1}px` : 0,
+        padding: pad ? SP.lg : 0,
         overflow: "hidden", minWidth: 0,
         cursor: onClick ? "pointer" : undefined,
         ...style,
@@ -15124,6 +15126,8 @@ function App() {
   }, []);
 
   async function signOut() {
+    investigationRequest.current += 1;
+    setBusy(false); setTurns([]); setAllSources([]);
     try { await apiAuth("logout", {}); } catch {}
     setUser(null); setSyncReady(false); setCollections([]);
     setProfile({}); setProfileMeta({ followers: 0, badges: [] }); setThreads([]);
@@ -15136,6 +15140,8 @@ function App() {
   // this browser can still show, matching what "delete my account" should
   // actually mean.
   function onAccountDeleted() {
+    investigationRequest.current += 1;
+    setBusy(false); setTurns([]); setAllSources([]);
     setUser(null); setSyncReady(false); setCollections([]); setSaved([]); setHistory([]);
     setProfile({}); setProfileMeta({ followers: 0, badges: [] }); setThreads([]);
   }
@@ -15178,6 +15184,7 @@ function App() {
     reader.readAsDataURL(file);
   }
   const [turns, setTurns] = useState([]);
+  const investigationRequest = useRef(0);
   const [pinnedSources, setPinnedSources] = useState([]);
   const [corrections, setCorrections] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -15460,6 +15467,7 @@ function App() {
     // enough to start narrating its last answer at you, unprompted, which
     // is most of what "it is also automatically playing TTS" is. Narration
     // now requires an ask in THIS session.
+    const requestVersion = ++investigationRequest.current;
     setAskedThisSession(true);
     setContextBusy(!imageToSend && !!contextAction(question));
     if (!mutedRef.current) Audio.click();
@@ -15477,9 +15485,11 @@ function App() {
         stressExclude: opts.stressExclude || undefined,
         stressFilter: opts.stressFilter || undefined,
         stressBaseClaims: opts.stressBaseClaims || undefined }) });
+      if (requestVersion !== investigationRequest.current) return;
       if (!res.ok) {
         let errData = {};
         try { errData = await res.json(); } catch {}
+        if (requestVersion !== investigationRequest.current) return;
         setError(errData.error || "Something went sideways. Try that again?"); setBusy(false); return;
       }
       // Stream response body via ReadableStream — reads chunks as they arrive.
@@ -15498,18 +15508,25 @@ function App() {
       try { data = JSON.parse(buf); }
       catch { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
+      if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
       const nt = { id: turnId, answerId: data.answerId || "", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
-      setTurns((t) => [...t, nt]);
-      setAllSources((prev) => { const seen = new Set(prev.map(sourceKey)); return [...prev, ...(data.sources || []).filter((s) => !seen.has(sourceKey(s)))]; });
+      const nextTurns = [...turns, nt];
+      const seen = new Set(allSources.map(sourceKey));
+      const nextSources = [...allSources, ...(data.sources || []).filter(source => {
+        const key = sourceKey(source); if (seen.has(key)) return false; seen.add(key); return true;
+      })];
+      setTurns(nextTurns);
+      setAllSources(nextSources);
+      setHistory(previous => saveInvestigation(previous, nextTurns, nextSources));
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Audio.pop();
-      videosPromise.then(({ videos }) => { if (data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
-    } catch (e) { setError(`Couldn't reach the backend. Give it a second and try again. (${e.message})`); }
-    finally { setBusy(false); }
-  }, [input, attachedImage, busy, turns, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
+      videosPromise.then(({ videos }) => { if (requestVersion === investigationRequest.current && data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
+    } catch (e) { if (requestVersion === investigationRequest.current) setError("Couldn't reach the research service. Please try again."); }
+    finally { if (requestVersion === investigationRequest.current) setBusy(false); }
+  }, [input, attachedImage, busy, turns, allSources, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
 
   /* preventScroll, and it is not a micro-optimisation.
      Focusing an element makes the browser scroll it into view, and this
@@ -15804,12 +15821,12 @@ function App() {
   // why it was removed. Native scrolling + the sticky header's own
   // translateZ(0) compositor layer handle this correctly without it.)
 
-  useEffect(() => { try { localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40))); } catch {} }, [history]);
+  useEffect(() => { try { localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40))); } catch { toast("Browser storage is full or unavailable. Keep this tab open until your investigation is saved to your account.", { tone: "error" }); } }, [history]);
   const historySyncTimer = useRef(null);
   useEffect(() => {
     if (!user || !syncReady) return;
     clearTimeout(historySyncTimer.current);
-    historySyncTimer.current = setTimeout(() => { apiDataPost("history", { action: "replace-all", items: history }).catch(() => {}); }, 900);
+    historySyncTimer.current = setTimeout(() => { apiDataPost("history", { action: "replace-all", items: history }).catch(() => toast("Investigations could not sync to your account. Your browser copy is still available; check your connection before closing.", { tone: "error" })); }, 900);
     return () => clearTimeout(historySyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history, user, syncReady]);
@@ -15864,16 +15881,14 @@ function App() {
   }
   function newSession() {
     if (!mutedRef.current) Audio.click();
-    if (turns.length > 0) {
-      const firstQ = turns[0]?.q || input || "Untitled investigation";
-      setHistory((h) => [
-        { id: "h" + Date.now(), title: firstQ.slice(0, 140), ts: Date.now(), turns, allSources },
-        ...h.filter((entry) => entry.turns?.[0]?.id !== turns[0]?.id),
-      ].slice(0, 40));
-    }
+    investigationRequest.current += 1;
+    setBusy(false); setAskedThisSession(false);
     setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
   }
   function openHistoryItem(entry) {
+    investigationRequest.current += 1;
+    setBusy(false); setAskedThisSession(false); setInput(""); setAttachedImage(null);
+    setView("search");
     sfx();
     setTurns(entry.turns || []);
     setAllSources(entry.allSources || []);
@@ -17354,7 +17369,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .cb-card {
   transition: border-color 160ms ease, background-color 160ms ease;
 }
-.cb-card:hover { border-color: var(--cb-accent); }
+.cb-card[role="button"]:hover { border-color: var(--cb-accent); }
 
 
 /* Source card hover lift */
@@ -18157,6 +18172,33 @@ button, a, .cb-tap {
 @media (prefers-reduced-motion: reduce) {
   .cb-stagger > *, .cb-hero-ring, .cb-hero-glow { animation: none !important; opacity: 1; }
   .cb-card, .cb-intro-go, .cb-intro-scene { transition: none; }
+}
+
+/* Shared glass: reflected edges at rest, accent light on interaction. */
+.cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-deck-btn, .cb-hbtn {
+  background-image: linear-gradient(165deg, rgba(255,255,255,.16), rgba(255,255,255,.015) 60%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.19), 0 2px 5px rgba(0,0,0,.10);
+  transition: box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+.cb-glass-action--ghost, .cb-glass-action--destructive { background-image: none; }
+.cb-modal, .cb-glass-panel, .cb-material-panel {
+  background-image: linear-gradient(145deg, rgba(255,255,255,.045), transparent 48%);
+  border-top-color: rgba(160,175,165,.24);
+}
+@media (hover: hover) {
+  .cb-glass-action:not(:disabled):hover, .cb-intro-go:hover, .cb-intro-chip:hover,
+  .cb-deck-btn:hover, .cb-hbtn:not(:disabled):hover {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.32), 0 4px 16px color-mix(in srgb, var(--cb-accent, #A3B899) 15%, transparent) !important;
+    transform: translateY(-1px);
+  }
+}
+.cb-glass-action:focus-visible, .cb-intro-go:focus-visible, .cb-intro-chip:focus-visible {
+  outline: 2px solid var(--cb-accent, #A3B899); outline-offset: 3px;
+}
+.cb-intro-header { border-bottom: 0; }
+#cb-intro-wrap h1 { text-wrap: balance; }
+@media (prefers-reduced-motion: reduce) {
+  .cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-deck-btn, .cb-hbtn { transition: none !important; transform: none !important; }
 }
 
 `;
