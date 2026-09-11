@@ -238,6 +238,34 @@ const SUGGESTION_POOL = [
   "How do extremophiles survive in boiling acid?",
   "Mechanisms of convergent evolution across distant species",
 ];
+
+// Mode-aware example questions for the "Try asking" chips under the
+// composer. These are prompts, not claims — they invite a real question
+// in the current mode's voice rather than leaving a first-time visitor
+// staring at an empty box.
+const ASK_MODE_EXAMPLES = {
+  explain: [
+    "How do mRNA vaccines trigger immunity?",
+    "Why does soil crack into patterns as it dries?",
+    "How does CRISPR-Cas9 actually cut DNA?",
+  ],
+  verify: [
+    "Does coffee raise heart disease risk?",
+    "Do blue-light glasses reduce eye strain?",
+  ],
+  compare: [
+    "mRNA vs protein vaccines: which protection lasts longer?",
+    "SSRIs vs CBT for depression — what does the evidence say?",
+  ],
+  map: [
+    "Who studies quantum error correction, and what's unsettled?",
+    "Map the current state of longevity research",
+  ],
+  readinglist: [
+    "A reading list for understanding dark matter",
+    "Where should I start with microbiome science?",
+  ],
+};
 function pick(n = 4) {
   const a = [...SUGGESTION_POOL];
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
@@ -317,6 +345,16 @@ function renderCleanTitle(raw) {
   }
   if (last < title.length) parts.push(title.slice(last));
   return parts;
+}
+
+/* Investigation titles are the user's own raw questions — "tempretures",
+   "explain the phyla in BSFL gut". Display tidies them: trim, collapse
+   whitespace, capitalise the first letter. The stored value is untouched
+   (rename edits the real thing), so this is presentation only, applied
+   everywhere an investigation title is shown. */
+function tidyQuestionTitle(raw) {
+  const t = String(raw == null ? "" : raw).trim().replace(/\s+/g, " ");
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 }
 
 // Identity key for a source used across dedup / save / pin state. Was
@@ -2893,49 +2931,55 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
    product whose argument is that nothing is asserted without a source.
 
    So the cover is generated from the investigation's own identity. The
-   title is hashed to a stable hue pair and a stable stroke pattern, and the
-   result is a small abstract mark that is always the same for that
-   investigation and almost never the same as its neighbour. It carries no
-   claim about the science. It is a colour you learn to recognise, which is
-   all a cover has to be.
-
-   The geometry is drawn from the logo's own rounded-lobe motif, so the
-   covers look like they belong to this product rather than to a random
-   gradient generator. */
+   title hashes to an index into the same tonal palette the rest of the app
+   uses (never a free hue — see the Commit 87 note on coverFor), plus one of
+   three geometric motifs and a rotation. The result is a small abstract
+   mark that is always the same for that investigation and visibly different
+   from its neighbour. It carries no claim about the science. It is a mark
+   you learn to recognise, which is all a cover has to be. */
 function investigationCover(title, accent, P) {
+  const t = TONES[toneIndex(title)];
   let h = 2166136261;
-  for (let i = 0; i < String(title || "").length; i++) {
-    h ^= String(title).charCodeAt(i);
+  const s = String(title || "");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
   const u = Math.abs(h);
-  const hue = u % 360;
-  const hue2 = (hue + 40 + (u >> 8) % 60) % 360;
-  const sat = P.dark ? 26 : 34;
-  const lum = P.dark ? 26 : 84;
+  const motif = u % 3; // 0: stacked lobes, 1: orbit rings, 2: ray star
   const rot = (u >> 4) % 180;
-  const lobes = 2 + (u >> 12) % 3;
-  return { hue, hue2, sat, lum, rot, lobes,
-    background: "linear-gradient(" + rot + "deg, hsl(" + hue + " " + sat + "% " + lum + "%), hsl(" + hue2 + " " + sat + "% " + (lum + (P.dark ? 8 : -8)) + "%))" };
+  const n = 2 + ((u >> 10) % 3);
+  return { t, motif, rot, n,
+    background: "linear-gradient(" + rot + "deg, hsl(" + t.h + " " + t.s + "% 30%), hsl(" + t.h + " " + Math.max(10, t.s - 8) + "% 17%))" };
 }
 
 function InvestigationCover({ title, accent, P, size = 52 }) {
   const c = investigationCover(title, accent, P);
+  const fg = P.dark ? "rgba(255,255,255,0.6)" : "rgba(20,24,20,0.5)";
   return (
     <span aria-hidden="true" style={{
       width: size, height: size, flexShrink: 0, borderRadius: RADIUS.md,
       background: c.background, position: "relative", overflow: "hidden",
-      border: "1px solid " + (P.dark ? "rgba(255,255,255,0.08)" : "rgba(34,37,42,0.10)"),
+      border: "1px solid " + (P.dark ? "rgba(255,255,255,0.09)" : "rgba(34,37,42,0.10)"),
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
       display: "inline-flex", alignItems: "center", justifyContent: "center",
     }}>
-      <svg width={size * 0.56} height={size * 0.56} viewBox="0 0 24 24" fill="none"
-        stroke={P.dark ? "rgba(255,255,255,0.55)" : "rgba(34,37,42,0.45)"}
-        strokeWidth="1.3" strokeLinecap="round"
-        style={{ transform: "rotate(" + (c.rot % 30 - 15) + "deg)" }}>
-        {Array.from({ length: c.lobes }).map((_, i) => (
-          <circle key={i} cx="12" cy={7 + i * 4.5} r={3.4 - i * 0.5} />
+      <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 24 24" fill="none"
+        stroke={fg} strokeWidth="1.4" strokeLinecap="round"
+        style={{ transform: "rotate(" + (c.rot % 40 - 20) + "deg)" }}>
+        {c.motif === 0 && Array.from({ length: c.n + 1 }).map((_, i) => (
+          <circle key={i} cx="12" cy={6.5 + i * 4.6} r={3.6 - i * 0.55} />
         ))}
-        <path d="M12 3v18" opacity="0.35" />
+        {c.motif === 0 && <path d="M12 3v18" opacity="0.3" />}
+        {c.motif === 1 && Array.from({ length: c.n }).map((_, i) => (
+          <circle key={i} cx="12" cy="12" r={3.4 + i * 3.6} opacity={0.95 - i * 0.25} />
+        ))}
+        {c.motif === 1 && <circle cx="12" cy="12" r="1.6" fill={fg} stroke="none" />}
+        {c.motif === 2 && Array.from({ length: c.n + 3 }).map((_, i) => {
+          const a = (i / (c.n + 3)) * Math.PI * 2 + c.rot;
+          return <line key={i} x1={12 + Math.cos(a) * 4.2} y1={12 + Math.sin(a) * 4.2} x2={12 + Math.cos(a) * 9.2} y2={12 + Math.sin(a) * 9.2} />;
+        })}
+        {c.motif === 2 && <circle cx="12" cy="12" r="2.2" />}
       </svg>
     </span>
   );
@@ -6444,11 +6488,13 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
             itself dropped `position: absolute` (see its own comment) to
             become a normal flow item this row can actually wrap. */}
         {((t.sources && t.sources.length > 0) || (done && t.answer)) && (
-          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 8, marginBottom: 16 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 10, marginBottom: 18, paddingBottom: 14, borderBottom: `1px solid ${P.line}` }}>
             {t.sources && t.sources.length > 0 ? (
-              <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, background: withAlpha(accent, 0.1), padding: "3px 10px", borderRadius: 8, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
-                {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
+              <div>
+                <div style={{ fontFamily: "var(--cb-mono)", fontSize: 9, letterSpacing: "0.22em", color: P.faint, textTransform: "uppercase", marginBottom: 7 }}>Synthesized answer</div>
+                <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`, padding: "4px 11px", borderRadius: 9999, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
+                  {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
                 {/* Retrieval coverage, from the server's record of which
                     databases actually settled — not a fixed list, and not a
                     guess. Rendered only when the backend supplied it, so an
@@ -6467,6 +6513,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                     </span>
                   );
                 })()}
+                </div>
               </div>
             ) : <span />}
             {/* v28: icon-first, one row that never wraps internally —
@@ -6485,7 +6532,8 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                 a normal flex item that wraps below the badge instead of
                 sitting on top of it. */}
             {done && t.answer && (
-              <div style={S.toolbar} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()} role="toolbar" aria-label="Answer actions">
+                <div style={{ display: "flex", alignItems: "center", gap: 1 }} role="group" aria-label="Use this answer">
                 <ToolbarBtn
                   title={copiedAnswer ? "Copied!" : "Copy answer"}
                   icon={copiedAnswer ? "check" : "copy"}
@@ -6541,10 +6589,31 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                   }}
                 />
                 {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact autoPlay={autoRead && last && done} />}
+                </div>
+                <div style={{ width: 1, height: 20, background: P.line, margin: "0 5px", flexShrink: 0 }} aria-hidden="true" />
+                <div style={{ display: "flex", alignItems: "center", gap: 1 }} role="group" aria-label="Explore visually">
                 {done && interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="The evidence, side by side" icon="table" accent={accent} P={P} onClick={() => onEvidenceTable(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
-                {interactive && t.answer && t.answer.length > 40 && <ToolbarBtn title="Flowchart — turn this answer into a diagram" icon="flowchart" accent={accent} P={P} onClick={() => onShowFlowchart(t)} />}
+                {interactive && t.answer && t.answer.length > 40 && (
+                  <button type="button" title="Flowchart — turn this answer into a diagram" aria-label="Open Flowchart Studio for this answer"
+                    onClick={() => onShowFlowchart(t)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 13px", marginLeft: 3,
+                      borderRadius: 9999, border: `1px solid ${withAlpha(accent, 0.4)}`,
+                      background: withAlpha(accent, 0.10), color: accent,
+                      fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)", cursor: "pointer",
+                      transition: "all 0.15s ease", whiteSpace: "nowrap",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.2); e.currentTarget.style.boxShadow = `0 2px 10px ${withAlpha(accent, 0.35)}`; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.10); e.currentTarget.style.boxShadow = "none"; }}>
+                    <Icon name="flowchart" size={14} />
+                    Diagram
+                  </button>
+                )}
+                </div>
+                <div style={{ width: 1, height: 20, background: P.line, margin: "0 5px", flexShrink: 0 }} aria-hidden="true" />
+                <div style={{ display: "flex", alignItems: "center", gap: 1 }} role="group" aria-label="Rate this answer">
                 {/* Commit 98 — this pair is what finally feeds /api/vote. The
                     score it writes is not cosmetic: /api/search only re-serves
                     a cached answer to other people once score >= 2, and a
@@ -6580,6 +6649,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                   </>
                 ) : null}
                 <ToolbarBtn title="Report bad answer" icon="flag" accent={STATUS.bad} P={P} onClick={() => setShowReport(true)} />
+                </div>
               </div>
             )}
           </div>
@@ -7770,6 +7840,50 @@ function coverFor(item) {
   };
 }
 
+/* A few upstream source strings are legitimate ISO-4 abbreviations that
+   read as truncation bugs ("Magn Reson Lett"). The strings stay exactly as
+   the feed sent them — provenance is not ours to rewrite — but a hover
+   reveals the full journal name where one is verified. */
+const SOURCE_FULL_NAMES = {
+  "Magn Reson Lett": "Magnetic Resonance Letters",
+};
+
+/* The no-photograph band, designed as an editorial surface rather than an
+   apology for a missing asset: the tonal duotone field, faint contour
+   rings for texture, a ghost of the field's glyph, the category set as a
+   quiet wordmark, and the hairline rule. Nothing here pretends to be a
+   photograph. */
+const TREND_CATEGORY_ICONS = [
+  ["Biology & Medicine", "brain"],
+  ["Physics & Chemistry", "zap"],
+  ["Space", "sparkle"],
+  ["Preprints", "document"],
+];
+function TrendBandArt({ item }) {
+  const cover = coverFor(item);
+  const glyph = (TREND_CATEGORY_ICONS.find(([c]) => (item.category || "") === c) || [])[1] || "bookOpen";
+  return (
+    <>
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: cover.background }} />
+      <svg aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+        {[0.22, 0.4, 0.6, 0.82, 1.06].map((r, i) => (
+          <circle key={i} cx="84%" cy="112%" r={`${r * 120}`} fill="none"
+            stroke={cover.tone} strokeOpacity={Math.max(0.04, 0.17 - i * 0.03)} strokeWidth="1" />
+        ))}
+      </svg>
+      <Icon name={glyph} size={108} style={{ position: "absolute", right: 8, bottom: -10, color: "#ffffff", opacity: 0.09 }} />
+      {item.category && (
+        <span style={{
+          position: "absolute", left: 16, bottom: 28, fontSize: FONT_SIZES.micro,
+          fontFamily: "var(--cb-mono)", letterSpacing: "0.12em", textTransform: "uppercase",
+          color: "rgba(255,255,255,0.55)",
+        }}>{item.category}</span>
+      )}
+      <div aria-hidden="true" style={{ position: "absolute", left: 16, right: 16, bottom: 16, height: 1, background: `linear-gradient(90deg, ${withAlpha(cover.tone, 0.55)}, transparent)` }} />
+    </>
+  );
+}
+
 /* Commit 81 — TrendCover is gone.
    It painted a colour field with a story's initials at 40px, and it was
    the last "letter placeholder" in the product. Every surface that used it
@@ -7839,7 +7953,7 @@ function TrendingHero({ P, accent, item, onExpand }) {
         padding: "28px 28px 26px", display: "flex", flexDirection: "column", gap: 10,
       }}>
         {item.source && (
-          <span style={{ display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", fontFamily: "var(--cb-body)" }}>
+          <span title={SOURCE_FULL_NAMES[item.source]} style={{ display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", fontFamily: "var(--cb-body)" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
             {item.source}
           </span>
@@ -7897,20 +8011,10 @@ function TrendingCard({ P, accent, at, item, onExpand }) {
             <CardMedia media={media} onReady={() => setImgStatus("ready")} onFail={() => setImgStatus("error")} />
           </div>
         )}
-        {!hasPhoto && (
-          /* A duotone field from the tonal palette plus one hairline rule —
-             enough to read as a designed surface, not enough to pretend it
-             is a photograph. Deliberately no monogram: initials in a
-             coloured square is the single clearest "no asset found" tell
-             in any feed UI. */
-          <>
-            <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background }} />
-            <div aria-hidden="true" style={{ position: "absolute", left: 16, right: 16, bottom: 16, height: 1, background: `linear-gradient(90deg, ${withAlpha(coverFor(item).tone, 0.55)}, transparent)` }} />
-          </>
-        )}
+        {!hasPhoto && <TrendBandArt item={item} />}
         {hasPhoto && !item.image_url && <ImageCredit image={found} />}
         {hasPhoto && <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />}
-        {item.source && <span style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>{item.source}</span>}
+        {item.source && <span title={SOURCE_FULL_NAMES[item.source]} style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-body)" }}>{item.source}</span>}
       </div>
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
         {/* On a photo card the source sits on the image; on a type card
@@ -8945,7 +9049,7 @@ function FcThumb({ chart, accent }) {
 }
 
 /* Small palette button showing the node shape. */
-function FcPaletteBtn({ type, P, accent, selected, onClick }) {
+function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
   const t = FC_NODE_TYPES[type];
   const isAccent = type === "start" || type === "end";
   const shape = (() => {
@@ -8955,40 +9059,70 @@ function FcPaletteBtn({ type, P, accent, selected, onClick }) {
     return <rect x="3" y="4" width="34" height="16" rx={isAccent ? 8 : 4} fill={isAccent ? accent : withAlpha(accent, 0.10)} stroke={isAccent ? accent : P.faint} strokeWidth={1.4} />;
   })();
   return (
-    <button type="button" onClick={onClick} title={`Add ${t.name}`}
+    <button type="button" onClick={onClick} title={`Add ${t.name} — click to drop it on the canvas`}
+      aria-label={`Add ${t.name} node`}
       style={{
-        display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
-        padding: "9px 4px", borderRadius: 10, cursor: "pointer",
+        display: "flex", flexDirection: isMobile ? "row" : "column", alignItems: "center", gap: isMobile ? 7 : 5,
+        padding: isMobile ? "8px 12px 8px 8px" : "10px 4px", borderRadius: 11, cursor: "pointer",
         background: selected ? withAlpha(accent, 0.12) : "transparent",
         border: `1px solid ${selected ? accent : "transparent"}`,
-      }}>
-      <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true">{shape}</svg>
-      <span style={{ fontSize: 10, color: P.faint, fontFamily: "var(--cb-body)", lineHeight: 1.2, textAlign: "center" }}>{t.name}</span>
+        transition: "all 0.15s ease", flexShrink: 0,
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.10); e.currentTarget.style.borderColor = withAlpha(accent, 0.35); e.currentTarget.style.transform = "translateY(-1px)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = selected ? withAlpha(accent, 0.12) : "transparent"; e.currentTarget.style.borderColor = selected ? accent : "transparent"; e.currentTarget.style.transform = "none"; }}>
+      <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true" style={{ filter: `drop-shadow(0 2px 4px ${withAlpha(accent, 0.25)})` }}>{shape}</svg>
+      <span style={{ fontSize: 10, color: P.ink2, fontFamily: "var(--cb-body)", lineHeight: 1.2, textAlign: "center", fontWeight: 600 }}>{t.name}</span>
     </button>
   );
 }
 
-/* In-canvas node shape (JSX). */
+/* In-canvas node shape (JSX). Layered: base fill, top-light gradient sheen,
+   soft drop shadow. Selected nodes get an accent glow ring. */
 function FcNodeShape({ n, P, accent, selected, pending }) {
   const cx = n.w / 2, cy = n.h / 2;
   const isAccent = n.type === "start" || n.type === "end";
-  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.16) : n.type === "evidence" ? withAlpha(accent, 0.08) : (P.nodeFill || withAlpha(accent, 0.05));
-  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : P.line;
-  const sw = selected || pending ? 2.4 : 1.5;
-  const common = { fill, stroke, strokeWidth: sw };
-  if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} {...common} />;
-  if (n.type === "io") { const s = 20; return <polygon points={`${s},0 ${n.w},0 ${n.w - s},${n.h} 0,${n.h}`} {...common} />; }
-  if (n.type === "evidence") return (<g><rect x={0} y={0} width={n.w} height={n.h} rx={10} {...common} /><rect x={0} y={0} width={6} height={n.h} rx={3} fill={accent} stroke="none" /></g>);
-  return <rect x={0} y={0} width={n.w} height={n.h} rx={isAccent ? n.h / 2 : 10} {...common} />;
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.22) : n.type === "evidence" ? withAlpha(accent, 0.13) : (P.dark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.85)");
+  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : (P.dark ? "rgba(255,255,255,0.22)" : "rgba(20,30,20,0.28)");
+  const sw = selected || pending ? 2.6 : 1.6;
+  const shape = (() => {
+    if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} />;
+    if (n.type === "io") { const s = 20; return <polygon points={`${s},0 ${n.w},0 ${n.w - s},${n.h} 0,${n.h}`} />; }
+    if (n.type === "evidence") return <rect x={0} y={0} width={n.w} height={n.h} rx={10} />;
+    return <rect x={0} y={0} width={n.w} height={n.h} rx={isAccent ? n.h / 2 : 10} />;
+  })();
+  return (
+    <g filter="url(#fcNodeShadow)">
+      {selected && (
+        <g opacity={0.55}>
+          {n.type === "decision"
+            ? <polygon points={`${cx},-7 ${n.w + 7},${cy} ${cx},${n.h + 7} -7,${cy}`} fill="none" stroke={accent} strokeWidth={2.4} />
+            : <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={(isAccent ? n.h / 2 : 10) + 7} fill="none" stroke={accent} strokeWidth={2.4} />}
+        </g>
+      )}
+      {React.cloneElement(shape, { fill, stroke, strokeWidth: sw })}
+      {React.cloneElement(shape, { fill: "url(#fcNodeGrad)", stroke: "none", pointerEvents: "none" })}
+      {n.type === "evidence" && <rect x={0} y={0} width={7} height={n.h} rx={3.5} fill={accent} stroke="none" pointerEvents="none" />}
+    </g>
+  );
 }
 
 function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerText, sources, onSave, onClose }) {
   const trapRef = useFocusTrap();
+  /* Escape closes the studio. Capture phase, deliberately: the app has
+     several long-lived window/dialog-level Escape handlers (tour, modals),
+     and a bubble-phase listener here can be starved when another handler
+     runs first on a real keypress. Capture at window fires before any of
+     them. If the export menu is open, Escape dismisses it first. */
+  const [exportOpen, setExportOpen] = useState(false);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (exportOpen) { setExportOpen(false); return; }
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose, exportOpen]);
 
   const [nodes, setNodes] = useState(() => (initial?.nodes || []).map((n) => ({ ...n })));
   const [edges, setEdges] = useState(() => (initial?.edges || []).map((e) => ({ ...e })));
@@ -8999,7 +9133,6 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
   const [viewport, setViewport] = useState({ x: 40, y: 40, zoom: 1 });
   const [draftNotice, setDraftNotice] = useState(!!initial?.isDraft);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
   const [, setHistTick] = useState(0);
   const svgRef = useRef(null);
   const dragRef = useRef(null);
@@ -9229,16 +9362,34 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
   const studioBtn = (label, onClick, opts = {}) => (
     <button type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || label}
       style={{
-        padding: "7px 13px", borderRadius: 9999, cursor: opts.disabled ? "default" : "pointer",
-        fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
-        background: opts.primary ? accent : "transparent",
+        padding: "7px 14px", borderRadius: 9999, cursor: opts.disabled ? "default" : "pointer",
+        fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-body)",
+        background: opts.primary ? `linear-gradient(180deg, ${withAlpha(accent, 1)}, ${withAlpha(accent, 0.88)})` : withAlpha(accent, 0.07),
         color: opts.primary ? at : opts.disabled ? P.faint : P.ink2,
-        border: `1px solid ${opts.primary ? accent : P.line}`,
+        border: `1px solid ${opts.primary ? accent : withAlpha(accent, 0.22)}`,
+        boxShadow: opts.primary ? `0 2px 12px ${withAlpha(accent, 0.4)}` : "none",
         opacity: opts.disabled ? 0.45 : 1,
         display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-      }}>
+        transition: "all 0.15s ease",
+      }}
+      onMouseEnter={(e) => { if (!opts.disabled) e.currentTarget.style.background = opts.primary ? accent : withAlpha(accent, 0.14); }}
+      onMouseLeave={(e) => { if (!opts.disabled) e.currentTarget.style.background = opts.primary ? `linear-gradient(180deg, ${withAlpha(accent, 1)}, ${withAlpha(accent, 0.88)})` : withAlpha(accent, 0.07); }}>
       {opts.icon && <Icon name={opts.icon} size={14} />}
       {label}
+    </button>
+  );
+  const studioIconBtn = (icon, onClick, opts = {}) => (
+    <button type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || icon} aria-label={opts.title || icon}
+      style={{
+        width: 32, height: 32, borderRadius: 9, cursor: opts.disabled ? "default" : "pointer",
+        background: "transparent", color: opts.disabled ? P.faint : P.ink2,
+        border: "1px solid transparent", opacity: opts.disabled ? 0.4 : 1,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        transition: "all 0.15s ease",
+      }}
+      onMouseEnter={(e) => { if (!opts.disabled) { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; } }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; }}>
+      <Icon name={icon} size={15} />
     </button>
   );
 
@@ -9247,47 +9398,107 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.66)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 8 : 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}
         style={{
-          background: P.bg, borderRadius: 14, width: "100%", maxWidth: 1220, height: isMobile ? "96vh" : "86vh",
+          background: P.dark
+            ? `linear-gradient(180deg, ${withAlpha(accent, 0.05)} 0%, ${P.bg} 120px, ${P.bg} 100%)`
+            : `linear-gradient(180deg, ${withAlpha(accent, 0.06)} 0%, ${P.bg} 140px, ${P.bg} 100%)`,
+          borderRadius: 16, width: "100%", maxWidth: 1240, height: isMobile ? "96vh" : "88vh",
           display: "flex", flexDirection: "column", overflow: "hidden",
-          border: `1px solid ${P.line}`, boxShadow: "0 32px 100px rgba(0,0,0,0.55)", outline: "none",
+          border: `1px solid ${withAlpha(accent, 0.18)}`, boxShadow: "0 40px 120px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 80px rgba(0,0,0,0.25)", outline: "none",
         }} className="cb-modal">
-        {/* ── Top bar ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "var(--cb-mono)", fontSize: 10, letterSpacing: "0.22em", color: P.faint, textTransform: "uppercase" }}>Flowchart studio</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Flowchart title"
+        {/* ── Studio command bar ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap", background: withAlpha(P.bg, 0.6), backdropFilter: "blur(8px)" }}>
+          {/* identity */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <span style={{
+              width: 34, height: 34, borderRadius: 10, display: "inline-flex", alignItems: "center", justifyContent: "center",
+              background: `linear-gradient(135deg, ${withAlpha(accent, 0.28)}, ${withAlpha(accent, 0.10)})`,
+              border: `1px solid ${withAlpha(accent, 0.4)}`, boxShadow: `0 2px 12px ${withAlpha(accent, 0.25)}`, flexShrink: 0,
+            }}>
+              <Icon name="flowchart" size={17} style={{ color: accent }} />
+            </span>
+            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
+              <span style={{ fontFamily: "var(--cb-mono)", fontSize: 9, letterSpacing: "0.24em", color: P.faint, textTransform: "uppercase" }}>Studio</span>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)" }}>Flowchart</span>
+            </div>
+          </div>
+          <div style={{ width: 1, height: 26, background: P.line, flexShrink: 0 }} />
+          {/* title */}
+          <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Flowchart title" placeholder="Untitled flowchart"
+            title="Rename this flowchart"
             style={{
-              flex: "1 1 160px", minWidth: 0, background: "transparent", border: "none", outline: "none",
-              color: P.ink, fontSize: FONT_SIZES.body, fontWeight: 700, fontFamily: "var(--cb-body)",
-            }} />
-          {savedFlash && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 600 }}>Saved ✓</span>}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {studioBtn("Undo", undo, { disabled: !canUndo, title: "Undo (Ctrl+Z)" })}
-            {studioBtn("Redo", redo, { disabled: !canRedo, title: "Redo (Ctrl+Y)" })}
+              flex: "1 1 140px", minWidth: 0, background: "transparent",
+              border: "none", borderBottom: `1px dashed transparent`, outline: "none",
+              color: P.ink, fontSize: 15, fontWeight: 650, fontFamily: "var(--cb-body)",
+              padding: "4px 2px", transition: "border-color 0.15s ease",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderBottomColor = withAlpha(accent, 0.45); }}
+            onMouseLeave={(e) => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.borderBottomColor = "transparent"; }}
+            onFocus={(e) => { e.currentTarget.style.borderBottomColor = accent; e.currentTarget.style.borderBottomStyle = "solid"; }}
+            onBlur={(e) => { e.currentTarget.style.borderBottomColor = "transparent"; e.currentTarget.style.borderBottomStyle = "dashed"; }}
+          />
+          {savedFlash && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="check" size={13} /> Saved</span>}
+          {/* tool switcher */}
+          {!isMobile && (
+            <div role="toolbar" aria-label="Canvas tools" style={{
+              display: "flex", alignItems: "center", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.045)",
+              border: `1px solid ${P.line}`, borderRadius: 9999, padding: 3, gap: 2,
+            }}>
+              {[["select", "Select", "cursor"], ["connect", "Connect", "link"]].map(([key, label, icon]) => {
+                const on = tool === key;
+                return (
+                  <button key={key} type="button" aria-pressed={on} title={key === "connect" ? "Connect — click a source node, then a target" : "Select and drag nodes"}
+                    onClick={() => { setTool(key); setPendingFrom(null); }}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 9999,
+                      border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-body)",
+                      background: on ? accent : "transparent", color: on ? at : P.ink2,
+                      boxShadow: on ? `0 2px 10px ${withAlpha(accent, 0.4)}` : "none",
+                      transition: "all 0.15s ease",
+                    }}>
+                    <Icon name={icon} size={13} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginLeft: "auto" }}>
+            {studioIconBtn("undo", undo, { disabled: !canUndo, title: "Undo (Ctrl+Z)" })}
+            {studioIconBtn("redo", redo, { disabled: !canRedo, title: "Redo (Ctrl+Y)" })}
+            <div style={{ width: 1, height: 22, background: P.line, margin: "0 6px", flexShrink: 0 }} />
             {studioBtn("Arrange", doAutoLayout, { icon: "wand", title: "Auto-arrange the chart top-down", disabled: nodes.length < 2 })}
-            {answerText && studioBtn("Draft from answer", doDraft, { icon: "sparkle", title: "Turn this answer's steps into a starting chart (marked as draft)" })}
+            {answerText && studioBtn("Draft", doDraft, { icon: "sparkle", title: "Turn this answer's steps into a starting chart (marked as draft)" })}
             <div style={{ position: "relative" }}>
-              {studioBtn("Export", () => setExportOpen((v) => !v), { icon: "download" })}
+              {studioBtn("Export", () => setExportOpen((v) => !v), { icon: "download", title: "Export as SVG, PNG, or Markdown" })}
               {exportOpen && (
                 <div style={{
-                  position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 10, minWidth: 190,
-                  background: P.bg, border: `1px solid ${P.line}`, borderRadius: 10, padding: 6,
-                  boxShadow: "0 16px 44px rgba(0,0,0,0.4)",
+                  position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 10, minWidth: 220,
+                  background: P.bg, border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
+                  boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
                 }}>
-                  {[["SVG — vector, scales forever", doExportSVG], ["PNG — image, 2× resolution", doExportPNG], ["Markdown — text outline", doExportMD]].map(([label, fn]) => (
-                    <button key={label} type="button" onClick={fn}
-                      style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", color: P.ink2, fontSize: FONT_SIZES.caption, cursor: "pointer", fontFamily: "var(--cb-body)" }}
+                  {[["SVG", "Vector — scales forever", doExportSVG], ["PNG", "Image — 2× resolution", doExportPNG], ["Markdown", "Text outline", doExportMD]].map(([fmt, desc, fn]) => (
+                    <button key={fmt} type="button" onClick={() => { setExportOpen(false); fn(); }}
+                      style={{ display: "flex", alignItems: "baseline", gap: 10, width: "100%", textAlign: "left", padding: "9px 11px", borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--cb-body)" }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                      {label}
+                      <span style={{ fontFamily: "var(--cb-mono)", fontSize: 11, fontWeight: 700, color: accent, width: 74, flexShrink: 0 }}>{fmt}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2 }}>{desc}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
             {studioBtn("Save", doSave, { primary: true, icon: "check" })}
-            <button type="button" onClick={onClose} aria-label="Close studio"
-              style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}>
-              <Icon name="close" size={18} />
+            <div style={{ width: 1, height: 22, background: P.line, margin: "0 6px", flexShrink: 0 }} />
+            <button type="button" onClick={onClose} aria-label="Close studio" title="Close (Esc)"
+              style={{
+                width: 32, height: 32, borderRadius: "50%", border: "none", cursor: "pointer",
+                background: "transparent", color: P.faint, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; e.currentTarget.style.color = "#e5484d"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.faint; }}>
+              <Icon name="close" size={16} />
             </button>
           </div>
         </div>
@@ -9305,43 +9516,69 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
 
         {/* ── Body ── */}
         <div style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: isMobile ? "column" : "row" }}>
-          {/* Palette */}
+          {/* Palette — node rail */}
           <div style={{
             flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`,
             borderBottom: isMobile ? `1px solid ${P.line}` : "none",
-            padding: 10, display: "flex", flexDirection: isMobile ? "row" : "column", gap: 4,
-            overflowX: isMobile ? "auto" : "visible", alignItems: isMobile ? "center" : "stretch",
+            background: P.dark ? "rgba(0,0,0,0.22)" : "rgba(0,0,0,0.02)",
+            padding: isMobile ? "8px 10px" : "12px 10px", display: "flex", flexDirection: isMobile ? "row" : "column", gap: 3,
+            overflowX: isMobile ? "auto" : "visible", overflowY: isMobile ? "visible" : "auto", alignItems: isMobile ? "center" : "stretch",
           }}>
-            {!isMobile && <div style={{ fontFamily: "var(--cb-mono)", fontSize: 9.5, letterSpacing: "0.18em", color: P.faint, textTransform: "uppercase", padding: "2px 4px 8px" }}>Nodes</div>}
-            {FC_ORDER.map((t) => <FcPaletteBtn key={t} type={t} P={P} accent={accent} onClick={() => addNode(t)} />)}
-            <button type="button" onClick={() => { setTool((v) => (v === "connect" ? "select" : "connect")); setPendingFrom(null); }}
-              title="Connect nodes with arrows"
-              style={{
-                display: "flex", flexDirection: isMobile ? "row" : "column", alignItems: "center", gap: 5,
-                padding: "9px 4px", borderRadius: 10, cursor: "pointer", marginTop: isMobile ? 0 : 6,
-                background: tool === "connect" ? withAlpha(accent, 0.14) : "transparent",
-                border: `1px solid ${tool === "connect" ? accent : P.line}`,
-                color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
-                whiteSpace: "nowrap",
-              }}>
-              <Icon name="link" size={15} />
-              {isMobile ? "Connect" : <span style={{ fontSize: 10, color: P.faint, fontWeight: 400 }}>Connect</span>}
-            </button>
+            {!isMobile && <div style={{ fontFamily: "var(--cb-mono)", fontSize: 9, letterSpacing: "0.2em", color: P.faint, textTransform: "uppercase", padding: "2px 6px 10px" }}>Nodes</div>}
+            {isMobile && (
+              <div style={{ display: "flex", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, borderRadius: 9999, padding: 2, gap: 2, flexShrink: 0, marginRight: 4 }}>
+                {[["select", "cursor"], ["connect", "link"]].map(([key, icon]) => (
+                  <button key={key} type="button" aria-pressed={tool === key} title={key === "connect" ? "Connect nodes" : "Select nodes"}
+                    onClick={() => { setTool(key); setPendingFrom(null); }}
+                    style={{
+                      width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer",
+                      background: tool === key ? accent : "transparent", color: tool === key ? at : P.ink2,
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                    <Icon name={icon} size={14} />
+                  </button>
+                ))}
+              </div>
+            )}
+            {FC_ORDER.map((t) => <FcPaletteBtn key={t} type={t} P={P} accent={accent} isMobile={isMobile} onClick={() => addNode(t)} />)}
+            {!isMobile && (
+              <div style={{ marginTop: "auto", padding: "10px 6px 2px", fontSize: 10.5, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-body)" }}>
+                <span style={{ color: P.ink2, fontWeight: 650 }}>Tip</span> — double-click a node to rename it.
+              </div>
+            )}
           </div>
 
           {/* Canvas */}
-          <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.dark ? "#0c0e0c" : "#f4f5f3" }}>
+          <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.dark ? "#0b0d0b" : "#eef0ec", overflow: "hidden" }}>
+            {/* vignette for depth */}
+            <div aria-hidden="true" style={{
+              position: "absolute", inset: 0, pointerEvents: "none", zIndex: 2,
+              background: P.dark
+                ? "radial-gradient(120% 120% at 50% 40%, transparent 55%, rgba(0,0,0,0.42) 100%)"
+                : "radial-gradient(120% 120% at 50% 40%, transparent 60%, rgba(30,40,30,0.10) 100%)",
+            }} />
             <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", cursor: tool === "connect" ? "crosshair" : "grab", touchAction: "none" }}
               onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp}>
               <defs>
                 <pattern id="fcGrid" width="28" height="28" patternUnits="userSpaceOnUse">
-                  <circle cx="1.2" cy="1.2" r="1.2" fill={P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)"} />
+                  <circle cx="1.2" cy="1.2" r="1.1" fill={P.dark ? "rgba(255,255,255,0.055)" : "rgba(20,30,20,0.07)"} />
+                </pattern>
+                <pattern id="fcGridMajor" width="140" height="140" patternUnits="userSpaceOnUse">
+                  <path d="M 140 0 L 0 0 0 140" fill="none" stroke={P.dark ? "rgba(255,255,255,0.045)" : "rgba(20,30,20,0.06)"} strokeWidth="1" />
                 </pattern>
                 <marker id="fcArrowHead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
                   <path d="M 0 1 L 9 5 L 0 9 z" fill={P.faint} />
                 </marker>
+                <filter id="fcNodeShadow" x="-30%" y="-30%" width="160%" height="160%">
+                  <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="#000" floodOpacity={P.dark ? 0.45 : 0.18} />
+                </filter>
+                <linearGradient id="fcNodeGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stopColor="#fff" stopOpacity={P.dark ? 0.10 : 0.55} />
+                  <stop offset="1" stopColor="#fff" stopOpacity="0" />
+                </linearGradient>
               </defs>
               <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.zoom})`}>
+                <rect x={-4000} y={-4000} width={12000} height={12000} fill="url(#fcGridMajor)" />
                 <rect x={-4000} y={-4000} width={12000} height={12000} fill="url(#fcGrid)" />
                 {/* edges */}
                 {edges.map((e) => {
@@ -9395,49 +9632,83 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
               </g>
             </svg>
             {nodes.length === 0 && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", padding: 24 }}>
-                <div style={{ textAlign: "center", maxWidth: 340 }}>
-                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, marginBottom: 8 }}>A blank bench</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
-                    Add nodes from the palette, or{answerText ? " press " : " "}<strong style={{ color: P.ink2 }}>Draft from answer</strong>{answerText ? " to lift this answer's steps into a starting chart." : "."}
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", padding: 24, zIndex: 3 }}>
+                <div style={{ textAlign: "center", maxWidth: 380 }}>
+                  <svg width="220" height="86" viewBox="0 0 220 86" aria-hidden="true" style={{ margin: "0 auto 18px", display: "block", opacity: 0.9 }}>
+                    <defs>
+                      <linearGradient id="fcEmptyA" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stopColor={accent} stopOpacity="0.85" /><stop offset="1" stopColor={accent} stopOpacity="0.55" />
+                      </linearGradient>
+                    </defs>
+                    <rect x="8" y="28" width="52" height="30" rx="15" fill="url(#fcEmptyA)" opacity="0.9" />
+                    <polygon points="110,8 142,36 110,64 78,36" fill={withAlpha(accent, 0.18)} stroke={accent} strokeWidth="1.5" />
+                    <rect x="160" y="28" width="52" height="30" rx="8" fill={withAlpha(accent, 0.10)} stroke={P.faint} strokeWidth="1.5" strokeDasharray="5 4" />
+                    <path d="M60 43 h14" stroke={P.faint} strokeWidth="1.5" /><path d="M71 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
+                    <path d="M146 43 h10" stroke={P.faint} strokeWidth="1.5" strokeDasharray="3 3" /><path d="M153 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
+                  </svg>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>A blank bench</div>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, marginBottom: answerText ? 16 : 0 }}>
+                    Add nodes from the rail, or lift this answer's reasoning into a starting chart.
                   </div>
+                  {answerText && (
+                    <button type="button" onClick={doDraft} style={{ pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 9999, border: `1px solid ${accent}`, background: `linear-gradient(180deg, ${withAlpha(accent, 0.9)}, ${withAlpha(accent, 0.75)})`, color: at, fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-body)", cursor: "pointer", boxShadow: `0 4px 18px ${withAlpha(accent, 0.4)}` }}>
+                      <Icon name="sparkle" size={14} /> Draft from answer
+                    </button>
+                  )}
                 </div>
               </div>
             )}
             {/* zoom controls */}
-            <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 4, background: P.bg, border: `1px solid ${P.line}`, borderRadius: 9999, padding: 3 }}>
-              {[["−", 1 / 1.25, "Zoom out"], ["+", 1.25, "Zoom in"], ["1:1", "reset", "Reset view"]].map(([label, f, t2]) => (
-                <button key={label} type="button" title={t2}
-                  onClick={() => {
-                    if (f === "reset") { setViewport({ x: 40, y: 40, zoom: 1 }); return; }
-                    setViewport((v) => ({ ...v, zoom: Math.min(2.5, Math.max(0.3, v.zoom * f)) }));
-                  }}
-                  style={{ width: 30, height: 30, borderRadius: "50%", border: "none", background: "transparent", color: P.ink2, cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
+            <div style={{ position: "absolute", right: 14, bottom: 14, zIndex: 3, display: "flex", alignItems: "center", gap: 2, background: withAlpha(P.bg, 0.88), backdropFilter: "blur(8px)", border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
+              {[["−", 1 / 1.25, "Zoom out"], ["+", 1.25, "Zoom in"]].map(([label, f, t2]) => (
+                <button key={label} type="button" title={t2} aria-label={t2}
+                  onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(2.5, Math.max(0.3, v.zoom * f)) }))}
+                  style={{ width: 30, height: 30, borderRadius: 8, border: "none", background: "transparent", color: P.ink2, cursor: "pointer", fontSize: 16, fontWeight: 600, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; }}>
                   {label}
                 </button>
               ))}
+              <button type="button" title="Reset view" aria-label="Reset view"
+                onClick={() => setViewport({ x: 40, y: 40, zoom: 1 })}
+                style={{ height: 30, padding: "0 10px", borderRadius: 8, border: "none", background: "transparent", color: P.faint, cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.04em" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.faint; }}>
+                {Math.round(viewport.zoom * 100)}%
+              </button>
             </div>
           </div>
 
           {/* Inspector */}
           <div style={{
-            flexShrink: 0, width: isMobile ? "100%" : 248, maxHeight: isMobile ? 220 : "none", overflowY: "auto",
+            flexShrink: 0, width: isMobile ? "100%" : 264, maxHeight: isMobile ? 230 : "none", overflowY: "auto",
             borderLeft: isMobile ? "none" : `1px solid ${P.line}`, borderTop: isMobile ? `1px solid ${P.line}` : "none",
+            background: P.dark ? "rgba(0,0,0,0.22)" : "rgba(0,0,0,0.02)",
             padding: 14,
           }}>
-            <div style={{ fontFamily: "var(--cb-mono)", fontSize: 9.5, letterSpacing: "0.18em", color: P.faint, textTransform: "uppercase", marginBottom: 10 }}>Inspector</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontFamily: "var(--cb-mono)", fontSize: 9, letterSpacing: "0.2em", color: P.faint, textTransform: "uppercase" }}>Inspector</div>
+              {(selNode || selEdge) && (
+                <div style={{ fontSize: 10, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 9999, padding: "3px 10px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  {selNode ? FC_NODE_TYPES[selNode.type].name : "Arrow"}
+                </div>
+              )}
+            </div>
             {!selection && (
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
-                Select a node or arrow to edit it here. Tip: the <strong style={{ color: P.ink2 }}>Connect</strong> tool links two nodes — click the source, then the target.
-                {sources && sources.length > 0 && <span> Evidence nodes can cite this answer's papers.</span>}
+              <div>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 650, marginBottom: 6 }}>Nothing selected</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.7 }}>
+                  Click a node or arrow to edit it here.
+                </div>
+                <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: withAlpha(accent, 0.07), border: `1px solid ${withAlpha(accent, 0.18)}`, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65 }}>
+                  <span style={{ fontWeight: 700, color: accent }}>Connect</span> links two nodes — click the source, then the target.
+                  {sources && sources.length > 0 && <span> Evidence nodes can cite this answer's papers.</span>}
+                </div>
               </div>
             )}
             {selNode && (
-              <div>
-                <div style={{ display: "inline-block", fontSize: 10.5, fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), borderRadius: 9999, padding: "3px 10px", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                  {FC_NODE_TYPES[selNode.type].name}
-                </div>
-                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>Label</label>
+              <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: 12, padding: 12 }}>
+                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Label</label>
                 <textarea id="fc-label-edit" value={selNode.label} rows={3}
                   onChange={(e) => updateNode(selNode.id, { label: e.target.value }, false)}
                   onBlur={pushHistory}
@@ -9448,7 +9719,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                   }} />
                 {selNode.type === "evidence" && sources && sources.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>Cite a paper from this answer</label>
+                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Cites paper</label>
                     <select id="fc-source-pick" value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
                       onChange={(e) => updateNode(selNode.id, { sourceIdx: e.target.value === "" ? undefined : Number(e.target.value) })}
                       style={{
@@ -9462,36 +9733,37 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                       ))}
                     </select>
                     {selSource?.url && (
-                      <a href={selSource.url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, fontSize: FONT_SIZES.caption, color: accent }}>
-                        Open the paper ↗
+                      <a href={selSource.url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8, fontSize: FONT_SIZES.caption, color: accent, fontWeight: 600 }}>
+                        Open the paper <Icon name="arrowUpRight" size={11} />
                       </a>
                     )}
                   </div>
                 )}
                 <button type="button" onClick={deleteSelection}
-                  style={{ marginTop: 14, background: "none", border: `1px solid ${P.line}`, borderRadius: 9999, padding: "7px 14px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
-                  Delete node
+                  style={{ marginTop: 14, width: "100%", background: "rgba(229,72,77,0.07)", border: "1px solid rgba(229,72,77,0.3)", borderRadius: 9, padding: "8px 14px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 650, cursor: "pointer", fontFamily: "var(--cb-body)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.07)"; }}>
+                  <Icon name="trash" size={13} /> Delete node
                 </button>
               </div>
             )}
             {selEdge && (
-              <div>
-                <div style={{ display: "inline-block", fontSize: 10.5, fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), borderRadius: 9999, padding: "3px 10px", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                  Arrow
-                </div>
-                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>Label <span style={{ opacity: 0.7 }}>(e.g. yes / no)</span></label>
+              <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: 12, padding: 12 }}>
+                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(e.g. yes / no)</span></label>
                 <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
                   style={{
                     width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
                     border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink, padding: "8px 10px",
                     fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
                   }} />
-                <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint }}>
-                  {(() => { const a = fcNodeById(nodes, selEdge.from), b = fcNodeById(nodes, selEdge.to); return a && b ? `${a.label.slice(0, 26)} → ${b.label.slice(0, 26)}` : ""; })()}
+                <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+                  {(() => { const a = fcNodeById(nodes, selEdge.from), b = fcNodeById(nodes, selEdge.to); return a && b ? `${a.label.slice(0, 24)} → ${b.label.slice(0, 24)}` : ""; })()}
                 </div>
                 <button type="button" onClick={deleteSelection}
-                  style={{ marginTop: 14, background: "none", border: `1px solid ${P.line}`, borderRadius: 9999, padding: "7px 14px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
-                  Delete arrow
+                  style={{ marginTop: 14, width: "100%", background: "rgba(229,72,77,0.07)", border: "1px solid rgba(229,72,77,0.3)", borderRadius: 9, padding: "8px 14px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 650, cursor: "pointer", fontFamily: "var(--cb-body)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.07)"; }}>
+                  <Icon name="trash" size={13} /> Delete arrow
                 </button>
               </div>
             )}
@@ -9500,11 +9772,15 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
 
         {/* ── Status bar ── */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 14, padding: "9px 16px", borderTop: `1px solid ${P.line}`,
+          display: "flex", alignItems: "center", gap: 14, padding: "8px 16px", borderTop: `1px solid ${P.line}`,
           fontSize: FONT_SIZES.caption, color: P.faint, flexShrink: 0, flexWrap: "wrap",
-          fontFamily: "var(--cb-mono)",
+          fontFamily: "var(--cb-mono)", background: P.dark ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.02)",
         }}>
-          <span>{nodes.length} node{nodes.length === 1 ? "" : "s"} · {edges.length} arrow{edges.length === 1 ? "" : "s"}</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: nodes.length ? accent : P.faint, boxShadow: nodes.length ? `0 0 8px ${withAlpha(accent, 0.8)}` : "none" }} />
+            {nodes.length} node{nodes.length === 1 ? "" : "s"} · {edges.length} arrow{edges.length === 1 ? "" : "s"}
+          </span>
+          {selection && <span style={{ color: accent }}>● {selection.kind === "node" ? "node" : "arrow"} selected</span>}
           <span style={{ flex: 1 }} />
           <span style={{ fontFamily: "var(--cb-body)" }}>{hint}</span>
         </div>
@@ -11623,16 +11899,17 @@ const RADIUS = { sm: 10, md: 14, lg: 18, pill: 100 };
 
 const BADGE_DISPLAY = {
   founder: { label: "Founder & Owner", icon: "sparkle", tint: "#c9a227" },
-  verified: { label: "Verified", icon: "check", tint: "#2f7fe6" },
+  verified: { label: "Verified", icon: "check", tint: "#34d399" },
   early_adopter: { label: "Early adopter", icon: "zap", tint: "#b45309" },
 };
 // Sort order for a profile's badge row: identity first, achievements after.
 const BADGE_ORDER = ["founder", "verified", "early_adopter"];
 
-/* The blue check. Its own component because it appears inline next to a
+/* The green check. Its own component because it appears inline next to a
    name in five different places, and a check that renders slightly
    differently in each of them reads as a sticker rather than a system
-   mark. */
+   mark. Green, not blue: verification on Cerebrum speaks the brand's own
+   colour language. */
 /* Commit 75 — profile covers.
    Eight named designs rather than free input, because a cover renders on a
    public page and a value the client can compose is a value the client can
@@ -11656,7 +11933,7 @@ function VerifiedCheck({ size = 15, title = "Verified: the owner of Cerebrum" })
   return (
     <span title={title} aria-label={title} role="img" style={{ display: "inline-flex", flexShrink: 0, verticalAlign: "middle" }}>
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-        <path fill="#2f7fe6" d="M12 1.6l2.6 2.05 3.3-.2.55 3.27 2.85 1.68-1.3 3.05 1.3 3.05-2.85 1.68-.55 3.27-3.3-.2L12 22.4l-2.6-2.05-3.3.2-.55-3.27L2.7 15.6 4 12.55 2.7 9.5l2.85-1.68.55-3.27 3.3.2z" />
+        <path fill="#34d399" d="M12 1.6l2.6 2.05 3.3-.2.55 3.27 2.85 1.68-1.3 3.05 1.3 3.05-2.85 1.68-.55 3.27-3.3-.2L12 22.4l-2.6-2.05-3.3.2-.55-3.27L2.7 15.6 4 12.55 2.7 9.5l2.85-1.68.55-3.27 3.3.2z" />
         <path fill="#fff" d="M10.9 15.4l-3-3 1.2-1.2 1.8 1.8 4.1-4.1 1.2 1.2z" />
       </svg>
     </span>
@@ -11675,7 +11952,7 @@ function FounderFrame({ size = 96, children, accent }) {
     }}>
       <span aria-hidden="true" className="cb-founder-ring" style={{
         position: "absolute", inset: 0, borderRadius: "50%",
-        background: "conic-gradient(from 0deg, #c9a227, #f4e2a1, #2f7fe6, #c9a227)",
+        background: "conic-gradient(from 0deg, #c9a227, #f4e2a1, #34d399, #c9a227)",
       }} />
       <span aria-hidden="true" style={{
         position: "absolute", inset: 3, borderRadius: "50%",
@@ -12028,6 +12305,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         {/* Fades the banner's bottom edge into the panel's own P.surface so
             the two read as one continuous piece instead of a hard seam. */}
         <div style={{ position: "absolute", inset: 0, boxShadow: `inset 0 -46px 40px -20px ${withAlpha(P.surface, 0.95)}` }} />
+        {/* A slow light-sweep across the banner — the profile is the one
+            surface where a little ceremony is the point. Decorative only;
+            disabled under prefers-reduced-motion. */}
+        <div aria-hidden="true" className="cb-banner-sheen" />
       </div>
 
       <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: isMobile ? "0 14px 60px" : "0 24px 80px" }}>
@@ -12137,6 +12418,14 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700,
                 color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
                 display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                /* The founder's name gets the gold-foil treatment: a metallic
+                   gradient clipped to the glyphs. The verified check beside
+                   it is an SVG, so it keeps its own green fill. */
+                ...(isFounder ? {
+                  background: "linear-gradient(105deg, #f7e8b0 0%, #c9a227 40%, #ffe9a8 62%, #a8842a 100%)",
+                  WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
+                  filter: "drop-shadow(0 2px 10px rgba(201,162,39,0.25))",
+                } : {}),
               }}>
                 {displayName}
                 {isVerified && <VerifiedCheck size={isMobile ? 20 : 26} />}
@@ -12156,13 +12445,25 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 <span style={{ opacity: 0.4 }}>·</span>
                 {/* Accolades were buried in a card below the fold. On every
                     social profile the verification mark sits next to the
-                    handle, because that is where it does its job. */}
-                <span style={{
-                  display: "inline-flex", alignItems: "center", gap: 5,
-                  padding: "2px 9px", borderRadius: 100, color: accent,
-                  background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`,
-                  fontSize: FONT_SIZES.caption, fontWeight: 700,
-                }}><Icon name="check" size={11} /> {badges[0].label || "Verified"}</span>
+                    handle, because that is where it does its job. The
+                    founder's badge gets the full gold treatment: metallic
+                    gradient, travelling shine, uppercase letterspacing. */}
+                {isFounder ? (
+                  <span className="cb-founder-pill" style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "3px 13px", borderRadius: 100, color: "#1a1408",
+                    border: "1px solid rgba(247,232,176,0.65)",
+                    fontSize: FONT_SIZES.caption, fontWeight: 800,
+                    letterSpacing: "0.05em", textTransform: "uppercase",
+                  }}><Icon name="sparkle" size={12} /> Founder &amp; Owner</span>
+                ) : (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    padding: "2px 9px", borderRadius: 100, color: accent,
+                    background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`,
+                    fontSize: FONT_SIZES.caption, fontWeight: 700,
+                  }}><Icon name="check" size={11} /> {badges[0].label || "Verified"}</span>
+                )}
               </>)}
             </div>
 
@@ -12475,7 +12776,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                     textAlign: "left", background: "transparent", border: "none", cursor: "pointer",
                     padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
                   }}>
-                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{h.title}</div>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{tidyQuestionTitle(h.title)}</div>
                     {/* Commit 87 — Commit 84 renamed this language everywhere
                         else and missed this one call site, so the profile was
                         still counting "exchanges" while the rest of the app
@@ -12733,14 +13034,15 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
-          {/* Commit 100 — the empty state is the honest explanation of why
-              this screen is empty. Nothing here is a placeholder for a list
-              that would appear if you waited: there is no list. Saying so
-              plainly is better than a blank panel that reads as broken. */}
+          {/* People search is deliberately a lookup, not a directory: you find
+              someone by name or @username because you already know who they
+              are. The empty state says what you CAN do here instead of
+              apologizing for what it isn't — with the founder as a real
+              first contact and a path to your own visibility setting. */}
           {trimmed.length < 2 && (
             <div style={{ padding: "18px 14px 8px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
-              <div style={{ fontWeight: 600, color: P.ink2, marginBottom: 4 }}>Cerebrum doesn't list its members.</div>
-              There's no directory to scroll and no way to browse people by university. You find someone by searching their name or their @username, which means you already know who you're looking for. You can turn yourself off even from that in Settings.
+              <div style={{ fontWeight: 700, color: P.ink, marginBottom: 6, fontSize: FONT_SIZES.small }}>Find a researcher you already know</div>
+              Type their name or @username above. Cerebrum keeps people findable only by search — there's no public directory to scroll — so your profile stays yours until you share it. You control whether you're findable at all in Settings → Notifications &amp; data.
             </div>
           )}
           {trimmed.length >= 2 && loading && results.length === 0 && (
@@ -12748,7 +13050,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           )}
           {trimmed.length >= 2 && !loading && results.length === 0 && (
             <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
-              Nobody matches that. Either they aren't on Cerebrum, or they've chosen not to be findable.
+              Nobody matches that — they may not be on Cerebrum yet, or they've chosen not to be findable. Double-check the spelling, or try their @username.
             </div>
           )}
           {/* Commit 74 — the founder's card, pinned above everything.
@@ -13357,6 +13659,60 @@ const NOTEBOOK_TABS = [
   ["qa", "Follow-up Q&A", null],
 ];
 
+/* A demo document for the empty state. Real papers are long; nobody pastes
+   one just to see what a feature does. This is a short, clearly-labeled
+   SAMPLE — an abstract and introduction in the shape of a real paper, with
+   no real claims — so a researcher without a PDF at hand can still watch
+   Document Mode work end to end. */
+const SAMPLE_DOCUMENT = [
+  "SAMPLE PAPER — for trying Document Mode, not a real publication.",
+  "",
+  "Brief exposure to urban green space restores directed attention:",
+  "a randomized crossover trial (excerpt)",
+  "",
+  "Abstract",
+  "Directed attention — the capacity to focus while ignoring distraction —",
+  "fatigues with sustained use and recovers with rest. Attention Restoration",
+  "Theory predicts that natural environments restore it more effectively",
+  "than urban ones. We tested whether even brief exposure to urban green",
+  "space produces a measurable effect. In a randomized crossover trial, 120",
+  "adults (mean age 34.2, 58% women) completed a 40-minute cognitively",
+  "demanding battery, then spent 15 minutes either walking in a city park",
+  "(n=60) or along a busy downtown street (n=60), before repeating the",
+  "battery. The primary outcome was change in performance on the Sustained",
+  "Attention to Response Task (SART). Secondary outcomes included self-",
+  "reported fatigue and heart-rate variability during the walk.",
+  "",
+  "Introduction",
+  "Mental fatigue from prolonged directed attention is implicated in errors",
+  "across safety-critical occupations, from air-traffic control to clinical",
+  "diagnosis. While extended nature exposure is known to help, city dwellers",
+  "rarely have hours to spare. If short doses work, the prescription changes:",
+  "a fifteen-minute park walk becomes a practical intervention rather than a",
+  "weekend aspiration. Previous studies used exposures of 50 minutes or more",
+  "and seldom randomized the order of conditions, leaving open whether the",
+  "benefit comes from nature itself or simply from taking a break.",
+  "",
+  "Methods (excerpt)",
+  "Participants were recruited from a university community and screened for",
+  "cardiovascular conditions. Each participant completed both conditions on",
+  "separate days, order randomized. Walks were supervised and matched for",
+  "distance (1.1 km) and pace. SART commission errors and reaction-time",
+  "variability were recorded before and after each walk.",
+  "",
+  "Results (excerpt)",
+  "SART commission errors fell by 18% after the park walk versus 4% after",
+  "the street walk (p = 0.01). Reaction-time variability improved only in",
+  "the park condition. Self-reported fatigue declined in both conditions,",
+  "with no significant difference between them.",
+  "",
+  "Discussion (excerpt)",
+  "Fifteen minutes in urban green space measurably restored directed",
+  "attention beyond the effect of a break alone. Limitations include the",
+  "single-city sample, the short follow-up window, and the absence of",
+  "blinding, which is unavoidable when the intervention is a park.",
+].join("\n");
+
 function NotebookMode({ P, accent, at, close, asPage = false }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
@@ -13522,13 +13878,18 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
             loading it from a file. Only one sub-view renders at a time now
             instead of stacking the dropzone above the textarea always. */}
         <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
-          <div role="tablist" aria-label="Document source" style={{ display: "flex", gap: 4, marginBottom: 14, flexShrink: 0, background: dimBtnBg, borderRadius: 8, padding: 3 }}>
+          <div role="tablist" aria-label="Document source" style={{ display: "flex", gap: 4, marginBottom: 14, flexShrink: 0, background: dimBtnBg, borderRadius: 10, padding: 3 }}>
             {[["paste", "Paste text"], ["upload", "Upload a file"]].map(([key, label]) => (
               <button key={key} role="tab" aria-selected={leftTab === key} onClick={() => setLeftTab(key)}
                 style={{
                   flex: 1, padding: "7px 10px", borderRadius: 8, border: "none", cursor: "pointer",
-                  background: leftTab === key ? accent : "transparent", color: leftTab === key ? at : P.ink2,
-                  fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-mono)", transition: "all 150ms ease",
+                  /* A selected SEGMENT, not a primary button: the old solid
+                     accent fill made "Paste text" read as the page's CTA and
+                     "Upload a file" look disabled by comparison. */
+                  background: leftTab === key ? (P.dark ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.85)") : "transparent",
+                  boxShadow: leftTab === key ? "0 1px 4px rgba(0,0,0,0.12)" : "none",
+                  color: leftTab === key ? P.ink : P.faint,
+                  fontSize: FONT_SIZES.small, fontWeight: leftTab === key ? 700 : 600, fontFamily: "var(--cb-mono)", transition: "all 150ms ease",
                 }}
               >{label}</button>
             ))}
@@ -13589,15 +13950,34 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
                 </>;
               })()}
             </div>
-            <button
-              onClick={analyze}
-              disabled={!documentText.trim() || analyzing}
-              style={{
-                padding: "10px 20px", borderRadius: 100, border: "none", cursor: (!documentText.trim() || analyzing) ? "default" : "pointer",
-                background: (!documentText.trim() || analyzing) ? dimBtnBg : accent,
-                color: (!documentText.trim() || analyzing) ? P.faint : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
-              }}
-            >{analyzing ? "Reading it…" : "Read this document"}</button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+              {/* No paper at hand shouldn't mean the feature is
+                  un-triable: a labeled sample loads into the composer so
+                  the whole flow can be watched end to end. */}
+              {!documentText.trim() && !analyzing && (
+                <button
+                  onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
+                  title="Load a short sample paper to try Document Mode"
+                  style={{
+                    padding: "10px 16px", borderRadius: 100, cursor: "pointer",
+                    background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small,
+                    border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-body)",
+                  }}
+                >Try a sample</button>
+              )}
+              <button
+                onClick={analyze}
+                disabled={!documentText.trim() || analyzing}
+                title={!documentText.trim() ? "Paste or upload a document first" : "Analyze this document"}
+                style={{
+                  padding: "10px 20px", borderRadius: 100, border: (!documentText.trim() || analyzing) ? `1px dashed ${P.line2}` : "none",
+                  cursor: (!documentText.trim() || analyzing) ? "default" : "pointer",
+                  background: (!documentText.trim() || analyzing) ? "transparent" : accent,
+                  color: (!documentText.trim() || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
+                  opacity: (!documentText.trim() || analyzing) ? 0.75 : 1,
+                }}
+              >{analyzing ? "Reading it…" : "Read this document"}</button>
+            </div>
           </div>
           {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
         </div>
@@ -13617,6 +13997,14 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
               <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, textAlign: "center", lineHeight: 1.6, color: P.ink2 }}>
                 Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
               </div>
+              <button
+                onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
+                style={{
+                  marginTop: 10, padding: "8px 18px", borderRadius: 100, cursor: "pointer",
+                  background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`,
+                  color: accent, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
+                }}
+              >No paper handy? Try the sample</button>
             </div>
           )}
           {analyzing && (
@@ -14197,9 +14585,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const glassBorderS = P.dark ? `1px solid ${withAlpha(P.ink2, 0.1)}` : `1px solid ${P.line2}`;
 
   const Section = ({ title, footer, children }) => (
-    <div style={{ marginBottom: 22 }}>
-      {title && <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, marginBottom: 8, paddingLeft: 2, fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }}>{title}</div>}
-      <div style={{ background: bg, border: glassBorderS, borderRadius: 8, overflow: "hidden", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>{children}</div>
+    <div style={{ marginBottom: 30 }}>
+      {/* Section headers are real headers now: display face, ink colour,
+          generous spacing. The old caption-size faint labels made every
+          tab read as one undifferentiated list of rows. */}
+      {title && <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, marginBottom: 10, paddingLeft: 2, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>{title}</div>}
+      <div style={{ background: bg, border: glassBorderS, borderRadius: 12, overflow: "hidden", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, paddingLeft: 2, lineHeight: 1.5 }}>{footer}</div>}
     </div>
   );
@@ -14327,7 +14718,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             margin rather than as a page that failed to load. The real
             long-term fix is fewer, denser tabs — seven sections for about
             twenty-five settings is why any one of them looks empty. */}
-        <div style={{ display: "flex", gap: 30, alignItems: "flex-start", maxWidth: 1000, margin: "0 auto", width: "100%" }}>
+        <div style={{ display: "flex", gap: 36, alignItems: "flex-start", maxWidth: 1120, margin: "0 auto", width: "100%" }}>
           {/* Desktop rail. Sticky, so the navigation stays reachable on the
               long tabs (Appearance and Accessibility both scroll well past
               a viewport) instead of scrolling away and forcing a trip back
@@ -16298,6 +16689,11 @@ function App() {
   // Commit 88 — library page state. A modal that showed everything at once
   // never needed these; a page that can hold a few hundred papers does.
   const [historyConfirmId, setHistoryConfirmId] = useState(null);
+  // Inline rename: the id being renamed and the draft value. Titles are the
+  // user's own raw questions, so typos happen ("tempretures") — rename is
+  // the rescue, and tidyQuestionTitle keeps the list readable regardless.
+  const [historyRenameId, setHistoryRenameId] = useState(null);
+  const [historyRenameValue, setHistoryRenameValue] = useState("");
   // Attached image (a figure, a screenshot of a chart, a photo of a
   // specimen) sent alongside the next question — see describeImage() on
   // the backend, which converts it to text via a vision model before it
@@ -17585,6 +17981,29 @@ function App() {
               <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 9, marginBottom: 2, textAlign: "center", minHeight: 15, lineHeight: 1.4 }}>
                 {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
               </div>
+              {/* Mode-aware "Try asking" examples. The verb pills stay the
+                  primary control (see Commit 83) — but a first-time visitor
+                  staring at an empty composer gets a starting point in the
+                  current mode's voice. Clicking fills the composer so the
+                  question can be edited before asking. Hidden while typing. */}
+              {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, flexWrap: "wrap", maxWidth: 820, padding: "0 8px" }}>
+                  <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase", flexShrink: 0 }}>Try</span>
+                  {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3).map((ex) => (
+                    <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
+                      style={{
+                        padding: isMobile ? "7px 12px" : "8px 14px", borderRadius: 100, cursor: "pointer",
+                        background: withAlpha(accent, 0.07), border: `1px solid ${withAlpha(accent, 0.22)}`, color: P.ink2,
+                        fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-body)",
+                        transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
+                        maxWidth: isMobile ? "100%" : 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.15); e.currentTarget.style.borderColor = withAlpha(accent, 0.45); e.currentTarget.style.color = P.ink; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.07); e.currentTarget.style.borderColor = withAlpha(accent, 0.22); e.currentTarget.style.color = P.ink2; }}
+                    >{ex}</button>
+                  ))}
+                </div>
+              )}
               {/* ══════════════════════════════════════════════════════
                   Commit 87 — the evidence filter is a disclosure now.
 
@@ -17925,10 +18344,41 @@ function App() {
                     {visibleHistory.map((h) => (
                       <UICard key={h.id} P={P}>
                         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                          {/* While renaming, the row is not a button at all:
+                              an input nested inside a <button> is invalid
+                              HTML and a keyboard trap. The input replaces
+                              the row's clickable content; Save/Cancel live
+                              beside it as siblings. */}
+                          {historyRenameId === h.id ? (
+                            <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 14, alignItems: "flex-start" }}>
+                              <InvestigationCover title={h.title} accent={accent} P={P} size={isMobile ? 44 : 52} />
+                              <span style={{ minWidth: 0, flex: 1 }}>
+                                <input
+                                  value={historyRenameValue}
+                                  onChange={(e) => setHistoryRenameValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const v = historyRenameValue.trim();
+                                      if (v) setHistory((prev) => prev.map((x) => x.id === h.id ? { ...x, title: v } : x));
+                                      setHistoryRenameId(null);
+                                    } else if (e.key === "Escape") setHistoryRenameId(null);
+                                  }}
+                                  autoFocus
+                                  aria-label="Rename investigation"
+                                  style={{
+                                    width: "100%", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink,
+                                    fontFamily: "var(--cb-body)", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+                                    border: `1px solid ${accent}`, borderRadius: 8, padding: "6px 10px", outline: "none",
+                                  }}
+                                />
+                                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6 }}>Enter to save · Esc to cancel</div>
+                              </span>
+                            </div>
+                          ) : (
                           <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit", display: "flex", gap: 14, alignItems: "flex-start" }}>
                             <InvestigationCover title={h.title} accent={accent} P={P} size={isMobile ? 44 : 52} />
                             <span style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em" }}>{h.title}</div>
+                            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em" }}>{tidyQuestionTitle(h.title)}</div>
                             <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-body)" }}>
                               <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
                               {(h.allSources || []).length > 0 && (<>
@@ -17937,6 +18387,13 @@ function App() {
                               </>)}
                               {h.ts && (<>
                                 <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+                                {/* Touched in the last 48 hours: a pulse, so
+                                    the live investigations announce
+                                    themselves instead of reading identically
+                                    to the stale ones. */}
+                                {Date.now() - h.ts < 48 * 3600 * 1000 && (
+                                  <span aria-hidden="true" title="Active recently" style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS.good, animation: "cbHuddlePulse 1.6s ease-in-out infinite", flexShrink: 0 }} />
+                                )}
                                 <span>{relativeTime(h.ts)}</span>
                               </>)}
                             </div>
@@ -17957,13 +18414,26 @@ function App() {
                             )}
                             </span>
                           </button>
-                          {historyConfirmId === h.id ? (
+                          )}
+                          {historyRenameId === h.id ? (
+                            <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                              <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => {
+                                const v = historyRenameValue.trim();
+                                if (v) setHistory((prev) => prev.map((x) => x.id === h.id ? { ...x, title: v } : x));
+                                setHistoryRenameId(null);
+                              }}>Save</UIButton>
+                              <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setHistoryRenameId(null)}>Cancel</UIButton>
+                            </span>
+                          ) : historyConfirmId === h.id ? (
                             <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
                               <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setHistoryConfirmId(null)}>Cancel</UIButton>
                               <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); setHistoryConfirmId(null); }}>Confirm</UIButton>
                             </span>
                           ) : (
-                            <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Delete ${h.title}`} onClick={() => setHistoryConfirmId(h.id)}>Delete</UIButton>
+                            <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                              <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Rename ${h.title}`} onClick={() => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); }}>Rename</UIButton>
+                              <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Delete ${h.title}`} onClick={() => setHistoryConfirmId(h.id)}>Delete</UIButton>
+                            </span>
                           )}
                         </div>
                       </UICard>
@@ -18121,7 +18591,7 @@ function App() {
             setFlowcharts((prev) => [rec, ...prev.filter((c) => c.id !== id)]);
             setFlowchartOpen((prev) => (prev ? { ...prev, chartId: id, title } : prev));
           }}
-          close={() => setFlowchartOpen(null)}
+          onClose={() => setFlowchartOpen(null)}
         />
       )}
       {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />}
@@ -19528,7 +19998,7 @@ button, a, .cb-tap {
   position: absolute;
   inset: -7px;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, #c9a227, #f4e2a1, #2f7fe6, #c9a227);
+  background: conic-gradient(from 0deg, #c9a227, #f4e2a1, #34d399, #c9a227);
   animation: cbFounderSpin 12s linear infinite;
   z-index: -1;
 }
@@ -19538,6 +20008,56 @@ button, a, .cb-tap {
 .cb-founder-card:hover {
   border-color: rgba(201,162,39,0.6);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 14px 36px rgba(0,0,0,0.16);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Flashy profile treatment. The profile is the one surface where
+   ceremony is the point: a slow light-sweep across the banner, a
+   breathing gold aura behind the founder's avatar, and a Founder &
+   Owner pill with travelling shine. All motion is decorative and
+   disabled under prefers-reduced-motion.
+   ══════════════════════════════════════════════════════════════ */
+@keyframes cbSheenSweep {
+  0% { transform: translateX(-130%) skewX(-18deg); }
+  60%, 100% { transform: translateX(260%) skewX(-18deg); }
+}
+.cb-banner-sheen {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+  animation: cbSheenSweep 9s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes cbAuraPulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.07); }
+}
+.cb-founder-avatar::after {
+  content: '';
+  position: absolute;
+  inset: -15px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(201,162,39,0.4) 0%, rgba(201,162,39,0) 70%);
+  filter: blur(7px);
+  z-index: -2;
+  animation: cbAuraPulse 5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes cbPillShine {
+  0% { background-position: 130% 0; }
+  100% { background-position: -130% 0; }
+}
+.cb-founder-pill {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(100deg, #8a6d1c 0%, #c9a227 28%, #f7e8b0 50%, #c9a227 72%, #8a6d1c 100%);
+  background-size: 230% 100%;
+  animation: cbPillShine 5.5s linear infinite;
+  box-shadow: 0 2px 16px rgba(201,162,39,0.4), inset 0 1px 0 rgba(255,255,255,0.4);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-banner-sheen { animation: none; display: none; }
+  .cb-founder-avatar::after { animation: none; }
+  .cb-founder-pill { animation: none; }
 }
 
 /* Reading and control rhythm across research views. */
