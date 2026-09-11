@@ -2160,7 +2160,7 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
         style={{
           alignSelf: isMobile ? "flex-start" : "center",
           display: "inline-flex", alignItems: "center", gap: 8,
-          padding: "6px 12px", borderRadius: RADIUS.pill, cursor: "pointer",
+          padding: "6px 14px", borderRadius: RADIUS.pill, cursor: "pointer",
           fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)",
           fontWeight: isDefault ? 500 : 600,
           // The non-default state is the one worth seeing from across the
@@ -10774,7 +10774,8 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const displayUsername = profile.username ? `@${profile.username}` : `@${emailLocal}`;
   const displayInitial = (displayName || "?")[0]?.toUpperCase() || "?";
   const avatarSeed = encodeURIComponent((profile.username || emailLocal || "cerebrum"));
-  // Commit 97 — avatarFailed removed: declared, never set, never read.
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  useEffect(() => { setAvatarFailed(false); }, [profile.avatar_base64]);
   const fileInputRef = useRef(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState("");
@@ -10924,7 +10925,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             page background (the previous "soulless" complaint). */}
         <div style={{
           position: "relative", background: P.surface, border: `1px solid ${P.line}`,
-          borderRadius: isMobile ? 16 : 20,
+          borderRadius: 12,
           boxShadow: P.dark ? "0 24px 64px rgba(0,0,0,0.35)" : (P.shadow || "0 12px 40px rgba(41,38,31,0.08)"),
           padding: isMobile ? "0 18px 26px" : "0 28px 34px",
         }}>
@@ -10947,7 +10948,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 locally-drawn initial always renders, costs no request, and
                 leaks no one's profile view to another host. A real uploaded
                 photo still wins over both. */}
-            {!profile.avatar_base64 ? (
+            {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
                 ...avatarSkin(displayName || user?.id), display: "flex", alignItems: "center", justifyContent: "center",
@@ -13700,7 +13701,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
   const isCompact = density === "compact";
   const font = "var(--cb-body)";
-  const pad = isMobile ? 18 : 32;
+  const pad = isMobile ? 20 : 32;
   const glass = P.dark 
     ? `${withAlpha(P.surface, 0.6)}` 
     : P.surface;
@@ -13920,12 +13921,12 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       transition: "transform 240ms cubic-bezier(0.4, 0, 0.2, 1)",
     },
     sidebarMobileOpen: { transform: "translateX(0)", boxShadow: "0 0 40px rgba(0,0,0,0.4)" },
-    sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "18px 18px 14px", cursor: "pointer", flexShrink: 0 },
+    sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 22px 20px", cursor: "pointer", flexShrink: 0 },
     sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
     sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", padding: "14px 10px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
-      padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent",
+      padding: "11px 12px", minHeight: 44, borderRadius: 8, border: "none", background: "transparent",
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500,
       fontFamily: "var(--cb-body)", transition: "background 150ms ease, color 150ms ease",
     },
@@ -13937,7 +13938,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // kept as a supporting wash. Two channels, not one — which also means
     // the state survives High Contrast mode flattening the tint.
     sidebarItemActive: {
-      background: withAlpha(accent, 0.14), color: P.ink, fontWeight: 600,
+      background: withAlpha(accent, 0.09), color: P.ink, fontWeight: 600,
       boxShadow: `inset 2px 0 0 ${accent}`,
     },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-mono)" },
@@ -14007,7 +14008,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        top. These pages started 40px below the window edge with the title
        jammed into the corner, while the home screen gives its content a
        third of the viewport — the two did not read as the same product. */
-    pageViewInner: { maxWidth: 820, width: "100%", margin: "0 auto", padding: isMobile ? "62px 18px 72px" : "72px 32px 96px" },
+    pageViewInner: { maxWidth: 820, width: "100%", margin: "0 auto", padding: isMobile ? "76px 20px 72px" : "56px 32px 80px" },
     pageViewTitle: { fontSize: isMobile ? 28 : 34, fontWeight: 600, letterSpacing: "-0.03em", lineHeight: 1.1, color: P.ink, fontFamily: "var(--cb-display)" },
 
     /* ── Scroll area ── */
@@ -14070,14 +14071,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          `auto` the band collapsed to its content and the search bar sat
          66px from the top of an 844px screen — technically centred inside
          a box that had no height to centre in. */
-      minHeight: isMobile ? "calc(100dvh - 200px)" : "calc(100dvh - 190px)",
+      minHeight: isMobile ? "min(560px, 72svh)" : "clamp(420px, 68svh, 680px)",
       /* Bias, because centring the GROUP is not the same as centring the
          BAR. The heading sits above it and the mode row, the blurb and the
          evidence filter sit below, so a perfectly centred block leaves the
          search bar itself riding about 12% high. Padding at the top pushes
          the content box down by half its value, which lands the bar on the
          optical middle of the window rather than the group's middle. */
-      paddingTop: isMobile ? 120 : 150,
+      paddingTop: isMobile ? 48 : 56,
       paddingBottom: isMobile ? 8 : 16,
     },
     /* The first-time screen already has a mark, a 52px wordmark and a line
@@ -14101,15 +14102,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     heroGlow: { display: "none" },
     heroMark: { marginBottom: 32, position: "relative" },
     heroTitle: {
-      fontSize: isMobile ? 52 : 84, fontWeight: 700,
-      letterSpacing: "-0.05em", lineHeight: 0.92,
+      fontSize: isMobile ? 40 : 64, fontWeight: 650,
+      letterSpacing: "-0.04em", lineHeight: 1.08,
       color: P.ink, marginBottom: 24, position: "relative",
       fontFamily: "var(--cb-display)",
     },
     heroSub: {
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, color: P.ink2,
-      maxWidth: 560, lineHeight: 1.65, marginBottom: 52,
-      letterSpacing: "-0.01em", position: "relative", fontWeight: 300,
+      maxWidth: 560, lineHeight: 1.65, marginBottom: 32,
+      letterSpacing: "-0.01em", position: "relative", fontWeight: 400,
       // v30: "Darknode" round retired — mono in the subheadline was that
       // round's signature move, and this round's explicit target
       // (Perplexity-style editorial) wants maximum legibility over
@@ -14128,8 +14129,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     searchShell: {
       display: "flex", alignItems: "center", gap: 10,
       width: "100%", maxWidth: 700,
-      backdropFilter: "blur(30px) saturate(180%)",
-      WebkitBackdropFilter: "blur(30px) saturate(180%)",
+      backdropFilter: isMobile ? "none" : "blur(14px)",
+      WebkitBackdropFilter: isMobile ? "none" : "blur(14px)",
       // This is the one control the entire product exists to serve, and it
       // was the least defined element on the page: an 8%-alpha border and a
       // single 32px shadow at 8% opacity, sitting on top of the animated
@@ -14152,7 +14153,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          footage reads through it as colour and movement while the blur
          keeps the placeholder crisp — which is the whole point of glass,
          as opposed to a dark rectangle that merely has a blur property. */
-      background: P.dark ? "rgba(15, 17, 26, 0.66)" : "rgba(255, 255, 255, 0.80)",
+      background: P.dark ? (isMobile ? "rgba(15, 17, 26, 0.94)" : "rgba(15, 17, 26, 0.78)") : "rgba(255, 255, 255, 0.94)",
       border: P.dark ? "1px solid rgba(255,255,255,0.16)" : "1px solid rgba(0,0,0,0.13)",
       borderRadius: 100,
       padding: isMobile ? "8px 8px 8px 20px" : "10px 10px 10px 24px",
@@ -14172,7 +14173,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       /* A two-pixel rise on hover and focus. Small enough that it never
          reads as the layout moving, large enough that the control feels
          like it comes to meet you. */
-      transform: "translateY(-2px)",
+      transform: "none",
       boxShadow: P.dark
         ? `inset 0 1px 0 rgba(255,255,255,0.09), 0 2px 10px rgba(0,0,0,0.4), 0 22px 56px rgba(0,0,0,0.5), 0 0 0 4px ${withAlpha(accent, 0.1)}`
         : `inset 0 1px 0 rgba(255,255,255,0.95), 0 2px 10px rgba(0,0,0,0.07), 0 22px 52px rgba(0,0,0,0.12), 0 0 0 4px ${withAlpha(accent, 0.12)}`,
@@ -14184,7 +14185,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     searchBtn: {
       display: "inline-flex", alignItems: "center", justifyContent: "center",
-      width: 38, height: 38, flexShrink: 0,
+      width: 44, height: 44, flexShrink: 0,
       background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
       color: P.ink,
       border: "1px solid " + P.line,
@@ -14225,7 +14226,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        row: as a flex item in a centred column this box was only as wide as
        its content, so on a narrow window the wrapped second line sat off
        the page's centre line while the first line did not. */
-    trustRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 20px", justifyContent: "center", width: "100%", marginTop: 56, opacity: 0.4 },
+    trustRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 20px", justifyContent: "center", width: "100%", marginTop: 40, opacity: 0.8 },
     trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.01em", fontFamily: "var(--cb-body)" },
 
     /* ── Workspace: single-column editorial flow ──
@@ -17028,7 +17029,7 @@ const CSS = `
      call site, not an accident. */
   --cb-display: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
   --cb-read:    'Newsreader', Georgia, 'Times New Roman', serif;
-  --cb-body:    'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
+  --cb-body:    'Inter', system-ui, -apple-system, sans-serif;
   --cb-mono:    'IBM Plex Mono', 'SF Mono', ui-monospace, monospace;
   --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
   --cb-ease-in: cubic-bezier(0.4, 0, 1, 1);
@@ -17095,7 +17096,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 }
 input, textarea, select { font-size: 16px; }
 a { color: inherit; text-decoration: none; }
-input::placeholder, textarea::placeholder { color: inherit; opacity: 0.35; }
+input::placeholder, textarea::placeholder { color: inherit; opacity: 0.62; }
 summary::-webkit-details-marker { display: none; }
 
 /* Scrollbar — hidden everywhere for a native-app feel; scroll still works
@@ -17308,7 +17309,7 @@ summary::-webkit-details-marker { display: none; }
    accumulated delay a cascade stops reading as choreography and starts
    reading as lag, so everything from the 9th item on shares one delay
    rather than continuing to add up. */
-.cb-stagger > * { opacity: 0; animation: cbRise 320ms var(--cb-ease) both; }
+.cb-stagger > * { opacity: 1; animation: none; }
 .cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
 .cb-stagger > *:nth-child(2) { animation-delay: 45ms; }
 .cb-stagger > *:nth-child(3) { animation-delay: 90ms; }
@@ -17323,8 +17324,8 @@ summary::-webkit-details-marker { display: none; }
 button {
   transition: transform 120ms ease, opacity 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
 }
-button:not(:disabled):hover { transform: translateY(-1px); }
-button:not(:disabled):active { transform: scale(0.98) translateY(0); transition-duration: 60ms; }
+button:not(:disabled):hover { filter: none; }
+button:not(:disabled):active { transition-duration: 80ms; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Search focus glow — clean, no radar ── */
@@ -17351,28 +17352,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Cards with glass depth ── */
 .cb-card {
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.3s ease, box-shadow 0.3s ease;
-  will-change: transform;
+  transition: border-color 160ms ease, background-color 160ms ease;
 }
-.cb-card:hover {
-  transform: translateY(-3px);
-  /* Two shadows, not one: a tight contact shadow that keeps the card's
-     edge readable, plus the wide ambient one that sells the lift. A single
-     40px-blur shadow at 15% is nearly invisible on a light surface, which
-     is why hover felt like it did nothing in light mode. */
-  /* The inset hairline is repeated here on purpose: box-shadow replaces
-     the whole stack, so omitting it made the lit top edge vanish at the
-     exact moment the card lifts — the one frame where a raised surface
-     most needs to look raised. */
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08),
-              0 2px 10px rgba(0,0,0,0.22),
-              0 22px 54px rgba(0,0,0,0.30);
-  /* Motion alone isn't a state change - the border responding is what
-     makes a card feel interactive rather than just animated. --cb-accent
-     is already set per-theme on :root, so this tracks the user's accent. */
-  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 38%, transparent);
-}
+.cb-card:hover { border-color: var(--cb-accent); }
+
 
 /* Source card hover lift */
 .cb-src-card {
@@ -18159,6 +18142,21 @@ button, a, .cb-tap {
 .cb-founder-card:hover {
   border-color: rgba(201,162,39,0.6);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 14px 36px rgba(0,0,0,0.16);
+}
+
+/* Reading and control rhythm across research views. */
+.cb-answer-enter { overflow-wrap: anywhere; }
+.cb-answer-enter p, .cb-answer-enter li { line-height: 1.75; }
+.cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 { text-wrap: balance; }
+.cb-search-glow { min-width: 0; }
+.cb-intro-go:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
+@media (pointer: coarse) {
+  .cb-hbtn, .cb-intro-navlink { min-height: 44px; min-width: 44px; }
+  .cb-search-glow input { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-stagger > *, .cb-hero-ring, .cb-hero-glow { animation: none !important; opacity: 1; }
+  .cb-card, .cb-intro-go, .cb-intro-scene { transition: none; }
 }
 
 `;
