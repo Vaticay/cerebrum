@@ -356,11 +356,63 @@ function getYouTubeId(v) {
   return m ? m[1] : null;
 }
 
+/* Journal-name display casing.
+   Venue names arrive from a dozen APIs with a dozen casings — "Frontiers
+   in Genome Editing" from one, "frontiers in genome editing" from
+   another. An all-lowercase venue in a citation list reads as a data bug
+   even when the paper is real, so normalize the unambiguous cases:
+   all-lowercase (or all-uppercase) names get title-cased with small words
+   kept low. Anything already mixed-case ("Nature", "eLife", "PLOS ONE")
+   is trusted as-is — the API knew better than we do. A short dictionary
+   pins the stylings title-casing would mangle. */
+const JOURNAL_STYLE = {
+  "plos one": "PLOS ONE", "pnas": "PNAS", "jama": "JAMA", "bmj": "BMJ",
+  "elife": "eLife", "peerj": "PeerJ", "biorxiv": "bioRxiv",
+  "medrxiv": "medRxiv", "arxiv": "arXiv", "f1000research": "F1000Research",
+  "ssrn": "SSRN",
+};
+const JOURNAL_SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "per", "the", "to", "v", "v.", "via", "vs", "vs."]);
+/* Names that are indexes, aggregators, or repositories — not publication
+   venues. They arrive in the journal slot when an API has no real venue
+   (a `publisher` of "eScholarship, University of California", a bare
+   "CORE"), and rendering them as the venue misleads. Drop them; every
+   display site already handles an empty venue gracefully. */
+const JOURNAL_DENYLIST = new Set([
+  "core", "base", "openaire", "openalex", "semantic scholar", "crossref",
+  "europe pmc", "europepmc", "pubmed", "pmc", "doaj", "web",
+  "escholarship", "escholarship, university of california",
+]);
+function formatJournalName(raw) {
+  const j = String(raw || "").trim();
+  if (!j) return j;
+  const low = j.toLowerCase().replace(/\s+/g, " ");
+  if (JOURNAL_DENYLIST.has(low)) return "";
+  if (/[a-z]/.test(j) && /[A-Z]/.test(j)) return j; // already cased: trust it
+  if (JOURNAL_STYLE[low]) return JOURNAL_STYLE[low];
+  if (low.startsWith("plos ")) return "PLOS " + low.slice(5).replace(/\b\w/g, (c) => c.toUpperCase());
+  if (low.startsWith("ieee ")) return "IEEE " + formatJournalName(low.slice(5));
+  return low.split(/\s+/).map((w, i) =>
+    (i > 0 && JOURNAL_SMALL_WORDS.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)
+  ).join(" ");
+}
+/* Citation counts are a quality signal with a shelf life. "0 citations"
+   on a paper published this year is expected, not informative — but on a
+   ten-year-old paper it is a genuine red flag, and distinct from a count
+   the APIs never returned. So: positive counts always show; an honest
+   zero shows only when the paper is old enough that zero means something;
+   otherwise nothing renders, and unknown stays unknown. */
+function formatCitationCount(citations, year, noun) {
+  if (typeof citations !== "number" || citations < 0) return "";
+  if (citations > 0) return `${citations.toLocaleString()} ${noun}${citations === 1 ? "" : "s"}`;
+  const y = parseInt(year, 10);
+  if (y && y <= new Date().getFullYear() - 2) return `0 ${noun}s`;
+  return "";
+}
 function formatCitation(source, style, index) {
   const s = source || {};
   const authors = s.authors || "";
   const title = s.title || "Untitled";
-  const journal = s.journal || "";
+  const journal = formatJournalName(s.journal || "");
   const year = s.year || "n.d.";
   const url = s.url || "";
   // v28 fix: every style below used to unconditionally append ". " after
@@ -734,6 +786,9 @@ function Icon({ name, size = 17, className, style }) {
     case "refresh": return <svg {...common}><path d="M21 12a9 9 0 01-15.3 6.4M3 12a9 9 0 0115.3-6.4" /><path d="M21 4v6h-6M3 20v-6h6" /></svg>;
     case "wand": return <svg {...common}><path d="M4 20L18 6" /><path d="M15 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1z" /><path d="M6 15l.6 1.4L8 17l-1.4.6L6 19l-.6-1.4L4 17l1.4-.6z" /></svg>;
     case "timeline": return <svg {...common}><path d="M3 12h18" /><circle cx="6" cy="12" r="1.8" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" /><circle cx="18" cy="12" r="1.8" fill="currentColor" stroke="none" /></svg>;
+    // Flowchart Studio: a process box flowing into a decision diamond flowing
+    // into an output box — the three shapes read as "flowchart" at 17px.
+    case "flowchart": return <svg {...common}><rect x="8.5" y="2.5" width="7" height="4.6" rx="1" /><path d="M12 7.1v1.6" /><path d="M12 8.7l4.6 3.4L12 15.5l-4.6-3.4z" /><path d="M12 15.5v1.6" /><rect x="7.5" y="17.1" width="9" height="4.4" rx="1" /></svg>;
     case "mail": return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3.5 6.5L12 13l8.5-6.5" /></svg>;
     case "badge": return <svg {...common}><circle cx="12" cy="9" r="5.5" /><path d="M8.5 13.5L7 21l5-2.6L17 21l-1.5-7.5" /></svg>;
     case "send": return <svg {...common}><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>;
@@ -900,6 +955,87 @@ function cbMotionOff() {
   try {
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   } catch { return false; }
+}
+
+/* Premium pointer layer: cursor spotlight, magnetic pull, and 3D tilt —
+   driven by ONE delegated pointermove listener, not per-component
+   handlers. Elements opt in with classes (.cb-spotlight, .cb-magnetic,
+   .cb-tilt); the handler writes CSS custom properties and inline
+   transforms, so nothing re-renders. All motion is transform/opacity on
+   the compositor thread.
+
+   Guards: reduced motion, the app's own animation kill-switch, and coarse
+   pointers (touch) all skip it entirely — a finger can't hover, and tilt
+   on a phone is a gimmick that fights scrolling. */
+function usePremiumPointer() {
+  useEffect(() => {
+    let fine = false, reduced = false;
+    try {
+      fine = window.matchMedia("(pointer: fine)").matches;
+      reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {}
+    if (!fine || reduced || cbMotionOff()) return undefined;
+    let raf = 0;
+    let last = null;
+    const onMove = (e) => {
+      last = e;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const ev = last;
+        if (!ev) return;
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        if (!el || !el.closest) return;
+        // Spotlight: position the glow where the cursor is, in percent.
+        const spot = el.closest(".cb-spotlight");
+        if (spot) {
+          const r = spot.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) {
+            spot.style.setProperty("--mx", ((ev.clientX - r.left) / r.width * 100).toFixed(1) + "%");
+            spot.style.setProperty("--my", ((ev.clientY - r.top) / r.height * 100).toFixed(1) + "%");
+          }
+        }
+        // Magnetic: pull toward the cursor, max 7px, spring back on leave.
+        const mag = el.closest(".cb-magnetic");
+        if (mag) {
+          const r = mag.getBoundingClientRect();
+          const dx = ev.clientX - (r.left + r.width / 2);
+          const dy = ev.clientY - (r.top + r.height / 2);
+          const dist = Math.hypot(dx, dy) || 1;
+          const pull = Math.min(7, dist * 0.12);
+          mag.style.transform = `translate(${(dx / dist * pull).toFixed(1)}px, ${(dy / dist * pull).toFixed(1)}px)`;
+          mag.dataset.cbMag = "1";
+        }
+        // Tilt: rotate toward the cursor, max 5deg.
+        const tilt = el.closest(".cb-tilt");
+        if (tilt) {
+          const r = tilt.getBoundingClientRect();
+          const px = (ev.clientX - r.left) / r.width - 0.5;
+          const py = (ev.clientY - r.top) / r.height - 0.5;
+          tilt.style.transform = `rotateX(${(-py * 10).toFixed(2)}deg) rotateY(${(px * 10).toFixed(2)}deg)`;
+          tilt.dataset.cbTilt = "1";
+        }
+      });
+    };
+    // Elements the cursor left keep their last transform unless cleared:
+    // on pointerout, ease them home (the CSS transition does the spring).
+    const onOut = (e) => {
+      const t = e.target && e.target.closest ? e.target.closest(".cb-magnetic, .cb-tilt") : null;
+      if (!t) return;
+      // Only reset when actually leaving the element, not moving between children.
+      if (t.contains(e.relatedTarget)) return;
+      t.style.transform = "";
+      delete t.dataset.cbMag;
+      delete t.dataset.cbTilt;
+    };
+    document.addEventListener("pointermove", onMove, { passive: true });
+    document.addEventListener("pointerout", onOut, { passive: true });
+    return () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerout", onOut);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
 }
 
 /* Reduced motion, watched live.
@@ -1836,7 +1972,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           screen came from. Each card is now as tall as what is in it, and
           the row bottoms are allowed to differ, which is what an edited
           page looks like. */}
-      <div style={{
+      <div className="cb-tilt-wrap" style={{
         order: 1,
         display: "grid", gap: 14, alignItems: "start",
         gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(310px, 1fr))",
@@ -1851,7 +1987,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             at headline size — because the half-finished question you left
             behind IS the most important thing on this screen. */}
         {lastQ && (
-          <DeckCard P={P} accent={accent} label="Where you left off" span={isMobile ? undefined : "1 / -1"}>
+          <DeckCard P={P} accent={accent} label="Where you left off" span={isMobile ? undefined : "1 / -1"} className="cb-tilt">
             <div style={{
               fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
               fontWeight: 600, color: P.ink, lineHeight: 1.28,
@@ -3037,8 +3173,40 @@ function StressTest({ turn, P, accent, at, onStress, busy, isMobile }) {
   );
 }
 
+/* ── Inline markdown helpers ──
+   stripDanglingAsterisks: the model habitually emits footnote-style
+   trailing asterisks ("clinical trial*", "meta-analysis*,") that have no
+   footnote to point at in this format — on screen they read as typos.
+   This keeps real **bold** and *italic* pairs intact (matched first, left
+   alone) and removes only a lone "*" glued to the end of a word. The
+   lookahead spares math ("5*10", followed by a word char) and spaced
+   asterisks ("a * b", not preceded by a word char).
+
+   renderInlineMdLite: for extracted prose that bypasses renderAnswer —
+   DisagreementPanel renders sentences pulled out of the answer, so its
+   **bold** markers would otherwise print literally (a real report:
+   "**computational models**" on screen). Bold/italic/code only; citation
+   chips are stripped upstream and rendered as structured rows, so no cite
+   interactivity here. React elements, never dangerouslySetInnerHTML —
+   safe by construction. */
+function stripDanglingAsterisks(s) {
+  if (!s || !s.includes("*")) return s;
+  return s.replace(/\*\*[^*\n]+\*\*|\*[^*\n]+\*|(\w)\*(?![\w*])/g, (m, dangling) => dangling ? dangling : m);
+}
+function renderInlineMdLite(text, P) {
+  const clean = stripDanglingAsterisks(text || "");
+  return clean.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`\n]+`)/g).map((seg, si) => {
+    const b = seg.match(/^\*\*([^*]+)\*\*$/);
+    if (b) return <strong key={si} style={{ fontWeight: 700 }}>{b[1]}</strong>;
+    const it = seg.match(/^\*([^*\n]+)\*$/);
+    if (it) return <em key={si} style={{ fontStyle: "italic" }}>{it[1]}</em>;
+    const code = seg.match(/^`([^`\n]+)`$/);
+    if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-mono)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: 8 }}>{code[1]}</code>;
+    return <span key={si}>{seg}</span>;
+  });
+}
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite) {
-  let clean = normalizeSectionHeaders(text || "")
+  let clean = stripDanglingAsterisks(normalizeSectionHeaders(text || ""))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
     // unconditionally, before the code a few dozen lines down ever got a
     // chance to look for "^##\s" / "^###\s" and render them as real
@@ -3430,8 +3598,12 @@ function FactCheck({ fc, P, accent }) {
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS.good, flexShrink: 0 }} />
           <span>
             {isTerms
-              ? `Checked: all ${total} specific name${total === 1 ? "" : "s"} in this answer appear in the papers it cites`
-              : `Checked: all ${total} claim${total === 1 ? "" : "s"} in this answer trace to a quote in a cited paper`}
+              ? total === 1
+                ? "Checked: the specific name in this answer appears in the papers it cites"
+                : `Checked: all ${total} specific names in this answer appear in the papers it cites`
+              : total === 1
+                ? "Checked: the claim in this answer traces to a quote in a cited paper"
+                : `Checked: all ${total} claims in this answer trace to quotes in cited papers`}
           </span>
           <span style={{ color: P.ink2, fontWeight: 600, flexShrink: 0 }}>{open ? "Hide" : "What this means"}</span>
         </button>
@@ -4145,6 +4317,12 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
       return;
     }
 
+    /* Which element is buffering the clip after next, if any. A preload
+       that 404s must stay silent: the upcoming cycle() requests the same
+       file through play() and advances past it there. Letting the play
+       path run inside a preload would start hidden playback mid-buffer. */
+    let preloadingEl = null;
+
     const play = (el, src) => {
       /* A clip that loads clears the miss counter. Without this the count
          only ever climbs: a long session that skips a handful of absent
@@ -4152,6 +4330,16 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
          and stop a reel that was working perfectly well. */
       el.onloadeddata = () => { missRef.current = 0; };
       el.onerror = () => {
+        if (preloadingEl === el) {
+          preloadingEl = null;
+          missRef.current++;
+          /* Leave no dead src behind: at cycle time play() must take the
+             normal load path so a missing file is skipped instead of
+             fading up black. */
+          el.removeAttribute("src");
+          try { el.load(); } catch {}
+          return;
+        }
         /* One unplayable clip must not take the backdrop down with it. */
         if (++missRef.current < orderRef.current.length) {
           idxRef.current = (idxRef.current + 1) % orderRef.current.length;
@@ -4168,8 +4356,20 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
       };
       el.style.objectPosition = framePos(src);
       if (el.getAttribute("src") !== src) { el.src = src; el.load(); }
+      if (preloadingEl === el) preloadingEl = null;
       const p = el.play();
       if (p && p.catch) p.catch(() => {});
+    };
+
+    /* Buffer src into el without playing it. Called once the outgoing
+       clip's fade has finished — setting src earlier would unload the
+       clip mid-dissolve and kill the fade. */
+    const preloadInto = (el, src) => {
+      if (!src || el.getAttribute("src") === src) return;
+      preloadingEl = el;
+      el.preload = "auto";
+      el.src = src;
+      try { el.load(); } catch {}
     };
 
     const cycle = () => {
@@ -4186,13 +4386,24 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
          hold, so the page was decoding two videos at all times instead of
          one. The delay clears the 2.2s dissolve; pausing immediately would
          freeze the outgoing frame mid-fade. */
-      fadeRef.current = setTimeout(() => { try { outgoing.pause(); } catch {} }, 2400);
+      fadeRef.current = setTimeout(() => {
+        try { outgoing.pause(); } catch {}
+        /* The element is free now: buffer the clip after next so the
+           following dissolve starts from a warm decoder. The incoming clip
+           used to begin loading at the exact moment its 2.2s fade started —
+           fading up over bytes that were still arriving was the visible
+           hitch on every transition. */
+        preloadInto(outgoing, orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
+      }, 2400);
       timerRef.current = setTimeout(cycle, FILM_HOLD_MS);
     };
 
     play(els[curRef.current], orderRef.current[idxRef.current]);
     els[curRef.current].style.opacity = "1";
     report(orderRef.current[idxRef.current]);
+    /* Warm the very first dissolve too: the hidden element buffers clip
+       #2 during the opening hold instead of cold-fetching at cycle time. */
+    preloadInto(els[1 - curRef.current], orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
     timerRef.current = setTimeout(cycle, FILM_HOLD_MS);
 
     const onVis = () => { if (document.hidden) stop(); else { const p = els[curRef.current].play(); if (p && p.catch) p.catch(() => {}); timerRef.current = setTimeout(cycle, FILM_HOLD_MS); } };
@@ -4605,7 +4816,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 More
               </button>
             )}
-            <button type="button" onClick={() => go("")} className="cb-intro-go" style={{
+            <button type="button" onClick={() => go("")} className="cb-intro-go cb-shine cb-magnetic" style={{
               border: "none", cursor: "pointer", borderRadius: 9999, marginLeft: 4,
               padding: isMobile ? "9px 15px" : "9px 18px", background: introAccent, color: "#11140f",
               fontWeight: 600, fontSize: 13.5, fontFamily: "var(--cb-body)", whiteSpace: "nowrap",
@@ -4698,7 +4909,8 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                   background: introAccent, color: "#11140f",
                   fontWeight: 600, fontSize: isMobile ? 15.5 : 16, fontFamily: "var(--cb-body)",
                   boxShadow: "0 12px 34px rgba(163,184,153,0.26)",
-                }}>Start exploring</button>
+                  display: "inline-flex", alignItems: "center", gap: 10,
+                }}><span>Step inside</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
                 <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip" style={{
                   cursor: "pointer", borderRadius: 9999,
                   padding: isMobile ? "13px 22px" : "14px 26px",
@@ -5567,7 +5779,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   return (
-    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade">
+    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade cb-glow-line">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap", paddingBottom: 16, borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 3, height: 18, background: accent, borderRadius: 8 }} />
@@ -5599,6 +5811,14 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
 
 function BibEntry({ source, index, P, accent, style, className, last }) {
   const [hover, setHover] = useState(false);
+  const [copiedOne, setCopiedOne] = useState(false);
+  const copyOne = (e) => {
+    e.stopPropagation();
+    copyToClipboard(formatCitation(source, style, index), "Citation copied").then((ok) => {
+      if (ok) { setCopiedOne(true); setTimeout(() => setCopiedOne(false), 1200); }
+    });
+  };
+  const citeLabel = formatCitationCount(source.citations, source.year, "citation");
   /* Commit 87 — "1. 1. Grgic J et al. …"
      Vancouver puts the reference number inside the citation string, which
      is correct for an exported bibliography, and this list ALSO paints the
@@ -5644,17 +5864,31 @@ function BibEntry({ source, index, P, accent, style, className, last }) {
         )}
         {/* One dense meta line instead of three stacked blocks: type ·
             citation count · linked domain all inline, mono, muted. */}
-        {(source.citations != null || source.type || domain) && (
+        {(citeLabel || source.type || domain) && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--cb-mono)", flexWrap: "wrap" }}>
             {source.type && <span style={{ fontWeight: 600, color: P.ink2 }}>{source.type}</span>}
-            {source.type && (source.citations != null || domain) && <span style={{ opacity: 0.4 }}>·</span>}
-            {source.citations != null && <span>{source.citations.toLocaleString()} citation{source.citations === 1 ? "" : "s"}</span>}
-            {source.citations != null && domain && <span style={{ opacity: 0.4 }}>·</span>}
+            {source.type && (citeLabel || domain) && <span style={{ opacity: 0.4 }}>·</span>}
+            {citeLabel && <span>{citeLabel}</span>}
+            {citeLabel && domain && <span style={{ opacity: 0.4 }}>·</span>}
             {domain && (
               <a href={safeHref(source.url)} target="_blank" rel="noreferrer" style={{ color: accent, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{domain}</span><span style={{ flexShrink: 0 }}>↗</span>
               </a>
             )}
+            {/* Per-entry copy: the unit a researcher actually grabs is one
+                citation, not the whole list. Hover-revealed to keep the
+                dense list scannable; a tap on touch shows it first. */}
+            <button onClick={copyOne} title="Copy this citation" aria-label={`Copy citation ${index}`}
+              style={{
+                marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
+                fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 600,
+                color: copiedOne ? STATUS.good : P.faint, padding: "2px 4px",
+                opacity: hover || copiedOne ? 1 : 0, transition: "opacity 150ms ease, color 150ms ease",
+              }}
+              onMouseEnter={(e) => { if (!copiedOne) e.currentTarget.style.color = accent; }}
+              onMouseLeave={(e) => { if (!copiedOne) e.currentTarget.style.color = P.faint; }}>
+              {copiedOne ? "✓ Copied" : "Copy"}
+            </button>
           </div>
         )}
         {source.tldr && (
@@ -6101,7 +6335,7 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
               borderTop: i ? `1px solid ${P.line}` : "none",
             }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
-                {c.text}
+                {renderInlineMdLite(c.text, P)}
               </div>
               <div style={{ flexShrink: 0, width: isMobile ? "100%" : 210, display: "flex", flexDirection: "column", gap: 5 }}>
                 {c.cited.map((s2, k) => (
@@ -6116,7 +6350,7 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
                     {s2.year && <span>{s2.year}</span>}
                     {s2.n_size && <span style={{ color: P.ink2 }}>n={s2.n_size.toLocaleString()}</span>}
                     {s2.journal && (
-                      <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s2.journal}</span>
+                      <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formatJournalName(s2.journal)}</span>
                     )}
                   </div>
                 ))}
@@ -6132,7 +6366,7 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
   );
 }
 
-function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false }) {
+function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, onShowFlowchart = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   // Only fires once the text has stopped changing (see the comment at the
@@ -6194,7 +6428,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
       </div>
       <h2 style={S.headline}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
       {/* Answer card */}
-      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel">
+      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel cb-glow-line">
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
             docked via `position: absolute; top; right`. On a narrow mobile
@@ -6310,6 +6544,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                 {done && interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="The evidence, side by side" icon="table" accent={accent} P={P} onClick={() => onEvidenceTable(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
+                {interactive && t.answer && t.answer.length > 40 && <ToolbarBtn title="Flowchart — turn this answer into a diagram" icon="flowchart" accent={accent} P={P} onClick={() => onShowFlowchart(t)} />}
                 {/* Commit 98 — this pair is what finally feeds /api/vote. The
                     score it writes is not cosmetic: /api/search only re-serves
                     a cached answer to other people once score >= 2, and a
@@ -6438,14 +6673,19 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
           the backend's video objects genuinely carry no duration data. */}
       {done && t.videos && t.videos.length > 0 && t.sources && t.sources.length > 0 && (
         <div style={{ marginTop: 24 }} className="cb-fade">
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <div style={{ width: 3, height: 18, background: accent, borderRadius: 8 }} />
-            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, letterSpacing: "0.01em", color: P.ink, fontFamily: "var(--cb-body)" }}>Related videos</div>
+          {/* Video explainers are supplementary, not evidence: they get a
+              quieter header than Bibliography (no accent tick, smaller
+              label) and an explicit one-line disclaimer, so a pop-science
+              YouTube thumbnail never reads as peer to the cited papers
+              above it. */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-body)" }}>Video explainers</div>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-mono)", background: withAlpha(P.faint, 0.1), padding: "1px 8px", borderRadius: 8 }}>{t.videos.length}</div>
           </div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 14, fontFamily: "var(--cb-body)" }}>Background viewing — these videos are not cited as evidence above.</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }} className="cb-stagger">
             {t.videos.slice(0, 6).map((v, i) => (
-              <button key={v.id || i} type="button" onClick={() => setOpenVideo(v)} className="cb-fade cb-card" style={{ display: "block", width: "100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, padding: 0, font: "inherit", textAlign: "left", cursor: "pointer", transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
+              <button key={v.id || i} type="button" onClick={() => setOpenVideo(v)} className="cb-fade cb-card cb-spotlight" style={{ display: "block", width: "100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, overflow: "hidden", textDecoration: "none", color: P.ink, opacity: 0, padding: 0, font: "inherit", textAlign: "left", cursor: "pointer", transition: "border-color 0.2s ease, box-shadow 0.2s ease" }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 0 0 1px ${withAlpha(accent, 0.4)}, 0 8px 24px ${withAlpha(accent, 0.12)}`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
                 <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
@@ -7387,8 +7627,8 @@ function EvidenceTableModal({ P, accent, at, sources, close }) {
                       {r.src.title ? renderCleanTitle(r.src.title) : r.src.url}
                     </a>
                     <div style={{ color: P.faint, marginTop: 3, fontSize: FONT_SIZES.micro, lineHeight: 1.45 }}>
-                      {[r.src.authors, r.src.journal].filter(Boolean).join(" · ")}
-                      {r.citations != null && ` · ${r.citations.toLocaleString()} citations`}
+                      {[r.src.authors, formatJournalName(r.src.journal)].filter(Boolean).join(" · ")}
+                      {(() => { const c = formatCitationCount(r.citations, r.src.year, "citation"); return c ? ` · ${c}` : ""; })()}
                     </div>
                   </td>
                   <td style={td}>
@@ -8398,6 +8638,876 @@ function LiteratureTimeline({ P, accent, at, sources, close }) {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Flowchart Studio
+
+   A real diagram instrument: typed nodes (start / process / decision /
+   input-output / evidence / end), connectable labeled edges,
+   auto-layout, undo/redo, pan/zoom, and honest exports (SVG, PNG,
+   Markdown outline). "Draft from answer" turns the current answer's
+   steps into a starting graph — always labelled a draft, always
+   reviewable, because a flowchart that invents structure is worse
+   than no flowchart. Charts persist to localStorage (cb_flowcharts)
+   and surface in the Library.
+   ══════════════════════════════════════════════════════════════════ */
+
+const FC_NODE_TYPES = {
+  start:    { name: "Start",          w: 132, h: 54  },
+  process:  { name: "Process",        w: 176, h: 66  },
+  decision: { name: "Decision",       w: 176, h: 104 },
+  io:       { name: "Input / Output", w: 176, h: 66  },
+  evidence: { name: "Evidence",       w: 188, h: 82  },
+  end:      { name: "End",            w: 132, h: 54  },
+};
+const FC_ORDER = ["start", "process", "decision", "io", "evidence", "end"];
+const FC_GAP_Y = 88;
+
+let fcSeq = 0;
+function fcId(p) { fcSeq += 1; return `fc-${p}-${Date.now().toString(36)}-${fcSeq.toString(36)}`; }
+
+function fcNewNode(type, x, y, label, extra = {}) {
+  const t = FC_NODE_TYPES[type] || FC_NODE_TYPES.process;
+  return { id: fcId("n"), type, x: Math.round(x), y: Math.round(y), w: t.w, h: t.h, label: label || t.name, ...extra };
+}
+function fcNewEdge(from, to, label = "") { return { id: fcId("e"), from, to, label }; }
+function fcNodeById(nodes, id) { return nodes.find((n) => n.id === id); }
+function fcSlug(s) { return (s || "flowchart").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 60) || "flowchart"; }
+
+/* Word-wrap a label into lines that fit ~maxChars each. */
+function fcWrap(label, maxChars) {
+  const words = String(label || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? cur + " " + w : w;
+    if (next.length > maxChars && cur) { lines.push(cur); cur = w; }
+    else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [""];
+}
+
+/* ── Edge geometry: pick the closest port pair, route a bezier ── */
+function fcPorts(n) {
+  const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+  return [
+    { x: cx, y: n.y, side: "t" },
+    { x: n.x + n.w, y: cy, side: "r" },
+    { x: cx, y: n.y + n.h, side: "b" },
+    { x: n.x, y: cy, side: "l" },
+  ];
+}
+function fcEdgeGeom(a, b) {
+  const pa = fcPorts(a), pb = fcPorts(b);
+  let best = null;
+  for (const p of pa) for (const q of pb) {
+    const d = (p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y);
+    if (!best || d < best.d) best = { p, q, d };
+  }
+  const { p, q } = best;
+  const dir = (pt) => (pt.side === "t" ? [0, -1] : pt.side === "b" ? [0, 1] : pt.side === "l" ? [-1, 0] : [1, 0]);
+  const [dx1, dy1] = dir(p), [dx2, dy2] = dir(q);
+  const dist = Math.sqrt(best.d) || 1;
+  const k = Math.min(90, Math.max(30, dist * 0.35));
+  return {
+    d: `M ${p.x} ${p.y} C ${p.x + dx1 * k} ${p.y + dy1 * k}, ${q.x + dx2 * k} ${q.y + dy2 * k}, ${q.x} ${q.y}`,
+    mx: (p.x + q.x) / 2, my: (p.y + q.y) / 2,
+  };
+}
+
+/* ── Layered auto-layout: topological layers, centered ── */
+function fcAutoLayout(nodes, edges) {
+  if (!nodes.length) return nodes;
+  const result = nodes.map((n) => ({ ...n }));
+  /* No connections yet: a single centered column reads better than a
+     1200px-wide row that pushes nodes off-screen. */
+  if (!edges.length) {
+    let y = 60;
+    const cx = 600;
+    [...result].sort((a, b) => a.y - b.y || a.x - b.x).forEach((n) => {
+      n.x = Math.round(cx - n.w / 2);
+      n.y = Math.round(y);
+      y += n.h + FC_GAP_Y;
+    });
+    return result;
+  }
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const incoming = new Map(nodes.map((n) => [n.id, 0]));
+  const out = new Map(nodes.map((n) => [n.id, []]));
+  for (const e of edges) {
+    if (e.from !== e.to && byId.has(e.from) && byId.has(e.to)) {
+      out.get(e.from).push(e.to);
+      incoming.set(e.to, incoming.get(e.to) + 1);
+    }
+  }
+  const order = [...nodes].sort((a, b) => a.x - b.x);
+  const layer = new Map();
+  const queue = order.filter((n) => incoming.get(n.id) === 0);
+  queue.forEach((n) => layer.set(n.id, 0));
+  const q = [...queue];
+  const inQueue = new Set(q.map((n) => n.id));
+  while (q.length) {
+    const n = q.shift();
+    for (const t of out.get(n.id)) {
+      const nl = layer.get(n.id) + 1;
+      if (!layer.has(t) || layer.get(t) < nl) layer.set(t, nl);
+      if (!inQueue.has(t)) { inQueue.add(t); q.push(byId.get(t)); }
+    }
+  }
+  let maxL = 0;
+  for (const v of layer.values()) maxL = Math.max(maxL, v);
+  for (const n of nodes) if (!layer.has(n.id)) layer.set(n.id, maxL + 1);
+  const layers = new Map();
+  for (const n of order) {
+    const l = layer.get(n.id);
+    if (!layers.has(l)) layers.set(l, []);
+    layers.get(l).push(n);
+  }
+  const rById = new Map(result.map((n) => [n.id, n]));
+  const totalW = 1200;
+  [...layers.keys()].sort((a, b) => a - b).forEach((l, li) => {
+    const arr = layers.get(l);
+    const y = 60 + li * 172;
+    arr.forEach((n, i) => {
+      const c = rById.get(n.id);
+      const slotW = totalW / arr.length;
+      c.x = Math.round(slotW * i + slotW / 2 - c.w / 2);
+      c.y = Math.round(y + (104 - Math.min(c.h, 104)) / 2);
+    });
+  });
+  return result;
+}
+
+/* ── Draft from answer: extract steps, never invent them ── */
+function fcDraftFromAnswer(text) {
+  const clean = String(text || "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\[(\d+(?:,\s*\d+)*)\]/g, "")
+    .replace(/^#{1,4}\s+/gm, "");
+  const steps = [];
+  const seen = new Set();
+  const push = (s) => {
+    s = String(s).replace(/\s+/g, " ").trim().replace(/[.;:]+$/, "");
+    if (s.length >= 8 && s.length <= 160 && !seen.has(s.toLowerCase())) {
+      seen.add(s.toLowerCase());
+      steps.push(s);
+    }
+  };
+  for (const ln of clean.split("\n")) {
+    const m = ln.match(/^\s*(?:\d{1,2}[.)]|[-•*–])\s+(.+)$/);
+    if (m) push(m[1]);
+    if (steps.length >= 7) break;
+  }
+  if (steps.length < 2) {
+    const seqRe = /(?:^|[.!?]\s+)(first|next|then|after that|finally|lastly)[,:]?\s+([^.!?]{12,140})/gi;
+    let m;
+    while ((m = seqRe.exec(clean)) && steps.length < 7) push(m[2]);
+  }
+  if (steps.length < 2) {
+    const sents = clean.replace(/\n+/g, " ").split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length >= 24 && s.length <= 160);
+    for (const s of sents.slice(0, 5)) push(s);
+  }
+  if (!steps.length) return null;
+  const nodes = [];
+  const edges = [];
+  const cx = 600;
+  let y = 60;
+  const addStep = (type, label) => {
+    const t = FC_NODE_TYPES[type];
+    const n = fcNewNode(type, cx - t.w / 2, y, label);
+    nodes.push(n);
+    y += t.h + FC_GAP_Y;
+    return n;
+  };
+  const start = addStep("start", "Start");
+  let prev = start;
+  for (const s of steps.slice(0, 7)) {
+    const isDecision = /^(if|when|whether)\b/i.test(s) || /\bdepends on\b/i.test(s);
+    const n = addStep(isDecision ? "decision" : "process", s.length > 96 ? s.slice(0, 93) + "…" : s);
+    edges.push(fcNewEdge(prev.id, n.id, prev.type === "decision" ? "yes" : ""));
+    prev = n;
+  }
+  const end = addStep("end", "End");
+  edges.push(fcNewEdge(prev.id, end.id, prev.type === "decision" ? "yes" : ""));
+  return { nodes: fcAutoLayout(nodes, edges), edges, isDraft: true };
+}
+
+/* ── Export helpers ── */
+function fcEsc(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function fcBounds(nodes, pad = 60) {
+  if (!nodes.length) return { x: 0, y: 0, w: 800, h: 600 };
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) {
+    x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
+    x1 = Math.max(x1, n.x + n.w); y1 = Math.max(y1, n.y + n.h);
+  }
+  return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
+}
+const FC_EXPORT_COLORS = {
+  bg: "#ffffff", fill: "#f6f7f6", stroke: "#232723", text: "#161916",
+  accent: "#2e7d52", accentText: "#ffffff", edge: "#5b625b", decisionFill: "#eef4ef",
+};
+function fcNodeSvg(n) {
+  const C = FC_EXPORT_COLORS;
+  const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
+  const lh = 16;
+  const ty = cy - ((lines.length - 1) * lh) / 2 + 5;
+  const isAccent = n.type === "start" || n.type === "end";
+  const textFill = isAccent ? C.accentText : C.text;
+  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
+  let shape = "";
+  if (n.type === "start" || n.type === "end") {
+    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${C.accent}"/>`;
+  } else if (n.type === "decision") {
+    shape = `<polygon points="${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}" fill="${C.decisionFill}" stroke="${C.accent}" stroke-width="1.6"/>`;
+  } else if (n.type === "io") {
+    const s = 22;
+    shape = `<polygon points="${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
+  } else if (n.type === "evidence") {
+    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.accent}" stroke-width="1.6"/><rect x="${n.x}" y="${n.y}" width="5" height="${n.h}" rx="2.5" fill="${C.accent}"/>`;
+  } else {
+    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
+  }
+  return `<g>${shape}${text}</g>`;
+}
+function fcSvgString(nodes, edges, title) {
+  const C = FC_EXPORT_COLORS;
+  const b = fcBounds(nodes);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const edgeSvg = edges.map((e) => {
+    const a = byId.get(e.from), bb = byId.get(e.to);
+    if (!a || !bb) return "";
+    const g = fcEdgeGeom(a, bb);
+    const lbl = e.label ? `<text x="${g.mx}" y="${(g.my - 7).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-style="italic" fill="${C.edge}">${fcEsc(e.label)}</text>` : "";
+    return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="1.6" marker-end="url(#fcArrow)"/>${lbl}`;
+  }).join("");
+  const nodeSvg = nodes.map(fcNodeSvg).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Flowchart")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
+}
+function fcToMarkdown(nodes, edges, title) {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out = new Map(nodes.map((n) => [n.id, []]));
+  const incoming = new Map(nodes.map((n) => [n.id, 0]));
+  for (const e of edges) {
+    if (e.from !== e.to && byId.has(e.from) && byId.has(e.to)) {
+      out.get(e.from).push(e);
+      incoming.set(e.to, incoming.get(e.to) + 1);
+    }
+  }
+  const roots = nodes.filter((n) => incoming.get(n.id) === 0);
+  const startNodes = roots.length ? roots : nodes.slice(0, 1);
+  const lines = [`# ${title || "Flowchart"}`, ""];
+  const seen = new Set();
+  const tag = { start: "Start", end: "End", decision: "Decision", io: "Input/Output", evidence: "Evidence", process: "Step" };
+  const walk = (n, depth, viaLabel) => {
+    if (!n) return;
+    if (seen.has(n.id)) { lines.push(`${"  ".repeat(depth)}- ↺ *${n.label}* (see above)`); return; }
+    seen.add(n.id);
+    lines.push(`${"  ".repeat(depth)}- ${viaLabel ? `*${viaLabel}* → ` : ""}**${tag[n.type] || "Step"}:** ${n.label}`);
+    for (const e of out.get(n.id)) walk(byId.get(e.to), depth + 1, e.label);
+  };
+  startNodes.forEach((n) => walk(n, 0, ""));
+  return lines.join("\n");
+}
+
+/* Mini static preview for Library cards. */
+function FcThumb({ chart, accent }) {
+  const nodes = chart.nodes || [];
+  if (!nodes.length) return null;
+  const b = fcBounds(nodes, 30);
+  const scale = Math.min(1, 280 / b.w, 120 / b.h);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return (
+    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: "rgba(127,140,127,0.06)", borderRadius: 8 }}>
+      {(chart.edges || []).map((e) => {
+        const a = byId.get(e.from), bb = byId.get(e.to);
+        if (!a || !bb) return null;
+        const g = fcEdgeGeom(a, bb);
+        return <path key={e.id} d={g.d} fill="none" stroke={accent} strokeWidth={3} opacity={0.45} />;
+      })}
+      {nodes.map((n) => {
+        const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+        const fill = n.type === "start" || n.type === "end" ? accent : n.type === "decision" ? withAlpha(accent, 0.35) : withAlpha(accent, 0.14);
+        if (n.type === "decision") return <polygon key={n.id} points={`${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}`} fill={fill} />;
+        if (n.type === "io") { const s = 22; return <polygon key={n.id} points={`${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}`} fill={fill} />; }
+        return <rect key={n.id} x={n.x} y={n.y} width={n.w} height={n.h} rx={n.type === "start" || n.type === "end" ? n.h / 2 : 10} fill={fill} />;
+      })}
+    </svg>
+  );
+}
+
+/* Small palette button showing the node shape. */
+function FcPaletteBtn({ type, P, accent, selected, onClick }) {
+  const t = FC_NODE_TYPES[type];
+  const isAccent = type === "start" || type === "end";
+  const shape = (() => {
+    if (type === "decision") return <polygon points="20,2 38,12 20,22 2,12" fill={isAccent ? accent : withAlpha(accent, 0.16)} stroke={accent} strokeWidth={1.4} />;
+    if (type === "io") return <polygon points="8,3 34,3 30,21 4,21" fill={withAlpha(accent, 0.12)} stroke={P.faint} strokeWidth={1.4} />;
+    if (type === "evidence") return (<g><rect x="3" y="3" width="34" height="18" rx="4" fill={withAlpha(accent, 0.10)} stroke={accent} strokeWidth={1.4} /><rect x="3" y="3" width="4" height="18" rx="2" fill={accent} /></g>);
+    return <rect x="3" y="4" width="34" height="16" rx={isAccent ? 8 : 4} fill={isAccent ? accent : withAlpha(accent, 0.10)} stroke={isAccent ? accent : P.faint} strokeWidth={1.4} />;
+  })();
+  return (
+    <button type="button" onClick={onClick} title={`Add ${t.name}`}
+      style={{
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
+        padding: "9px 4px", borderRadius: 10, cursor: "pointer",
+        background: selected ? withAlpha(accent, 0.12) : "transparent",
+        border: `1px solid ${selected ? accent : "transparent"}`,
+      }}>
+      <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true">{shape}</svg>
+      <span style={{ fontSize: 10, color: P.faint, fontFamily: "var(--cb-body)", lineHeight: 1.2, textAlign: "center" }}>{t.name}</span>
+    </button>
+  );
+}
+
+/* In-canvas node shape (JSX). */
+function FcNodeShape({ n, P, accent, selected, pending }) {
+  const cx = n.w / 2, cy = n.h / 2;
+  const isAccent = n.type === "start" || n.type === "end";
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.16) : n.type === "evidence" ? withAlpha(accent, 0.08) : (P.nodeFill || withAlpha(accent, 0.05));
+  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : P.line;
+  const sw = selected || pending ? 2.4 : 1.5;
+  const common = { fill, stroke, strokeWidth: sw };
+  if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} {...common} />;
+  if (n.type === "io") { const s = 20; return <polygon points={`${s},0 ${n.w},0 ${n.w - s},${n.h} 0,${n.h}`} {...common} />; }
+  if (n.type === "evidence") return (<g><rect x={0} y={0} width={n.w} height={n.h} rx={10} {...common} /><rect x={0} y={0} width={6} height={n.h} rx={3} fill={accent} stroke="none" /></g>);
+  return <rect x={0} y={0} width={n.w} height={n.h} rx={isAccent ? n.h / 2 : 10} {...common} />;
+}
+
+function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerText, sources, onSave, onClose }) {
+  const trapRef = useFocusTrap();
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const [nodes, setNodes] = useState(() => (initial?.nodes || []).map((n) => ({ ...n })));
+  const [edges, setEdges] = useState(() => (initial?.edges || []).map((e) => ({ ...e })));
+  const [title, setTitle] = useState(docTitle || initial?.title || "Untitled flowchart");
+  const [tool, setTool] = useState("select");
+  const [selection, setSelection] = useState(null);
+  const [pendingFrom, setPendingFrom] = useState(null);
+  const [viewport, setViewport] = useState({ x: 40, y: 40, zoom: 1 });
+  const [draftNotice, setDraftNotice] = useState(!!initial?.isDraft);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [, setHistTick] = useState(0);
+  const svgRef = useRef(null);
+  const dragRef = useRef(null);
+  const panRef = useRef(null);
+  const histRef = useRef({ stack: [], idx: -1 });
+  const stateRef = useRef();
+  stateRef.current = { nodes, edges };
+
+  /* History */
+  const snapshot = () => ({ nodes: stateRef.current.nodes.map((n) => ({ ...n })), edges: stateRef.current.edges.map((e) => ({ ...e })) });
+  const pushHistory = useCallback(() => {
+    const h = histRef.current;
+    const stack = [...h.stack.slice(0, h.idx + 1), snapshot()].slice(-60);
+    histRef.current = { stack, idx: stack.length - 1 };
+    setHistTick((t) => t + 1);
+  }, []);
+  useEffect(() => { pushHistory(); /* seed with initial state */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const applySnap = (s) => {
+    setNodes(s.nodes.map((n) => ({ ...n })));
+    setEdges(s.edges.map((e) => ({ ...e })));
+    setSelection(null);
+    setPendingFrom(null);
+  };
+  const undo = () => {
+    const h = histRef.current;
+    if (h.idx <= 0) return;
+    histRef.current = { ...h, idx: h.idx - 1 };
+    applySnap(h.stack[h.idx - 1]);
+    setHistTick((t) => t + 1);
+  };
+  const redo = () => {
+    const h = histRef.current;
+    if (h.idx >= h.stack.length - 1) return;
+    histRef.current = { ...h, idx: h.idx + 1 };
+    applySnap(h.stack[h.idx + 1]);
+    setHistTick((t) => t + 1);
+  };
+  const canUndo = histRef.current.idx > 0;
+  const canRedo = histRef.current.idx < histRef.current.stack.length - 1;
+
+  /* Coordinate transform */
+  const toWorld = (clientX, clientY) => {
+    const r = svgRef.current.getBoundingClientRect();
+    return { x: (clientX - r.left - viewport.x) / viewport.zoom, y: (clientY - r.top - viewport.y) / viewport.zoom };
+  };
+
+  /* Wheel zoom (non-passive so we can preventDefault) */
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const r = svg.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      setViewport((v) => {
+        const z2 = Math.min(2.5, Math.max(0.3, v.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+        const wx = (mx - v.x) / v.zoom, wy = (my - v.y) / v.zoom;
+        return { zoom: z2, x: mx - wx * z2, y: my - wy * z2 };
+      });
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+  }, []);
+
+  /* Mutations (each commits to history) */
+  const addNode = (type) => {
+    const r = svgRef.current.getBoundingClientRect();
+    const wx = (r.width / 2 - viewport.x) / viewport.zoom;
+    const wy = (r.height / 2 - viewport.y) / viewport.zoom;
+    const t = FC_NODE_TYPES[type];
+    const n = fcNewNode(type, wx - t.w / 2 + (Math.random() * 40 - 20), wy - t.h / 2 + (Math.random() * 40 - 20));
+    setNodes((prev) => [...prev, n]);
+    setSelection({ kind: "node", id: n.id });
+    setTimeout(pushHistory, 0);
+  };
+  const updateNode = (id, patch, commit = true) => {
+    setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+    if (commit) setTimeout(pushHistory, 0);
+  };
+  const deleteSelection = useCallback(() => {
+    if (!selection) return;
+    if (selection.kind === "node") {
+      setNodes((prev) => prev.filter((n) => n.id !== selection.id));
+      setEdges((prev) => prev.filter((e) => e.from !== selection.id && e.to !== selection.id));
+    } else {
+      setEdges((prev) => prev.filter((e) => e.id !== selection.id));
+    }
+    setSelection(null);
+    setPendingFrom(null);
+    setTimeout(pushHistory, 0);
+  }, [selection, pushHistory]);
+
+  /* Delete key (not while typing) */
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (document.activeElement?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+      if ((e.key === "Delete" || e.key === "Backspace") && selection) { e.preventDefault(); deleteSelection(); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const doAutoLayout = () => {
+    setNodes((prev) => fcAutoLayout(prev, stateRef.current.edges));
+    setViewport({ x: 40, y: 40, zoom: 1 });
+    setTimeout(pushHistory, 0);
+  };
+  const doDraft = () => {
+    const d = fcDraftFromAnswer(answerText);
+    if (!d) return;
+    setNodes(d.nodes);
+    setEdges(d.edges);
+    setViewport({ x: 40, y: 30, zoom: 1 });
+    setDraftNotice(true);
+    setSelection(null);
+    setTimeout(pushHistory, 0);
+  };
+  const doSave = () => {
+    onSave({ title: title.trim() || "Untitled flowchart", nodes, edges });
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1800);
+  };
+  const doExportSVG = () => {
+    download(fcSlug(title) + ".svg", fcSvgString(nodes, edges, title));
+    setExportOpen(false);
+  };
+  const doExportPNG = () => {
+    const b = fcBounds(nodes);
+    const svg = fcSvgString(nodes, edges, title);
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2;
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.ceil(b.w * scale));
+        c.height = Math.max(1, Math.ceil(b.h * scale));
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob((blob) => {
+          if (blob) {
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = fcSlug(title) + ".png";
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+          }
+          URL.revokeObjectURL(url);
+        });
+      } catch { URL.revokeObjectURL(url); }
+    };
+    img.src = url;
+    setExportOpen(false);
+  };
+  const doExportMD = () => {
+    download(fcSlug(title) + ".md", fcToMarkdown(nodes, edges, title));
+    setExportOpen(false);
+  };
+
+  /* Canvas background interactions */
+  const onCanvasPointerDown = (e) => {
+    if (e.button !== 0) return;
+    setSelection(null);
+    setPendingFrom(null);
+    setExportOpen(false);
+    panRef.current = { sx: e.clientX, sy: e.clientY, ox: viewport.x, oy: viewport.y, moved: false };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onCanvasPointerMove = (e) => {
+    const p = panRef.current;
+    if (!p) return;
+    const dx = e.clientX - p.sx, dy = e.clientY - p.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 3) p.moved = true;
+    setViewport((v) => ({ ...v, x: p.ox + dx, y: p.oy + dy }));
+  };
+  const onCanvasPointerUp = () => { panRef.current = null; };
+
+  const onNodePointerDown = (e, n) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    if (tool === "connect") {
+      if (!pendingFrom) { setPendingFrom(n.id); setSelection({ kind: "node", id: n.id }); }
+      else if (pendingFrom !== n.id) {
+        const from = fcNodeById(stateRef.current.nodes, pendingFrom);
+        const label = from?.type === "decision" ? "yes" : "";
+        setEdges((prev) => [...prev, fcNewEdge(pendingFrom, n.id, label)]);
+        setPendingFrom(null);
+        setTool("select");
+        setTimeout(pushHistory, 0);
+      } else { setPendingFrom(null); }
+      return;
+    }
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const w = toWorld(e.clientX, e.clientY);
+    dragRef.current = { id: n.id, sx: w.x, sy: w.y, ox: n.x, oy: n.y, moved: false };
+    setSelection({ kind: "node", id: n.id });
+  };
+  const onNodePointerMove = (e, n) => {
+    const d = dragRef.current;
+    if (!d || d.id !== n.id) return;
+    const w = toWorld(e.clientX, e.clientY);
+    const nx = d.ox + (w.x - d.sx), ny = d.oy + (w.y - d.sy);
+    if (Math.abs(nx - d.ox) + Math.abs(ny - d.oy) > 2) d.moved = true;
+    setNodes((prev) => prev.map((m) => (m.id === n.id ? { ...m, x: Math.round(nx), y: Math.round(ny) } : m)));
+  };
+  const onNodePointerUp = (e, n) => {
+    const d = dragRef.current;
+    if (d && d.id === n.id) {
+      dragRef.current = null;
+      if (d.moved) pushHistory();
+    }
+  };
+
+  const selNode = selection?.kind === "node" ? fcNodeById(nodes, selection.id) : null;
+  const selEdge = selection?.kind === "edge" ? edges.find((e) => e.id === selection.id) : null;
+  const selSource = selNode && selNode.type === "evidence" && typeof selNode.sourceIdx === "number" ? sources?.[selNode.sourceIdx] : null;
+
+  const hint = tool === "connect"
+    ? (pendingFrom ? "Now click the target node — the arrow lands there. Esc cancels." : "Click the node the arrow starts from.")
+    : "Drag nodes to move · scroll to zoom · drag the canvas to pan · double-click a node to edit it.";
+
+  const studioBtn = (label, onClick, opts = {}) => (
+    <button type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || label}
+      style={{
+        padding: "7px 13px", borderRadius: 9999, cursor: opts.disabled ? "default" : "pointer",
+        fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+        background: opts.primary ? accent : "transparent",
+        color: opts.primary ? at : opts.disabled ? P.faint : P.ink2,
+        border: `1px solid ${opts.primary ? accent : P.line}`,
+        opacity: opts.disabled ? 0.45 : 1,
+        display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+      }}>
+      {opts.icon && <Icon name={opts.icon} size={14} />}
+      {label}
+    </button>
+  );
+
+  return (
+    <div onClick={onClose} role="dialog" aria-modal="true" aria-label="Flowchart studio"
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.66)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 8 : 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}
+        style={{
+          background: P.bg, borderRadius: 14, width: "100%", maxWidth: 1220, height: isMobile ? "96vh" : "86vh",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+          border: `1px solid ${P.line}`, boxShadow: "0 32px 100px rgba(0,0,0,0.55)", outline: "none",
+        }} className="cb-modal">
+        {/* ── Top bar ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "var(--cb-mono)", fontSize: 10, letterSpacing: "0.22em", color: P.faint, textTransform: "uppercase" }}>Flowchart studio</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Flowchart title"
+            style={{
+              flex: "1 1 160px", minWidth: 0, background: "transparent", border: "none", outline: "none",
+              color: P.ink, fontSize: FONT_SIZES.body, fontWeight: 700, fontFamily: "var(--cb-body)",
+            }} />
+          {savedFlash && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 600 }}>Saved ✓</span>}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {studioBtn("Undo", undo, { disabled: !canUndo, title: "Undo (Ctrl+Z)" })}
+            {studioBtn("Redo", redo, { disabled: !canRedo, title: "Redo (Ctrl+Y)" })}
+            {studioBtn("Arrange", doAutoLayout, { icon: "wand", title: "Auto-arrange the chart top-down", disabled: nodes.length < 2 })}
+            {answerText && studioBtn("Draft from answer", doDraft, { icon: "sparkle", title: "Turn this answer's steps into a starting chart (marked as draft)" })}
+            <div style={{ position: "relative" }}>
+              {studioBtn("Export", () => setExportOpen((v) => !v), { icon: "download" })}
+              {exportOpen && (
+                <div style={{
+                  position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 10, minWidth: 190,
+                  background: P.bg, border: `1px solid ${P.line}`, borderRadius: 10, padding: 6,
+                  boxShadow: "0 16px 44px rgba(0,0,0,0.4)",
+                }}>
+                  {[["SVG — vector, scales forever", doExportSVG], ["PNG — image, 2× resolution", doExportPNG], ["Markdown — text outline", doExportMD]].map(([label, fn]) => (
+                    <button key={label} type="button" onClick={fn}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 7, border: "none", background: "transparent", color: P.ink2, fontSize: FONT_SIZES.caption, cursor: "pointer", fontFamily: "var(--cb-body)" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {studioBtn("Save", doSave, { primary: true, icon: "check" })}
+            <button type="button" onClick={onClose} aria-label="Close studio"
+              style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}>
+              <Icon name="close" size={18} />
+            </button>
+          </div>
+        </div>
+
+        {draftNotice && (
+          <div style={{
+            padding: "8px 16px", background: withAlpha(accent, 0.08), borderBottom: `1px solid ${P.line}`,
+            fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
+          }}>
+            <Icon name="sparkle" size={13} />
+            <span><strong>Draft.</strong> These steps were lifted from the answer — review every node before you trust the chart.</span>
+            <button type="button" onClick={() => setDraftNotice(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption }}>Dismiss</button>
+          </div>
+        )}
+
+        {/* ── Body ── */}
+        <div style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: isMobile ? "column" : "row" }}>
+          {/* Palette */}
+          <div style={{
+            flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`,
+            borderBottom: isMobile ? `1px solid ${P.line}` : "none",
+            padding: 10, display: "flex", flexDirection: isMobile ? "row" : "column", gap: 4,
+            overflowX: isMobile ? "auto" : "visible", alignItems: isMobile ? "center" : "stretch",
+          }}>
+            {!isMobile && <div style={{ fontFamily: "var(--cb-mono)", fontSize: 9.5, letterSpacing: "0.18em", color: P.faint, textTransform: "uppercase", padding: "2px 4px 8px" }}>Nodes</div>}
+            {FC_ORDER.map((t) => <FcPaletteBtn key={t} type={t} P={P} accent={accent} onClick={() => addNode(t)} />)}
+            <button type="button" onClick={() => { setTool((v) => (v === "connect" ? "select" : "connect")); setPendingFrom(null); }}
+              title="Connect nodes with arrows"
+              style={{
+                display: "flex", flexDirection: isMobile ? "row" : "column", alignItems: "center", gap: 5,
+                padding: "9px 4px", borderRadius: 10, cursor: "pointer", marginTop: isMobile ? 0 : 6,
+                background: tool === "connect" ? withAlpha(accent, 0.14) : "transparent",
+                border: `1px solid ${tool === "connect" ? accent : P.line}`,
+                color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+                whiteSpace: "nowrap",
+              }}>
+              <Icon name="link" size={15} />
+              {isMobile ? "Connect" : <span style={{ fontSize: 10, color: P.faint, fontWeight: 400 }}>Connect</span>}
+            </button>
+          </div>
+
+          {/* Canvas */}
+          <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.dark ? "#0c0e0c" : "#f4f5f3" }}>
+            <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", cursor: tool === "connect" ? "crosshair" : "grab", touchAction: "none" }}
+              onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp}>
+              <defs>
+                <pattern id="fcGrid" width="28" height="28" patternUnits="userSpaceOnUse">
+                  <circle cx="1.2" cy="1.2" r="1.2" fill={P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)"} />
+                </pattern>
+                <marker id="fcArrowHead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                  <path d="M 0 1 L 9 5 L 0 9 z" fill={P.faint} />
+                </marker>
+              </defs>
+              <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.zoom})`}>
+                <rect x={-4000} y={-4000} width={12000} height={12000} fill="url(#fcGrid)" />
+                {/* edges */}
+                {edges.map((e) => {
+                  const a = fcNodeById(nodes, e.from), b = fcNodeById(nodes, e.to);
+                  if (!a || !b) return null;
+                  const g = fcEdgeGeom(a, b);
+                  const sel = selection?.kind === "edge" && selection.id === e.id;
+                  return (
+                    <g key={e.id}>
+                      <path d={g.d} fill="none" stroke="transparent" strokeWidth={16} style={{ cursor: "pointer" }}
+                        onPointerDown={(ev) => { ev.stopPropagation(); setSelection({ kind: "edge", id: e.id }); }} />
+                      <path d={g.d} fill="none" stroke={sel ? accent : P.faint} strokeWidth={sel ? 2.4 : 1.6} opacity={sel ? 1 : 0.75} markerEnd="url(#fcArrowHead)" style={{ pointerEvents: "none" }} />
+                      {e.label && (
+                        <text x={g.mx} y={g.my - 8} textAnchor="middle" fontSize={12} fontStyle="italic" fill={P.faint} style={{ pointerEvents: "none", fontFamily: "var(--cb-body)" }}>{e.label}</text>
+                      )}
+                    </g>
+                  );
+                })}
+                {/* nodes */}
+                {nodes.map((n) => {
+                  const sel = selection?.kind === "node" && selection.id === n.id;
+                  const pend = pendingFrom === n.id;
+                  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
+                  const lh = 17;
+                  const isAccent = n.type === "start" || n.type === "end";
+                  const ty = n.h / 2 - ((lines.length - 1) * lh) / 2 + 5;
+                  return (
+                    <g key={n.id} transform={`translate(${n.x},${n.y})`}
+                      onPointerDown={(e) => onNodePointerDown(e, n)}
+                      onPointerMove={(e) => onNodePointerMove(e, n)}
+                      onPointerUp={(e) => onNodePointerUp(e, n)}
+                      onDoubleClick={(e) => { e.stopPropagation(); setSelection({ kind: "node", id: n.id }); setTimeout(() => document.getElementById("fc-label-edit")?.focus(), 50); }}
+                      style={{ cursor: tool === "connect" ? "crosshair" : "grab" }}>
+                      {pend && <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={14} fill="none" stroke={accent} strokeWidth={1.6} strokeDasharray="6 4" opacity={0.8} />}
+                      <FcNodeShape n={n} P={P} accent={accent} selected={sel} pending={pend} />
+                      {lines.map((ln, i) => (
+                        <text key={i} x={n.w / 2} y={ty + i * lh} textAnchor="middle" fontSize={13.5}
+                          fill={isAccent ? at : P.ink} style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-body)", fontWeight: isAccent ? 600 : 500 }}>
+                          {ln}
+                        </text>
+                      ))}
+                      {n.type === "evidence" && typeof n.sourceIdx === "number" && sources?.[n.sourceIdx] && (
+                        <text x={n.w / 2} y={n.h - 10} textAnchor="middle" fontSize={10} fill={P.faint}
+                          style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-body)", fontStyle: "italic" }}>
+                          {String(sources[n.sourceIdx].title || "source").slice(0, 34)}{String(sources[n.sourceIdx].title || "").length > 34 ? "…" : ""}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </g>
+            </svg>
+            {nodes.length === 0 && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", padding: 24 }}>
+                <div style={{ textAlign: "center", maxWidth: 340 }}>
+                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, marginBottom: 8 }}>A blank bench</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+                    Add nodes from the palette, or{answerText ? " press " : " "}<strong style={{ color: P.ink2 }}>Draft from answer</strong>{answerText ? " to lift this answer's steps into a starting chart." : "."}
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* zoom controls */}
+            <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 4, background: P.bg, border: `1px solid ${P.line}`, borderRadius: 9999, padding: 3 }}>
+              {[["−", 1 / 1.25, "Zoom out"], ["+", 1.25, "Zoom in"], ["1:1", "reset", "Reset view"]].map(([label, f, t2]) => (
+                <button key={label} type="button" title={t2}
+                  onClick={() => {
+                    if (f === "reset") { setViewport({ x: 40, y: 40, zoom: 1 }); return; }
+                    setViewport((v) => ({ ...v, zoom: Math.min(2.5, Math.max(0.3, v.zoom * f)) }));
+                  }}
+                  style={{ width: 30, height: 30, borderRadius: "50%", border: "none", background: "transparent", color: P.ink2, cursor: "pointer", fontSize: 15, fontWeight: 600 }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Inspector */}
+          <div style={{
+            flexShrink: 0, width: isMobile ? "100%" : 248, maxHeight: isMobile ? 220 : "none", overflowY: "auto",
+            borderLeft: isMobile ? "none" : `1px solid ${P.line}`, borderTop: isMobile ? `1px solid ${P.line}` : "none",
+            padding: 14,
+          }}>
+            <div style={{ fontFamily: "var(--cb-mono)", fontSize: 9.5, letterSpacing: "0.18em", color: P.faint, textTransform: "uppercase", marginBottom: 10 }}>Inspector</div>
+            {!selection && (
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
+                Select a node or arrow to edit it here. Tip: the <strong style={{ color: P.ink2 }}>Connect</strong> tool links two nodes — click the source, then the target.
+                {sources && sources.length > 0 && <span> Evidence nodes can cite this answer's papers.</span>}
+              </div>
+            )}
+            {selNode && (
+              <div>
+                <div style={{ display: "inline-block", fontSize: 10.5, fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), borderRadius: 9999, padding: "3px 10px", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  {FC_NODE_TYPES[selNode.type].name}
+                </div>
+                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>Label</label>
+                <textarea id="fc-label-edit" value={selNode.label} rows={3}
+                  onChange={(e) => updateNode(selNode.id, { label: e.target.value }, false)}
+                  onBlur={pushHistory}
+                  style={{
+                    width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                    border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink, padding: "8px 10px",
+                    fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", resize: "vertical",
+                  }} />
+                {selNode.type === "evidence" && sources && sources.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>Cite a paper from this answer</label>
+                    <select id="fc-source-pick" value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
+                      onChange={(e) => updateNode(selNode.id, { sourceIdx: e.target.value === "" ? undefined : Number(e.target.value) })}
+                      style={{
+                        width: "100%", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                        border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink, padding: "8px 10px",
+                        fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)",
+                      }}>
+                      <option value="">No citation</option>
+                      {sources.slice(0, 12).map((s, i) => (
+                        <option key={i} value={i}>{String(s.title || "Untitled").slice(0, 60)}{s.year ? ` (${s.year})` : ""}</option>
+                      ))}
+                    </select>
+                    {selSource?.url && (
+                      <a href={selSource.url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, fontSize: FONT_SIZES.caption, color: accent }}>
+                        Open the paper ↗
+                      </a>
+                    )}
+                  </div>
+                )}
+                <button type="button" onClick={deleteSelection}
+                  style={{ marginTop: 14, background: "none", border: `1px solid ${P.line}`, borderRadius: 9999, padding: "7px 14px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                  Delete node
+                </button>
+              </div>
+            )}
+            {selEdge && (
+              <div>
+                <div style={{ display: "inline-block", fontSize: 10.5, fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), borderRadius: 9999, padding: "3px 10px", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  Arrow
+                </div>
+                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>Label <span style={{ opacity: 0.7 }}>(e.g. yes / no)</span></label>
+                <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
+                  style={{
+                    width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                    border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink, padding: "8px 10px",
+                    fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
+                  }} />
+                <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint }}>
+                  {(() => { const a = fcNodeById(nodes, selEdge.from), b = fcNodeById(nodes, selEdge.to); return a && b ? `${a.label.slice(0, 26)} → ${b.label.slice(0, 26)}` : ""; })()}
+                </div>
+                <button type="button" onClick={deleteSelection}
+                  style={{ marginTop: 14, background: "none", border: `1px solid ${P.line}`, borderRadius: 9999, padding: "7px 14px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                  Delete arrow
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Status bar ── */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 14, padding: "9px 16px", borderTop: `1px solid ${P.line}`,
+          fontSize: FONT_SIZES.caption, color: P.faint, flexShrink: 0, flexWrap: "wrap",
+          fontFamily: "var(--cb-mono)",
+        }}>
+          <span>{nodes.length} node{nodes.length === 1 ? "" : "s"} · {edges.length} arrow{edges.length === 1 ? "" : "s"}</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontFamily: "var(--cb-body)" }}>{hint}</span>
+        </div>
       </div>
     </div>
   );
@@ -10223,7 +11333,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       color: recording ? "#fff" : P.ink2,
                     }}
                   ><Icon name={recording ? "send" : "mic"} size={16} /></button>
-                  {!recording && <button onClick={() => sendMessage()} disabled={!draft.trim() || sending} aria-label="Send" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() && !sending ? "pointer" : "default", opacity: draft.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {!recording && <button onClick={() => sendMessage()} disabled={!draft.trim() || sending} aria-label="Send" className="cb-magnetic" style={{ width: 40, height: 40, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() && !sending ? "pointer" : "default", opacity: draft.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="send" size={16} />
                   </button>}
                 </div>
@@ -10373,7 +11483,7 @@ function UIButton({
   return (
     <button
       type={type} onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel}
-      className={"cb-press cb-glass-action cb-glass-action--" + variant}
+      className={"cb-press cb-glass-action cb-glass-action--" + variant + (variant === "primary" ? " cb-shine" : "")}
       style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center", gap: SP.sm,
         padding: pad, borderRadius: RADIUS.pill, cursor: disabled ? "not-allowed" : "pointer",
@@ -10398,7 +11508,7 @@ function UICard({ children, P, pad = true, className = "", style, onClick }) {
   return (
     <div
       onClick={onClick}
-      className={"cb-card cb-material-panel " + className}
+      className={"cb-card cb-material-panel cb-spotlight " + className}
       style={{
         borderRadius: RADIUS.lg,
         /* A real glass panel, not a 2.8%-white tint.
@@ -14627,7 +15737,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               /* data-nav: the landing target for the save-to-library flight.
                  A stable hook on the row itself, so the animation never has
                  to guess at the rail's structure. */
-              <button key={key} data-nav={key} onClick={() => onNavigate(key)} style={itemStyle(key)} aria-current={view === key ? "page" : undefined}
+              <button key={key} data-nav={key} onClick={() => onNavigate(key)} style={itemStyle(key)} aria-current={view === key ? "page" : undefined} className="cb-spotlight"
                 onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
                 <Icon name={icon} size={17} />
                 <span>{label}</span>
@@ -14661,10 +15771,20 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
           than a row you might not notice.
           ══════════════════════════════════════════════════════════ */}
       <div style={S.sidebarFooter}>
-        <button onClick={onToggleMute} style={{ ...S.sidebarItem, marginBottom: 6 }} title={muted ? "Unmute" : "Mute"} onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}>
-          <Icon name={muted ? "volumeOff" : "volumeOn"} size={17} />
-          <span>{muted ? "Unmute" : "Mute"}</span>
-        </button>
+        {/* Mute is a preference, not a destination: a quiet icon button,
+            not a full nav-styled row competing with real navigation. */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+          <button onClick={onToggleMute} title={muted ? "Unmute all audio" : "Mute all audio"} aria-pressed={muted}
+            onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 30, height: 30, borderRadius: "50%", cursor: "pointer",
+              background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
+              transition: "color 150ms ease, border-color 150ms ease",
+            }}>
+            <Icon name={muted ? "volumeOff" : "volumeOn"} size={15} />
+          </button>
+        </div>
         {user ? (
           <button
             onClick={() => onNavigate("profile")}
@@ -15000,6 +16120,9 @@ function App() {
   // back it.
   const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_profile") || "{}"); } catch { return {}; } });
   useEffect(() => { try { localStorage.setItem("cb_profile", JSON.stringify(profile)); } catch {} }, [profile]);
+  /* Premium pointer layer: cursor spotlight, magnetic pull, 3D tilt. One
+     delegated listener for the whole app — see the hook above. */
+  usePremiumPointer();
   // followers/badges are read-only server state (nothing edits them from
   // this modal directly — following happens from someone else's account,
   // badges are granted server-side), so they live separately from the
@@ -15015,6 +16138,16 @@ function App() {
   // Commit 92 — holds the source list for the evidence table (was the
   // query string for the illustration generator).
   const [evidenceTableSources, setEvidenceTableSources] = useState(null);
+  // Flowchart Studio: null, or { title, nodes, edges, answerText, sources, chartId }.
+  // chartId is set when reopening a saved chart; null means "new chart".
+  const [flowchartOpen, setFlowchartOpen] = useState(null);
+  const [flowcharts, setFlowcharts] = useState(() => {
+    try { const v = JSON.parse(localStorage.getItem("cb_flowcharts") || "[]"); return Array.isArray(v) ? v : []; }
+    catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("cb_flowcharts", JSON.stringify(flowcharts)); } catch { /* storage full/blocked: charts still work in-memory */ }
+  }, [flowcharts]);
 
   async function handleAuthed(authedUser, { checkImport }) {
     setUser(authedUser);
@@ -15979,6 +17112,7 @@ function App() {
 
   const commands = [
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
+    { label: "New flowchart", run: () => { setCmdOpen(false); setFlowchartOpen({ title: "Untitled flowchart", chartId: null }); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
     { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
     // Collections' header button is desktop-only (there's no room for it in
@@ -16123,7 +17257,7 @@ function App() {
   const typeColor = () => accent;
 
   const SourceCard = (s, i) => (
-    <div key={i} className="cb-fade" style={{
+    <div key={i} className="cb-fade cb-spotlight" style={{
       ...S.srcItem,
       borderLeft: `2px solid ${withAlpha(relColor(s.relevance ?? 0), 0.5)}`,
       background: hover === "src" + i ? withAlpha(accent, 0.06) : hoverCite === i + 1 ? withAlpha(accent, 0.07) : focusedSourceIdx === i ? withAlpha(accent, 0.04) : "transparent",
@@ -16149,7 +17283,7 @@ function App() {
           call site below) — a formula still reads clean AND a species name
           still reads like one. */}
       <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? renderCleanTitle(s.title) : s.url)}</a>
-      <div style={S.srcMeta}>{[s.authors, s.journal].filter(Boolean).join(" · ")}{typeof s.citations === "number" && ` · ${s.citations.toLocaleString()} cit.`}</div>
+      <div style={S.srcMeta}>{[s.authors, formatJournalName(s.journal)].filter(Boolean).join(" · ")}{(() => { const c = formatCitationCount(s.citations, s.year, "citation"); return c ? ` · ${c}` : ""; })()}</div>
       <div style={S.srcRow}>
         <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
         <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isPinned(s) ? at : P.ink2, background: isPinned(s) ? accent : "transparent", borderColor: isPinned(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow-ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={11} />{isPinned(s) ? "Pinned" : "Pin"}</button>
@@ -16431,7 +17565,7 @@ function App() {
                   textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
                 }}>{composerPrompt}</h2>
               )}
-              <div className="cb-search-glow cb-search-shell" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+              <div className="cb-search-glow cb-search-shell cb-spotlight" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <input ref={inputRef} style={S.searchInput} value={input}
                     onFocus={() => setComposerFocused(true)}
                     onBlur={() => setComposerFocused(false)}
@@ -16443,8 +17577,7 @@ function App() {
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
                     style={S.searchBtn} onClick={() => ask()} title="Ask" aria-label="Ask"
-                    onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.06)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+                    className="cb-magnetic cb-shine"
                   ><Icon name="arrowRight" size={17} /></button>
               </div>
               {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
@@ -16514,7 +17647,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} onStress={(o) => ask(t.q, o)} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} />))}
+                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} onStress={(o) => ask(t.q, o)} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} onShowFlowchart={(turn) => setFlowchartOpen({ title: (turn.q || "Untitled flowchart").slice(0, 80), answerText: turn.answer, sources: turn.sources, chartId: null })} />))}
                 {busy && (<div style={S.turn}><div style={S.qLabel}><span style={S.qDot} /><span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Processing</span></div><Skeleton P={P} /><AgentTrace P={P} accent={accent} done={false} contextual={contextBusy} /></div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
@@ -16697,8 +17830,8 @@ function App() {
                           {sv.title ? renderCleanTitle(sv.title) : sv.url}
                         </a>
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.5, fontFamily: "var(--cb-body)" }}>
-                          {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
-                          {typeof sv.citations === "number" && ` · ${sv.citations.toLocaleString()} citations`}
+                          {[sv.authors, formatJournalName(sv.journal), sv.year].filter(Boolean).join(" · ")}
+                          {(() => { const c = formatCitationCount(sv.citations, sv.year, "citation"); return c ? ` · ${c}` : ""; })()}
                         </div>
                         <div style={{ alignItems: "center", display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
                           {sv.authors && <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }}>More by these authors</UIButton>}
@@ -16709,6 +17842,45 @@ function App() {
                   </div>
                 )}
               </>
+            )}
+          </WorkspacePage>
+          {/* Flowchart Studio — saved charts live in the library next to saved
+              papers, because a diagram of what the evidence says is a research
+              artifact in the same sense a saved paper is. */}
+          <WorkspacePage
+            P={P} accent={accent} isMobile={isMobile} wide
+            title="Flowcharts" count={flowcharts.length}
+            description="Diagrams you've built in Flowchart Studio — processes, decisions and evidence maps. They live in your browser, like everything else here."
+            actions={(
+              <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setFlowchartOpen({ title: "Untitled flowchart", chartId: null }); }}>New flowchart</UIButton>
+            )}
+          >
+            {flowcharts.length === 0 ? (
+              <WorkspaceEmpty P={P} accent={accent} icon="flowchart"
+                title="No flowcharts yet"
+                body="Map a mechanism, a method, or a decision the literature describes. You can draft one straight from any answer, or start blank."
+                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setFlowchartOpen({ title: "Untitled flowchart", chartId: null }); }}>Open Flowchart Studio</UIButton>} />
+            ) : (
+              <div style={{ display: "grid", gap: 12, gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(300px, 1fr))", alignItems: "start" }}>
+                {flowcharts.map((fc) => (
+                  <UICard key={fc.id} P={P}>
+                    <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}
+                      style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left" }}>
+                      <FcThumb chart={fc} accent={accent} />
+                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginTop: 10, lineHeight: 1.4 }}>{fc.title || "Untitled flowchart"}</div>
+                    </button>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
+                      {(fc.nodes || []).length} node{(fc.nodes || []).length === 1 ? "" : "s"} · {(fc.edges || []).length} arrow{(fc.edges || []).length === 1 ? "" : "s"}
+                      {fc.updatedAt ? ` · ${new Date(fc.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}
+                    </div>
+                    <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
+                      <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}>Open</UIButton>
+                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG</UIButton>
+                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); }}>Delete</UIButton>
+                    </div>
+                  </UICard>
+                ))}
+              </div>
             )}
           </WorkspacePage>
         </Reveal>
@@ -16936,6 +18108,22 @@ function App() {
       )}
       {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
       {evidenceTableSources && <EvidenceTableModal P={P} accent={accent} at={at} sources={evidenceTableSources} close={() => setEvidenceTableSources(null)} />}
+      {flowchartOpen && (
+        <FlowchartStudio
+          P={P} accent={accent} at={at} isMobile={isMobile}
+          initial={flowchartOpen.chartId ? flowcharts.find((c) => c.id === flowchartOpen.chartId) : flowchartOpen}
+          docTitle={flowchartOpen.title}
+          answerText={flowchartOpen.answerText}
+          sources={flowchartOpen.sources}
+          onSave={({ title, nodes, edges }) => {
+            const id = flowchartOpen.chartId || fcId("chart");
+            const rec = { id, title, nodes, edges, updatedAt: Date.now() };
+            setFlowcharts((prev) => [rec, ...prev.filter((c) => c.id !== id)]);
+            setFlowchartOpen((prev) => (prev ? { ...prev, chartId: id, title } : prev));
+          }}
+          close={() => setFlowchartOpen(null)}
+        />
+      )}
       {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />}
       {/* Commit 47: rendered here, at the app root, specifically so it's not
           a child of the "inbox" view branch above — a component instance
@@ -17049,6 +18237,7 @@ const CSS = `
   --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
   --cb-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --cb-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --cb-spring:  cubic-bezier(0.34, 1.45, 0.64, 1);
 }
 
 *, *::before, *::after {
@@ -17313,18 +18502,23 @@ summary::-webkit-details-marker { display: none; }
 }
 
 /* ── Stagger cascade ──
-   This was a pure opacity fade: items appeared in sequence but never
-   moved, which is exactly what made every list in the app feel flat next
-   to the Intro's rise-and-fade. Now it runs cbRise (translateY + fade,
-   same gesture as the GSAP reveal system), with delays tightened from 60ms
-   to 45ms — a longer per-item animation needs a shorter gap between items
-   or the tail of a long list arrives noticeably late.
+   The container supplies per-item delays only; each child brings its own
+   entrance animation (cb-fade) plus an inline opacity: 0 pre-animation
+   state, and the nth-child ladder staggers them 45ms apart — a longer
+   per-item animation needs a shorter gap between items or the tail of a
+   long list arrives noticeably late.
+
+   Load-bearing detail: this rule must NOT set animation: none. It did,
+   once — and with equal specificity coming later in source order it beat
+   every child's own cb-fade animation, while the children's inline
+   opacity: 0 kept them invisible forever. The bibliography rendered a
+   full list of real citations into the DOM that no one could see.
 
    The nth-child ladder is capped at 8 deliberately: past ~350ms of
    accumulated delay a cascade stops reading as choreography and starts
    reading as lag, so everything from the 9th item on shares one delay
    rather than continuing to add up. */
-.cb-stagger > * { opacity: 1; animation: none; }
+.cb-stagger > * { opacity: 1; }
 .cb-stagger > *:nth-child(1) { animation-delay: 0ms; }
 .cb-stagger > *:nth-child(2) { animation-delay: 45ms; }
 .cb-stagger > *:nth-child(3) { animation-delay: 90ms; }
@@ -17381,6 +18575,130 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   transform: translateY(-2px);
   box-shadow: 0 2px 6px rgba(0,0,0,0.06), 0 10px 28px rgba(0,0,0,0.10);
   border-color: color-mix(in srgb, var(--cb-accent, #34d399) 32%, transparent);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PREMIUM INTERACTION LAYER
+
+   Cursor spotlight, shine sweeps, magnetic pull, and 3D tilt — the
+   details that separate "well built" from "considered." All paint work
+   is confined to the hovered element (a radial-gradient highlight, a
+   skewed sweep), and all motion is transform/opacity on the compositor
+   thread. The JS that drives them is one delegated pointermove listener
+   (see usePremiumPointer in App): no per-component listeners, no
+   re-renders, just CSS custom properties.
+
+   Every effect no-ops under prefers-reduced-motion or coarse pointers.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Text selection carries the accent instead of the OS default blue — a
+   small thing a reader does constantly in a research tool. */
+::selection {
+  background: color-mix(in srgb, var(--cb-accent, #34d399) 32%, transparent);
+  color: inherit;
+}
+
+/* ── Cursor spotlight ──
+   A soft accent-tinted glow that follows the pointer across a card.
+   JS writes --mx/--my as percentages on pointermove; the ::before layer
+   fades in on hover. One element repaints, not the page. */
+.cb-spotlight { position: relative; }
+.cb-spotlight::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(480px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--cb-accent, #34d399) 10%, transparent),
+    transparent 65%);
+  opacity: 0; transition: opacity 320ms ease; pointer-events: none; z-index: 0;
+}
+.cb-spotlight:hover::before { opacity: 1; }
+/* position:relative (no z-index) is enough: the ::before is generated as
+   the first child with z-index 0, so positioned children paint above it
+   in DOM order without creating new stacking contexts of their own. */
+.cb-spotlight > * { position: relative; }
+
+/* ── Shine sweep ──
+   A light band that crosses primary buttons on hover. The skew keeps it
+   from reading as a flat flash; the 650ms duration keeps it from reading
+   as urgent. */
+.cb-shine { position: relative; overflow: hidden; }
+.cb-shine::after {
+  content: ""; position: absolute; top: -20%; bottom: -20%; width: 45%;
+  left: -70%; transform: skewX(-18deg); pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.38), transparent);
+  transition: left 650ms var(--cb-ease);
+}
+.cb-shine:hover::after { left: 135%; }
+/* Snap back instantly when the pointer leaves: the sweep reads as a
+   one-way gesture, not a pendulum. */
+.cb-shine:not(:hover)::after { transition: none; }
+
+/* ── Magnetic pull ──
+   JS translates the element a few px toward the cursor (max 7px) with a
+   spring back on leave. The class only declares the transition; the
+   transform itself is written inline by the pointer handler so leaving
+   the element always eases home. */
+.cb-magnetic { transition: transform 320ms var(--cb-spring); will-change: transform; }
+
+/* ── 3D tilt ──
+   Subtle perspective tilt for feature/hero cards. The wrapper supplies
+   perspective; JS writes rotateX/rotateY (max 5deg). Disabled on touch. */
+.cb-tilt-wrap { perspective: 900px; }
+.cb-tilt { transition: transform 380ms var(--cb-spring); transform-style: preserve-3d; will-change: transform; }
+
+/* ── Lift+ ──
+   The next step up from a plain hover lift: the card rises, its border
+   catches the accent, and a deep soft shadow grounds it. For the cards
+   that represent the product's core objects (sources, papers). */
+.cb-lift {
+  transition: transform 300ms var(--cb-ease), box-shadow 300ms var(--cb-ease),
+              border-color 300ms var(--cb-ease);
+}
+.cb-lift:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 38%, transparent);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 12px 32px rgba(0,0,0,0.14),
+    0 0 0 1px color-mix(in srgb, var(--cb-accent, #34d399) 12%, transparent);
+}
+.cb-lift:active { transform: translateY(-1px) scale(0.995); transition-duration: 120ms; }
+
+/* ── Spring chips ──
+   Citation chips and small pills get a springy hover instead of a flat
+   color swap — the overshoot in --cb-spring is what reads as physical. */
+.cb-spring-chip { transition: transform 280ms var(--cb-spring), background-color 200ms ease, border-color 200ms ease, color 200ms ease; }
+.cb-spring-chip:hover { transform: translateY(-1px) scale(1.06); }
+.cb-spring-chip:active { transform: scale(0.94); transition-duration: 100ms; }
+
+/* ── Animated gradient hairline ──
+   For featured panels: a 1px top border that slowly cycles through the
+   accent at low opacity. background-attachment trick keeps it cheap —
+   it's a background-position animation on a 2px-tall layer, not a repaint
+   of the panel. */
+.cb-glow-line { position: relative; }
+.cb-glow-line::before {
+  content: ""; position: absolute; top: -1px; left: 8%; right: 8%; height: 1px;
+  background: linear-gradient(90deg, transparent,
+    color-mix(in srgb, var(--cb-accent, #34d399) 65%, transparent),
+    transparent);
+  background-size: 200% 100%;
+  animation: cbGlowLineSlide 7s ease-in-out infinite; pointer-events: none;
+}
+@keyframes cbGlowLineSlide {
+  0%, 100% { background-position: 120% 0; opacity: 0.55; }
+  50%      { background-position: -20% 0; opacity: 1; }
+}
+
+/* ── Breathing dot ──
+   For live/status indicators: a dot that breathes rather than blinks. */
+.cb-breathe { animation: cbBreathe 2.8s ease-in-out infinite; }
+@keyframes cbBreathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.82); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cb-spotlight::before, .cb-shine::after, .cb-glow-line::before { display: none; }
+  .cb-magnetic, .cb-tilt, .cb-lift, .cb-spring-chip { transition: none; }
+  .cb-breathe { animation: none; }
 }
 
 /* Glass panel depth — multi-layer shadows for 3D float effect */
@@ -18126,6 +19444,69 @@ button, a, .cb-tap {
 }
 @media (prefers-reduced-transparency: reduce) {
   .cb-grain, .cb-vignette { display: none; }
+}
+
+
+/* ── The Observatory: instrument chrome ──
+   A hairline frame with corner ticks around the viewport — the feel of
+   looking through a precision instrument, not a browser window. Purely
+   decorative: pointer-events none, no layout impact. The ticks catch the
+   accent; the frame itself is barely there. */
+.cb-instrument-frame {
+  position: fixed;
+  inset: 10px;
+  z-index: 9000;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--cb-accent, #8ba888) 14%, transparent);
+  border-radius: 14px;
+  contain: strict;
+}
+.cb-instrument-frame::before,
+.cb-instrument-frame::after,
+.cb-instrument-frame > i::before,
+.cb-instrument-frame > i::after {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 1.5px solid color-mix(in srgb, var(--cb-accent, #8ba888) 65%, transparent);
+}
+.cb-instrument-frame::before { top: -1.5px; left: -1.5px; border-right: none; border-bottom: none; border-top-left-radius: 14px; }
+.cb-instrument-frame::after { top: -1.5px; right: -1.5px; border-left: none; border-bottom: none; border-top-right-radius: 14px; }
+.cb-instrument-frame > i::before { bottom: -1.5px; left: -1.5px; border-right: none; border-top: none; border-bottom-left-radius: 14px; }
+.cb-instrument-frame > i::after { bottom: -1.5px; right: -1.5px; border-left: none; border-top: none; border-bottom-right-radius: 14px; }
+@media (max-width: 760px) {
+  .cb-instrument-frame { inset: 6px; border-radius: 10px; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cb-instrument-frame { display: none; }
+}
+/* Instrument readout: mono micro-labels pinned to the frame's corners. */
+.cb-readout {
+  position: fixed;
+  z-index: 9001;
+  pointer-events: none;
+  font-family: var(--cb-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--cb-accent, #8ba888) 55%, transparent);
+  white-space: nowrap;
+}
+.cb-readout-tl { top: 18px; left: 26px; }
+.cb-readout-tr { top: 18px; right: 26px; text-align: right; }
+.cb-readout-bl { bottom: 18px; left: 26px; }
+.cb-readout-br { bottom: 18px; right: 26px; text-align: right; }
+@media (max-width: 760px) { .cb-readout-bl, .cb-readout-br { display: none; } }
+/* Blur-to-sharp: the microscope-focusing reveal for answer sections. */
+@keyframes cbFocusIn {
+  from { opacity: 0; filter: blur(14px); transform: translateY(14px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+.cb-focus-in {
+  animation: cbFocusIn 1.1s var(--cb-ease) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-focus-in { animation: none; }
 }
 
 

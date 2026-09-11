@@ -1852,7 +1852,7 @@ async function europePMC(query, limit = 8) {
         citations: typeof r.citedByCount === "number" ? r.citedByCount : null,
         authors: r.authorString || "",
         _allAuthors: r.authorString || "",
-        journal: r.journalTitle || "Europe PMC",
+        journal: r.journalTitle || "",
         abstract: stripTags(r.abstractText),
         pmcid: r.pmcid || (r.source === "PMC" ? r.id : "") || "",
         // Europe PMC is not a major dataset-leak vector — it indexes literature,
@@ -1905,7 +1905,7 @@ function parsePubmedXML(xmlText) {
       year,
       citations: null,
       authors,
-      journal: journal || "PubMed",
+      journal: journal || "",
       abstract,
       pmid,
     };
@@ -1983,7 +1983,7 @@ async function pubmed(query, limit = 10, apiKey = "") {
           authors:
             (s.authors || []).slice(0, 1).map((a) => a.name).join("") +
             ((s.authors || []).length > 1 ? " et al." : ""),
-          journal: s.fulljournalname || s.source || "PubMed",
+          journal: s.fulljournalname || s.source || "",
           abstract: "",
           pmid,
         };
@@ -2677,7 +2677,7 @@ async function semanticScholar(query, limit = 8) {
             (r.authors || []).slice(0, 1).map((a) => a.name).join("") +
             ((r.authors || []).length > 1 ? " et al." : ""),
           _allAuthors: (r.authors || []).map((a) => a.name).filter(Boolean).join(", "),
-          journal: r.venue || "Semantic Scholar",
+          journal: r.venue || "",
           abstract: r.abstract || "",
           tldr: (r.tldr && r.tldr.text) || "",
           // `publicationTypes` comes back as an array (can be null/empty for
@@ -2713,7 +2713,7 @@ async function doaj(query, limit = 6) {
           authors:
             (b.author || []).slice(0, 1).map((a) => a.name).join("") +
             ((b.author || []).length > 1 ? " et al." : ""),
-          journal: (b.journal && b.journal.title) || "DOAJ",
+          journal: (b.journal && b.journal.title) || "",
           abstract: stripTags(b.abstract || ""),
         };
       })
@@ -2883,7 +2883,7 @@ async function plos(query, limit = 6) {
         authors:
           (d.author_display || []).slice(0, 1).join("") +
           ((d.author_display || []).length > 1 ? " et al." : ""),
-        journal: d.journal || "PLOS",
+        journal: d.journal || "",
         abstract: stripTags(
           Array.isArray(d.abstract) ? d.abstract.join(" ") : d.abstract || ""
         ),
@@ -2908,7 +2908,7 @@ async function coreSearch(query, limit = 8) {
       citations: null,
       authors: (r.authors || []).map((a) => a.name || "").slice(0, 1).join("") + ((r.authors || []).length > 1 ? " et al." : ""),
       _allAuthors: (r.authors || []).map((a) => a.name || "").join(", "),
-      journal: r.publisher || "CORE",
+      journal: r.publisher || "",
       abstract: stripTags((r.abstract || "").slice(0, 1500)),
     }));
   } catch { return []; }
@@ -2926,7 +2926,7 @@ async function baseSearch(query, limit = 8) {
       citations: null,
       authors: Array.isArray(d.dcperson) ? d.dcperson.slice(0,1).join("") + (d.dcperson.length > 1 ? " et al." : "") : (d.dcperson || ""),
       _allAuthors: Array.isArray(d.dcperson) ? d.dcperson.join(", ") : (d.dcperson || ""),
-      journal: Array.isArray(d.dcsource) ? d.dcsource[0] : (d.dcsource || "BASE"),
+      journal: Array.isArray(d.dcsource) ? d.dcsource[0] : (d.dcsource || ""),
       abstract: stripTags(Array.isArray(d.dcdescription) ? d.dcdescription.join(" ").slice(0,1500) : (d.dcdescription || "").slice(0,1500)),
     }));
   } catch { return []; }
@@ -2946,7 +2946,7 @@ async function pmcFullText(query, limit = 8) {
       citations: typeof r.citedByCount === "number" ? r.citedByCount : null,
       authors: r.authorString || "",
       _allAuthors: r.authorString || "",
-      journal: r.journalTitle || "PMC",
+      journal: r.journalTitle || "",
       abstract: stripTags(r.abstractText),
     }));
   } catch { return []; }
@@ -2978,7 +2978,7 @@ async function openAire(query, limit = 8) {
         year: acceptDate.slice(0,4), citations: null,
         authors: names.slice(0,1).join("") + (names.length > 1 ? " et al." : ""),
         _allAuthors: names.join(", "),
-        journal: m.journal?.["$"] || "OpenAIRE",
+        journal: m.journal?.["$"] || "",
         abstract: stripTags((typeof m.description === "string" ? m.description : (m.description?.["$"] || "")).slice(0,1500)),
       };
     }).filter((p) => p.title && p.title !== "Untitled");
@@ -3061,7 +3061,7 @@ async function duckduckgo(query) {
         year: "",
         citations: null,
         authors: data.AbstractSource || "Web",
-        journal: data.AbstractSource || "Web",
+        journal: data.AbstractSource || "",
         abstract: abstract.slice(0, 1200),
         isEncyclopedia: true,
       },
@@ -7963,6 +7963,7 @@ export async function onRequest(context) {
       "- ZERO-HALLUCINATION GROUNDING: ground every factual assertion strictly in the provided abstracts. Do NOT introduce external acronyms, gene names, brain regions, or pathways (e.g., BDNF, DMN, TPJ) unless that exact term appears verbatim somewhere in the retrieved abstracts above — importing a real-but-unsourced acronym to sound precise is exactly as dishonest as inventing a fake one, and it will fail fact-checking either way. If a concept needs a name the sources don't give you, describe it in plain language instead.\n" +
       "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' — but NEVER invent specific paper titles or authors.\n" +
       "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
+      "- NEVER use footnote asterisks. Do not write 'clinical trial*', 'meta-analysis*', or any word with a trailing '*' — there are no footnotes in this format, so a dangling asterisk is a typo, not a reference. If you need emphasis, use **bold** or *italics* with proper opening AND closing markers.\n" +
       "- No <think> tags, no code fences, no meta-commentary about your process.\n";
 
     // v28: this was previously a loose suggestion buried in CONTEXT

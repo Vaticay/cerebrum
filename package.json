@@ -15,7 +15,7 @@
     "build": "vite build && node scripts/prerender.mjs && node scripts/check.mjs",
     "preview": "wrangler pages dev ./dist",
     "deploy": "vite build && wrangler pages deploy ./dist",
-    "test": "node tests/run.mjs",
+    "test": "node tests/run",
     "check": "node scripts/check.mjs"
   },
   "dependencies": {
