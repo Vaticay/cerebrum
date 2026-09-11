@@ -3069,7 +3069,7 @@ function EvidenceStructure({ data, P, accent, isMobile }) {
   const collapsed = lines < papers;
 
   return (
-    <div style={{
+    <div className="cb-specimen" style={{
       marginTop: 18, padding: isMobile ? "16px 16px 14px" : "18px 20px 16px",
       borderRadius: RADIUS.lg,
       background: P.dark ? "rgba(255,255,255,0.028)" : "rgba(0,0,0,0.018)",
@@ -3844,30 +3844,48 @@ function AgentTrace({ P, accent, sourcesQueried = null, done = false, contextual
   const total = Array.isArray(sourcesQueried) ? sourcesQueried.length : 0;
 
   return (
-    <div style={{ padding: "16px 0 4px", fontFamily: "var(--cb-mono)" }} aria-live="polite" aria-atomic="true">
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+    <div style={{ padding: "18px 0 6px" }} aria-live="polite" aria-atomic="true">
+      {/* Innovation refinement: the waiting state as an instrument deck. A
+          radar sweep (ambient — indeterminate by design, because the client
+          genuinely cannot see milestones mid-request), a live elapsed
+          readout, one honest line. See the comment above this component. */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 14,
+        border: `1px solid ${P.line}`, borderRadius: 12,
+        padding: "12px 16px",
+        background: P.dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.02)",
+      }}>
         <span style={{
-          width: 6, height: 6, borderRadius: "50%", background: accent,
-          boxShadow: `0 0 8px ${withAlpha(accent, 0.5)}`,
+          width: 8, height: 8, borderRadius: "50%", background: accent, flexShrink: 0,
+          boxShadow: `0 0 10px ${withAlpha(accent, 0.6)}`,
           animation: reduced ? "none" : "cbSynapse 1.25s cubic-bezier(0.4,0,0.6,1) infinite",
         }} />
-        <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, letterSpacing: "0.02em", fontVariantNumeric: "tabular-nums" }}>
-          {seconds}s
+        {/* The sweep track. Pure ambience: it marks that work is in flight
+            the way a radar sweep marks that the dish is turning — it never
+            implies a percentage or a phase. */}
+        <div aria-hidden="true" style={{ position: "relative", flex: 1, height: 2, borderRadius: 2, background: P.line, overflow: "hidden" }}>
+          {(!done && !reduced) && <span className="cb-trace-comet" />}
+        </div>
+        <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: P.ink2, fontVariantNumeric: "tabular-nums", flexShrink: 0, minWidth: 46, textAlign: "right" }}>
+          {String(seconds).padStart(2, "0")}s
         </span>
-        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
-          {done && total ? `${responded.length} of ${total} databases answered` : waitingLine}
-        </span>
+      </div>
+      <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>
+        {done && total ? `${responded.length} of ${total} databases answered` : waitingLine}
       </div>
 
       {/* The per-database breakdown, only once it is real. */}
       {done && total > 0 && (
-        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "4px 10px", marginTop: 4 }}>
-          {sourcesQueried.map((s) => (
-            <span key={s.source} style={{
-              fontSize: FONT_SIZES.micro,
+        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "6px 10px", marginTop: 10 }}>
+          {sourcesQueried.map((s, i) => (
+            <span key={s.source} className={reduced ? "" : "cb-trace-chip"} style={{
+              animationDelay: reduced ? undefined : `${Math.min(i, 12) * 45}ms`,
+              fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)",
               color: s.ok ? P.ink2 : P.faint,
-              opacity: s.ok ? 1 : 0.55,
-              display: "inline-flex", alignItems: "center", gap: 4,
+              border: `1px solid ${s.ok ? withAlpha(accent, 0.35) : P.line}`,
+              background: s.ok ? withAlpha(accent, 0.07) : "transparent",
+              borderRadius: 9999, padding: "3px 10px",
+              display: "inline-flex", alignItems: "center", gap: 6,
             }}>
               <span style={{
                 width: 4, height: 4, borderRadius: "50%",
@@ -4023,6 +4041,11 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-31.mp4", // Ocean waves at rocks — Peter Fowler
   "/assets/cinematic/science-32.mp4", // Clear quartz crystal — Monstera Production
   "/assets/cinematic/science-33.mp4", // Volcanic lava in slow motion — Anoop A Nair
+  "/assets/cinematic/science-34.mp4", // Ferrofluid spikes under a magnet — Film Composite
+  "/assets/cinematic/science-35.mp4", // Northern lights timelapse — T Honkamies
+  "/assets/cinematic/science-36.mp4", // Soap bubble freezing, macro — Aaron Burden
+  "/assets/cinematic/science-37.mp4", // Nebula field with stars — Adis Resic
+  "/assets/cinematic/science-38.mp4", // Ants on a tiny white flower — Vung Nguyen
 ];
 
 /* Portrait. Used when the window is taller than it is wide — a phone held
@@ -4082,19 +4105,25 @@ const FILM_CREDITS = [
   { n: "31", title: "Ocean waves at rocks", credit: "Peter Fowler", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ocean-waves-video-1093652/" },
   { n: "32", title: "Clear quartz crystal", credit: "Monstera Production", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-video-of-a-clear-quartz-crystal-7792946/" },
   { n: "33", title: "Volcanic lava in slow motion", credit: "Anoop A Nair", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/lava-in-volcano-in-slow-motion-13438865/" },
+  { n: "34", title: "Ferrofluid spikes under a magnet", credit: "Film Composite", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/inky-16296848/" },
+  { n: "35", title: "Northern lights timelapse", credit: "T Honkamies", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/northern-lights-timelapse-28492331/" },
+  { n: "36", title: "Soap bubble freezing, macro", credit: "Aaron Burden", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-macro-footage-of-a-water-bubble-slowly-freezing-on-a-cold-winter-s-day-2478688/" },
+  { n: "37", title: "Nebula field with stars", credit: "Adis Resic", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/stunning-cosmic-nebula-with-stars-in-deep-space-31084223/" },
+  { n: "38", title: "Ants on a tiny white flower", credit: "Vung Nguyen", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ants-on-tiny-white-flower-18275131/" },
 ];
 
 /* What was done to the footage. Stated once, plainly, because "adapted"
    with no detail is not an adaptation notice. */
 const FILM_MODIFICATIONS =
-  "Each clip is a silent excerpt of up to 15 seconds, re-encoded as H.264 and colour-graded in " +
-  "the browser at display time (desaturated, contrast raised, brightness reduced). Every clip " +
-  "is cut from the highest-resolution master its source publishes and shipped as a 1080p " +
-  "playback derivative — full resolution is invisible behind a grade this dark and costs " +
-  "several times the decode. Where a source publishes nothing above 1080p, the clip ships at " +
-  "its native size rather than being upscaled. Portrait clips keep their own orientation " +
-  "rather than being stretched. Two clips are trimmed past a title card. No clip is re-timed " +
-  "or reversed, and no frames are composited between clips.";
+  "Each clip is a silent excerpt of up to 15 seconds, cut from the highest-resolution master " +
+  "its source publishes, at its original speed and frame rate. Every clip ships in two " +
+  "renditions: VP9 (.webm), preferred wherever the browser supports it, and H.264 (.mp4) as " +
+  "the universal fallback — both 720p, because full resolution is invisible behind a grade " +
+  "this dark and costs several times the decode. The cinematic grade (desaturated, contrast " +
+  "raised, brightness reduced) is baked into the files rather than applied as a live filter, " +
+  "so playback never pays a per-frame shader cost. Portrait clips keep their own orientation " +
+  "rather than being stretched. No clip is re-timed or reversed, and no frames are composited " +
+  "between clips.";
 
 function FilmCreditsDialog({ onClose, accent }) {
   const ref = useRef(null);
@@ -4237,6 +4266,11 @@ const FILM_SCENES = {
   "/assets/cinematic/science-31.mp4": { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
   "/assets/cinematic/science-32.mp4": { subject: "Mineralogy", question: "How do crystals grow into such regular shapes?" },
   "/assets/cinematic/science-33.mp4": { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
+  "/assets/cinematic/science-34.mp4": { subject: "Physics", question: "How does a magnetic field sculpt a liquid into spikes?" },
+  "/assets/cinematic/science-35.mp4": { subject: "Atmospheric science", question: "What paints the aurora's curtains of light across the sky?" },
+  "/assets/cinematic/science-36.mp4": { subject: "Thermodynamics", question: "What decides the exact moment water becomes ice?" },
+  "/assets/cinematic/science-37.mp4": { subject: "Astronomy", question: "What is a nebula made of, and how are stars born inside one?" },
+  "/assets/cinematic/science-38.mp4": { subject: "Entomology", question: "How do ants coordinate without a leader or words?" },
 };
 
 /* The poster is a frame of this clip, so when the reel is blocked and the
@@ -4367,6 +4401,22 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
        path run inside a preload would start hidden playback mid-buffer. */
     let preloadingEl = null;
 
+    /* VP9-first delivery. Every clip ships as science-NN.mp4 (H.264 — the
+       universal fallback) and science-NN.webm (VP9 — same baked grade,
+       better quality at roughly half the bytes). The clip lists keep the
+       .mp4 paths because FILM_SCENES is keyed by them; only the element's
+       src is remapped, and only when this browser can actually play VP9.
+       The onerror path below still skips a bad file, whatever its
+       container. Support is probed once per session. */
+    let vp9OK = null;
+    const filmFile = (el, mp4) => {
+      if (vp9OK === null) {
+        try { vp9OK = !!el.canPlayType && el.canPlayType('video/webm; codecs="vp9"') !== ""; }
+        catch { vp9OK = false; }
+      }
+      return vp9OK ? mp4.replace(/\.mp4$/i, ".webm") : mp4;
+    };
+
     const play = (el, src) => {
       /* A clip that loads clears the miss counter. Without this the count
          only ever climbs: a long session that skips a handful of absent
@@ -4399,7 +4449,10 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
         }
       };
       el.style.objectPosition = framePos(src);
-      if (el.getAttribute("src") !== src) { el.src = src; el.load(); }
+      /* src stays the .mp4 key for framePos above; the element loads the
+         best rendition this browser can play. */
+      const file = filmFile(el, src);
+      if (el.getAttribute("src") !== file) { el.src = file; el.load(); }
       if (preloadingEl === el) preloadingEl = null;
       const p = el.play();
       if (p && p.catch) p.catch(() => {});
@@ -4409,10 +4462,11 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
        clip's fade has finished — setting src earlier would unload the
        clip mid-dissolve and kill the fade. */
     const preloadInto = (el, src) => {
-      if (!src || el.getAttribute("src") === src) return;
+      const file = filmFile(el, src);
+      if (!file || el.getAttribute("src") === file) return;
       preloadingEl = el;
       el.preload = "auto";
-      el.src = src;
+      el.src = file;
       try { el.load(); } catch {}
     };
 
@@ -4664,10 +4718,22 @@ function SourcesDialog({ onClose, accent }) {
 
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const isMobile = useIsMobile();
+  const reduced = usePrefersReducedMotion();
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  /* Innovation refinement — the door, reimagined:
+     `iris` is the opening reveal on first paint (a black disc that opens
+     from the optical centre, so the first thing seen is the film, not UI
+     fading in). `veil` is the threshold bloom on exit: a glow that opens
+     from the pressed point to full coverage, and onEnter fires while the
+     screen is covered so the swap into the app is invisible. Both are
+     skipped entirely when animation is off or reduced motion is set. */
+  const [iris, setIris] = useState(true);
+  const [veil, setVeil] = useState(null);
+  const veilRef = useRef(null);
+  const heroParRef = useRef(null);
 
   /* The intro uses Cerebrum's sage, not the visitor's chosen accent.
      The default accent is Mono — pure white — so on a fresh phone every
@@ -4748,18 +4814,61 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
 
   /* `submit` is the difference between prefilling the composer and actually
      asking. The scene prompt and the worked example ask; every other route
-     in opens the workspace and leaves the cursor in the box. */
-  const go = (q, submit) => {
+     in opens the workspace and leaves the cursor in the box.
+
+     Innovation refinement: leaving is no longer a fade-out of the furniture.
+     A threshold veil blooms from the pressed point to full coverage, and
+     onEnter fires while the screen is covered — stepping through a door of
+     light rather than watching text dissolve. The no-motion path is
+     untouched: animation off or reduced motion goes straight through. */
+  const go = (q, submit, e) => {
     const payload = typeof q === "string" ? q : "";
-    if (animationMode === "off") { onEnter(payload, !!submit); return; }
-    const tl = gsap.timeline({ onComplete: () => onEnter(payload, !!submit) });
-    tl.to(sceneRef.current, { y: 10, autoAlpha: 0, duration: 0.4, ease: EASE }, 0)
-      .to(btnsRef.current, { y: 12, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.04)
-      .to(descRef.current, { y: 12, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.09)
-      .to(head2Ref.current, { y: 16, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.14)
-      .to(head1Ref.current, { y: 16, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.18)
-      .to(navRef.current, { y: -12, autoAlpha: 0, duration: 0.42, ease: EASE }, 0.24);
+    if (animationMode === "off" || reduced) { onEnter(payload, !!submit); return; }
+    const r = e && e.currentTarget && e.currentTarget.getBoundingClientRect
+      ? e.currentTarget.getBoundingClientRect() : null;
+    setVeil({
+      payload, submit,
+      x: r ? r.left + r.width / 2 : window.innerWidth / 2,
+      y: r ? r.top + r.height / 2 : window.innerHeight * 0.62,
+    });
   };
+
+  /* Drives the threshold veil: 0px circle at the pressed point expanding
+     past the farthest corner, then the handoff. Killed on unmount so a
+     fast double-press can never stack timelines. */
+  useEffect(() => {
+    if (!veil || !veilRef.current) return undefined;
+    const R = Math.hypot(
+      Math.max(veil.x, window.innerWidth - veil.x),
+      Math.max(veil.y, window.innerHeight - veil.y)
+    ) + 48;
+    const tl = gsap.timeline({ onComplete: () => onEnter(veil.payload, veil.submit) });
+    tl.fromTo(veilRef.current,
+      { clipPath: `circle(0px at ${veil.x}px ${veil.y}px)`, opacity: 1 },
+      { clipPath: `circle(${R}px at ${veil.x}px ${veil.y}px)`, duration: 0.9, ease: "power3.inOut" });
+    return () => tl.kill();
+  }, [veil, onEnter]);
+
+  /* The hero breathes with the pointer — a few pixels of parallax on the
+     headline block, rAF-throttled, desktop and full-motion only. Subtle on
+     purpose: the film is already moving; this just makes the words feel
+     like they float over it rather than being printed on it. */
+  useEffect(() => {
+    if (animationMode === "off" || reduced || isMobile) return undefined;
+    const el = heroParRef.current;
+    if (!el) return undefined;
+    let raf = 0;
+    const onMove = (ev) => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const dx = ev.clientX / window.innerWidth - 0.5;
+        const dy = ev.clientY / window.innerHeight - 0.5;
+        el.style.transform = `translate3d(${(dx * 12).toFixed(2)}px, ${(dy * 9).toFixed(2)}px, 0)`;
+      });
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => { window.removeEventListener("pointermove", onMove); cancelAnimationFrame(raf); };
+  }, [animationMode, reduced, isMobile]);
 
   const hidden = animationMode === "off" ? 1 : 0;
 
@@ -4797,6 +4906,18 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           is open and resumes on close with whatever the visitor had chosen —
           `filmOff` is untouched, so the pause is the dialog's, not theirs. */}
       <CinematicFilm animationMode={animationMode} intensity={1} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={onClip} />
+
+      {/* Innovation refinement — the door, reimagined. The iris opens on
+          first paint so the film is revealed rather than faded in; the
+          threshold veil blooms from the pressed point on exit and the
+          handoff into the app fires while the screen is covered. */}
+      {iris && animationMode !== "off" && !reduced && (
+        <div className="cb-iris-veil" aria-hidden="true" onAnimationEnd={() => setIris(false)} />
+      )}
+      {veil && (
+        <div ref={veilRef} className="cb-threshold-veil" aria-hidden="true"
+          style={{ "--cb-tx": `${veil.x}px`, "--cb-ty": `${veil.y}px` }} />
+      )}
 
       {/* Contrast, spent where the words are rather than over the whole
           picture. The old scrim dropped a radial vignette plus a bottom
@@ -4860,7 +4981,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 More
               </button>
             )}
-            <button type="button" onClick={() => go("")} className="cb-intro-go cb-shine cb-magnetic" style={{
+            <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go cb-shine cb-magnetic" style={{
               border: "none", cursor: "pointer", borderRadius: 9999, marginLeft: 4,
               padding: isMobile ? "9px 15px" : "9px 18px", background: introAccent, color: "#11140f",
               fontWeight: 600, fontSize: 13.5, fontFamily: "var(--cb-body)", whiteSpace: "nowrap",
@@ -4893,7 +5014,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         paddingBottom: isMobile ? 30 : 44,
       }}>
         <div style={container}>
-          <div style={{
+          <div ref={heroParRef} className="cb-hero-parallax" style={{
             display: "grid",
             /* Left of centre, not against the edge: the hero column is a
                little over half of a 1200px container, so the words sit
@@ -4947,7 +5068,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 marginTop: isMobile ? 28 : 34,
                 display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
               }}>
-                <button type="button" onClick={() => go("")} className="cb-intro-go" style={{
+                <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go" style={{
                   border: "none", cursor: "pointer", borderRadius: 9999,
                   padding: isMobile ? "14px 28px" : "15px 34px",
                   background: introAccent, color: "#11140f",
@@ -4992,14 +5113,28 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               onMouseLeave={releaseHold}
               onFocus={() => { holdRef.current = true; }}
               onBlur={releaseHold}
-              style={{ maxWidth: 520 }}>
+              className="cb-specimen"
+              style={{
+                maxWidth: 520,
+                /* Innovation refinement: the scene prompt is no longer bare
+                   text floating on film — it is a specimen slide: smoked
+                   glass, hairline border, instrument corner ticks. Same
+                   position, same behaviour, a more deliberate object. */
+                background: "rgba(10, 12, 16, 0.55)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                borderRadius: 14,
+                padding: isMobile ? "16px 18px 14px" : "18px 22px 16px",
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
+                boxShadow: "0 18px 44px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.06)",
+              }}>
               <div style={{
                 fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.18em",
                 textTransform: "uppercase", color: withAlpha(introAccent, 0.86), marginBottom: 9,
               }}>{scene.subject}</div>
               <button
                 type="button"
-                onClick={() => go(scene.question, true)}
+                onClick={(e) => go(scene.question, true, e)}
                 className="cb-intro-scene"
                 style={{
                   display: "block", textAlign: "left", width: "100%",
@@ -5823,7 +5958,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle }) {
   };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   return (
-    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade cb-glow-line">
+    <div style={{ marginTop: 32, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : `1px solid ${P.line}`, borderRadius: 8, padding: "24px 26px 10px", background: P.dark ? "rgba(5,8,22,0.5)" : withAlpha(P.surface, 0.7), backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }} className="cb-fade cb-glow-line cb-specimen">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap", paddingBottom: 16, borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 3, height: 18, background: accent, borderRadius: 8 }} />
@@ -5881,7 +6016,16 @@ function BibEntry({ source, index, P, accent, style, className, last }) {
         opacity: 0, transition: "background 0.15s ease",
       }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <span style={{ flexShrink: 0, width: 20, textAlign: "right", paddingTop: 1, color: accent, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)" }}>{index}</span>
+      {/* Innovation refinement: the gutter number becomes an instrument
+          index plate — hairline border, mono, tabular — instead of a bare
+          accent numeral. It reads as a catalog mark, which is what a
+          reference number is. */}
+      <span style={{
+        flexShrink: 0, minWidth: 26, textAlign: "center", padding: "1px 0", marginTop: 1,
+        color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)",
+        fontVariantNumeric: "tabular-nums", border: `1px solid ${P.line}`, borderRadius: 6,
+        background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
+      }}>{index}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
           <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 7px", marginBottom: 5, background: withAlpha(source.retracted ? STATUS.bad : STATUS.warn, source.retracted ? 0.12 : 0.14), border: `1px solid ${source.retracted ? STATUS.bad : STATUS.warn}`, borderRadius: 8, fontSize: FONT_SIZES.micro, fontWeight: 700, color: source.retracted ? STATUS.bad : STATUS.warn, letterSpacing: "0.01em", fontFamily: "var(--cb-body)" }}>
@@ -6472,7 +6616,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
       </div>
       <h2 style={S.headline}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
       {/* Answer card */}
-      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel cb-glow-line">
+      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel cb-glow-line cb-specimen">
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
             docked via `position: absolute; top; right`. On a narrow mobile
@@ -6664,7 +6808,7 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
             skipped entirely while the typewriter is still streaming (the
             text is changing every few milliseconds; animating each keystroke
             would be strobing, not motion). */}
-        <div ref={answerRevealRef}>
+        <div ref={answerRevealRef} className="cb-answer-body">
           {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
         </div>
         {done && (
@@ -17961,7 +18105,7 @@ function App() {
                   textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
                 }}>{composerPrompt}</h2>
               )}
-              <div className="cb-search-glow cb-search-shell cb-spotlight" style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
+              <div className={"cb-search-glow cb-search-shell cb-spotlight" + (busy ? " cb-search-scanning" : "")} style={{ ...S.searchShell, ...(hover === "in" ? S.searchShellActive : {}), width: "100%", maxWidth: 820 }} onMouseEnter={() => setHover("in")} onMouseLeave={() => setHover("")}>
                   <input ref={inputRef} style={S.searchInput} value={input}
                     onFocus={() => setComposerFocused(true)}
                     onBlur={() => setComposerFocused(false)}
@@ -17972,9 +18116,14 @@ function App() {
                   <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                   <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
                   <button
-                    style={S.searchBtn} onClick={() => ask()} title="Ask" aria-label="Ask"
+                    style={S.searchBtn} onClick={() => ask()} title="Ask" aria-label={busy ? "Searching" : "Ask"}
                     className="cb-magnetic cb-shine"
-                  ><Icon name="arrowRight" size={17} /></button>
+                  >{busy
+                    /* Innovation refinement: while a search is in flight the
+                       arrow becomes a working pulse — the control admits it
+                       is busy instead of sitting there looking idle. */
+                    ? <span className="cb-search-dots" aria-hidden="true"><i /><i /><i /></span>
+                    : <Icon name="arrowRight" size={17} />}</button>
               </div>
               {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
               <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
@@ -18908,6 +19057,142 @@ summary::-webkit-details-marker { display: none; }
 }
 @keyframes cbCaret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0.15; } }
 
+/* ══════════════════════════════════════════════════════════════
+   INNOVATION REFINEMENT — new motion + instrument card language.
+
+   Same skeleton, same palette, same film. What changes is how the
+   product moves: the door opens, the search scans, the cards read
+   as instruments. Two rules hold throughout:
+
+   1. prefers-reduced-motion kills all of it (see the shared block
+      below the premium layer).
+   2. Nothing here fabricates state. The scan sweep is ambient — it
+      marks activity, not progress — and the only numbers shown are
+      real (elapsed seconds, actual database outcomes).
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Iris veil: the door opening on first paint.
+   A near-black disc opens from the optical centre, so the first thing
+   a visitor sees is the film revealed — not the UI fading in. Removed
+   from the DOM when its animation ends. */
+@keyframes cbIrisOpen {
+  from { clip-path: circle(0% at 50% 44%); }
+  to   { clip-path: circle(142% at 50% 44%); }
+}
+.cb-iris-veil {
+  position: fixed; inset: 0; z-index: 300; pointer-events: none;
+  background: #05070a;
+  animation: cbIrisOpen 1.6s cubic-bezier(.22,1,.36,1) .05s both;
+}
+
+/* ── Threshold veil: the bloom that carries you inside.
+   Rendered by Intro during go(); GSAP drives its clip-path from a 0px
+   circle at the pressed point to full coverage, then onEnter fires while
+   the screen is fully covered — the swap underneath is invisible. The
+   glow at the origin dissolves into the same near-black the veil ends
+   on, so it reads as stepping through light, not a loading screen. */
+.cb-threshold-veil {
+  position: fixed; inset: 0; z-index: 300; pointer-events: none;
+  background:
+    radial-gradient(42vmax 42vmax at var(--cb-tx, 50%) var(--cb-ty, 62%),
+      rgba(163,184,153,0.30) 0%, rgba(163,184,153,0.08) 34%,
+      rgba(5,7,10,0) 60%),
+    #05070a;
+}
+
+/* ── Composer scan: a light band travelling the pill while searching,
+   plus a slow breathing of the shell's shadow. Ambient by design —
+   it says "working", never "42% done". */
+.cb-search-scanning { position: relative; overflow: hidden; }
+.cb-search-scanning::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(100deg,
+    transparent 30%, rgba(255,255,255,0.13) 47%, rgba(255,255,255,0.20) 50%,
+    rgba(255,255,255,0.13) 53%, transparent 70%);
+  transform: translateX(-101%);
+  animation: cbScanSweep 1.7s cubic-bezier(.45,0,.55,1) infinite;
+}
+@keyframes cbScanSweep { to { transform: translateX(101%); } }
+.cb-search-scanning { animation: cbScanBreathe 1.7s ease-in-out infinite; }
+@keyframes cbScanBreathe {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.35), 0 18px 48px rgba(0,0,0,0.45); }
+  50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 2px 10px rgba(0,0,0,0.40), 0 22px 60px rgba(0,0,0,0.55), 0 0 0 3px rgba(163,184,153,0.10); }
+}
+/* The ask button's arrow becomes a working pulse while searching. */
+.cb-search-dots { display: inline-flex; align-items: center; gap: 3px; height: 17px; }
+.cb-search-dots i {
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+  animation: cbDotHop 0.9s ease-in-out infinite;
+}
+.cb-search-dots i:nth-child(2) { animation-delay: 0.15s; }
+.cb-search-dots i:nth-child(3) { animation-delay: 0.30s; }
+@keyframes cbDotHop {
+  0%, 100% { transform: translateY(0); opacity: 0.45; }
+  50%      { transform: translateY(-3px); opacity: 1; }
+}
+
+/* ── Trace deck: the honest waiting state, rebuilt as an instrument.
+   The sweep is a radar, not a progress bar — indeterminate by design,
+   because the client genuinely does not know what the server is doing
+   mid-request (see the AgentTrace comment). The only number is elapsed
+   time, which is real; the database chips arrive only after the response,
+   populated from actual settled promises, cascading in. */
+.cb-trace-comet {
+  position: absolute; top: 50%; left: 0; width: 7px; height: 7px;
+  border-radius: 50%; margin-top: -3.5px;
+  background: #fff;
+  box-shadow: 0 0 10px 2px rgba(163,184,153,0.9), 0 0 26px 6px rgba(163,184,153,0.35);
+  animation: cbTraceSweep 2.2s cubic-bezier(.4,0,.6,1) infinite;
+}
+@keyframes cbTraceSweep {
+  0%   { left: 0; opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { left: calc(100% - 7px); opacity: 0; }
+}
+.cb-trace-chip { animation: cbRise 320ms var(--cb-ease) both; }
+
+/* ── Specimen frame: the instrument card language.
+   Corner ticks drawn as background gradients on ::after — no extra DOM.
+   (::before is already taken by cb-glow-line on the answer card.)
+   Applied to answer cards, evidence boxes and the intro scene chip:
+   the same skeleton, a more deliberate frame. */
+.cb-specimen { position: relative; }
+.cb-specimen::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit;
+  pointer-events: none; z-index: 5;
+  /* Ticks need to read as deliberate, not as dust: 0.5 alpha at 0.8
+     opacity lands them clearly above the hairline borders they frame. */
+  --cb-tick: rgba(255,255,255,0.5);
+  background:
+    linear-gradient(var(--cb-tick), var(--cb-tick)) left 12px top 0 / 28px 1px,
+    linear-gradient(var(--cb-tick), var(--cb-tick)) left 0 top 12px / 1px 28px,
+    linear-gradient(var(--cb-tick), var(--cb-tick)) right 12px top 0 / 28px 1px,
+    linear-gradient(var(--cb-tick), var(--cb-tick)) right 0 top 12px / 1px 28px,
+    linear-gradient(var(--cb-tick), var(--cb-tick)) left 12px bottom 0 / 28px 1px,
+    linear-gradient(var(--cb-tick), var(--cb-tick)) left 0 bottom 12px / 1px 28px,
+    linear-gradient(var(--cb-tick), var(--cb-tick)) right 12px bottom 0 / 28px 1px,
+    linear-gradient(var(--cb-tick), var(--cb-tick)) right 0 bottom 12px / 1px 28px;
+  background-repeat: no-repeat;
+  opacity: 0.8;
+}
+
+/* ── Answer entrance: a focus pull, not a fade.
+   Blur resolves into sharpness as the card rises — the microscope
+   metaphor, kept to 800ms so it never feels like waiting. */
+@keyframes cbAnswerFocus {
+  from { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(12px); }
+  55%  { opacity: 1; filter: blur(0); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+.cb-answer-enter.cb-glass-panel { animation: cbAnswerFocus 800ms var(--cb-ease) both; }
+
+/* ── Hero parallax: the intro breathes with the pointer (desktop only,
+   applied via rAF in Intro; the transition smooths the last frame when
+   the pointer leaves). ── */
+.cb-hero-parallax { will-change: transform; }
+
 /* CTA shimmer — removed: monochrome CTA needs no shimmer */
 
 /* ── Entrance classes ──
@@ -18932,7 +19217,8 @@ summary::-webkit-details-marker { display: none; }
 .cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 560ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
-.cb-answer-enter.cb-glass-panel { animation: cbEnter 700ms var(--cb-ease) both; }
+/* (cb-answer-enter's entrance now lives in the Innovation Refinement block
+   above as cbAnswerFocus — a focus pull rather than a plain fade.)
 
 /* ── Kinetic wordmark: per-letter entrance, see KineticText ──
    background and background-clip are NOT inherited CSS properties — once
@@ -19169,6 +19455,15 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-spotlight::before, .cb-shine::after, .cb-glow-line::before { display: none; }
   .cb-magnetic, .cb-tilt, .cb-lift, .cb-spring-chip { transition: none; }
   .cb-breathe { animation: none; }
+  /* Innovation refinement: every new motion dies here too. The iris veil
+     would otherwise leave a black disc over the screen with its animation
+     removed mid-flight — display:none guarantees the content is reachable. */
+  .cb-iris-veil { display: none; }
+  .cb-threshold-veil { display: none; }
+  .cb-search-scanning::after, .cb-search-scanning,
+  .cb-search-dots i, .cb-trace-comet, .cb-trace-chip { animation: none; }
+  .cb-search-scanning::after { display: none; }
+  .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
 }
 
 /* Glass panel depth — multi-layer shadows for 3D float effect */
@@ -19462,6 +19757,10 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 /* ── Answer content typography — premium scientific reading experience ── */
 .cb-answer-enter p { margin: 0 0 1em; }
 .cb-answer-enter p:last-child { margin-bottom: 0; }
+/* Innovation refinement: the answer opens with a lede. When the first
+   thing the synthesis says is a paragraph (not a header), it sets
+   slightly larger — the editorial inhale before the detail. */
+.cb-answer-body > p:first-child { font-size: 1.07em; line-height: 1.82; }
 .cb-answer-enter strong { font-weight: 650; }
 .cb-answer-enter em { font-style: italic; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 {

@@ -3271,9 +3271,9 @@ async function fetchVideos(query, maxMs = 3000) {
 // ============ LLM-POWERED QUERY GENERATION ============
 // When mechanical term extraction fails (wrong vocabulary, too narrow, user
 // phrased it colloquially), ask a fast LLM to generate the search queries a
-// scientist would actually type into PubMed. This is the "make it think like
-// Claude" fix — mechanical string manipulation can never match an LLM's
-// understanding of what the user actually needs.
+// scientist would actually type into PubMed. Mechanical string manipulation
+// can never match an LLM's understanding of what the user actually needs,
+// so when extraction fails the LLM generates the queries instead.
 //
 // Returns an array of 3-5 search query strings optimized for scholarly databases.
 // Falls back to empty array on any failure (timeout, rate limit, etc).
@@ -6108,7 +6108,7 @@ PERSONALITY:
 
 WHAT YOU ARE NOT:
 - You are not sentient, conscious, or alive. You're software. Say so plainly if asked.
-- You are not ChatGPT, Gemini, Claude, or any general assistant. You're a specialized literature search tool.
+- You are not a general-purpose assistant. You're a specialized literature search tool.
 - You don't have feelings, opinions on non-science topics, or personal experiences
 - You cannot browse the web, access URLs, or do anything outside of searching scholarly databases
 
@@ -7804,7 +7804,7 @@ export async function onRequest(context) {
 
     // ============ CEREBRUM INTELLIGENCE CORE v5.0 ============
     // v5.0: Enhanced with conversation awareness, self-reasoning context,
-    // and topic continuity for Claude-level conversational intelligence.
+    // and topic continuity for genuinely conversational intelligence.
     const VOICE =
       "VOICE & STRUCTURE — these rules override everything else. You WILL be mechanically checked.\n\n" +
 
@@ -8263,7 +8263,7 @@ export async function onRequest(context) {
     // ════════════════════════════════════════════════════════════════
     // CONVERSATION AWARENESS INJECTION
     // Give the LLM a rich understanding of the conversation context.
-    // This is what makes it feel like talking to Claude — it knows
+    // This is what makes the conversation feel genuinely aware — it knows
     // what's been discussed, what entities are in play, and what the
     // user's investigation trajectory looks like.
     // ════════════════════════════════════════════════════════════════
