@@ -5282,6 +5282,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
     setAutoplayBlocked(false);
   };
   const toggleFilm = () => {
+    /* Autoplay was vetoed (Low Power Mode): the label already reads
+       "Play background" and this press is the gesture that play() needs. */
+    if (autoplayBlocked) {
+      setFilmForcedOn(true);
+      setForced(true);
+      setFilmOff(false);
+      resumeFilm();
+      return;
+    }
     if (filmRunning) { setFilmOff(true); setAutoplayBlocked(false); return; }
     setFilmForcedOn(true);
     setForced(true);
@@ -5729,9 +5738,12 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             <button type="button" onClick={() => setCreditsOpen(true)} style={footLink}>Film credits</button>
             {/* Sits with the credits because that is where the footage is
                 already being talked about. aria-pressed rather than a label
-                that lies: the control reports the state it is in. */}
-            <button type="button" onClick={toggleFilm} aria-pressed={!filmRunning} style={footLink}>
-              {filmRunning ? "Pause background" : "Play background"}
+                that lies: the control reports the state it is in. When
+                autoplay was vetoed the reel is not actually playing, so the
+                label offers Play even though the reel still wants to run —
+                matching the tap-to-play pill instead of contradicting it. */}
+            <button type="button" onClick={toggleFilm} aria-pressed={filmRunning && !autoplayBlocked} style={footLink}>
+              {filmRunning && !autoplayBlocked ? "Pause background" : "Play background"}
             </button>
           </div>
         </div>
