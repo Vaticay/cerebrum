@@ -49,7 +49,7 @@ class ErrorBoundary extends React.Component {
         }}
       >
         <div style={{ maxWidth: 460 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 10, fontFamily: "Newsreader, Georgia, serif" }}>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 10, fontFamily: "'Inter Tight', 'Inter', system-ui, sans-serif", letterSpacing: "-0.01em" }}>
             Something broke on this screen
           </div>
           <p style={{ fontSize: 15, lineHeight: 1.65, color: "rgba(232,230,225,0.72)", margin: "0 0 22px" }}>
