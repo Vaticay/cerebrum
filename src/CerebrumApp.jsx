@@ -40,6 +40,7 @@ import {
   describeConvergence,
   extractOpenQuestions,
 } from "./answerInsights.js";
+import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 import { createPortal } from "react-dom";
 import gsap from "gsap";
 
@@ -7493,7 +7494,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.boxShadow = `0 0 0 1px ${withAlpha(accent, 0.4)}, 0 8px 24px ${withAlpha(accent, 0.12)}`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.boxShadow = "none"; }}>
                 <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: P.bg, overflow: "hidden" }}>
-                  <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  {/* A missing thumbnail used to render a broken-image glyph
+                      before onError hid it — a flash of "blank card". Only
+                      mount the img when there is actually something to show;
+                      the play overlay carries the tile on its own. */}
+                  {v.thumbnail ? (
+                    <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  ) : null}
                   <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.15)" }}>
                     <div style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(10,14,32,0.65)", border: "1px solid rgba(255,255,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
@@ -9500,16 +9507,19 @@ function LiteratureTimeline({ P, accent, at, turn, close }) {
    and surface in the Library.
    ══════════════════════════════════════════════════════════════════ */
 
+/* Node geometry, redesigned for terse labels: wider, taller, more air —
+   a 52-char label sets in two calm lines at 15px with a mono step kicker
+   above it, instead of four cramped lines at 13.5px. */
 const FC_NODE_TYPES = {
-  start:    { name: "Start",          w: 132, h: 54  },
-  process:  { name: "Process",        w: 176, h: 66  },
-  decision: { name: "Decision",       w: 176, h: 104 },
-  io:       { name: "Input / Output", w: 176, h: 66  },
-  evidence: { name: "Evidence",       w: 188, h: 82  },
-  end:      { name: "End",            w: 132, h: 54  },
+  start:    { name: "Start",          w: 148, h: 58  },
+  process:  { name: "Process",        w: 200, h: 92  },
+  decision: { name: "Decision",       w: 200, h: 132 },
+  io:       { name: "Input / Output", w: 200, h: 80  },
+  evidence: { name: "Evidence",       w: 208, h: 104 },
+  end:      { name: "End",            w: 148, h: 58  },
 };
 const FC_ORDER = ["start", "process", "decision", "io", "evidence", "end"];
-const FC_GAP_Y = 88;
+const FC_GAP_Y = 104;
 
 let fcSeq = 0;
 function fcId(p) { fcSeq += 1; return `fc-${p}-${Date.now().toString(36)}-${fcSeq.toString(36)}`; }
@@ -9627,55 +9637,45 @@ function fcAutoLayout(nodes, edges) {
   return result;
 }
 
-/* ── Draft from answer: extract steps, never invent them ── */
-function fcDraftFromAnswer(text) {
-  const clean = String(text || "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\[(\d+(?:,\s*\d+)*)\]/g, "")
-    .replace(/^#{1,4}\s+/gm, "");
-  const steps = [];
-  const seen = new Set();
-  const push = (s) => {
-    s = String(s).replace(/\s+/g, " ").trim().replace(/[.;:]+$/, "");
-    if (s.length >= 8 && s.length <= 160 && !seen.has(s.toLowerCase())) {
-      seen.add(s.toLowerCase());
-      steps.push(s);
-    }
-  };
-  for (const ln of clean.split("\n")) {
-    const m = ln.match(/^\s*(?:\d{1,2}[.)]|[-•*–])\s+(.+)$/);
-    if (m) push(m[1]);
-    if (steps.length >= 7) break;
-  }
-  if (steps.length < 2) {
-    const seqRe = /(?:^|[.!?]\s+)(first|next|then|after that|finally|lastly)[,:]?\s+([^.!?]{12,140})/gi;
-    let m;
-    while ((m = seqRe.exec(clean)) && steps.length < 7) push(m[2]);
-  }
-  if (steps.length < 2) {
-    const sents = clean.replace(/\n+/g, " ").split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length >= 24 && s.length <= 160);
-    for (const s of sents.slice(0, 5)) push(s);
-  }
-  if (!steps.length) return null;
+/* ── Draft from answer: extract steps, never invent them ──
+   Labels go through fcCompressStep (src/fcLabel.js): a few words per node,
+   compressed by deleting filler — never a 96-char slice with "…". Steps
+   that carried citations in the answer become evidence nodes grounded to
+   the real paper (sourceIdx into `sources`); the full source sentence is
+   kept on node.detail so the inspector can show what the label compressed. */
+function fcDraftFromAnswer(text, sources) {
+  const rawSteps = fcExtractSteps(text, 7);
+  if (!rawSteps.length) return null;
+  const srcCount = Array.isArray(sources) ? sources.length : 0;
   const nodes = [];
   const edges = [];
   const cx = 600;
   let y = 60;
-  const addStep = (type, label) => {
+  const addStep = (type, label, extra = {}) => {
     const t = FC_NODE_TYPES[type];
-    const n = fcNewNode(type, cx - t.w / 2, y, label);
+    const n = fcNewNode(type, cx - t.w / 2, y, label, extra);
     nodes.push(n);
     y += t.h + FC_GAP_Y;
     return n;
   };
   const start = addStep("start", "Start");
   let prev = start;
-  for (const s of steps.slice(0, 7)) {
-    const isDecision = /^(if|when|whether)\b/i.test(s) || /\bdepends on\b/i.test(s);
-    const n = addStep(isDecision ? "decision" : "process", s.length > 96 ? s.slice(0, 93) + "…" : s);
+  rawSteps.forEach((st, i) => {
+    const label = fcCompressStep(st.text);
+    const isDecision = /^(if|when|whether)\b/i.test(st.text) || /\bdepends on\b/i.test(st.text);
+    // A step that cited a paper is evidence, not prose: ground the node to
+    // the real source. Citation indices are 1-based; anything out of range
+    // is ignored rather than guessed at.
+    const citeIdx = st.cites.find((n) => n >= 1 && n <= srcCount);
+    const type = typeof citeIdx === "number" ? "evidence" : isDecision ? "decision" : "process";
+    const n = addStep(type, label, {
+      step: i + 1,
+      ...(st.text !== label ? { detail: st.text } : {}),
+      ...(typeof citeIdx === "number" ? { sourceIdx: citeIdx - 1 } : {}),
+    });
     edges.push(fcNewEdge(prev.id, n.id, prev.type === "decision" ? "yes" : ""));
     prev = n;
-  }
+  });
   const end = addStep("end", "End");
   edges.push(fcNewEdge(prev.id, end.id, prev.type === "decision" ? "yes" : ""));
   return { nodes: fcAutoLayout(nodes, edges), edges, isDraft: true };
@@ -9817,18 +9817,20 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
 }
 
 /* In-canvas node shape (JSX). Layered: base fill, top-light gradient sheen,
-   soft drop shadow. Selected nodes get an accent glow ring. */
+   soft drop shadow. Selected nodes get an accent glow ring.
+   Redesigned pass: softer, deeper shadow; hairline 1.5px strokes; larger
+   corner radii — the chrome gets out of the way of the terse labels. */
 function FcNodeShape({ n, P, accent, selected, pending }) {
   const cx = n.w / 2, cy = n.h / 2;
   const isAccent = n.type === "start" || n.type === "end";
-  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.22) : n.type === "evidence" ? withAlpha(accent, 0.13) : (P.dark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.85)");
-  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : (P.dark ? "rgba(255,255,255,0.22)" : "rgba(20,30,20,0.28)");
-  const sw = selected || pending ? 2.6 : 1.6;
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.85)");
+  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : (P.dark ? "rgba(255,255,255,0.20)" : "rgba(20,30,20,0.24)");
+  const sw = selected || pending ? 2.6 : 1.5;
   const shape = (() => {
     if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} />;
     if (n.type === "io") { const s = 20; return <polygon points={`${s},0 ${n.w},0 ${n.w - s},${n.h} 0,${n.h}`} />; }
-    if (n.type === "evidence") return <rect x={0} y={0} width={n.w} height={n.h} rx={10} />;
-    return <rect x={0} y={0} width={n.w} height={n.h} rx={isAccent ? n.h / 2 : 10} />;
+    if (n.type === "evidence") return <rect x={0} y={0} width={n.w} height={n.h} rx={14} />;
+    return <rect x={0} y={0} width={n.w} height={n.h} rx={isAccent ? n.h / 2 : 14} />;
   })();
   return (
     <g filter="url(#fcNodeShadow)">
@@ -9836,12 +9838,12 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
         <g opacity={0.55}>
           {n.type === "decision"
             ? <polygon points={`${cx},-7 ${n.w + 7},${cy} ${cx},${n.h + 7} -7,${cy}`} fill="none" stroke={accent} strokeWidth={2.4} />
-            : <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={(isAccent ? n.h / 2 : 10) + 7} fill="none" stroke={accent} strokeWidth={2.4} />}
+            : <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={(isAccent ? n.h / 2 : 14) + 7} fill="none" stroke={accent} strokeWidth={2.4} />}
         </g>
       )}
       {React.cloneElement(shape, { fill, stroke, strokeWidth: sw })}
       {React.cloneElement(shape, { fill: "url(#fcNodeGrad)", stroke: "none", pointerEvents: "none" })}
-      {n.type === "evidence" && <rect x={0} y={0} width={7} height={n.h} rx={3.5} fill={accent} stroke="none" pointerEvents="none" />}
+      {n.type === "evidence" && <rect x={0} y={0} width={5} height={n.h} rx={2.5} fill={accent} stroke="none" pointerEvents="none" />}
     </g>
   );
 }
@@ -9984,7 +9986,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
     setTimeout(pushHistory, 0);
   };
   const doDraft = () => {
-    const d = fcDraftFromAnswer(answerText);
+    const d = fcDraftFromAnswer(answerText, sources);
     if (!d) return;
     setNodes(d.nodes);
     setEdges(d.edges);
@@ -10306,11 +10308,13 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                 <pattern id="fcGridMajor" width="140" height="140" patternUnits="userSpaceOnUse">
                   <path d="M 140 0 L 0 0 0 140" fill="none" stroke={P.dark ? "rgba(255,255,255,0.045)" : "rgba(20,30,20,0.06)"} strokeWidth="1" />
                 </pattern>
+                {/* Arrowheads carry the accent now, not faint grey: the eye
+                    follows the flow instead of hunting for it. */}
                 <marker id="fcArrowHead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
-                  <path d="M 0 1 L 9 5 L 0 9 z" fill={P.faint} />
+                  <path d="M 0 1 L 9 5 L 0 9 z" fill={accent} />
                 </marker>
                 <filter id="fcNodeShadow" x="-30%" y="-30%" width="160%" height="160%">
-                  <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="#000" floodOpacity={P.dark ? 0.45 : 0.18} />
+                  <feDropShadow dx="0" dy="4" stdDeviation="8" floodColor="#000" floodOpacity={P.dark ? 0.32 : 0.13} />
                 </filter>
                 <linearGradient id="fcNodeGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0" stopColor="#fff" stopOpacity={P.dark ? 0.10 : 0.55} />
@@ -10330,7 +10334,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                     <g key={e.id}>
                       <path d={g.d} fill="none" stroke="transparent" strokeWidth={16} style={{ cursor: "pointer" }}
                         onPointerDown={(ev) => { ev.stopPropagation(); setSelection({ kind: "edge", id: e.id }); }} />
-                      <path d={g.d} fill="none" stroke={sel ? accent : P.faint} strokeWidth={sel ? 2.4 : 1.6} opacity={sel ? 1 : 0.75} markerEnd="url(#fcArrowHead)" style={{ pointerEvents: "none" }} />
+                      <path d={g.d} fill="none" stroke={sel ? accent : withAlpha(accent, 0.45)} strokeWidth={sel ? 2.4 : 2} opacity={sel ? 1 : 0.9} markerEnd="url(#fcArrowHead)" style={{ pointerEvents: "none" }} />
                       {e.label && (
                         <text x={g.mx} y={g.my - 8} textAnchor="middle" fontSize={12} fontStyle="italic" fill={P.faint} style={{ pointerEvents: "none", fontFamily: "var(--cb-body)" }}>{e.label}</text>
                       )}
@@ -10341,10 +10345,21 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                 {nodes.map((n) => {
                   const sel = selection?.kind === "node" && selection.id === n.id;
                   const pend = pendingFrom === n.id;
-                  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
-                  const lh = 17;
+                  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 36) / 8)));
+                  const lh = 21;
                   const isAccent = n.type === "start" || n.type === "end";
-                  const ty = n.h / 2 - ((lines.length - 1) * lh) / 2 + 5;
+                  /* Draft scaffolds carry a mono step numeral as a kicker —
+                     the number owns the sequence so the label only has to
+                     own the meaning. User-built nodes have no step and
+                     render label-only, as before. */
+                  const kicker = typeof n.step === "number" && !isAccent ? String(n.step).padStart(2, "0") : null;
+                  const blockH = (lines.length - 1) * lh + (kicker ? 22 : 0);
+                  /* Evidence nodes carry a source-title caption along the
+                     bottom edge — center the label block in the space above
+                     it so a three-line label never collides with the caption. */
+                  const capH = n.type === "evidence" && typeof n.sourceIdx === "number" && sources?.[n.sourceIdx] ? 16 : 0;
+                  const ty = (n.h - capH) / 2 - blockH / 2 + 5;
+                  const labelTop = ty + (kicker ? 22 : 0);
                   return (
                     <g key={n.id} transform={`translate(${n.x},${n.y})`}
                       onPointerDown={(e) => onNodePointerDown(e, n)}
@@ -10354,9 +10369,15 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                       style={{ cursor: tool === "connect" ? "crosshair" : "grab" }}>
                       {pend && <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={14} fill="none" stroke={accent} strokeWidth={1.6} strokeDasharray="6 4" opacity={0.8} />}
                       <FcNodeShape n={n} P={P} accent={accent} selected={sel} pending={pend} />
+                      {kicker && (
+                        <text x={n.w / 2} y={ty + 4} textAnchor="middle" fontSize={10.5} fill={accent}
+                          style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-mono)", fontWeight: 700, letterSpacing: "0.18em" }}>
+                          {kicker}
+                        </text>
+                      )}
                       {lines.map((ln, i) => (
-                        <text key={i} x={n.w / 2} y={ty + i * lh} textAnchor="middle" fontSize={13.5}
-                          fill={isAccent ? at : P.ink} style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-body)", fontWeight: isAccent ? 600 : 500 }}>
+                        <text key={i} x={n.w / 2} y={labelTop + i * lh} textAnchor="middle" fontSize={15}
+                          fill={isAccent ? at : P.ink} style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-body)", fontWeight: 600, letterSpacing: "-0.01em" }}>
                           {ln}
                         </text>
                       ))}
@@ -10457,6 +10478,17 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                     border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink, padding: "8px 10px",
                     fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", resize: "vertical",
                   }} />
+                {/* The draft compresses answer sentences into terse labels;
+                    the full source sentence lives here so the compression
+                    never destroys information — it's one click away. */}
+                {selNode.detail && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Source sentence</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 10px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8 }}>
+                      {selNode.detail}
+                    </div>
+                  </div>
+                )}
                 {selNode.type === "evidence" && sources && sources.length > 0 && (
                   <div style={{ marginTop: 12 }}>
                     <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Cites paper</label>
@@ -19376,10 +19408,6 @@ summary::-webkit-details-marker { display: none; }
    Visually identical, but only the keyword avoids making the element a
    containing block for fixed/absolute descendants once the animation
    settles (this was the "exports as one squeezed column" bug). */
-@keyframes cbModal {
-  from { opacity: 0; filter: blur(4px); }
-  to   { opacity: 1; filter: none; }
-}
 @keyframes cbRise {
   from { opacity: 0; transform: translateY(12px); filter: blur(6px); }
   to   { opacity: 1; transform: none; filter: none; }
@@ -19709,7 +19737,16 @@ summary::-webkit-details-marker { display: none; }
      surface(a modal, a full view)  560ms
 
    Longer than the old values on purpose: 200ms on a large surface doesn't
-   read as "snappy," it reads as a jump cut. Small things stay fast. */
+   read as "snappy," it reads as a jump cut. Small things stay fast.
+
+   LOAD-BEARING: .cb-fade pairs an inline opacity-0 pre-animation state
+   with this keyframes block (the .cb-stagger ladder staggers siblings 45ms
+   apart). The audit once deleted this block as "dead CSS" — with the
+   animation name referencing nothing, every .cb-fade element kept its
+   inline opacity: 0 forever, and the bibliography + video cards rendered
+   real content into the DOM that no one could see. Never remove this
+   without also removing the inline opacity: 0 pattern. */
+@keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
 .cb-fade    { animation: cbFade  180ms var(--cb-ease) both; }
 .cb-rise    { animation: cbRise  320ms var(--cb-ease) both; }
 .cb-pop     { animation: cbPop   320ms var(--cb-ease) both; }
