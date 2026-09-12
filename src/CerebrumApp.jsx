@@ -5486,11 +5486,11 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           bar nobody looks at. A gradient costs one composite and reads the
           same over footage this dark. Readable logo and links — no
           miniature telemetry. */}
-      <header className={animate ? "cb-intro-chrome cb-intro-header cb-title-in" : "cb-intro-chrome cb-intro-header"} style={{
+      <header className={animate ? "cb-intro-chrome cb-intro-header cb-focus-in" : "cb-intro-chrome cb-intro-header"} style={{
         position: "relative", zIndex: 20,
         paddingTop: "max(14px, env(safe-area-inset-top))",
         background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
-        ...(animate ? { animationDelay: "0.55s", animationDuration: "1.6s" } : null),
+        ...(animate ? { animationDelay: "0.55s", animationDuration: "2.2s" } : null),
       }}>
         <div style={{
           ...container,
@@ -5545,63 +5545,58 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         paddingTop: 48, paddingBottom: 64,
       }}>
         {/* ── The title card ──
-            Documentary pacing: a beat of pure footage under the veil, then
-            the kicker, the title with weight, the slogan, and finally the
-            single way in. Long slow easings — nothing pops, everything
-            arrives. No pointer motion anywhere on this screen. */}
+            Quiet sci-fi pacing: a beat of pure footage under the veil, then
+            the type finds focus — tiny tracked kicker, the title resolving
+            like a film card, the slogan, and finally the single way in.
+            Blur-to-sharp, slow and staggered. No pointer motion anywhere on
+            this screen. */}
         <div style={{
           ...container, maxWidth: 1040,
           display: "flex", flexDirection: "column", alignItems: "center",
         }}>
-          <div className={animate ? "cb-title-in" : undefined}
-            style={animate ? { animationDelay: "1.05s", animationDuration: "1.8s" } : undefined}>
+          <div className={animate ? "cb-focus-in" : undefined}
+            style={animate ? { animationDelay: "1.4s" } : undefined}>
             <span style={{
-              fontFamily: "var(--cb-body)", fontSize: 12, letterSpacing: "0.34em",
-              textIndent: "0.34em",
-              textTransform: "uppercase", color: withAlpha(introAccent, 0.9),
+              fontFamily: "var(--cb-body)", fontSize: 10, letterSpacing: "0.42em",
+              textIndent: "0.42em", fontWeight: 500,
+              textTransform: "uppercase", color: "rgba(242,244,242,0.55)",
               fontVariantNumeric: "tabular-nums",
             }}>
               A research instrument
             </span>
           </div>
           <h1 style={{
-            fontSize: isMobile ? "clamp(46px, 13.5vw, 78px)" : "clamp(58px, 8.6vw, 118px)",
-            fontWeight: 600, letterSpacing: "-0.028em", lineHeight: 1.02,
-            color: "#ffffff", margin: "30px 0 0",
-            textShadow: "0 4px 70px rgba(0,0,0,0.6)",
+            fontSize: isMobile ? "clamp(24px, 7vw, 34px)" : "clamp(28px, 3.6vw, 46px)",
+            fontWeight: 300, letterSpacing: "0.045em", lineHeight: 1.42,
+            color: "#ffffff", margin: "28px 0 0", maxWidth: "36ch",
+            textShadow: "0 2px 44px rgba(0,0,0,0.55)",
             textWrap: "balance",
           }}>
-            <span className={animate ? "cb-title-in" : undefined}
-              style={{ display: "block", ...(animate ? { animationDelay: "1.8s" } : null) }}>There&rsquo;s a world</span>
-            <span className={animate ? "cb-title-in" : undefined}
-              style={{ display: "block", ...(animate ? { animationDelay: "2.05s" } : null) }}>behind your question.</span>
+            <span className={animate ? "cb-focus-in" : undefined}
+              style={{ display: "block", ...(animate ? { animationDelay: "2.2s" } : null) }}>There&rsquo;s a world behind your question.</span>
           </h1>
-          <p className={animate ? "cb-title-in" : undefined} style={{
-            margin: "34px 0 0", maxWidth: "54ch",
-            fontSize: isMobile ? 15.5 : 18.5, lineHeight: 1.65, fontWeight: 400,
-            color: "rgba(242,244,242,0.80)",
+          <p className={animate ? "cb-focus-in" : undefined} style={{
+            margin: "26px 0 0", maxWidth: "52ch",
+            fontSize: isMobile ? 12.5 : 13.5, lineHeight: 1.7, fontWeight: 400,
+            letterSpacing: "0.02em",
+            color: "rgba(242,244,242,0.62)",
             textShadow: "0 2px 30px rgba(0,0,0,0.5)",
-            ...(animate ? { animationDelay: "3.15s" } : null),
+            ...(animate ? { animationDelay: "3.6s" } : null),
           }}>
             Ask a real research question. Every claim traces to a paper you can open.
           </p>
-          <div className={animate ? "cb-title-in" : undefined} style={{
-            marginTop: 42,
+          <div className={animate ? "cb-focus-in" : undefined} style={{
+            marginTop: 40,
             display: "flex", alignItems: "center", justifyContent: "center",
             gap: isMobile ? 16 : 22, flexWrap: "wrap",
-            ...(animate ? { animationDelay: "4.1s" } : null),
+            ...(animate ? { animationDelay: "4.6s" } : null),
           }}>
             <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
-              border: "none", cursor: "pointer",
-              borderRadius: 14,
-              padding: isMobile ? "16px 38px" : "17px 44px",
-              background: `linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 46%), ${introAccent}`,
-              color: "#11140f",
-              fontWeight: 600, fontSize: isMobile ? 15.5 : 16.5, fontFamily: "var(--cb-body)",
-              letterSpacing: "0.01em",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 14px 34px rgba(163,184,153,0.30)",
-              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
-            }}><span>Start researching</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
+              cursor: "pointer",
+              padding: isMobile ? "13px 30px" : "14px 34px",
+              fontSize: 12.5, fontWeight: 500, fontFamily: "var(--cb-body)",
+              letterSpacing: "0.24em", textIndent: "0.24em", textTransform: "uppercase",
+            }}>Start researching</button>
             {/* "How it works" stays a whisper — never a second button
                 competing with the single way in. */}
             <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
@@ -5615,7 +5610,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               paused — the video's own playing event clears it the moment
               footage moves, so the label can never lie. */}
           {filmRunning && vetoed && !filmPlaying && (
-            <div className={animate ? "cb-title-in" : undefined}
+            <div className={animate ? "cb-focus-in" : undefined}
               style={{ marginTop: 26, ...(animate ? { animationDelay: "0.2s", animationDuration: "1.4s" } : null) }}>
               <button type="button" onClick={resumeFilm} style={{
                 display: "inline-flex", alignItems: "center", gap: 8,
@@ -5710,10 +5705,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
 
       {/* ── Footer ──
           Credits and legal live here; the header stays clean. */}
-      <footer className={animate ? "cb-intro-chrome cb-title-in" : "cb-intro-chrome"} style={{
+      <footer className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
         position: "relative", zIndex: 10,
         paddingBottom: "max(20px, env(safe-area-inset-bottom))",
-        ...(animate ? { animationDelay: "4.9s", animationDuration: "1.6s" } : null),
+        ...(animate ? { animationDelay: "5.2s", animationDuration: "2.2s" } : null),
         /* The centered scrim above deliberately falls off toward the bottom
            of the frame so the footage keeps it — which leaves the footer
            links sitting on bare film. Measured against every graded clip
@@ -22600,19 +22595,21 @@ summary::-webkit-details-marker { display: none; }
 /* The outline-chip CTA gets the same keyboard ring as the primary. */
 .cb-intro-chip:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 999px; }
 
-/* ── Intro: documentary title card ──
+/* ── Intro: quiet sci-fi title card ──
    The door opens like a title sequence: a beat of near-black lifting off
-   the footage, then the kicker, the title with weight, the slogan, and
-   finally the single way in. One shared entrance animation — a long slow
-   fade-and-rise — staggered across the elements by inline delays; nothing
-   pops, everything arrives. No pointer parallax, no scene plates, no
-   information stack. The film provides the continuous motion. */
-@keyframes cbTitleIn {
-  from { opacity: 0; transform: translateY(26px); }
-  to   { opacity: 1; transform: none; }
+   the footage, then the type finds focus — kicker, title, slogan, the
+   single way in — each layer resolving from soft blur to razor sharp, as
+   if a lens is finding it. One shared focus-pull entrance, staggered by
+   inline delays; nothing pops, everything resolves. Blur + opacity only,
+   on small text layers, so the reveal costs almost nothing. No pointer
+   parallax, no scene plates, no information stack. The film provides the
+   continuous motion. */
+@keyframes cbFocusIn {
+  from { opacity: 0; filter: blur(16px); }
+  to   { opacity: 1; filter: blur(0); }
 }
-.cb-title-in {
-  animation: cbTitleIn 2.1s cubic-bezier(0.19, 1, 0.22, 1) both;
+.cb-focus-in {
+  animation: cbFocusIn 2.6s cubic-bezier(0.33, 1, 0.68, 1) both;
 }
 /* The opening beat: near-black holds, then lifts over five seconds to
    reveal the footage underneath. Opacity only — the veil never touches
@@ -22633,35 +22630,27 @@ summary::-webkit-details-marker { display: none; }
   opacity: 0 !important;
   transition: opacity 0.32s ease;
 }
-/* Primary CTA: restrained glass — sage fill, a quiet top highlight,
-   soft radius. One clearly visible action, no chamfers, no pills. */
+/* Primary CTA: a whisper, not a pill — a thin tracked-caps outline that
+   brightens on hover. Monumental through restraint. */
 .cb-intro-go {
-  transition: filter 240ms var(--cb-ease), transform 240ms var(--cb-ease), box-shadow 240ms var(--cb-ease);
+  background: transparent;
+  border: 1px solid rgba(242,244,242,0.30);
+  border-radius: 999px;
+  color: #f2f4f2;
+  transition: border-color 240ms var(--cb-ease), background-color 240ms var(--cb-ease);
 }
-.cb-intro-go:hover { filter: brightness(1.07); transform: translateY(-1px); }
-.cb-intro-go:active { transform: translateY(0); }
+.cb-intro-go:hover { border-color: rgba(242,244,242,0.65); background: rgba(255,255,255,0.06); }
+.cb-intro-go:active { background: rgba(255,255,255,0.10); }
 .cb-intro-go:focus-visible { outline: 2px solid rgba(163,184,153,0.85); outline-offset: 3px; }
-/* ── Intro, title-card pass ──
-   Restraint: the type choreography is opacity/transform only, on the one
-   shared cbTitleIn entrance; the button keeps its glass and light sweep. */
+/* ── Intro, quiet sci-fi pass ──
+   Restraint: the type choreography is blur/opacity only, on the one shared
+   cbFocusIn entrance; the button is a quiet outline with no sweep. */
 /* Fine film grain over the film and the scrim, under the type. Static:
    animating it would cost a repaint per frame for texture nobody can see
    move. No blend mode — a plain low-opacity tile is the cheap version. */
 .cb-intro-grain {
   position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.05;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
-}
-/* CTA light sweep. Overflow is hidden on the button for the sweep; the
-   focus ring is an outline and is not clipped by it. */
-.cb-intro-go { position: relative; overflow: hidden; }
-.cb-intro-go::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,0.38) 50%, transparent 58%);
-  transform: translateX(-130%);
-}
-.cb-intro-go:hover::after {
-  transform: translateX(130%);
-  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* The ghost link draws its underline on hover instead of wearing one. */
 .cb-intro-how { position: relative; text-decoration: none !important; }
@@ -23400,12 +23389,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
   /* Intro: the hero arrives without motion; the handoff bridge dissolves
      near-instantly so nothing animates at the people who asked for none. */
-  .cb-title-in { animation: none; }
+  .cb-focus-in { animation: none; }
   .cb-enter-frame { animation-duration: 0.01s; }
   /* Premium pass: every new motion dies here too. */
   .cb-title-veil { display: none; }
   .cb-real-answer { opacity: 1 !important; transform: none !important; transition: none !important; }
-  .cb-intro-go::after, .cb-intro-how::after { display: none; }
+  .cb-intro-how::after { display: none; }
 }
 
 /* Glass panel depth — multi-layer shadows for 3D float effect */
