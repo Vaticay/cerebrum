@@ -385,7 +385,9 @@ await test("timeline modal is Arc-only with year-strips in era headers", () => {
 
 await test("open-questions button renders only when gaps surface", () => {
   assert.match(appSrc, /function OpenQuestions/, "OpenQuestions component missing");
-  assert.match(appSrc, /openQuestions\.length > 0 && \(/, "button not gated on gaps found");
+  // The entry point moved from the toolbar into the labeled More menu, but
+  // the gate is unchanged: the item is only built when gaps surfaced.
+  assert.match(appSrc, /openQuestions\.length > 0 \? \[\{\s*\n?\s*id: "openquestions"/, "open-questions menu item not gated on gaps found");
   assert.match(appSrc, /No open questions surfaced in this literature/, "honest empty state missing");
   assert.match(appSrc, /extractOpenQuestions\(t\.answer, t\.factCheck, t\.sources, t\._selfReasoning\)/,
     "gap extraction not fed from the turn");

@@ -2482,10 +2482,44 @@ function SignalComposer({
   askMode, isMobile, accent, P,
   imageInputRef, attachedImage,
   focused, setFocused,
+  /* Optional: the App's investigation history mapped to question strings,
+     newest first. When absent or empty, no dropdown renders at all — the
+     line behaves exactly as before. */
+  recentQuestions,
+  /* Optional: the current evidence-tier label, wired from the App's
+     evidenceFilter state. Defaults to "all" — the scope line only ever
+     shows values that are actually in force. */
+  evidenceLabel = "all",
 }) {
+  const reduced = usePrefersReducedMotion();
   const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
   const placeholder = isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder;
   const entities = useMemo(() => parseQueryEntities(input), [input]);
+  /* ── Command deck: recent-questions dropdown ──
+     Opens on focus when the input is empty and history exists; closes on
+     ask, on Esc, and on blur after a grace period so a tap on an item
+     still lands. ArrowUp/Down walk the list, Enter picks the highlighted
+     item (or asks), Esc dismisses. Touch: items are 44px buttons and the
+     item's mousedown uses preventDefault, so the input keeps focus and
+     Ask stays one tap away. */
+  const recents = useMemo(
+    () => (Array.isArray(recentQuestions) ? recentQuestions.filter(Boolean).slice(0, 6) : []),
+    [recentQuestions]
+  );
+  const [recentOpen, setRecentOpen] = useState(false);
+  const [recentActive, setRecentActive] = useState(-1);
+  const blurTimer = useRef(null);
+  useEffect(() => () => { if (blurTimer.current) clearTimeout(blurTimer.current); }, []);
+  const showRecents = recentOpen && !String(input || "").trim() && recents.length > 0;
+  const doAsk = () => { setRecentOpen(false); setRecentActive(-1); ask(); };
+  const pickRecent = (i) => {
+    const q = recents[i];
+    if (!q) return;
+    setInput(q);
+    setRecentOpen(false);
+    setRecentActive(-1);
+    setTimeout(() => inputRef.current?.focus(), 30);
+  };
   return (
     <div role="search" style={{ "--cb-acc": accent }} className="cb-qline">
       <div className="cb-qline-row">
@@ -2494,11 +2528,29 @@ function SignalComposer({
           className="cb-qline-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }}
+          onFocus={() => { setFocused(true); setRecentActive(-1); if (recents.length > 0) setRecentOpen(true); }}
+          onBlur={() => {
+            setFocused(false);
+            // Grace period: a tap on a dropdown item fires mousedown before
+            // blur, so closing immediately would eat the tap.
+            if (blurTimer.current) clearTimeout(blurTimer.current);
+            blurTimer.current = setTimeout(() => setRecentOpen(false), 160);
+          }}
+          onKeyDown={(e) => {
+            if (showRecents && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Escape" || e.key === "Enter")) {
+              e.preventDefault();
+              if (e.key === "ArrowDown") setRecentActive((a) => (a + 1) % recents.length);
+              else if (e.key === "ArrowUp") setRecentActive((a) => (a - 1 + recents.length) % recents.length);
+              else if (e.key === "Escape") { setRecentOpen(false); setRecentActive(-1); }
+              else if (recentActive >= 0) pickRecent(recentActive);
+              else doAsk();
+              return;
+            }
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) doAsk();
+          }}
           placeholder={placeholder}
           aria-label="Ask a research question"
+          aria-expanded={showRecents}
           autoComplete="off"
           spellCheck="true"
         />
@@ -2513,17 +2565,27 @@ function SignalComposer({
               wrapper gives it the same 40px hit area as its neighbours. */}
           <span className="cb-qline-mic"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
           <button
-            onClick={() => ask()}
+            onClick={doAsk}
             disabled={busy}
             title="Ask" aria-label={busy ? "Searching" : "Ask"}
             className="cb-qline-ask"
           >{busy
-            ? <span className="cb-qline-busy" aria-hidden="true" />
+            ? <span className={"cb-qline-ring" + (reduced ? " cb-qline-ring--still" : "")} aria-hidden="true" />
             : <Icon name="arrowRight" size={18} />}</button>
         </div>
       </div>
       <div className={"cb-qline-rule" + (focused ? " cb-qline-rule-live" : "")} aria-hidden="true" />
       <div className="cb-qline-sub" aria-live="polite">
+        {String(input || "").trim() && (
+          <span className="cb-qline-scope" key={"scope:" + mode.key + ":" + evidenceLabel}>
+            <span className="cb-qline-rk">scope</span>
+            <span>mode: {mode.label}</span>
+            <span className="cb-qline-sep" aria-hidden="true">·</span>
+            <span>{SCHOLARLY_SOURCES.length} databases</span>
+            <span className="cb-qline-sep" aria-hidden="true">·</span>
+            <span>evidence: {evidenceLabel}</span>
+          </span>
+        )}
         {entities.length > 0 && (
           <span className="cb-qline-reading" key={entities.map((e) => e.kind + e.value).join("|")}>
             <span className="cb-qline-rk">reading</span>
@@ -2533,96 +2595,220 @@ function SignalComposer({
           </span>
         )}
       </div>
+      {showRecents && (
+        <div className="cb-qline-recent" role="listbox" aria-label="Recent questions">
+          <div className="cb-qline-recent-k" aria-hidden="true">recent</div>
+          {recents.map((q, i) => (
+            <button
+              key={q + "·" + i}
+              type="button"
+              role="option"
+              aria-selected={i === recentActive}
+              className={"cb-qline-recent-item" + (i === recentActive ? " is-active" : "")}
+              onMouseDown={(e) => { e.preventDefault(); pickRecent(i); }}
+              onMouseEnter={() => setRecentActive(i)}
+            >
+              <span className="cb-qline-recent-q">{q}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-/* ── EchoField: the loading screen as a signal in flight ─────────────────
-   The old loading state was a grey shimmer card — the most generic object
-   on the internet. This is the second half of the transmission metaphor:
-   the pulse you fired in the composer, now propagating outward through
-   the fifteen databases, which flash faintly as the wavefront passes.
+/* ── ReadingRoom: the search-waiting instrument ─────────────────────────────
+   Replaces the EchoField + AgentTrace pair. One full-width panel:
 
-   Honesty rules, same as the AgentTrace below it: the rings are the
-   OUTGOING query visualised — the question genuinely is in flight — and
-   the elapsed readout plus the status line stay the only claims about the
-   work itself. Nothing here implies a percentage or a phase. */
-function EchoField({ q, accent }) {
+   1. The question as a specimen label ("QUERY / SPECIMEN" kicker, calm
+      display type for the question text).
+   2. A live constellation of the 15 databases as LABELED nodes with a
+      subtle drift. Honest framing only: these are the sources the query
+      is in flight to. No per-database completion, no percentages, no
+      "answered" states mid-request — the client genuinely cannot know;
+      the search is a single request that returns once, at the end.
+   3. The read-head motif: one hairline, one travelling marker, one mono
+      elapsed readout (200ms clock, same as the old trace).
+   4. One honest waiting line, driven only by elapsed time.
+   5. ONE real milestone: when /api/videos resolves with a non-empty array
+      while this search is still the current request, a "Related footage
+      located" line appears. That is an event the client actually saw.
+   6. After the response, the per-database breakdown from `sourcesQueried`
+      — computed by the backend from actual settled promises — restyled to
+      match. Databases that timed out show as not having answered.
+
+   Reduced motion: no drift, no travelling marker. */
+function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contextual = false, videosLocated = false }) {
+  const startRef = useRef(performance.now());
+  const [elapsed, setElapsed] = useState(0);
   const reduced = usePrefersReducedMotion();
+
+  useEffect(() => {
+    if (done) return undefined;
+    // 200ms, not 100ms: this is a clock, and re-rendering it ten times a
+    // second to move a digit that changes once a second is wasted work
+    // during the most performance-sensitive moment in the app.
+    const id = setInterval(() => setElapsed(performance.now() - startRef.current), 200);
+    return () => clearInterval(id);
+  }, [done]);
+
+  const seconds = Math.floor(elapsed / 1000);
+
+  /* One honest line about what is in flight. These describe the shape of
+     the work; which one is shown depends only on how long it has been,
+     which is a fact the client actually has. */
+  const waitingLine = contextual ? "Working with the previous answer — no new literature search" :
+    seconds < 3 ? "Searching the literature"
+    : seconds < 9 ? "Searching the literature. Some databases are slower than others."
+    : "Still searching. A few databases are taking their time.";
+
+  const responded = Array.isArray(sourcesQueried) ? sourcesQueried.filter((s) => s.ok) : [];
+  const total = Array.isArray(sourcesQueried) ? sourcesQueried.length : 0;
+
   return (
-    <div className="cb-echo" style={{ "--cb-acc": accent }}>
-      <div className="cb-echo-kicker">reading</div>
-      <div className="cb-echo-q">{q}</div>
-      {/* The reading line: one hairline, one marker travelling it slowly,
-          like a read head moving across the literature. No radar, no
-          orbiting nodes, no "transmitting" — the instrument reads; it does
-          not broadcast. */}
-      <div className="cb-echo-rule" aria-hidden="true">
-        {!reduced && <span className="cb-echo-cursor" />}
+    <div className="cb-room" style={{ "--cb-acc": accent }} aria-live="polite" aria-atomic="true">
+      {/* The question, catalogued as a specimen label. */}
+      <div className="cb-room-kicker">Query / Specimen</div>
+      <h2 className="cb-room-q">{q}</h2>
+      {/* The constellation: every source the query is in flight to, named.
+          Labels only — no node ever claims a mid-request state, because
+          the client cannot know one. Flex-wrap so fifteen long labels
+          stack gracefully on a phone instead of overflowing it. */}
+      <div className="cb-room-const" role="list" aria-label={`Query in flight to ${SCHOLARLY_SOURCES.length} databases`}>
+        {SCHOLARLY_SOURCES.map((s, i) => (
+          <span key={s.id} role="listitem" className="cb-room-node"
+            style={reduced ? undefined : { animationDelay: `${(i * 380) % 2600}ms` }}>
+            <span className="cb-room-dot" aria-hidden="true" />
+            {s.name}
+          </span>
+        ))}
       </div>
-      <div className="cb-echo-sub">across {SCHOLARLY_SOURCES.length} databases</div>
+      {/* The read head: one hairline, one marker travelling it slowly, one
+          elapsed readout. The instrument reads; it does not broadcast. */}
+      <div className="cb-room-readrow">
+        <div className="cb-echo-rule cb-room-rule" aria-hidden="true">
+          {!reduced && <span className="cb-echo-cursor" />}
+        </div>
+        <span className="cb-room-clock">{String(seconds).padStart(2, "0")}s</span>
+      </div>
+      <div className="cb-room-line">
+        {done && total ? `${responded.length} of ${total} databases answered` : waitingLine}
+      </div>
+      {/* The one real milestone: the /api/videos fetch resolved with
+          footage while this search is still current. */}
+      {!done && videosLocated && (
+        <div className="cb-room-milestone">
+          <span className="cb-room-dot" aria-hidden="true" />
+          Related footage located
+        </div>
+      )}
+      {/* The per-database breakdown, only once it is real. */}
+      {done && total > 0 && (
+        <div className="cb-room-chips">
+          {sourcesQueried.map((s, i) => (
+            <span key={s.source} className={reduced ? "" : "cb-trace-chip"} style={{
+              animationDelay: reduced ? undefined : `${Math.min(i, 12) * 45}ms`,
+              fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)",
+              color: s.ok ? P.ink2 : P.faint,
+              border: `1px solid ${s.ok ? withAlpha(accent, 0.35) : P.line}`,
+              background: s.ok ? withAlpha(accent, 0.07) : "transparent",
+              borderRadius: 9999, padding: "3px 10px",
+              display: "inline-flex", alignItems: "center", gap: 6,
+            }}>
+              <span style={{
+                width: 4, height: 4, borderRadius: "50%",
+                background: s.ok ? accent : P.line,
+              }} />
+              {s.source}{s.ok && s.count ? ` ${s.count}` : ""}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
+/* ── AskModePicker: numbered index plates ──
+   The five verbs were pills — five equals with no order and no weight.
+   Plates carry an index (01–05): an order you can learn, a position you
+   can remember. One consequence line beneath says what each plate does
+   to your question; it follows hover and keyboard focus and settles on
+   the active mode. aria-pressed, keyboard focusability and the two-row
+   mobile wrap are preserved. */
 function AskModePicker({ mode, setMode, P, accent, isMobile }) {
-  const [scrollRef, maskStyle] = useEdgeMask();
+  /* React.useState, not the bare hook, and the consequence map lives
+     inside the function body: tests/ui-render.cjs extracts this function
+     by AST and runs it in a vm whose only global is React. */
+  const [hoverKey, setHoverKey] = React.useState(null);
+  /* The consequence line under the plates. Each line is a plain restatement
+     of that mode's own blurb — what you get for the question you are about
+     to ask. Deterministic; no backend claims beyond what the mode already
+     promises. Keys must stay in sync with ASK_MODES. */
+  const CONSEQUENCES = {
+    explain: "An explanation of how it works, built from published research",
+    verify: "A verdict with confidence + dissenting papers",
+    compare: "The two weighed against each other, study against study",
+    map: "Who studies this, what they've found, and what's still unsettled",
+    readinglist: "The papers to read first, in the order to read them",
+  };
+  const active = ASK_MODES.find((m) => m.key === mode) || ASK_MODES[0];
+  const preview = ASK_MODES.find((m) => m.key === hoverKey) || active;
   return (
-    <div
-      ref={scrollRef}
-      role="group"
-      aria-label="What do you want to do?"
-      className="cb-scroll-x"
-      style={{
-        display: "flex", gap: 7, marginTop: 18, marginBottom: 4,
-        justifyContent: isMobile ? "flex-start" : "center",
-        /* width:100%, not just maxWidth. This row lives in a column with
-           `align-items: center`, which sizes a child to its content — so
-           `max-width: 100%` was measured against a box that had already
-           grown to fit all five pills, and the overflow scroller never had
-           anything to scroll. On a phone the last two modes simply ran off
-           the right edge of the screen with no way to reach them. */
-        width: "100%",
-        /* On a phone these wrap onto two lines instead of scrolling.
-           A horizontal scroller hides two of the five modes behind a
-           gesture nobody is told about — the row looked like it had been
-           cut off rather than like it slides, which is exactly how a
-           feature goes unused. Two visible rows beat one hidden one. */
-        ...(isMobile
-          ? { flexWrap: "wrap", justifyContent: "center", overflowX: "visible", rowGap: 7 }
-          : { overflowX: "auto" }),
-        maxWidth: "100%", padding: "2px 0",
-        WebkitOverflowScrolling: "touch",
-        ...(isMobile ? null : maskStyle),
-      }}
-    >
-      {ASK_MODES.map((m) => {
-        const on = mode === m.key;
-        return (
-          <button
-            key={m.key}
-            onClick={() => setMode(m.key)}
-            title={m.blurb}
-            aria-pressed={on}
-            className="cb-press cb-glass-action cb-glass-action--secondary"
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0,
-              padding: "8px 14px", borderRadius: 100, cursor: "pointer",
-              fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
-              fontFamily: "var(--cb-body)", letterSpacing: "-0.005em",
-              background: on ? withAlpha(accent, 0.14) : "transparent",
-              color: on ? P.ink : P.ink2,
-              border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
-              transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
-            }}
-          >
-            <span style={{ display: "inline-flex", color: on ? accent : P.faint }}>
-              <Icon name={m.icon} size={14} />
-            </span>
-            {m.label}
-          </button>
-        );
-      })}
+    <div role="group" aria-label="What do you want to do?">
+      <div
+        className="cb-modeplates"
+        style={{
+          display: "flex", gap: 7, marginTop: 18, marginBottom: 4,
+          /* Plates wrap to two rows on a phone instead of scrolling. A
+             horizontal scroller hides modes behind a gesture nobody is
+             told about — two visible rows beat one hidden one. */
+          flexWrap: "wrap", justifyContent: "center", rowGap: 7,
+          width: "100%", maxWidth: "100%", padding: "2px 0",
+        }}
+      >
+        {ASK_MODES.map((m) => {
+          const on = mode === m.key;
+          const hovered = hoverKey === m.key;
+          const idx = String(ASK_MODES.indexOf(m) + 1).padStart(2, "0");
+          return (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setMode(m.key)}
+              onMouseEnter={() => setHoverKey(m.key)}
+              onMouseLeave={() => setHoverKey(null)}
+              onFocus={() => setHoverKey(m.key)}
+              onBlur={() => setHoverKey(null)}
+              title={m.blurb}
+              aria-pressed={on}
+              className="cb-modeplate"
+              style={{
+                display: "inline-flex", alignItems: "baseline", gap: 8, flexShrink: 0,
+                padding: "9px 14px", borderRadius: 10, cursor: "pointer",
+                fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
+                fontFamily: "var(--cb-body)", letterSpacing: "-0.005em",
+                background: on ? withAlpha(accent, 0.14) : "transparent",
+                color: on ? P.ink : P.ink2,
+                border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
+                transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.18s ease",
+                transform: hovered && !on ? "translateY(-1px)" : "none",
+              }}
+            >
+              <span className="cb-modeplate-idx" style={{ color: on ? accent : P.faint }}>{idx}</span>
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+      {/* One live consequence line: follows hover/focus, settles on the
+          active mode. The inner span is keyed so its entrance replays on
+          every swap. */}
+      <div className="cb-modepreview" aria-live="polite">
+        <span className="cb-modepreview-key">you&rsquo;ll get</span>
+        <span className="cb-modepreview-text" key={preview.key}>
+          {CONSEQUENCES[preview.key] || preview.blurb}
+        </span>
+      </div>
     </div>
   );
 }
@@ -3953,120 +4139,13 @@ function useIsMobile() {
   return m;
 }
 
-// Deterministic deployment-log-style trace — replaces the old rotating
-// joke messages with a timestamped, Vercel-style progress readout.
-/* ════════════════════════════════════════════════════════════════════════
-   AgentTrace — what is actually happening while a search runs.
-
-   WHAT THIS USED TO DO, AND WHY IT WAS A PROBLEM
-   Eight steps on a hardcoded timer. At 1.8 seconds it displayed "PubMed,
-   Europe PMC and OpenAlex have answered"; at 3.2 seconds, "Semantic Scholar,
-   Crossref and arXiv have answered"; at 7.6 seconds, "Checking nothing here
-   has been retracted". None of those were events. The client had no idea
-   which databases had answered, or whether any had — the search is a single
-   request that returns once, at the end. If every database had timed out, the
-   interface still announced that six of them had replied, and then said it
-   had checked for retractions.
-
-   That is fabricated telemetry about scientific sourcing, in a product whose
-   entire proposition is that you can check where its claims came from.
-
-   WHAT IT DOES NOW
-   The client genuinely does not know what the server is doing mid-request, so
-   it says so. While waiting, the status is indeterminate: elapsed time, which
-   is real, and a single honest line. The per-database outcome appears only
-   AFTER the response arrives, populated from `sourcesQueried` — which the
-   backend computes from actual settled promises across every retrieval
-   attempt (see functions/api/search.js). A database that timed out is shown
-   as not having answered, because that is what happened.
-
-   If a future version streams real progress events, they belong here. Until
-   then this shows elapsed time and nothing it cannot substantiate.
-   ════════════════════════════════════════════════════════════════════════ */
-function AgentTrace({ P, accent, sourcesQueried = null, done = false, contextual = false }) {
-  const startRef = useRef(performance.now());
-  const [elapsed, setElapsed] = useState(0);
-  const reduced = usePrefersReducedMotion();
-
-  useEffect(() => {
-    if (done) return undefined;
-    // 200ms, not 100ms: this is a clock, and re-rendering it ten times a
-    // second to move a digit that changes once a second is wasted work
-    // during the most performance-sensitive moment in the app.
-    const id = setInterval(() => setElapsed(performance.now() - startRef.current), 200);
-    return () => clearInterval(id);
-  }, [done]);
-
-  const seconds = Math.floor(elapsed / 1000);
-
-  /* One honest line about what is in flight. These do not claim any
-     milestone has been reached — they describe the shape of the work, and
-     which one is shown depends only on how long it has been, which is a fact
-     the client actually has. */
-  const waitingLine = contextual ? "Working with the previous answer — no new literature search" :
-    seconds < 3 ? "Searching the literature"
-    : seconds < 9 ? "Searching the literature. Some databases are slower than others."
-    : "Still searching. A few databases are taking their time.";
-
-  const responded = Array.isArray(sourcesQueried) ? sourcesQueried.filter((s) => s.ok) : [];
-  const total = Array.isArray(sourcesQueried) ? sourcesQueried.length : 0;
-
-  return (
-    <div style={{ padding: "18px 0 6px" }} aria-live="polite" aria-atomic="true">
-      {/* Innovation refinement: the waiting state as an instrument deck. A
-          radar sweep (ambient — indeterminate by design, because the client
-          genuinely cannot see milestones mid-request), a live elapsed
-          readout, one honest line. See the comment above this component. */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 14,
-        border: `1px solid ${P.line}`, borderRadius: 12,
-        padding: "12px 16px",
-        background: P.dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.02)",
-      }}>
-        <span style={{
-          width: 8, height: 8, borderRadius: "50%", background: accent, flexShrink: 0,
-          boxShadow: `0 0 10px ${withAlpha(accent, 0.6)}`,
-          animation: reduced ? "none" : "cbSynapse 1.25s cubic-bezier(0.4,0,0.6,1) infinite",
-        }} />
-        {/* The sweep track. Pure ambience: it marks that work is in flight
-            the way a radar sweep marks that the dish is turning — it never
-            implies a percentage or a phase. */}
-        <div aria-hidden="true" style={{ position: "relative", flex: 1, height: 2, borderRadius: 2, background: P.line, overflow: "hidden" }}>
-          {(!done && !reduced) && <span className="cb-trace-comet" />}
-        </div>
-        <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: P.ink2, fontVariantNumeric: "tabular-nums", flexShrink: 0, minWidth: 46, textAlign: "right" }}>
-          {String(seconds).padStart(2, "0")}s
-        </span>
-      </div>
-      <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em" }}>
-        {done && total ? `${responded.length} of ${total} databases answered` : waitingLine}
-      </div>
-
-      {/* The per-database breakdown, only once it is real. */}
-      {done && total > 0 && (
-        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "6px 10px", marginTop: 10 }}>
-          {sourcesQueried.map((s, i) => (
-            <span key={s.source} className={reduced ? "" : "cb-trace-chip"} style={{
-              animationDelay: reduced ? undefined : `${Math.min(i, 12) * 45}ms`,
-              fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)",
-              color: s.ok ? P.ink2 : P.faint,
-              border: `1px solid ${s.ok ? withAlpha(accent, 0.35) : P.line}`,
-              background: s.ok ? withAlpha(accent, 0.07) : "transparent",
-              borderRadius: 9999, padding: "3px 10px",
-              display: "inline-flex", alignItems: "center", gap: 6,
-            }}>
-              <span style={{
-                width: 4, height: 4, borderRadius: "50%",
-                background: s.ok ? accent : P.line,
-              }} />
-              {s.source}{s.ok && s.count ? ` ${s.count}` : ""}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+/* -- AgentTrace retired (search-intro-overhaul) -----------------------------
+   Folded into ReadingRoom (defined near the composer): the honest elapsed
+   clock, the tiered waiting line, the post-response sourcesQueried
+   breakdown, plus the specimen label, the labelled 15-database
+   constellation, and the one real milestone (related footage located).
+   Nothing rendered AgentTrace with done={true}; the breakdown survives in
+   ReadingRoom for any future caller. */
 
 /* ============================================================
    CINEMATIC BRAIN INTRO — preserved canvas logic entirely, 
@@ -4513,6 +4592,16 @@ function filmBlocked(animationMode, paused) {
   return false;
 }
 
+/* Per-clip poster frames. A sibling pipeline extracts one graded still per
+   clip at public/assets/cinematic/posters/<basename>.jpg (same basename as
+   the .mp4, .jpg extension). The intro never opens onto black: every video
+   element carries its clip's poster, and a poster layer sits behind the
+   reel for first paint. */
+function filmPoster(src) {
+  const base = String(src || "").split("/").pop().replace(/\.(mp4|webm)$/i, "");
+  return base ? "/assets/cinematic/posters/" + base + ".jpg" : FILM_POSTER;
+}
+
 function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip }) {
   const aRef = useRef(null);
   const bRef = useRef(null);
@@ -4658,6 +4747,10 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
         }
       };
       el.style.objectPosition = framePos(src);
+      /* The poster always matches the clip being loaded: the intro never
+         opens onto black, and a clip that fails to decode leaves its own
+         graded still behind rather than a neighbour's frame. */
+      try { el.poster = filmPoster(src); } catch {}
       /* src stays the .mp4 key for framePos above; the element loads the
          best rendition this browser can play. */
       const file = filmFile(el, src);
@@ -4674,7 +4767,11 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
       const file = filmFile(el, src);
       if (!file || el.getAttribute("src") === file) return;
       preloadingEl = el;
+      /* At most the next clip is ever buffered: this element is the one
+         preload in flight, and both elements start at preload="none" so
+         nothing else fetches until it is this element's turn. */
       el.preload = "auto";
+      el.poster = filmPoster(src);
       el.src = file;
       try { el.load(); } catch {}
     };
@@ -4764,8 +4861,16 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
 
   return (
     <div className="cb-film" aria-hidden="true">
-      <video ref={aRef} style={vid} className="cb-film-clip" muted loop playsInline preload="auto" poster={FILM_POSTER} />
-      <video ref={bRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={FILM_POSTER} />
+      {/* First-paint ground: the poster of the reel's opening clip, behind
+          the videos. While the reel plays it is always covered; when the
+          reel is blocked (reduced motion, metered connection, paused) or a
+          decoder has not produced a frame yet, this is what shows — a
+          graded still, never black. */}
+      <div className="cb-film-poster" style={{
+        backgroundImage: `url(${filmPoster(orderRef.current[0])})`,
+      }} />
+      <video ref={aRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={filmPoster(FILM_POSTER_CLIP)} />
+      <video ref={bRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={filmPoster(FILM_POSTER_CLIP)} />
       <div className="cb-film-dim" style={{
         position: "absolute", inset: 0, pointerEvents: "none",
         background: "#0b0d10",
@@ -5014,13 +5119,42 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   };
   const scene = clip ? FILM_SCENES[clip] : null;
 
+  /* ── The Threshold: the real instrument on the front door ──
+     SignalComposer is mounted here with local input state — not a second,
+     simpler box, which is what this screen used to imply by having no
+     field at all. Enter or the ask button submits straight through
+     go(q, true) → onEnter(payload, true): a real search, immediately.
+     The quiet "Open in workspace" path calls go(q, false): the question
+     is prefilled in the workspace composer and left for editing, not run. */
+  const [introInput, setIntroInput] = useState("");
+  const introInputRef = useRef(null);
+  const introImageRef = useRef(null);
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [sampleOpen, setSampleOpen] = useState(false);
+  const introAsk = () => { const q = introInput.trim(); if (q) go(q, true); };
+  const focusComposer = () => { if (introInputRef.current) introInputRef.current.focus(); };
+  const motionOK = animationMode !== "off" && !reduced;
+  /* The 3-step card's copy. Every line describes what the instrument
+     actually does — a question in, a merged search across the real source
+     list, an answer numbered to its papers. Nothing here is a result. */
+  const sampleSteps = [
+    { n: "01", h: "Ask",
+      b: "A question in plain language — the way you would ask a colleague. No query syntax to learn, no fields to fill." },
+    { n: "02", h: "Search",
+      b: "Cerebrum runs it across " + SCHOLARLY_SOURCES.length + " scholarly databases and merges the results, de-duplicating the same paper wherever it appears." },
+    { n: "03", h: "Trace",
+      b: "The answer is written from those papers, with each claim numbered to the source it came from. Open a citation to read the passage it rests on." },
+  ];
+
   /* The hero's own elements. Everything else on this screen is static:
      choreographing a landing page means running tweens over a playing
      video, which is exactly the work that made this screen stutter. */
   const navRef = useRef(null);
+  const kickerRef = useRef(null);
   const head1Ref = useRef(null);
   const head2Ref = useRef(null);
   const descRef = useRef(null);
+  const composeRef = useRef(null);
   const btnsRef = useRef(null);
   const sceneRef = useRef(null);
   const EASE = "power3.inOut";
@@ -5029,11 +5163,13 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
     if (animationMode === "off") return;
     const tl = gsap.timeline();
     tl.fromTo(navRef.current, { y: -12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0)
-      .fromTo(head1Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.10)
-      .fromTo(head2Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.18)
-      .fromTo(descRef.current, { y: 14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.28)
-      .fromTo(btnsRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.38)
-      .fromTo(sceneRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.52);
+      .fromTo(kickerRef.current, { y: 10, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.06)
+      .fromTo(head1Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.12)
+      .fromTo(head2Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.20)
+      .fromTo(descRef.current, { y: 14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.30)
+      .fromTo(composeRef.current, { y: 14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.0, ease: EASE }, 0.40)
+      .fromTo(btnsRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.50)
+      .fromTo(sceneRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.62);
     return () => tl.kill();
   }, [animationMode]);
 
@@ -5150,21 +5286,18 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           darker until the text works" approach: it costs the footage its
           highlights everywhere to fix legibility in one place.
 
-          On a wide screen the text sits left of centre, so the gradient
-          runs left-to-right and the right two-fifths of the frame — where
-          the subject is — is left alone. On a narrow screen the text is
-          full width, so it runs top-to-bottom instead. Fixed, so it is one
-          composite rather than a repaint per scrolled pixel.
+          On a wide screen the hero is centred, so the gradient runs
+          left-to-right across the reading zone rather than along it; the
+          right of the frame is left open for the footage. On a narrow
+          screen the text is full width, so it runs top-to-bottom instead.
+          Fixed, so it is one composite rather than a repaint per scrolled
+          pixel.
 
-          The stops are not eyeballed. Every frame of all twenty-nine graded
-          clips was sampled and composited against this gradient at the
-          headline's own coordinates; the worst frame in the set (the sunlit
-          leaves, which is the brightest footage here by a distance) lands at
-          8.2:1 for the headline and 7.6:1 for the paragraph under it. The
-          first attempt reached 3.4:1 and 2.9:1 on that same frame — legible
-          most of the time, and quietly unreadable for eleven seconds
-          whenever that clip came round. Moving a stop here moves those
-          numbers. */}
+          The stops below were measured against every graded clip at the
+          headline's coordinates in the previous left-aligned layout
+          (worst frame: the sunlit leaves, 8.2:1 headline / 7.6:1
+          paragraph). If a stop is moved, re-measure rather than trusting
+          these numbers. */}
       <div aria-hidden="true" style={{
         position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
         background: isMobile
@@ -5206,9 +5339,9 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 More
               </button>
             )}
-            {/* The header carries no entrance button: "Step inside" below is
-                the single way in. Two buttons doing the same thing read as
-                indecision, not emphasis. */}
+            {/* The header carries no entrance button: "Ask the literature"
+                below is the single way in. Two buttons doing the same thing
+                read as indecision, not emphasis. */}
           </div>
         </div>
 
@@ -5237,82 +5370,174 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         paddingBottom: isMobile ? 30 : 44,
       }}>
         <div style={container}>
+          {/* The Threshold: the hero is the instrument, not a slogan. One
+              claim — every answer traced to its papers — over the real
+              composer, centred so the film breathes on both sides. */}
           <div ref={heroParRef} className="cb-hero-parallax" style={{
-            display: "grid",
-            /* Left of centre, not against the edge: the hero column is a
-               little over half of a 1200px container, so the words sit
-               inboard of the left margin and the right of the frame stays
-               open for whatever the film is showing. */
-            /* 700, not 640. At 640 the second line — "behind your
-               question." — wrapped again, so the headline arrived as three
-               lines broken mid-phrase instead of the two it is written as.
-               The cap below is set so the long line fits this column at
-               every width above the breakpoint. */
-            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 700px) minmax(0, 1fr)",
+            maxWidth: 820, margin: "0 auto", textAlign: "center",
           }}>
             <div>
+              <div ref={kickerRef} style={{
+                opacity: hidden,
+                fontFamily: "var(--cb-mono)", fontSize: 11, letterSpacing: "0.26em",
+                textTransform: "uppercase", color: withAlpha(introAccent, 0.92),
+                marginBottom: isMobile ? 14 : 18,
+              }}>
+                A research instrument
+              </div>
               <h1 style={{
-                /* 48–80 on a desktop, 36–48 on a phone, and the vw term is
-                   what carries it between the two without a jump at the
-                   breakpoint. */
-                fontSize: isMobile ? "clamp(36px, 9.2vw, 46px)" : "clamp(48px, 4.9vw, 66px)",
-                fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.04,
+                /* 44–72 on a desktop, 34–44 on a phone. Two lines, both the
+                   headline, both full strength. */
+                fontSize: isMobile ? "clamp(34px, 8.8vw, 44px)" : "clamp(44px, 4.6vw, 64px)",
+                fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.06,
                 color: "#ffffff", margin: 0,
                 textShadow: "0 2px 40px rgba(0,0,0,0.5)",
               }}>
-                {/* Both lines are the headline. The second one used to be
-                    rendered at 62% opacity in a lighter weight, which is
-                    the same treatment this app gives disabled controls —
-                    it read as a caption that had failed to load rather
-                    than as the other half of the sentence. */}
-                <div ref={head1Ref} style={{ opacity: hidden }}>There&rsquo;s a world</div>
-                <div ref={head2Ref} style={{ opacity: hidden }}>behind your question.</div>
+                <div ref={head1Ref} style={{ opacity: hidden }}>Every answer,</div>
+                <div ref={head2Ref} style={{ opacity: hidden }}>traced to its papers.</div>
               </h1>
 
               <p ref={descRef} style={{
                 opacity: hidden,
-                margin: isMobile ? "18px 0 0" : "22px 0 0",
-                fontSize: isMobile ? 16.5 : 19,
+                margin: (isMobile ? "16px auto 0" : "20px auto 0"),
+                fontSize: isMobile ? 16 : 18.5,
                 lineHeight: 1.55, fontWeight: 400,
                 color: "rgba(242,244,242,0.80)",
-                maxWidth: 520,
+                maxWidth: 600,
                 textShadow: "0 1px 20px rgba(0,0,0,0.45)",
               }}>
-                Explore the papers, follow the evidence, and understand what science knows.
+                Ask in plain language. Cerebrum searches {SCHOLARLY_SOURCES.length} scholarly
+                databases and writes the answer from the papers it finds — every claim
+                numbered to the source it came from.
               </p>
 
-              {/* There is no search field on this screen, deliberately. The
-                  composer inside the app is the real one — it carries modes,
-                  attachments, voice, evidence filters and the whole
-                  conversation it starts. A second, simpler box out here
-                  looks like the same control and is not. */}
+              {/* The composer IS the hero instrument now — the same
+                  SignalComposer the workspace uses, mounted with local
+                  state. Enter or the ask button runs a real search
+                  (introAsk → go(q, true)); the primary CTA below focuses
+                  the input for anyone who wants to compose first. */}
+              <div ref={composeRef} className="cb-intro-compose" style={{
+                opacity: hidden,
+                marginTop: isMobile ? 26 : 34,
+                maxWidth: 720, marginLeft: "auto", marginRight: "auto",
+                textAlign: "left",
+                background: "rgba(10, 12, 16, 0.52)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                borderRadius: 18,
+                padding: isMobile ? "14px 18px 10px" : "18px 24px 12px",
+                backdropFilter: "blur(14px)",
+                WebkitBackdropFilter: "blur(14px)",
+                boxShadow: "0 24px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)",
+              }}>
+                <SignalComposer
+                  input={introInput} setInput={setIntroInput} inputRef={introInputRef}
+                  ask={introAsk} busy={false}
+                  askMode="explain" isMobile={isMobile} accent={introAccent} P={P}
+                  imageInputRef={introImageRef} attachedImage={null}
+                  focused={composerFocused} setFocused={setComposerFocused}
+                />
+              </div>
+
+              {/* Three ways in, one decision each. The primary CTA focuses
+                  the composer's input; "Open in workspace" prefills the
+                  question and leaves it unrun (go(q, false)); the third
+                  plays the annotated 3-step card instead of a fake demo. */}
               <div ref={btnsRef} style={{
                 opacity: hidden,
-                marginTop: isMobile ? 28 : 34,
-                display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                marginTop: isMobile ? 22 : 26,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                gap: isMobile ? 10 : 12, flexWrap: "wrap",
               }}>
-                <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go" style={{
+                <button type="button" onClick={focusComposer} className="cb-intro-go" style={{
                   border: "none", cursor: "pointer", borderRadius: 9999,
-                  /* The two hero buttons share one sizing system: identical
-                     padding and type size, so they arrive at exactly the
-                     same height. Hierarchy comes from fill vs. outline and
-                     weight, never from a 1px padding drift. */
                   padding: isMobile ? "14px 30px" : "15px 36px",
                   background: introAccent, color: "#11140f",
                   fontWeight: 600, fontSize: isMobile ? 15.5 : 16, fontFamily: "var(--cb-body)",
                   boxShadow: "0 12px 34px rgba(163,184,153,0.26)",
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
-                }}><span>Step inside</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
-                <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip" style={{
+                }}><span>Ask the literature</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
+                <button type="button" onClick={(e) => go(introInput, false, e)} className="cb-intro-quiet" style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  padding: isMobile ? "14px 10px" : "15px 12px",
+                  fontSize: isMobile ? 15 : 15.5, fontWeight: 500,
+                  color: "rgba(242,244,242,0.72)", fontFamily: "var(--cb-body)",
+                }}>Open in workspace</button>
+                <button type="button" onClick={() => setSampleOpen((v) => !v)}
+                  aria-expanded={sampleOpen} className="cb-intro-chip" style={{
                   cursor: "pointer", borderRadius: 9999,
-                  padding: isMobile ? "14px 30px" : "15px 36px",
-                  fontSize: isMobile ? 15.5 : 16, fontWeight: 500,
+                  padding: isMobile ? "14px 26px" : "15px 30px",
+                  fontSize: isMobile ? 15 : 15.5, fontWeight: 500,
                   color: "rgba(242,244,242,0.86)", fontFamily: "var(--cb-body)",
                   background: "rgba(15, 17, 21, 0.62)",
                   border: "1px solid rgba(255,255,255,0.14)",
                   display: "inline-flex", alignItems: "center", justifyContent: "center",
-                }}>How it works</button>
+                }}>How an answer is built</button>
               </div>
+
+              {/* The 3-step annotated card: what the instrument does, in
+                  mono-labelled steps, dismissible. Deliberately no fake
+                  result — the question is real, the answer is whatever the
+                  search actually finds, and nothing here is pre-written. */}
+              {sampleOpen && (
+                <div className="cb-step-card cb-specimen" role="region" aria-label="How an answer is built" style={{
+                  marginTop: isMobile ? 20 : 24,
+                  maxWidth: 640, marginLeft: "auto", marginRight: "auto",
+                  textAlign: "left",
+                  background: "rgba(10, 12, 16, 0.62)",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  borderRadius: 16,
+                  padding: isMobile ? "16px 18px 14px" : "20px 24px 16px",
+                  backdropFilter: "blur(14px)",
+                  WebkitBackdropFilter: "blur(14px)",
+                  boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+                }}>
+                  <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    marginBottom: 8,
+                  }}>
+                    <div style={{
+                      fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.22em",
+                      textTransform: "uppercase", color: withAlpha(introAccent, 0.9),
+                    }}>How an answer is built</div>
+                    <button type="button" onClick={() => setSampleOpen(false)}
+                      aria-label="Dismiss" className="cb-step-close" style={{
+                      border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)",
+                      color: "rgba(242,244,242,0.7)", cursor: "pointer", borderRadius: 999,
+                      width: 32, height: 32, display: "inline-flex", alignItems: "center",
+                      justifyContent: "center", fontSize: 14, fontFamily: "var(--cb-body)",
+                      flexShrink: 0,
+                    }}>✕</button>
+                  </div>
+                  {sampleSteps.map((st, i) => (
+                    <div key={st.n} className="cb-step" style={{
+                      animationDelay: motionOK ? (i * 130) + "ms" : "0ms",
+                      display: "grid", gridTemplateColumns: "32px 1fr", gap: 14,
+                      padding: "12px 0",
+                      borderTop: i === 0 ? "none" : "1px solid rgba(255,255,255,0.07)",
+                    }}>
+                      <span style={{
+                        fontFamily: "var(--cb-mono)", fontSize: 11.5,
+                        color: withAlpha(introAccent, 0.9), paddingTop: 2,
+                        fontVariantNumeric: "tabular-nums",
+                      }}>{st.n}</span>
+                      <div>
+                        <div style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.35, marginBottom: 4 }}>{st.h}</div>
+                        <div style={{ fontSize: 13.5, color: "rgba(242,244,242,0.66)", lineHeight: 1.6 }}>{st.b}</div>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{
+                    marginTop: 10, fontSize: 12.5, lineHeight: 1.6,
+                    color: "rgba(242,244,242,0.50)",
+                  }}>
+                    Nothing above is a result — press ask and the instrument runs for real.{" "}
+                    <button type="button" onClick={() => { setSampleOpen(false); setHowOpen(true); }}
+                      className="cb-intro-sourcelink" style={{
+                      ...footLink, color: withAlpha(introAccent, 0.95), fontSize: 12.5,
+                    }}>Read the full walkthrough</button>
+                  </div>
+                </div>
+              )}
 
               {/* Both halves are true of the product as it stands: the
                   search endpoint takes anonymous requests, and saved
@@ -5320,8 +5545,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                   until someone chooses to sign in. If either stops being
                   true, this line comes out. */}
               <div style={{
-                opacity: hidden, marginTop: 14,
-                display: "flex", alignItems: "center", gap: 6,
+                marginTop: 16, textAlign: "center",
                 fontSize: 13, color: "rgba(242,244,242,0.56)",
               }}>
                 <span><b style={{ color: "rgba(242,244,242,0.78)", fontWeight: 500 }}>Free</b> · No account required</span>
@@ -5330,54 +5554,59 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           </div>
         </div>
 
-        {/* ── Investigate what you see ──
-            In normal flow at the bottom of the hero, not absolutely
-            positioned over it, so it can never land on the headline or the
-            buttons however short the window gets. */}
-        <div ref={sceneRef} style={{ ...container, opacity: hidden, marginTop: isMobile ? 38 : 52 }}>
+        {/* ── Now showing ──
+            The scene prompt as a specimen plate: a mono "NOW SHOWING"
+            kicker, the clip's subject, and the question as the press
+            target. The hold/release contract is untouched — a swap that
+            lands while someone is reading or pressing is held, never
+            applied under them. In normal flow at the bottom of the hero,
+            so it can never land on the composer however short the window
+            gets. */}
+        <div ref={sceneRef} style={{ ...container, opacity: hidden, marginTop: isMobile ? 36 : 50 }}>
           {scene ? (
             <div
               onMouseEnter={() => { holdRef.current = true; }}
               onMouseLeave={releaseHold}
               onFocus={() => { holdRef.current = true; }}
               onBlur={releaseHold}
-              className="cb-specimen"
+              className="cb-specimen cb-showing"
               style={{
-                maxWidth: 520,
-                /* Innovation refinement: the scene prompt is no longer bare
-                   text floating on film — it is a specimen slide: smoked
-                   glass, hairline border, instrument corner ticks. Same
-                   position, same behaviour, a more deliberate object. */
+                maxWidth: 560, marginLeft: "auto", marginRight: "auto",
+                textAlign: "center",
                 background: "rgba(10, 12, 16, 0.55)",
                 border: "1px solid rgba(255,255,255,0.10)",
                 borderRadius: 14,
-                padding: isMobile ? "16px 18px 14px" : "18px 22px 16px",
+                padding: isMobile ? "16px 20px 14px" : "18px 28px 16px",
                 backdropFilter: "blur(12px)",
                 WebkitBackdropFilter: "blur(12px)",
                 boxShadow: "0 18px 44px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.06)",
               }}>
               <div style={{
-                fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.18em",
-                textTransform: "uppercase", color: withAlpha(introAccent, 0.86), marginBottom: 9,
+                fontFamily: "var(--cb-mono)", fontSize: 10.5, letterSpacing: "0.24em",
+                textTransform: "uppercase", color: withAlpha(introAccent, 0.9), marginBottom: 8,
+              }}>Now showing</div>
+              <div style={{
+                fontSize: 12.5, letterSpacing: "0.06em", textTransform: "uppercase",
+                fontFamily: "var(--cb-mono)", color: "rgba(242,244,242,0.52)", marginBottom: 8,
               }}>{scene.subject}</div>
               <button
                 type="button"
                 onClick={(e) => go(scene.question, true, e)}
                 className="cb-intro-scene"
                 style={{
-                  display: "block", textAlign: "left", width: "100%",
+                  display: "block", textAlign: "center", width: "100%",
                   background: "none", border: "none", padding: 0, cursor: "pointer",
                   fontFamily: "var(--cb-body)", color: "#f2f4f2",
-                  fontSize: isMobile ? 16 : 17.5, lineHeight: 1.45, fontWeight: 500,
+                  fontSize: isMobile ? 16.5 : 19, lineHeight: 1.45, fontWeight: 500,
                 }}>
-                <span style={{ display: "block", marginBottom: 7 }}>{scene.question}</span>
+                <span style={{ display: "block", marginBottom: 8 }}>{scene.question}</span>
                 <span className="cb-intro-scene-cta" style={{
                   fontSize: 13.5, fontWeight: 500, color: withAlpha(introAccent, 0.95),
-                }}>Explore the research ↗</span>
+                }}>Ask this question ↗</span>
               </button>
               <div style={{
                 marginTop: 10, fontSize: 11.5, lineHeight: 1.5,
-                color: "rgba(242,244,242,0.40)", maxWidth: 420,
+                color: "rgba(242,244,242,0.40)",
               }}>
                 Footage is illustrative, not a result.
               </div>
@@ -6176,7 +6405,12 @@ function InfoPage({ page }) {
 /* ============================================================
    BIBLIOGRAPHY, TURN — redesigned card architecture
    ============================================================ */
-function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {} }) {
+/* bare: render the ledger without the outer AnswerSection chrome — the
+   Evidence band supplies the section header and tabs, so a nested eyebrow
+   would double it. onRetry / onAdjustQuery wire the honest zero-sources
+   empty state (the band always renders this component now; it used to be
+   gated off entirely at zero sources — a silent gap). */
+function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null }) {
   const [copied, setCopied] = useState(false);
   const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
   const copyAll = () => {
@@ -6197,16 +6431,16 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
   }, [sources]);
   const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint };
   const hoverQuiet = (e, on) => { e.currentTarget.style.color = on ? accent : P.faint; };
-  return (
-    <AnswerSection eyebrow={`Bibliography \u00b7 ${sources.length} source${sources.length === 1 ? "" : "s"}`} P={P} accent={accent}
-      right={(
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-          <SegControl small value={citationStyle} onChange={setCitationStyle} P={P} accent={accent} ariaLabel="Citation style"
-            options={styleOptions.map((o) => ({ id: o.key, label: o.label }))} />
-          <button onClick={copyAll} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>{copied ? "\u2713 Copied" : "Copy all"}</button>
-          <button onClick={downloadFile} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>Download</button>
-        </span>
-      )}>
+  const controls = (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+      <SegControl small value={citationStyle} onChange={setCitationStyle} P={P} accent={accent} ariaLabel="Citation style"
+        options={styleOptions.map((o) => ({ id: o.key, label: o.label }))} />
+      <button onClick={copyAll} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>{copied ? "\u2713 Copied" : "Copy all"}</button>
+      <button onClick={downloadFile} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>Download</button>
+    </span>
+  );
+  const ledger = (
+    <>
       {jumpLetters && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 10 }} aria-label="Jump to author">
           {jumpLetters.map((L) => (
@@ -6222,6 +6456,40 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
       <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column" }}>
         {sources.map((s, i) => <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={i === sources.length - 1} onOpen={() => onOpenPaper(i + 1)} alphaAnchor={jumpLetters ? String(s.authors || s.title || "").trim().charAt(0).toUpperCase() : null} />)}
       </ol>
+    </>
+  );
+  // Zero sources: the designed empty state, never a silent gap. The retry
+  // actions are only rendered when the caller wired them (the Evidence
+  // band passes real re-search callbacks; a bare ledger with no callbacks
+  // simply states the fact).
+  if (!sources || sources.length === 0) {
+    const empty = (
+      <AnswerStateCard kicker="NO SOURCES CITED" title="This answer cites no papers."
+        body="The databases returned nothing to cite for this query."
+        actions={onRetry ? [{ label: "Retry search", primary: true, onClick: onRetry }] : []}
+        P={P} accent={accent}>
+        {onAdjustQuery && <QueryRetryForm P={P} accent={accent} onAsk={onAdjustQuery} id="cb-biblio-retry" />}
+      </AnswerStateCard>
+    );
+    if (bare) return <div>{empty}</div>;
+    return (
+      <AnswerSection eyebrow="Bibliography · 0 sources" P={P} accent={accent}>
+        {empty}
+      </AnswerSection>
+    );
+  }
+  if (bare) {
+    return (
+      <div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>{controls}</div>
+        {ledger}
+      </div>
+    );
+  }
+  return (
+    <AnswerSection eyebrow={`Bibliography \u00b7 ${sources.length} source${sources.length === 1 ? "" : "s"}`} P={P} accent={accent}
+      right={controls}>
+      {ledger}
     </AnswerSection>
   );
 }
@@ -6282,7 +6550,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{domain}</span><span style={{ flexShrink: 0 }}>\u2197</span>
               </a>
             )}
-            <button onClick={copyOne} title="Copy this citation" aria-label={`Copy citation ${index}`}
+            <button onClick={copyOne} title="Copy this citation" aria-label={`Copy citation ${index}`} className="cb-bibentry-copy"
               style={{
                 marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
                 fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 600,
@@ -7292,22 +7560,418 @@ function OpenQuestions({ cards, P, accent }) {
   );
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   ANSWER EXPERIENCE — reading flow, jump rail, evidence band.
+
+   The answer is read top-down: the answer itself, then what it stands on
+   (the Evidence band: Bibliography + Videos as tabs), then verification
+   (fact-check), then where the literature disagrees, then side-by-side
+   comparison, then open questions. Every section renders its shell always:
+   zero data gets an honest empty state with a retry action, a failed load
+   gets a failed shell with retry — never a silent gap, never bare error
+   text. Status shown anywhere here is derived from the turn's real data
+   (t.answer, t.sources, t.videos, t.factCheck, t.sourcesQueried,
+   t.synthesisMode) — nothing is invented.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* The loading motif for the answer experience: a hairline with a
+   travelling marker plus a mono readout. The marker's travel is ambient
+   (activity, not progress) — no percentages, because none exist. Never a
+   shimmer bar, never a bare "Loading…" string. */
+function ReadHead({ label, P, accent }) {
+  return (
+    <div role="status" aria-label={label} style={{ padding: "20px 4px 22px" }}>
+      <div className="cb-readhead" style={{ background: P.line }}>
+        <span className="cb-readhead-marker" style={{ background: accent }} />
+      </div>
+      <div style={{ marginTop: 10, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+/* One designed state for every empty/error condition in the answer
+   experience. Plain copy, no apologies. Actions are only rendered when
+   the caller passes wired callbacks — a button that does nothing is
+   worse than no button. */
+function AnswerStateCard({ kicker, title, body, actions = [], tone = "neutral", P, accent, children }) {
+  const toneColor = tone === "bad" ? STATUS.bad : tone === "warn" ? STATUS.warn : P.faint;
+  const btnBase = {
+    padding: "8px 16px", borderRadius: 9999, cursor: "pointer",
+    fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)",
+    letterSpacing: "0.04em", transition: "border-color 0.15s ease, background 0.15s ease",
+  };
+  return (
+    <div style={{ border: `1px solid ${P.line}`, borderRadius: 12, padding: "20px 22px", background: P.dark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)" }} className="cb-fade">
+      <div style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: toneColor, marginBottom: 8 }}>
+        {kicker}
+      </div>
+      <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 650, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em", marginBottom: body ? 8 : 0, lineHeight: 1.35 }}>
+        {title}
+      </div>
+      {body && <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, maxWidth: 600 }}>{body}</div>}
+      {children}
+      {actions.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
+          {actions.map((a, i) => (
+            <button key={i} type="button" onClick={a.onClick}
+              style={{
+                ...btnBase,
+                border: `1px solid ${a.primary ? withAlpha(accent, 0.5) : P.line2}`,
+                background: a.primary ? withAlpha(accent, 0.1) : "transparent",
+                color: a.primary ? accent : P.ink2,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = withAlpha(accent, 0.6); e.currentTarget.style.color = accent; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = a.primary ? withAlpha(accent, 0.5) : P.line2; e.currentTarget.style.color = a.primary ? accent : P.ink2; }}>
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* "Try a different query" — a real re-search through the ask pipeline,
+   for the zero-result states. Rendered only where the caller passes a
+   wired onAsk. */
+function QueryRetryForm({ P, accent, onAsk, id }) {
+  const [q, setQ] = useState("");
+  const ready = q.trim().length > 0;
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); const v = q.trim(); if (v) onAsk(v); }}
+      style={{ display: "flex", gap: 8, marginTop: 14, maxWidth: 480 }}
+    >
+      <input
+        id={id} value={q} onChange={(e) => setQ(e.target.value)}
+        placeholder="Try a different query…"
+        aria-label="Try a different query"
+        style={{
+          flex: 1, minWidth: 0, background: "transparent", border: `1px solid ${P.line2}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: FONT_SIZES.small, color: P.ink,
+          fontFamily: "var(--cb-body)", outline: "none",
+        }}
+      />
+      <button
+        type="submit" disabled={!ready}
+        style={{
+          padding: "8px 16px", borderRadius: 8, border: `1px solid ${withAlpha(accent, 0.4)}`,
+          background: withAlpha(accent, 0.1), color: accent, fontSize: FONT_SIZES.caption,
+          fontWeight: 700, fontFamily: "var(--cb-mono)", cursor: ready ? "pointer" : "default",
+          opacity: ready ? 1 : 0.45, whiteSpace: "nowrap",
+        }}
+      >
+        Ask
+      </button>
+    </form>
+  );
+}
+
+/* Sticky section jump rail: slim mono micro-labels for the answer's
+   sections, each with a live status dot — ready (accent), empty (hollow),
+   failed (bad). Statuses are derived from the turn's real data in
+   TurnInner, not invented here. Buttons, so touch works; nothing here
+   depends on hover. */
+function JumpRail({ items, P, accent, onJump }) {
+  return (
+    <div style={{
+      position: "sticky", top: 64, zIndex: 30, background: P.bg,
+      marginTop: 22, borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}`,
+    }}>
+      <div role="navigation" aria-label="Answer sections"
+        style={{ display: "flex", gap: 2, overflowX: "auto", padding: "9px 2px", scrollbarWidth: "none" }}>
+        {items.map((it) => (
+          <button
+            key={it.id} type="button" onClick={() => onJump(it.id)}
+            aria-label={`${it.label} — ${it.status}${it.count != null ? ` — ${it.count}` : ""}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 10px",
+              background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap",
+              fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700,
+              letterSpacing: "0.14em", textTransform: "uppercase",
+              color: it.status === "empty" ? P.faint : P.ink2,
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                background: it.status === "ready" ? accent : it.status === "failed" ? STATUS.bad : "transparent",
+                border: it.status === "empty" ? `1px solid ${P.line2}` : "none",
+              }}
+            />
+            {it.label}
+            {it.count != null && <span style={{ color: P.faint, fontWeight: 400 }}>{it.count}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* The toolbar's overflow: every demoted action stays one tap away behind
+   a labeled "More" menu. Items are plain data ({ id, label, icon, hint,
+   onClick } or { divider: true }) so TurnInner decides the set. Closes on
+   selection, outside tap, or Escape. */
+function ToolbarOverflow({ P, accent, items }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open ]);
+  const visible = (items || []).filter((i) => !i.hidden);
+  if (!visible.length) return null;
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <ToolChip
+        label="More" icon="chevronDown" title="More answer actions"
+        accent={accent} P={P} active={open} expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      />
+      {open && (
+        <div role="menu" aria-label="More answer actions" className="cb-fade"
+          style={{
+            position: "absolute", right: 0, top: "calc(100% + 8px)", minWidth: 224, zIndex: 70,
+            background: P.dark ? "rgba(20,22,26,0.98)" : "rgba(255,255,255,0.98)",
+            border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
+            boxShadow: "0 16px 48px rgba(0,0,0,0.28)",
+          }}>
+          {visible.map((it, ix) => it.divider ? (
+            <div key={"d" + ix} aria-hidden="true" style={{ height: 1, background: P.line, margin: "6px 8px" }} />
+          ) : (
+            <button
+              key={it.id} type="button" role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+                padding: "9px 12px", background: "none", border: "none", borderRadius: 8,
+                cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2,
+                fontFamily: "var(--cb-body)",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); e.currentTarget.style.color = P.ink; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = P.ink2; }}
+            >
+              {it.icon && <Icon name={it.icon} size={14} />}
+              <span>{it.label}</span>
+              {it.hint && <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{it.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* The Evidence band: Bibliography + Videos as tabs in one band, directly
+   under the answer text. Always rendered — the shells below are honest
+   about empty/loading rather than vanishing. */
+function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationStyle, onOpenPaper, onOpenVideo, onRetry, onAdjustQuery, busyNow, done }) {
+  const sources = t.sources || [];
+  const videos = t.videos || [];
+  /* Explicit false = the /api/videos fetch for this turn is still in flight.
+     Undefined (older cached turns) counts as settled — never a stuck loader. */
+  const videosPending = t.videosSettled === false;
+  return (
+    <AnswerSection
+      eyebrow={`Evidence \u00b7 ${sources.length} source${sources.length === 1 ? "" : "s"} \u00b7 ${videos.length} video${videos.length === 1 ? "" : "s"}`}
+      P={P} accent={accent}
+      right={(
+        <SegControl value={tab} onChange={setTab} P={P} accent={accent} ariaLabel="Evidence views"
+          options={[
+            { id: "biblio", label: `Bibliography · ${sources.length}` },
+            { id: "videos", label: `Videos · ${videos.length}` },
+          ]} />
+      )}>
+      {tab === "videos" ? (
+        videos.length > 0 ? (
+          <VideoFilmstrip bare videos={videos} P={P} accent={accent} onOpen={onOpenVideo} />
+        ) : (busyNow || !done || videosPending) ? (
+          /* The video fetch races the synthesis; while the search is still
+             busy — or the fetch simply hasn't settled yet — the index may
+             still be answering: a read head, not a verdict. Once settled
+             with nothing, the honest empty state. */
+          <ReadHead label="Reading video index" P={P} accent={accent} />
+        ) : (
+          <AnswerStateCard kicker="NO EXPLAINERS FOUND" title="No video explainers surfaced."
+            body="The video index returned nothing for this query."
+            actions={onRetry ? [{ label: "Retry search", primary: true, onClick: onRetry }] : []}
+            P={P} accent={accent} />
+        )
+      ) : (
+        <Bibliography bare sources={sources} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle}
+          onOpenPaper={onOpenPaper} onRetry={onRetry} onAdjustQuery={onAdjustQuery} />
+      )}
+    </AnswerSection>
+  );
+}
+
+/* The backend's synthesis-failure fallback is real content (retrieved
+   papers with summaries) wrapped in bare error chrome: a leading
+   "## Unable To Synthesize" heading and a trailing "## What To Do Next"
+   block. The designed state card now owns the status and the actions, so
+   the chrome is stripped deterministically — the paper blocks are
+   preserved untouched. */
+function stripFallbackChrome(text) {
+  return String(text || "")
+    .replace(/^##\s*Unable To Synthesize[^\n]*\n+/, "")
+    .replace(/\n*##\s*What To Do Next[\s\S]*$/, "");
+}
+
+/* Video player for the evidence band. Same contract as the player it
+   replaces (Escape/backdrop close, focus trap, YouTube link): the poster
+   stays mounted under the iframe and the iframe fades in OVER it, so the
+   player never shows a black flash while the embed loads. */
+function EvidenceVideoModal({ P, accent, video, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const reduced = usePrefersReducedMotion();
+  const [ready, setReady] = useState(false);
+  const ytId = getYouTubeId(video);
+  const poster = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : (video.thumbnail || null);
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label={video.title || "Video"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 217, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 16, maxWidth: 860, width: "100%", display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
+      }} className="cb-modal">
+        <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: "#000", flexShrink: 0 }}>
+          {poster && (
+            <img src={poster} alt="" draggable={false}
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+          )}
+          {ytId ? (
+            <iframe
+              src={`https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`}
+              title={video.title || "Video"}
+              onLoad={() => setReady(true)}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", opacity: ready ? 1 : 0, transition: reduced ? "none" : "opacity 0.5s ease" }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+              <div style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", color: P.faint }}>UNPLAYABLE</div>
+              <div style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>This video's identifier couldn't be read, so it can't be embedded here.</div>
+            </div>
+          )}
+          <button onClick={close} aria-label="Close" style={{ position: "absolute", top: 14, right: 14, width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", cursor: "pointer", zIndex: 2 }}><Icon name="close" size={16} /></button>
+        </div>
+        <div style={{ padding: "18px 22px 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.35 }}>{video.title}</div>
+            {video.author && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", marginTop: 6 }}>{video.author}</div>}
+          </div>
+          <a href={safeHref(video.url)} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 600, color: accent, textDecoration: "none", whiteSpace: "nowrap" }}>
+            Watch on YouTube <Icon name="external" size={13} />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {} }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
-  const done = shown === t.answer;
+  /* Failure model, derived from the turn's real data — never invented.
+     synthesisMode "none" is the backend's explicit "no synthesis produced"
+     flag (every model rate-limited/unavailable, no extractive fallback).
+     allDbFailed narrows it further: every database reported ok:false in
+     sourcesQueried, so the root cause is connection, said plainly. */
+  const answerText = t.answer || "";
+  const sources = t.sources || [];
+  const videos = t.videos || [];
+  const synthFailed = t.synthesisMode === "none";
+  const dbOutcomes = Array.isArray(t.sourcesQueried) ? t.sourcesQueried : null;
+  const allDbFailed = !!(dbOutcomes && dbOutcomes.length > 0 && dbOutcomes.every((x) => !x.ok));
+  const connFailed = synthFailed && allDbFailed;
+  // A failed synthesis isn't streamed: sections render immediately, and the
+  // gap finder stays off the fallback boilerplate.
+  const done = synthFailed ? true : shown === t.answer;
   // Evidence section: the table / network / arc live inline under the
-  // answer now (modals demoted). The toolbar chips toggle these; the
-  // "arc of this literature" link scrolls here too.
+  // answer now (modals demoted). The overflow menu and the jump rail reach
+  // them; the band carries its own tabs.
   const [evOpen, setEvOpen] = useState(null);
-  const evSectionRef = useRef(null);
+  const [evTab, setEvTab] = useState("biblio");
+  const [listenOpen, setListenOpen] = useState(false);
+  const [openVideo, setOpenVideo] = useState(null);
+  const reducedMotion = usePrefersReducedMotion();
+  const answerTopRef = useRef(null);
+  const bandSectionRef = useRef(null);
+  const fcSectionRef = useRef(null);
+  const vennSectionRef = useRef(null);
+  const compareSectionRef = useRef(null);
+  const oqSectionRef = useRef(null);
   // Open questions: computed once the answer has settled (not mid-stream),
   // from the answer text, its fact-check, its sources, and the query plan.
-  // The toolbar button renders only when at least one gap surfaces.
+  // The overflow menu item renders only when at least one gap surfaces.
   const [showOQ, setShowOQ] = useState(false);
   const openQuestions = useMemo(
-    () => (done ? extractOpenQuestions(t.answer, t.factCheck, t.sources, t._selfReasoning) : []),
-    [done, t.answer, t.factCheck, t.sources, t._selfReasoning]
+    () => (done && !synthFailed ? extractOpenQuestions(t.answer, t.factCheck, t.sources, t._selfReasoning) : []),
+    [done, synthFailed, t.answer, t.factCheck, t.sources, t._selfReasoning]
   );
+  // Venn readiness, computed the same way VennCreature decides to render —
+  // the jump rail's status must match the section, not approximate it.
+  const vennReady = useMemo(() => {
+    if (!done) return false;
+    try {
+      const m = classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck });
+      return (m.agree.length + m.disagree.length + m.middle.length) >= 2;
+    } catch { return false; }
+  }, [done, t.answer, t.sources, t.factCheck]);
+  // Retry is a real re-search through the ask pipeline — the same call the
+  // suggestion chips make. Adjust runs a new query the reader typed.
+  const retrySearch = () => { if (onRelated) onRelated(t.q); };
+  const adjustQuery = (q) => { if (onRelated && q && q.trim()) onRelated(q.trim()); };
+  const scrollToRef = (ref) => {
+    const el = ref && ref.current;
+    if (el) el.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+  };
+  const jumpToSection = (id) => {
+    if (id === "videos") setEvTab("videos");
+    else if (id === "evidence") setEvTab("biblio");
+    const refs = { answer: answerTopRef, evidence: bandSectionRef, videos: bandSectionRef, factcheck: fcSectionRef, disagreements: vennSectionRef, compare: compareSectionRef, openquestions: oqSectionRef };
+    if (id === "openquestions" && openQuestions.length > 0) setShowOQ(true);
+    scrollToRef(refs[id]);
+  };
+  const scrollCompare = (tab) => {
+    if (tab) setEvOpen(tab);
+    setTimeout(() => scrollToRef(compareSectionRef), 60);
+  };
+  // Commit 98 — votes feed /api/vote (see the old toolbar comment, kept in
+  // the overflow menu item below). One-shot per answer, fire-and-forget.
+  const castVote = (v) => {
+    if (vote || !t.answerId) return;
+    setVote(v);
+    fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: v }) })
+      .then((r) => { toast(r.status === 401 ? "Sign in to have your vote counted." : v === "up" ? "Thanks. That helps rank this answer." : "Noted. This answer won't be reused."); })
+      .catch(() => {});
+  };
+  const answerStatus = connFailed || synthFailed ? "failed" : (done && !answerText.trim() ? "failed" : answerText ? "ready" : "empty");
+  const railItems = [
+    { id: "answer", label: "Answer", status: answerStatus },
+    { id: "evidence", label: "Evidence", status: sources.length ? "ready" : (connFailed ? "failed" : "empty"), count: sources.length || undefined },
+    { id: "videos", label: "Videos", status: videos.length ? "ready" : "empty", count: videos.length || undefined },
+    { id: "factcheck", label: "Fact-check", status: t.factCheck ? "ready" : "empty" },
+    { id: "disagreements", label: "Disagreements", status: vennReady ? "ready" : "empty" },
+    { id: "compare", label: "Compare", status: sources.length >= 2 ? "ready" : "empty" },
+    { id: "openquestions", label: "Open questions", status: openQuestions.length ? "ready" : "empty", count: openQuestions.length || undefined },
+  ];
+  // overflowItems is defined after the vote state below (it reads `vote`).
+  // Auto-read: the preference fires once per answer (see AnswerPlayer's own
+  // guard). The player now lives in an expandable panel instead of the old
+  // icon-only dock, so auto-read opens the panel when the answer settles.
+  useEffect(() => {
+    if (autoRead && last && done && answerText.length > 40) setListenOpen(true);
+  }, [autoRead, last, done, answerText]);
   // Only fires once the text has stopped changing (see the comment at the
   // render site): `done` flips true when the typewriter has caught up, or
   // immediately when the typewriter is off.
@@ -7328,9 +7992,39 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const [vote, setVote] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  // The labeled More menu: every demoted toolbar action stays one tap
+  // away, each still labeled. Dividers at a boundary collapse out.
+  const overflowItems = (() => {
+    const items = [
+      ...(done && interactive && answerText.length > 40 ? [{
+        id: "listen", label: listenOpen ? "Hide listen" : "Listen", icon: "mic",
+        hint: listenOpen ? "Open" : undefined, onClick: () => setListenOpen((v) => !v),
+      }] : []),
+      { divider: true },
+      ...(done && interactive && sources.length >= 2 ? [
+        { id: "table", label: "Table", icon: "table", hint: "side by side", onClick: () => scrollCompare("table") },
+        { id: "network", label: "Network", icon: "network", hint: "source map", onClick: () => scrollCompare("network") },
+        { id: "arc", label: "Arc", icon: "timeline", hint: "over time", onClick: () => scrollCompare("arc") },
+      ] : []),
+      ...(done && interactive && openQuestions.length > 0 ? [{
+        id: "openquestions", label: "Open questions", icon: "question", hint: String(openQuestions.length),
+        onClick: () => { setShowOQ(true); setTimeout(() => scrollToRef(oqSectionRef), 60); },
+      }] : []),
+      { divider: true },
+      ...(t.answerId ? [
+        { id: "yes", label: "Yes — useful", icon: "thumb-up", hint: vote === "up" ? "Marked" : undefined, onClick: () => castVote("up") },
+        { id: "no", label: "No — missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
+      ] : []),
+      { id: "report", label: "Report a problem", icon: "flag", hint: user ? undefined : "Sign in", onClick: () => { if (user) setShowReport(true); else onRequireAuth(); } },
+    ];
+    return items.filter((it, i, arr) => {
+      if (!it.divider) return true;
+      const prev = arr[i - 1], next = arr[i + 1];
+      return prev && next && !prev.divider && !next.divider;
+    });
+  })();
   const [generatingPaper, setGeneratingPaper] = useState(false);
   const [paperReady, setPaperReady] = useState(false);
-  const [openVideo, setOpenVideo] = useState(null);
   const paper = useMemo(() => buildAcademicPaperBlocks(t.answer), [t.answer]);
 
   // A running conversation mounts one <Turn> per exchange (see turns.map in
@@ -7448,9 +8142,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 Redesign: one quiet strip of labeled hairline chips — every
                 action says its name instead of hiding behind a tooltip.
                 Clusters breathe with 18px gaps; the divider bars are gone. */}
+            {/* The toolbar shows five labeled actions: Copy, Share, Paper,
+                Diagram, and a labeled More menu. Everything else — Listen,
+                Table, Network, Arc, Open questions, Useful?/Report — lives
+                one tap away in the menu; Table/Network/Arc also remain in
+                the comparison section itself, and Open questions is only in
+                the menu when gaps actually surfaced. */}
             {done && t.answer && (
+              <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()} role="toolbar" aria-label="Answer actions">
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} role="group" aria-label="Use this answer">
                 <ToolChip
                   title={copiedAnswer ? "Copied!" : "Copy answer"}
                   label={copiedAnswer ? "Copied" : "Copy"}
@@ -7507,26 +8207,6 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     setTimeout(() => { setGeneratingPaper(false); setPaperReady(true); }, 650);
                   }}
                 />
-                {t.answer.length > 40 && <AnswerPlayer text={t.answer} accent={accent} P={P} compact autoPlay={autoRead && last && done} />}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginLeft: 10 }} role="group" aria-label="Explore visually">
-                {done && interactive && t.sources && t.sources.length >= 2 && <ToolChip title="The evidence, side by side" label="Table" icon="table" active={evOpen === "table"} expanded={evOpen === "table"} accent={accent} P={P} onClick={() => setEvOpen(evOpen === "table" ? null : "table")} />}
-                {interactive && t.sources && t.sources.length >= 2 && <ToolChip title="Source network" label="Network" icon="network" active={evOpen === "network"} expanded={evOpen === "network"} accent={accent} P={P} onClick={() => setEvOpen(evOpen === "network" ? null : "network")} />}
-                {interactive && t.sources && t.sources.length >= 2 && <ToolChip title="The arc of this literature" label="Arc" icon="timeline" active={evOpen === "arc"} expanded={evOpen === "arc"} accent={accent} P={P} onClick={() => { setEvOpen(evOpen === "arc" ? null : "arc"); if (evOpen !== "arc" && evSectionRef.current) setTimeout(() => evSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" }), 60); }} />}
-                {/* Open questions: rendered ONLY when the gap finder surfaced
-                    at least one — an empty button would be a broken promise. */}
-                {done && interactive && openQuestions.length > 0 && (
-                  <ToolChip
-                    title="Open questions in this literature"
-                    label="Open questions"
-                    icon="question"
-                    count={openQuestions.length}
-                    active={showOQ}
-                    expanded={showOQ}
-                    accent={accent} P={P}
-                    onClick={() => setShowOQ((v) => !v)}
-                  />
-                )}
                 {interactive && t.answer && t.answer.length > 40 && (
                   <ToolChip
                     title="Flowchart — turn this answer into a diagram"
@@ -7536,64 +8216,17 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     onClick={() => onShowFlowchart(t)}
                   />
                 )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginLeft: 10 }} role="group" aria-label="Rate this answer">
-                {/* Commit 98 — this pair is what finally feeds /api/vote. The
-                    score it writes is not cosmetic: /api/search only re-serves
-                    a cached answer to other people once score >= 2, and a
-                    downvote also decays the confirmation count on the papers
-                    attached to that query. Voting is deliberately one-shot per
-                    answer (the buttons lock after a press) and fire-and-forget
-                    — a failed vote is not worth an error dialog, and the
-                    endpoint is rate-limited server-side anyway. Gated on
-                    t.answerId so the streaming/fallback paths that don't
-                    return one simply don't show the control. */}
-                {t.answerId ? (
-                  <>
-                    <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint }}>Useful?</span>
-                    <ToolChip
-                      title={vote === "up" ? "Marked useful" : "This was useful"}
-                      label="Yes"
-                      icon="thumb-up" active={vote === "up"} accent={accent} P={P}
-                      onClick={() => {
-                        if (vote) return;
-                        setVote("up");
-                        fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: "up" }) })
-                          .then((r) => { toast(r.status === 401 ? "Sign in to have your vote counted." : "Thanks. That helps rank this answer."); })
-                          .catch(() => {});
-
-                      }}
-                    />
-                    <ToolChip
-                      title={vote === "down" ? "Marked not useful" : "This missed"}
-                      label="No"
-                      icon="thumb-down" active={vote === "down"} accent={STATUS.warn} P={P}
-                      onClick={() => {
-                        if (vote) return;
-                        setVote("down");
-                        fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: "down" }) })
-                          .then((r) => { toast(r.status === 401 ? "Sign in to have your vote counted." : "Noted. This answer won't be reused."); })
-                          .catch(() => {});
-
-                      }}
-                    />
-                  </>
-                ) : null}
-                <button
-                  type="button"
-                  title={user ? "Report bad answer" : "Sign in to report a bad answer"}
-                  onClick={() => { if (user) setShowReport(true); else onRequireAuth(); }}
-                  style={{
-                    background: "none", border: "none", padding: "6px 4px", cursor: "pointer",
-                    fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", letterSpacing: "0.04em",
-                    color: P.faint, textDecoration: "underline", textUnderlineOffset: 3,
-                    textDecorationColor: withAlpha(P.faint, 0.4),
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = STATUS.bad; e.currentTarget.style.textDecorationColor = STATUS.bad; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; e.currentTarget.style.textDecorationColor = withAlpha(P.faint, 0.4); }}
-                >Report</button>
-                </div>
+                <ToolbarOverflow P={P} accent={accent} items={overflowItems} />
               </div>
+              {listenOpen && done && t.answer && t.answer.length > 40 && (
+                /* The listen panel: the full AnswerPlayer expanded below the
+                   toolbar instead of an icon-only dock — every control keeps
+                   its name. Auto-read opens it once the answer settles. */
+                <div style={{ borderTop: `1px solid ${P.line}`, marginTop: 10, paddingTop: 12 }}>
+                  <AnswerPlayer text={t.answer} accent={accent} P={P} autoPlay={autoRead && last && done} />
+                </div>
+              )}
+              </>
             )}
           </div>
         )}
@@ -7607,14 +8240,55 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             skipped entirely while the typewriter is still streaming (the
             text is changing every few milliseconds; animating each keystroke
             would be strobing, not motion). */}
+        {/* The rail's "Answer" jump lands here. */}
+        <div ref={answerTopRef} style={{ scrollMarginTop: 90 }} />
         <div ref={answerRevealRef} className="cb-answer-body">
-          {renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
+          {connFailed ? (
+            /* Connection failed: every database reported ok:false, so there
+               is nothing retrieved and nothing to synthesize. Plain copy,
+               real retry — never a bare error string, never invented data. */
+            <AnswerStateCard kicker="CONNECTION FAILED" tone="bad"
+              title="The databases couldn't be reached."
+              body="Every source we queried for this answer failed to respond. Nothing was retrieved, so there's nothing to synthesize yet."
+              actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
+              P={P} accent={accent} />
+          ) : synthFailed && sources.length === 0 ? (
+            /* Synthesis failed and the fallback carried no papers either:
+               there is no answer text to show at all. */
+            <AnswerStateCard kicker="NO SYNTHESIS AVAILABLE" tone="warn"
+              title="Synthesis isn't available right now."
+              body="Every model is at capacity and no extractive fallback was possible, so there's no answer text to show."
+              actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
+              P={P} accent={accent}>
+              <QueryRetryForm P={P} accent={accent} onAsk={adjustQuery} id={`cb-retry-${t.answerId || "turn"}`} />
+            </AnswerStateCard>
+          ) : synthFailed ? (
+            /* Synthesis failed but the fallback retrieved papers: the card
+               owns the status and the plain-English explanation; the chrome
+               ("Unable To Synthesize" heading, "What To Do Next" block) is
+               stripped so it doesn't compete — the paper blocks themselves
+               are preserved untouched. */
+            <>
+              <AnswerStateCard kicker="SYNTHESIS UNAVAILABLE" tone="warn"
+                title="Every model is at capacity, so this isn't a written synthesis."
+                body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order — not a synthesized argument."
+                P={P} accent={accent} />
+              <div style={{ marginTop: 16 }}>
+                {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
+              </div>
+            </>
+          ) : (
+            renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)
+          )}
         </div>
         {done && (
           <div style={{ ...S.byline, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
             {/* synthesisMode comes from the backend: an extractive (non-AI)
                 fallback answer must not wear the "AI-synthesized" label. */}
-            <span style={S.aiTag}>{t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
+            {/* synthesisMode comes from the backend. A failed synthesis ("none")
+                must never wear the AI-synthesized label — the state card
+                above already owns the failure plainly. */}
+            <span style={S.aiTag}>{t.synthesisMode === "none" ? "Synthesis unavailable · verify against cited sources" : t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
             <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           </div>
         )}
@@ -7635,14 +8309,57 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {/* Open questions — the gap finder. The button above only exists when
           gaps surfaced; the panel itself still renders its honest empty
           state if opened with nothing, rather than a blank card. */}
-      {done && t.factCheck && <FactCheck fc={t.factCheck} P={P} accent={accent} />}
+      {/* Jump rail — sticky under the answer card, mono labels with live
+          ready/empty/failed status from the turn's real data. Buttons, so
+          touch works; nothing here depends on hover. */}
+      {done && t.answer && <JumpRail items={railItems} P={P} accent={accent} onJump={jumpToSection} />}
+      {/* The Evidence band: Bibliography + Videos as tabs in one band,
+          directly under the answer. Always rendered — the shells inside are
+          honest about empty/loading instead of vanishing. */}
+      {done && (
+        <div ref={bandSectionRef} style={{ scrollMarginTop: 130 }}>
+          <EvidenceBand t={t} P={P} accent={accent} tab={evTab} setTab={setEvTab}
+            citationStyle={citationStyle} setCitationStyle={setCitationStyle}
+            onOpenPaper={(n) => onOpenPaper(t, n)} onOpenVideo={setOpenVideo}
+            onRetry={retrySearch} onAdjustQuery={adjustQuery} busyNow={busyNow} done={done} />
+        </div>
+      )}
+      {/* Fact-check — always a section, never a silent gap. No result is an
+          honest empty state; an errored check is a failed shell with retry. */}
+      {done && (
+        <div ref={fcSectionRef} style={{ scrollMarginTop: 130 }}>
+          {t.factCheck && !t.factCheck.error ? (
+            <FactCheck fc={t.factCheck} P={P} accent={accent} />
+          ) : (
+            <AnswerSection eyebrow="Fact-check" P={P} accent={accent}>
+              <AnswerStateCard
+                kicker={t.factCheck && t.factCheck.error ? "CHECK FAILED" : "NOT CHECKED"}
+                tone={t.factCheck && t.factCheck.error ? "bad" : "neutral"}
+                title={t.factCheck && t.factCheck.error ? "The verification pass didn't complete." : "This answer hasn't been fact-checked."}
+                body="The fact-check is a separate pass over the answer's claims — it didn't produce a result here."
+                actions={[{ label: "Retry search", onClick: retrySearch }]}
+                P={P} accent={accent} />
+            </AnswerSection>
+          )}
+        </div>
+      )}
       {/* The Venn creature replaces "where it disagrees" — see VennCreature.
           Flashpoints (the raw conflicting claim pairs) collapse underneath it;
-          the Arc link and the inline Evidence section follow, so everything
-          that interrogates the literature lives in one band. */}
+          when the claims don't split into two camps the section says so
+          honestly instead of rendering nothing. */}
       {interactive && done && (
-        <VennCreature turn={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)}
-          isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+        <div ref={vennSectionRef} style={{ scrollMarginTop: 130 }}>
+          {vennReady ? (
+            <VennCreature turn={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)}
+              isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+          ) : (
+            <AnswerSection eyebrow="Where the literature disagrees" P={P} accent={accent}>
+              <AnswerStateCard kicker="NO CLEAR DIVIDE" title="No clear disagreement surfaced."
+                body="The cited claims don't split into two camps — the literature, as cited, reads as settled or too thin to divide."
+                P={P} accent={accent} />
+            </AnswerSection>
+          )}
+        </div>
       )}
       {done && t.literatureConflicts && t.literatureConflicts.length > 0 && (
         <details style={{ marginTop: 16 }} className="cb-fade">
@@ -7671,37 +8388,31 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           </div>
         </details>
       )}
-      {interactive && done && t.sources && t.sources.length >= 2 && (
-        <div style={{ marginTop: 18 }} className="cb-fade">
-          <button type="button" onClick={() => { setEvOpen("arc"); evSectionRef.current && evSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); }}
-            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint }}>The arc of this literature</span>
-            <span aria-hidden="true" style={{ color: accent, fontFamily: "var(--cb-mono)" }}>→</span>
-          </button>
-        </div>
-      )}
+      {/* The arc shortcut link lived here; the jump rail ("Compare") and the
+          toolbar's More menu now land on the comparison section, so the
+          one-off link is gone — one way to reach it, not three. */}
+      {/* Compare — table / network / arc, one at a time. The rail and the
+          toolbar's More menu land here; EvidenceSection owns its honest
+          empty shell now instead of returning null. */}
       {done && (
-        <div ref={evSectionRef} style={{ scrollMarginTop: 90 }}>
+        <div ref={compareSectionRef} style={{ scrollMarginTop: 130 }}>
           <EvidenceSection t={t} P={P} accent={accent} evOpen={evOpen} setEvOpen={setEvOpen} onOpenPaper={(n) => onOpenPaper(t, n)} />
         </div>
       )}
       {done && showOQ && (
-        <OpenQuestions cards={openQuestions} P={P} accent={accent} />
+        <div ref={oqSectionRef} style={{ scrollMarginTop: 130 }}>
+          <OpenQuestions cards={openQuestions} P={P} accent={accent} />
+        </div>
       )}
-      {done && t.videos && t.videos.length > 0 && t.sources && t.sources.length > 0 && (
-        <VideoFilmstrip videos={t.videos} P={P} accent={accent} onOpen={setOpenVideo} />
-      )}
-      {openVideo && <VideoPlayerModal P={P} accent={accent} at={at} video={openVideo} close={() => setOpenVideo(null)} />}
-      {done && t.sources && t.sources.length > 0 && <Bibliography sources={t.sources} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onOpenPaper={(n) => onOpenPaper(t, n)} />}
-      {/* v28: was a collapsed <details>/<summary> — closed by default, so a
-          real feature (video results) was invisible unless someone thought
-          to click a plain-text disclosure triangle. Un-collapsed into a
-          persistent section with the same header treatment as Bibliography
-          (accent tick + label + count chip) so it reads as a first-class
-          part of the answer, not a hidden extra. Grid unchanged structurally
-          (16:9 thumbnails, auto-fill 2-3 columns) but given a play-glyph
-          overlay and a real hover glow — no fabricated duration badge, since
-          the backend's video objects genuinely carry no duration data. */}
+      {/* Video explainers now live in the Evidence band above (Videos tab);
+          the player is the band's own modal — the poster stays under the
+          iframe and the iframe fades in over it, no black flash. */}
+      {openVideo && <EvidenceVideoModal P={P} accent={accent} video={openVideo} close={() => setOpenVideo(null)} />}
+      {/* The answer's reading order: Evidence (bibliography + videos, tabbed)
+          sits directly under the answer, then fact-check, then where the
+          literature disagrees, then comparison tools, then open questions,
+          then the continue strip (suggestions / watch / related). Every
+          section renders its shell always — no silent gaps. */}
       {/* AI suggestions */}
       {interactive && done && t.suggestions && t.suggestions.length > 0 && (
         <div style={{ alignItems: "center", marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
@@ -8718,14 +9429,24 @@ function EvidenceTableInline({ sources, P, accent, onOpenPaper }) {
 
 function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
   const sources = t.sources || [];
-  if (!sources.length) return null;
   const tabs = [
     ["table", "Table", `${sources.length} studies`],
     ["network", "Network", "co-citation"],
     ["arc", "Arc", "the long view"],
   ];
+  /* The Evidence band (bibliography + videos) owns the "Evidence" name now,
+     so this section is "Compare": the same tools, never a silent gap. */
+  if (!sources.length) {
+    return (
+      <AnswerSection eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}>
+        <AnswerStateCard kicker="NOTHING TO COMPARE" title="No studies to compare."
+          body="The comparison tools need cited studies to work with — this answer cites none."
+          P={P} accent={accent} />
+      </AnswerSection>
+    );
+  }
   return (
-    <AnswerSection eyebrow="Evidence" title="The receipts, in one place" P={P} accent={accent}
+    <AnswerSection eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}
       right={tabs.map(([id, label]) => (
         <button key={id} type="button" onClick={() => setEvOpen(evOpen === id ? null : id)} aria-pressed={evOpen === id}
           style={{ background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: evOpen === id ? accent : P.faint }}>
@@ -8761,32 +9482,48 @@ function SprocketRow({ color }) {
 
 function VideoFrame({ v, n, P, accent, onOpen }) {
   const [preview, setPreview] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const timer = useRef(null);
+  const reduced = usePrefersReducedMotion();
   const finePointer = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: fine)").matches;
+  // Immediate poster: derive hqdefault from the YouTube id when the video
+  // carries one (the backend already sends them) — the poster is on screen
+  // from the first paint, never waiting on the backend's thumbnail field,
+  // which has been blank before. v.thumbnail stays as the fallback.
+  const ytId = getYouTubeId(v) || v.id;
+  const poster = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : (v.thumbnail || null);
   const startPreview = () => {
-    if (!finePointer || !v.id) return;
+    if (!finePointer || reduced || !ytId) return;
+    if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setPreview(true), 380);
   };
   const stopPreview = () => {
     if (timer.current) clearTimeout(timer.current);
     setPreview(false);
+    setLoaded(false);
   };
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   return (
     <div style={{ flex: "0 0 auto", width: 240, scrollSnapAlign: "start" }}>
       <button type="button" onClick={() => onOpen(v)} aria-label={`Play: ${v.title || "video"}`}
         onMouseEnter={startPreview} onMouseLeave={stopPreview} onFocus={startPreview} onBlur={stopPreview}
-        style={{ display: "block", width: "100%", padding: 0, background: "#0a0c10", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: 8, overflow: "hidden", cursor: "pointer", textAlign: "left", transition: "border-color 0.2s ease, transform 0.2s ease" }}
+        style={{ display: "block", width: "100%", padding: 0, background: "#0a0c10", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: 8, overflow: "hidden", cursor: "pointer", textAlign: "left", transition: reduced ? "none" : "border-color 0.2s ease, transform 0.2s ease" }}
         onMouseOver={(e) => { e.currentTarget.style.borderColor = withAlpha(accent, 0.6); }}
         onMouseOut={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}>
         <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: "#0a0c10", overflow: "hidden" }}>
-          {v.thumbnail && !preview && (
-            <img src={v.thumbnail} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          {/* The poster stays mounted under the iframe; the iframe fades in
+              over it once loaded — the frame never shows a black flash
+              while the embed spins up. */}
+          {poster && (
+            <img src={poster} alt="" loading="lazy" draggable={false}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+              onError={(e) => { e.currentTarget.style.display = "none"; }} />
           )}
-          {preview && v.id && (
-            <iframe src={`https://www.youtube.com/embed/${v.id}?autoplay=1&mute=1&controls=0&rel=0&playsinline=1`}
+          {preview && ytId && (
+            <iframe src={`https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=0&rel=0&playsinline=1`}
               title="" tabIndex={-1} aria-hidden="true"
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", pointerEvents: "none" }} />
+              onLoad={() => setLoaded(true)}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", pointerEvents: "none", opacity: loaded ? 1 : 0, transition: reduced ? "none" : "opacity 0.45s ease" }} />
           )}
           {!preview && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.18)" }}>
@@ -8808,22 +9545,31 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
   );
 }
 
-function VideoFilmstrip({ videos, P, accent, onOpen }) {
+/* bare: strip the outer AnswerSection chrome — the Evidence band supplies
+   the section header and tabs, so a nested eyebrow would double it. */
+function VideoFilmstrip({ videos, P, accent, onOpen, bare = false }) {
   const shown = (videos || []).slice(0, 8);
+  const note = (
+    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, margin: "-4px 0 12px", fontFamily: "var(--cb-body)" }}>
+      Background viewing — these videos are not cited as evidence above.
+    </div>
+  );
+  const strip = (
+    <div style={{ background: "#0b0d11", borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden" }} className="cb-fade">
+      <SprocketRow color="rgba(255,255,255,0.16)" />
+      <div style={{ display: "flex", gap: 14, overflowX: "auto", padding: "12px 14px 6px", scrollSnapType: "x proximity", scrollbarWidth: "thin" }}>
+        {shown.map((v, i) => <VideoFrame key={v.id || i} v={v} n={i + 1} P={P} accent={accent} onOpen={onOpen} />)}
+      </div>
+      <SprocketRow color="rgba(255,255,255,0.16)" />
+      <div style={{ height: 10 }} />
+    </div>
+  );
+  if (bare) return <div>{note}{strip}</div>;
   if (!shown.length) return null;
   return (
     <AnswerSection eyebrow={`Video explainers · ${shown.length}`} P={P} accent={accent}>
-      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, margin: "-4px 0 12px", fontFamily: "var(--cb-body)" }}>
-        Background viewing — these videos are not cited as evidence above.
-      </div>
-      <div style={{ background: "#0b0d11", borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden" }} className="cb-fade">
-        <SprocketRow color="rgba(255,255,255,0.16)" />
-        <div style={{ display: "flex", gap: 14, overflowX: "auto", padding: "12px 14px 6px", scrollSnapType: "x proximity", scrollbarWidth: "thin" }}>
-          {shown.map((v, i) => <VideoFrame key={v.id || i} v={v} n={i + 1} P={P} accent={accent} onOpen={onOpen} />)}
-        </div>
-        <SprocketRow color="rgba(255,255,255,0.16)" />
-        <div style={{ height: 10 }} />
-      </div>
+      {note}
+      {strip}
     </AnswerSection>
   );
 }
@@ -12676,7 +13422,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                indistinguishable from a page that failed to load. */
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32, gap: 10 }}>
               {loadingThread ? (
-                <div style={{ color: P.faint, fontSize: FONT_SIZES.small }}>Loading…</div>
+                <div style={{ color: P.faint, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)" }}>Opening thread…</div>
               ) : threads.length === 0 ? (
                 <>
                   <div style={{
@@ -14483,7 +15229,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
       >
         <div style={{ flex: 1, overflowY: "auto" }}>
           {loading && (
-            <div style={{ padding: "60px 20px", textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint }}>Loading…</div>
+            <div style={{ padding: "60px 20px", textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-mono)" }}>Finding that person…</div>
           )}
           {!loading && error && (
             <div style={{ padding: "52px 28px", textAlign: "center" }}>
@@ -15122,7 +15868,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
                     {qaHistory.map((h, i) => (
                       <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
                         <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
-                        {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Thinking…</div>}
+                        {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>Working on the answer…</div>}
                       </div>
                     ))}
                   </>
@@ -17522,6 +18268,38 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
   );
 }
 
+/* ── VersionBanner: "a newer deploy is live" ──────────────────────────
+   A tab left open for hours can run yesterday's bundle against today's API.
+   The build bakes its short git SHA in as __CB_BUILD__ (vite.config.js)
+   and writes the same SHA to public/version.json at build time. App polls
+   /version.json every 10 minutes; when the SHAs differ, a newer deploy is
+   live. The banner surfaces only while idle — never mid-search. */
+function VersionBanner({ P, accent, onRefresh, onDismiss }) {
+  return (
+    <div role="status" style={{
+      position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)",
+      zIndex: 150, display: "flex", alignItems: "center", gap: 10,
+      background: P.bg, border: `1px solid ${withAlpha(accent, 0.4)}`,
+      borderRadius: 100, padding: "8px 8px 8px 16px",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+      fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: P.ink,
+      maxWidth: "calc(100vw - 32px)",
+    }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>New version ready</span>
+      <button onClick={onRefresh} className="cb-press" style={{
+        background: accent, color: "#0b0d10", border: "none", borderRadius: 100,
+        padding: "6px 14px", fontSize: FONT_SIZES.caption, fontWeight: 700,
+        fontFamily: "var(--cb-mono)", cursor: "pointer", flexShrink: 0,
+      }}>Refresh</button>
+      <button onClick={onDismiss} aria-label="Dismiss update notice" className="cb-press" style={{
+        background: "none", border: "none", color: P.faint, cursor: "pointer",
+        padding: 6, display: "inline-flex", flexShrink: 0,
+      }}><Icon name="close" size={14} /></button>
+    </div>
+  );
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
@@ -17842,9 +18620,44 @@ function App() {
   const [pinnedSources, setPinnedSources] = useState([]);
   const [corrections, setCorrections] = useState([]);
   const [busy, setBusy] = useState(false);
+  /* ReadingRoom milestone: set when /api/videos resolves with a non-empty
+     videos array while the current request is still current (see the
+     videosPromise.then guard in ask). Reset at the start of every ask. */
+  const [videosLocated, setVideosLocated] = useState(false);
   const [error, setError] = useState("");
   const [allSources, setAllSources] = useState([]);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
+
+  /* New-version detection: compare the baked-in build SHA (__CB_BUILD__,
+     vite.config.js) against the freshly-served public/version.json every
+     10 minutes. The banner shows only while idle — a deploy landing
+     mid-search must not interrupt the investigation. If a mismatch is seen
+     while busy, it surfaces once the search settles. */
+  const [updateReady, setUpdateReady] = useState(false);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const updateSeenRef = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const r = await fetch("/version.json", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = await r.json();
+        const current = typeof __CB_BUILD__ !== "undefined" ? __CB_BUILD__ : "dev";
+        if (j && j.sha && j.sha !== current) {
+          updateSeenRef.current = true;
+          if (!busyRef.current && alive) setUpdateReady(true);
+        }
+      } catch { /* offline, or a build predating version.json — stay silent */ }
+    };
+    check();
+    const id = setInterval(check, 10 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  useEffect(() => {
+    if (!busy && updateSeenRef.current) setUpdateReady(true);
+  }, [busy]);
 
   /* Commit 88 — these derive from `history` and `saved`, so they must be
      declared after both. Placing them next to confirmClearSaved (which is
@@ -18136,7 +18949,7 @@ function App() {
     setAskedThisSession(true);
     setContextBusy(!imageToSend && !!contextAction(question));
     if (!mutedRef.current) Sfx.click();
-    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setVideosLocated(false); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
     try {
@@ -18175,7 +18988,7 @@ function App() {
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
+      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
@@ -18192,7 +19005,7 @@ function App() {
       setHistory(previous => saveInvestigation(previous, nextTurns, nextSources));
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Sfx.pop();
-      videosPromise.then(({ videos }) => { if (requestVersion === investigationRequest.current && data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
+      videosPromise.then(({ videos }) => { /* The video index has answered for this turn — with footage or without. Marking the turn settled keeps the Videos tab on an honest "reading" state instead of flashing a false empty verdict when synthesis wins the race. */ setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videosSettled: true } : t)); if (requestVersion === investigationRequest.current && data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); /* ReadingRoom's one real milestone: /api/videos resolved with footage while this search is still the current request. */ setVideosLocated(true); } });
     } catch (e) { if (e && e.name === "AbortError") return; if (requestVersion === investigationRequest.current) setError("Couldn't reach the research service. Please try again."); }
     finally { if (requestVersion === investigationRequest.current) setBusy(false); }
   }, [input, attachedImage, busy, turns, allSources, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
@@ -18891,6 +19704,7 @@ function App() {
   return (
     <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
+      {updateReady && <VersionBanner P={P} accent={accent} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
       {/* ── The field, at application level ──────────────────────────────
           Three things drive it, and all three are real application state:
@@ -19125,6 +19939,8 @@ function App() {
                 accent={accent} P={P}
                 imageInputRef={imageInputRef} attachedImage={attachedImage}
                 focused={composerFocused} setFocused={setComposerFocused}
+                recentQuestions={history.slice(0, 6).map((h) => h.title || (h.turns && h.turns[0] && h.turns[0].q)).filter(Boolean)}
+                evidenceLabel={(EVIDENCE_TIERS.find((t) => t[0] === evidenceFilter) || EVIDENCE_TIERS[0])[1]}
               />
               {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
               <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
@@ -19218,13 +20034,14 @@ function App() {
               <div style={S.thread}>
                 {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} />))}
                 {busy && (<div style={S.turn}>
-                  {/* The loading state is the poised counterpart to the query
-                      line: the question in calm display type, one hairline
-                      with a single marker travelling it — the instrument
-                      reads rather than transmits. The AgentTrace below
-                      carries the honest elapsed readout and status line. */}
-                  <EchoField q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} accent={accent} />
-                  <AgentTrace P={P} accent={accent} done={false} contextual={contextBusy} />
+                  {/* The Reading Room: the question as a specimen label, the
+                      fifteen databases as a labelled constellation the query
+                      is in flight to, the read head (one hairline, one
+                      travelling marker, one elapsed readout), one honest
+                      waiting line — and the one real milestone, related
+                      footage located. Nothing here claims per-database
+                      progress the client cannot know. */}
+                  <ReadingRoom P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} done={false} contextual={contextBusy} videosLocated={videosLocated} />
                 </div>)}
                 {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
@@ -20074,6 +20891,43 @@ summary::-webkit-details-marker { display: none; }
     #05070a;
 }
 
+/* ── The Threshold: intro rebuild ──
+   The hero is the instrument now. These are the only new selectors; the
+   rest of the intro's styling stays inline, in this screen's own
+   convention. */
+.cb-film-poster {
+  position: absolute; inset: 0;
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  /* The reel always covers this while it is playing — the dip-free
+     dissolve keeps one clip fully opaque at all times. This layer exists
+     for first paint, for the blocked reel (reduced motion, metered
+     connection, paused), and for the frames before a decoder produces a
+     picture: a graded still, never black. */
+}
+/* Attachments cannot cross the intro boundary — onEnter carries the
+   question text only, and silently dropping a file the visitor chose
+   would be the dishonest version. The attach tool is hidden on this
+   screen; voice dictation stays, because it only sets text. The
+   workspace composer keeps the attach button. */
+.cb-intro-compose .cb-qline-tool { display: none; }
+/* The quiet affordance: a text button, no border, no lift — a footnote to
+   the primary CTA, not a competitor. */
+.cb-intro-quiet { transition: color 220ms var(--cb-ease); }
+.cb-intro-quiet:hover { color: #f2f4f2 !important; }
+.cb-intro-quiet:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 4px; }
+/* The 3-step card arrives as a card, then each step in sequence — mono
+   step labels, staggered. All of it dies under reduced motion (see the
+   shared block below). */
+@keyframes cbStepCardIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+.cb-step-card { animation: cbStepCardIn 480ms var(--cb-ease) both; }
+.cb-step { animation: cbStepCardIn 480ms var(--cb-ease) both; }
+.cb-step-close { transition: background 220ms var(--cb-ease), color 220ms var(--cb-ease); }
+.cb-step-close:hover { background: rgba(255,255,255,0.12) !important; color: #f2f4f2 !important; }
+.cb-step-close:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 2px; }
+
 /* ── Composer states ──
    (The old pill's scan/dots styles were removed with the query-line
    redesign; the query line carries its own reading/busy states.) */
@@ -20088,6 +20942,8 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-qline {
   --cb-acc: #a3b899;
+  /* Relative: the recent-questions deck anchors to this box. */
+  position: relative;
   width: 100%; max-width: 760px; margin: 0 auto;
   animation: cbSignalIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -20139,12 +20995,21 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-qline-ask:hover:not(:disabled) { background: var(--cb-acc); border-color: var(--cb-acc); color: #11140f; }
 .cb-qline-ask:disabled { opacity: 0.55; cursor: default; }
-.cb-qline-busy {
-  width: 16px; height: 16px; border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.25); border-top-color: #f2f4f2;
-  animation: cbQlineSpin 0.9s linear infinite;
+/* The ask button in flight: the ring breathes outward from the centre —
+   the question radiating out, not a wheel idling in place. Still when
+   reduced motion is on (see the .cb-qline-ring--still modifier and the
+   reduced-motion block below). */
+.cb-qline-ring {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--cb-acc);
+  animation: cbQlineRing 1.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
-@keyframes cbQlineSpin { to { transform: rotate(360deg); } }
+@keyframes cbQlineRing {
+  0%   { transform: scale(0.55); opacity: 0.9; }
+  70%  { transform: scale(1.15); opacity: 0.15; }
+  100% { transform: scale(1.15); opacity: 0; }
+}
+.cb-qline-ring--still { animation: none; transform: scale(0.85); opacity: 0.7; }
 /* The rule is the instrument: one hairline, a 2px accent that grows from
    the centre on focus. */
 .cb-qline-rule { position: relative; height: 1px; background: rgba(255,255,255,0.16); margin-top: 2px; }
@@ -20158,7 +21023,7 @@ summary::-webkit-details-marker { display: none; }
 /* The reading line: one hushed row. Kind in tracked-out small caps, value
    in plain text. It appears only while there is something to show; the
    fixed min-height keeps the layout from jumping as you type. */
-.cb-qline-sub { min-height: 24px; margin-top: 8px; display: flex; align-items: flex-start; }
+.cb-qline-sub { min-height: 24px; margin-top: 8px; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 .cb-qline-reading {
   display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
   font-family: var(--cb-mono); font-size: 11px; letter-spacing: 0.03em;
@@ -20167,6 +21032,67 @@ summary::-webkit-details-marker { display: none; }
 }
 @keyframes cbReadingIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 .cb-qline-rk { font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(242,244,242,0.34); }
+/* The scope line: while you type, the line states the exact terms of the
+   question you are about to fire — mode, database count, evidence tier —
+   all real state, never decoration. */
+.cb-qline-scope {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  font-family: var(--cb-mono); font-size: 11px; letter-spacing: 0.03em;
+  color: rgba(242,244,242,0.62);
+  animation: cbReadingIn 0.35s ease both;
+}
+.cb-qline-sep { color: rgba(242,244,242,0.28); }
+/* ── Recent-questions deck ──
+   Drops from the query line on focus. Renders only when there is history
+   to show — no history, no dropdown, no empty box. Items are 44px buttons
+   so the touch targets stay honest on a phone. */
+.cb-qline-recent {
+  position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 30;
+  padding: 8px 0 6px;
+  background: rgba(13, 16, 13, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: cbReadingIn 0.25s ease both;
+}
+.cb-qline-recent-k {
+  padding: 4px 18px 6px;
+  font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: rgba(242, 244, 242, 0.34);
+}
+.cb-qline-recent-item {
+  display: flex; align-items: center; width: 100%;
+  min-height: 44px; padding: 8px 18px;
+  background: transparent; border: none; cursor: pointer;
+  color: rgba(242, 244, 242, 0.82);
+  font-family: var(--cb-body); font-size: 14px; text-align: left;
+}
+.cb-qline-recent-item:hover, .cb-qline-recent-item.is-active {
+  background: rgba(255, 255, 255, 0.06); color: #f2f4f2;
+}
+.cb-qline-recent-q {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* ── AskModePicker: numbered index plates ──
+   Plates carry a mono index numeral; the consequence line beneath swaps
+   on hover/focus. Fixed min-height so the "Try" examples below never
+   jump when the line swaps. */
+.cb-modeplate-idx {
+  font-family: var(--cb-mono); font-size: 10.5px; letter-spacing: 0.1em;
+}
+.cb-modepreview {
+  min-height: 15px; margin-top: 9px; margin-bottom: 2px; text-align: center;
+  font-size: 11px; line-height: 1.4; color: rgba(242, 244, 242, 0.5);
+  font-family: var(--cb-body);
+}
+.cb-modepreview-key {
+  font-family: var(--cb-mono); font-size: 9.5px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: rgba(242, 244, 242, 0.34);
+  margin-right: 8px;
+}
+.cb-modepreview-text { animation: cbReadingIn 0.3s ease both; display: inline-block; }
 
 /* ── EchoField: the loading screen as a signal in flight ──
    The transmitted pulse propagates outward through the fifteen database
@@ -20222,6 +21148,86 @@ summary::-webkit-details-marker { display: none; }
   font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
   letter-spacing: 0.22em; text-transform: uppercase;
   color: rgba(242,244,242,0.4);
+}
+
+/* ── ReadingRoom: the search-waiting instrument ──
+   One loading language everywhere: the specimen label, the labelled
+   constellation, the read head (hairline + travelling marker + mono
+   elapsed readout), one honest waiting line. */
+.cb-room {
+  --cb-acc: #a3b899;
+  padding: 34px 4px 8px;
+  animation: cbSignalIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.cb-room-kicker {
+  font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.3em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--cb-acc) 85%, white);
+  margin-bottom: 14px;
+}
+.cb-room-q {
+  font-family: var(--cb-display); font-weight: 600;
+  letter-spacing: -0.02em; line-height: 1.28;
+  font-size: clamp(20px, 4.2vw, 30px);
+  color: #f2f4f2;
+  max-width: 720px; margin: 0;
+}
+/* The constellation: fifteen labelled nodes, each the same — no node may
+   imply a mid-request state. Flex-wrap lets long database names stack
+   gracefully on a phone instead of overflowing it. */
+.cb-room-const {
+  display: flex; flex-wrap: wrap; gap: 7px 15px;
+  margin-top: 22px;
+  max-width: 100%;
+}
+.cb-room-node {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.06em; white-space: nowrap;
+  color: rgba(242,244,242,0.55);
+  animation: cbRoomDrift 4.8s ease-in-out infinite;
+}
+.cb-room-dot {
+  width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0;
+  background: color-mix(in srgb, var(--cb-acc) 70%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--cb-acc) 60%, transparent);
+}
+@keyframes cbRoomDrift {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(1.5px, -3px); }
+}
+/* The read head row: the existing echo hairline + cursor language, with a
+   mono elapsed readout at its end. */
+.cb-room-readrow {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 26px;
+}
+.cb-room-rule { flex: 1; width: auto; margin: 0; }
+.cb-room-clock {
+  font-family: var(--cb-mono); font-size: 11px; color: rgba(242,244,242,0.6);
+  font-variant-numeric: tabular-nums; min-width: 44px; text-align: right;
+  flex-shrink: 0;
+}
+.cb-room-line {
+  margin-top: 10px;
+  font-family: var(--cb-mono); font-size: 11px;
+  letter-spacing: 0.02em;
+  color: rgba(242,244,242,0.45);
+}
+.cb-room-milestone {
+  margin-top: 8px;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--cb-mono); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.02em;
+  color: rgba(242,244,242,0.85);
+  animation: cbRise 320ms var(--cb-ease) both;
+}
+.cb-room-chips {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px 10px; margin-top: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-room, .cb-room-node, .cb-room-milestone { animation: none; }
 }
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
@@ -20385,6 +21391,32 @@ summary::-webkit-details-marker { display: none; }
 .cb-stagger > *:nth-child(8) { animation-delay: 315ms; }
 .cb-stagger > *:nth-child(n+9) { animation-delay: 360ms; }
 
+/* ── Answer experience: read-head loading motif ──────────────────────
+   The loading language for the answer experience is a read head: a
+   hairline with a travelling marker plus a mono readout. Never a shimmer
+   bar, never a bare "Loading…" string. The marker's travel is ambient —
+   it marks activity, not progress — so no percentages are shown; none
+   exist to show. (css-keyframes.mjs asserts every referenced cb*
+   animation has a @keyframes block: cbReadheadSweep is defined here.) */
+@keyframes cbReadheadSweep {
+  0% { left: -36px; }
+  100% { left: 100%; }
+}
+.cb-readhead { position: relative; height: 1px; overflow: hidden; }
+.cb-readhead-marker {
+  position: absolute; top: -2px; left: -36px; width: 36px; height: 5px;
+  border-radius: 3px; animation: cbReadheadSweep 1.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-readhead-marker { animation: none; left: 0; }
+}
+/* Touch: the per-row citation copy button is hover-revealed on desktop;
+   coarse pointers have no hover, so it stays visible there instead of
+   being unreachable. */
+@media (pointer: coarse) {
+  .cb-bibentry-copy { opacity: 1 !important; }
+}
+
 /* ── Global button physics: subtle, no bounce ── */
 button {
   transition: transform 120ms ease, opacity 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
@@ -20497,10 +21529,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
      removed mid-flight — display:none guarantees the content is reachable. */
   .cb-iris-veil { display: none; }
   .cb-threshold-veil { display: none; }
+  /* The Threshold rebuild: the 3-step card and its steps arrive still. */
+  .cb-step-card, .cb-step { animation: none !important; }
   .cb-trace-comet, .cb-trace-chip { animation: none; }
   .cb-qline, .cb-echo { animation: none; }
   .cb-qline-reading { animation: none; }
-  .cb-qline-busy { animation-duration: 1.6s; }
+  .cb-qline-ring { animation: none; }
+  .cb-qline-scope, .cb-modepreview-text { animation: none; }
   .cb-echo-cursor { animation: none; display: none; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
 }

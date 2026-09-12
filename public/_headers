@@ -86,3 +86,8 @@
 # document that references assets which no longer exist.
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
+
+# The root path serves the same HTML shell as /index.html — it gets the same
+# rule, stated explicitly rather than inherited by luck.
+/
+  Cache-Control: public, max-age=0, must-revalidate

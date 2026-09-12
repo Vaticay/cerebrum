@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "wrangler pages dev --proxy 5173 -- vite",
     "vite": "vite",
+    "prebuild": "node scripts/write-version.mjs",
     "build": "vite build && node scripts/prerender.mjs && node scripts/check.mjs",
     "preview": "wrangler pages dev ./dist",
     "deploy": "vite build && wrangler pages deploy ./dist",

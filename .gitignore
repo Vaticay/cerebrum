@@ -25,3 +25,4 @@ Thumbs.db
 
 # Temp / QA (outside repo, but guard anyway)
 *.tmp
+public/version.json
