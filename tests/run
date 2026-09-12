@@ -533,6 +533,25 @@ await test("film survives iOS autoplay policies (Low Power Mode)", async () => {
   assert.match(appSrc, /onAutoplayBlocked/, "autoplay-blocked notification missing");
   assert.match(appSrc, /Background film paused — tap to play/, "tap-to-play pill missing");
 });
+await test("search loader: 10s comet orbit, tick ring, honest clock", async () => {
+  const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
+  // The master visual interval is 10 seconds — never the old 8s loop.
+  assert.match(appSrc, /animation: cbTxOrbit 10s linear infinite/, "comet is not on the 10-second master interval");
+  assert.ok(!/cbTxOrbit 8s/.test(appSrc), "an 8-second orbit survived somewhere");
+  // The instrument's moving parts all exist and are keyed.
+  for (const name of ["cbTxOrbitRev", "cbTxPing", "cbTxTick", "cbTxTwinkle", "cbTxBreathe"]) {
+    assert.match(appSrc, new RegExp(`@keyframes ${name}`), `missing @keyframes ${name}`);
+  }
+  assert.match(appSrc, /for \(let i = 0; i < 60; i\+\+\)/, "60-tick chronometer ring missing");
+  assert.match(appSrc, /cb-tx-ping-b/, "staggered second sonar ping missing");
+  assert.match(appSrc, /cb-tx-comet/, "comet group missing");
+  // The one honest number is untouched: real elapsed seconds in the center.
+  assert.match(appSrc, /cb-tx-clock/, "elapsed clock missing from the loader");
+  assert.match(appSrc, /Math\.floor\(elapsed \/ 1000\)/, "clock is not driven by real elapsed time");
+  // Reduced motion parks the whole instrument, new parts included.
+  assert.match(appSrc, /\.cb-tx-comet, \.cb-tx-ping, \.cb-tx-inner-orbit,\n\s+\.cb-tx-clock, \.cb-tx-dot, \.cb-tx-state \{ animation: none; \}/,
+    "reduced-motion does not silence the new loader animations");
+});
 await test("vote/report UI is honest about the auth requirement", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
   // Votes: a 401 must not be thanked for.

@@ -2681,14 +2681,36 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
     return { left: `${50 + r * Math.cos(a)}%`, top: `${50 + r * Math.sin(a)}%` };
   };
 
+  /* Chronometer tick ring: 60 ticks around the dial, every fifth one
+     emphasized. The comet's 10-second orbit crosses six ticks a second,
+     so the dial is the visual counterpart of the elapsed clock — the
+     seconds he likes, made physical. Pure decoration; the only number
+     the instrument ever claims is the real elapsed time. */
+  const ticks = [];
+  for (let i = 0; i < 60; i++) {
+    const a = (i / 60) * Math.PI * 2;
+    const major = i % 5 === 0;
+    const r1 = major ? 144 : 147.5, r2 = 152;
+    ticks.push(
+      <line key={i}
+        x1={160 + r1 * Math.cos(a)} y1={160 + r1 * Math.sin(a)}
+        x2={160 + r2 * Math.cos(a)} y2={160 + r2 * Math.sin(a)}
+        stroke={major ? "rgba(255,255,255,0.30)" : "rgba(255,255,255,0.13)"}
+        strokeWidth={major ? 1.6 : 1} />
+    );
+  }
+  const live = !reduced && !done;
+
   return (
     <div className="cb-room" style={{ "--cb-acc": accent }} aria-live="polite" aria-atomic="true">
       {/* The question, catalogued as a specimen label. */}
       <div className="cb-room-kicker">Query / Specimen</div>
       <h2 className="cb-room-q">{q}</h2>
 
-      {/* The transmission ring. */}
-      <div className="cb-tx-wrap" role="img" aria-label={`Query in flight to ${N} databases`}>
+      {/* The transmission ring. cb-tx-live scopes the CSS motion to the
+          in-flight state: done or reduced-motion renders the parked
+          composition below instead. */}
+      <div className={"cb-tx-wrap" + (live ? " cb-tx-live" : "")} role="img" aria-label={`Query in flight to ${N} databases`}>
         <svg viewBox="0 0 320 320" className="cb-tx-svg" aria-hidden="true">
           <defs>
             <linearGradient id="cbTxPulse" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -2697,23 +2719,42 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
               <stop offset="100%" stopColor={accent} stopOpacity="1" />
             </linearGradient>
           </defs>
+          {/* chronometer ticks */}
+          {ticks}
           {/* faint full ring */}
           <circle cx="160" cy="160" r="118" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="1" />
-          {/* the pulse: a bright arc in flight around the ring */}
-          {!reduced && !done && (
-            <circle cx="160" cy="160" r="118" fill="none" stroke="url(#cbTxPulse)" strokeWidth="2"
-              strokeDasharray="86 656" strokeLinecap="round" className="cb-tx-arc" />
+          {live && (
+            <>
+              {/* sonar pings: the query reaching out to the databases — two
+                  rings, staggered, each expanding from the clock out to the
+                  database ring over four seconds */}
+              <g className="cb-tx-ping"><circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="1" /></g>
+              <g className="cb-tx-ping cb-tx-ping-b"><circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="1" /></g>
+              {/* counter-rotating dashed hairline: depth against the comet */}
+              <g className="cb-tx-inner-orbit">
+                <circle cx="160" cy="160" r="96" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray="2 7" />
+              </g>
+              {/* the comet: glowing head + fading tail, one 10-second orbit.
+                  The head dot sits at 3 o'clock, exactly where the dash
+                  starts and where the gradient is brightest, so they fly
+                  as one body. */}
+              <g className="cb-tx-comet">
+                <circle cx="160" cy="160" r="118" fill="none" stroke="url(#cbTxPulse)" strokeWidth="2.5"
+                  strokeDasharray="86 656" strokeLinecap="round" />
+                <circle cx="278" cy="160" r="3.5" fill={accent} className="cb-tx-head" />
+              </g>
+            </>
           )}
           {/* parked arc for reduced motion / done: a quiet marker at the top */}
           {(reduced || done) && (
             <circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="2"
               strokeDasharray="26 716" strokeLinecap="round" opacity="0.7"
-              transform="rotate(-90 160 160)" />
+              transform="rotate(-90 160 160)" className="cb-tx-arc" />
           )}
         </svg>
         {SCHOLARLY_SOURCES.map((s, i) => (
           <span key={s.id} className="cb-tx-node" style={labelPos(i)}>
-            <span className="cb-tx-dot" aria-hidden="true" />
+            <span className="cb-tx-dot" aria-hidden="true" style={{ animationDelay: `${(i * 373) % 2800}ms` }} />
             {s.name}
           </span>
         ))}
@@ -21716,8 +21757,57 @@ summary::-webkit-details-marker { display: none; }
   width: 100%; height: 100%;
   overflow: visible;
 }
-/* The pulse: one bright arc in slow flight around the ring. 14s per
-   revolution — majestic, not frantic. A sweep, not progress. */
+/* The comet: one bright 10-second orbit — the master interval of the
+   whole instrument. The head dot rides the brightest end of the tail so
+   they fly as one body. */
+.cb-tx-comet {
+  transform-origin: 160px 160px; transform-box: view-box;
+  animation: cbTxOrbit 10s linear infinite;
+}
+.cb-tx-head { filter: drop-shadow(0 0 6px var(--cb-acc)); }
+/* Sonar pings: the query reaching out. Each ring expands from the clock
+   to the database ring and dissolves — two of them, staggered, so there
+   is always one in flight. */
+.cb-tx-ping {
+  transform-origin: 160px 160px; transform-box: view-box;
+  animation: cbTxPing 4s ease-out infinite;
+}
+.cb-tx-ping-b { animation-delay: 2s; }
+@keyframes cbTxPing {
+  0% { transform: scale(0.04); opacity: 0; }
+  15% { opacity: 0.45; }
+  100% { transform: scale(1); opacity: 0; }
+}
+/* Counter-rotating dashed hairline: depth against the comet's direction. */
+.cb-tx-inner-orbit {
+  transform-origin: 160px 160px; transform-box: view-box;
+  animation: cbTxOrbitRev 36s linear infinite;
+}
+@keyframes cbTxOrbitRev { to { transform: rotate(-360deg); } }
+/* The clock ticks: a soft thump on each second, in step with the digit. */
+.cb-tx-live .cb-tx-clock {
+  transform-origin: center;
+  animation: cbTxTick 1s ease-in-out infinite;
+}
+@keyframes cbTxTick {
+  0%, 100% { transform: scale(1); }
+  12% { transform: scale(1.045); filter: brightness(1.12); }
+}
+/* Database nodes twinkle while the query is in flight — staggered via
+   inline animation-delay so they shimmer rather than blink in unison. */
+.cb-tx-live .cb-tx-dot { animation: cbTxTwinkle 2.8s ease-in-out infinite; }
+@keyframes cbTxTwinkle {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+/* LISTENING breathes while it waits. */
+.cb-tx-live .cb-tx-state { animation: cbTxBreathe 2.4s ease-in-out infinite; }
+@keyframes cbTxBreathe {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+/* The parked marker (reduced motion, or the received state): a slow,
+   quiet drift rather than the full instrument. */
 .cb-tx-arc {
   transform-origin: 160px 160px;
   animation: cbTxOrbit 14s linear infinite;
@@ -21785,7 +21875,9 @@ summary::-webkit-details-marker { display: none; }
   gap: 6px 10px; margin-top: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-room, .cb-tx-arc, .cb-room-milestone { animation: none; }
+  .cb-room, .cb-tx-arc, .cb-room-milestone,
+  .cb-tx-comet, .cb-tx-ping, .cb-tx-inner-orbit,
+  .cb-tx-clock, .cb-tx-dot, .cb-tx-state { animation: none; }
 }
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
