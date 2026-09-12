@@ -2407,7 +2407,7 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
                     letterSpacing: "0.005em", flexShrink: 0, whiteSpace: "nowrap",
                     padding: "6px 14px", borderRadius: RADIUS.pill, cursor: "pointer",
                     transition: "all 0.2s ease",
-                    background: on ? withAlpha(accent, 0.14) : "transparent",
+                    background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
                     color: on ? P.ink : P.ink2,
                     border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
                   }}
@@ -2788,7 +2788,7 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
                 padding: isMobile ? "13px 16px" : "9px 14px", borderRadius: 10, cursor: "pointer",
                 fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
                 fontFamily: "var(--cb-body)", letterSpacing: "-0.005em",
-                background: on ? withAlpha(accent, 0.14) : "transparent",
+                background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
                 color: on ? P.ink : P.ink2,
                 border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
                 transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.18s ease",
@@ -4872,6 +4872,10 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
       }} />
       <video ref={aRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={filmPoster(FILM_POSTER_CLIP)} />
       <video ref={bRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={filmPoster(FILM_POSTER_CLIP)} />
+      {/* Cinematic vignette: clear in the middle, falling off to darkness at
+          the frame edges. It focuses the eye on the interface floating over
+          the footage and keeps bright clips from washing out the edges. */}
+      <div className="cb-film-vignette" />
       <div className="cb-film-dim" style={{
         position: "absolute", inset: 0, pointerEvents: "none",
         background: "#0b0d10",
@@ -17385,7 +17389,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          the container just grows. */
       paddingBottom: isMobile ? 88 : 0,
     },
-    container: { maxWidth: 1200, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", flex: 1, display: "flex", flexDirection: "column" },
+    container: { width: "100%", maxWidth: 1200, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", flex: 1, display: "flex", flexDirection: "column" },
 
     /* ── Hero: LEFT-ALIGNED editorial layout ── */
     hero: { 
@@ -21717,6 +21721,16 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    Promoting opacity stays, because the cross-dissolve does still animate
    it and promoting that one property is cheap. */
 .cb-film-clip { will-change: opacity; }
+/* Cinematic vignette over the reel: transparent in the middle so the footage
+   breathes, falling off to smoked darkness at the frame edges. Pure CSS, no
+   paint cost beyond the single gradient layer, and it sits under the dim so
+   the intensity fade still reads. */
+.cb-film-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(115% 100% at 50% 42%, transparent 52%, rgba(3,5,7,0.38) 82%, rgba(2,4,6,0.62) 100%);
+}
 
 /* ── Intro controls ──
    Pills, and every one of them lifts a hair on hover. The lift is the
