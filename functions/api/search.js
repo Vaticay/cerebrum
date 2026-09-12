@@ -10236,7 +10236,11 @@ export async function onRequest(context) {
     // rate-limited" from the outside but is really just an unrealistic clock.
     // Loosened to give real generation a fair chance before Promise.any gives
     // up on the whole wave.
-    const callOR = async (model, msgs, maxTok, timeoutMs = 18000) => {
+    // 2026-09-12: 18s -> 12s. A healthy provider wins a race in 2-6s
+    // (observed); the 18s only ever bound how long a wave waited on its
+    // slowest LOSER before the next wave could start — 18s x 3 sequential
+    // waves = 54s of all-fail tail. Wave 3 keeps its explicit 24s runway.
+    const callOR = async (model, msgs, maxTok, timeoutMs = 12000) => {
       if (!token) throw new Error(model + ": no OpenRouter key configured (OPENROUTER_KEY or OPENROUTER_API_KEY)");
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), timeoutMs);
@@ -10377,7 +10381,9 @@ export async function onRequest(context) {
         return names.map((m) => raceEntry(waveNo, p.id + ":" + m, call(m, msgs, maxTok, timeoutMs)));
       });
 
-    const callCF = async (model, msgs, maxTok, timeoutMs = 18000) => {
+    // 2026-09-12: 18s -> 12s, same rationale as callOR above — the default
+    // only binds all-fail waves, and healthy Workers AI legs answer in ~2s.
+    const callCF = async (model, msgs, maxTok, timeoutMs = 12000) => {
       if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding (env.AI missing)");
       try {
         // callOR and pollinationsCall both bound their fetch to a 12s
