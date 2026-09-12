@@ -309,6 +309,10 @@ export async function onRequest(context) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (request.method !== "POST") return errRes("Method not allowed.", 405, "method_not_allowed", cors);
   if (!readOriginAllowed(request, env)) return errRes("Origin not allowed.", 403, "origin_not_allowed", cors);
+  // Write-path origin gate (same posture as data.js): document analysis is
+  // a state-changing, AI-spending call that belongs to our own UI. Cookies
+  // are SameSite=Lax; this is defence in depth.
+  if (!requireTrustedOrigin(request, env)) return forbiddenOrigin(cors);
 
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
   if (!(await checkRateLimit(env, `document:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
