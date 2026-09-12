@@ -1749,7 +1749,7 @@ function DeckStat({ label, shortLabel, value, accent, P, isMobile, suffix = "" }
           jittering as it counts. A zero is set at the same size but in the
           faint ink: it is still information, it is just not news. */}
       <span style={{
-        fontSize: isMobile ? 24 : 29, fontWeight: 600,
+        fontSize: isMobile ? 17 : 29, fontWeight: 600,
         color: value > 0 ? P.ink : withAlpha(P.faint, 0.55),
         fontFamily: "var(--cb-display)", letterSpacing: "-0.035em", lineHeight: 1.05,
         fontVariantNumeric: "tabular-nums",
@@ -2008,10 +2008,12 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
         <div className="cb-deck-stats" style={{
           order: 2,
           display: "grid",
-          gridTemplateColumns: isMobile ? "repeat(2, minmax(0,1fr))" : "repeat(4, minmax(0,1fr))",
-          gap: isMobile ? "14px 12px" : 14,
-          padding: isMobile ? "18px 4px 4px" : "22px 6px 2px",
-          marginTop: isMobile ? 6 : 12,
+          /* Single row of four on phones too — the 2×2 with 24px numerals
+             was a monument; a footer stat just needs to be legible. */
+          gridTemplateColumns: "repeat(4, minmax(0,1fr))",
+          gap: isMobile ? "8px" : 14,
+          padding: isMobile ? "14px 4px 2px" : "22px 6px 2px",
+          marginTop: isMobile ? 4 : 12,
           borderTop: `1px solid ${P.line}`,
         }}>
           <DeckStat label="Questions asked" shortLabel="Questions" value={totalTurns} P={P} accent={accent} isMobile={isMobile} />
@@ -17774,7 +17776,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     toolbar: { display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
 
     /* ── Footer ── */
-    foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
+    foot: { marginTop: "auto", padding: "20px 0 24px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
     footDbs: { fontSize: FONT_SIZES.micro, letterSpacing: "0.01em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-body)" },
 
     /* ── Mobile sources FAB ──
@@ -20174,12 +20176,9 @@ function App() {
               {/* width:100% for the same reason as the row below it — a
                   text-align:center block still needs the full column, or it
                   centres its lines inside a shrink-to-fit box. */}
-              <div style={{ width: "100%", maxWidth: 640, fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 40 : 72) : (isMobile ? 30 : 44), marginBottom: 12, lineHeight: 1.5 }}>
-                Every question is sent to 15 public research databases at once. These are the largest:
-              </div>
-              <div style={S.trustRow}>
-                {["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"].map((d) => <span key={d} style={S.trustItem}>{d}</span>)}
-                <span style={{ ...S.trustItem, color: P.faint }}>and 9 others</span>
+              {/* One compact trust line instead of a paragraph plus a name row. */}
+              <div style={{ width: "100%", maxWidth: 640, fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 28 : 72) : (isMobile ? 22 : 44), marginBottom: 4, lineHeight: 1.5, padding: "0 16px" }}>
+                Every question goes to 15 public research databases — Europe PMC, PubMed, OpenAlex, Crossref, Semantic Scholar, arXiv, and 9 more.
               </div>
             </Reveal>
           ) : (
@@ -20237,7 +20236,7 @@ function App() {
             </div>
           )}
           <div style={S.foot}>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 14px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 10px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: isMobile ? "2px 12px" : "8px 14px", maxWidth: 620, width: "100%", margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
               {[
                 ["how", "How it works"],
