@@ -5226,6 +5226,23 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const [howOpen, setHowOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  /* HUD clock: one interval, unmounted with the screen. Text updates are
+     not motion, so it keeps ticking under reduced motion. */
+  const [nowUtc, setNowUtc] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNowUtc(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const utcStr = nowUtc.toISOString().slice(11, 19) + " UTC";
+  /* Tracked micro-label voice for HUD readouts: uppercase Inter with wide
+     tracking — the instrument feel without a second typeface. */
+  const hudReadout = {
+    fontSize: 11, letterSpacing: "0.22em", fontWeight: 600,
+    color: "rgba(242,244,242,0.62)", fontFamily: "var(--cb-body)",
+    display: "inline-flex", alignItems: "center", gap: 8,
+    fontVariantNumeric: "tabular-nums",
+  };
+  const hudRule = { width: 1, height: 14, background: "rgba(255,255,255,0.14)", flexShrink: 0 };
   /* Innovation refinement — the door, reimagined:
      `iris` is the opening reveal on first paint (a black disc that opens
      from the optical centre, so the first thing seen is the film, not UI
@@ -5472,6 +5489,25 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             "linear-gradient(180deg, rgba(9,11,14,0.55) 0%, transparent 18%, transparent 76%, rgba(9,11,14,0.62) 100%)",
       }} />
 
+      {/* ── HUD layer ──
+          The techy instrument frame over the cinematic film: four viewport
+          corner brackets, a faint blueprint grid, and a slow scan sweep.
+          All pointer-events:none, all below the content (z 2–15). */}
+      <div aria-hidden="true" className="cb-hud-scan" />
+      <div aria-hidden="true" style={{
+        position: "fixed", inset: 0, zIndex: 2, pointerEvents: "none", opacity: 0.5,
+        backgroundImage:
+          "linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px)," +
+          "linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px)",
+        backgroundSize: "56px 56px",
+        maskImage: "radial-gradient(120% 100% at 50% 40%, black 30%, transparent 78%)",
+        WebkitMaskImage: "radial-gradient(120% 100% at 50% 40%, black 30%, transparent 78%)",
+      }} />
+      <div aria-hidden="true" className="cb-hud-corner" style={{ top: "max(12px, env(safe-area-inset-top))", left: "max(12px, env(safe-area-inset-left))", borderTop: "1px solid rgba(255,255,255,0.28)", borderLeft: "1px solid rgba(255,255,255,0.28)" }} />
+      <div aria-hidden="true" className="cb-hud-corner" style={{ top: "max(12px, env(safe-area-inset-top))", right: "max(12px, env(safe-area-inset-right))", borderTop: "1px solid rgba(255,255,255,0.28)", borderRight: "1px solid rgba(255,255,255,0.28)" }} />
+      <div aria-hidden="true" className="cb-hud-corner" style={{ bottom: "max(12px, env(safe-area-inset-bottom))", left: "max(12px, env(safe-area-inset-left))", borderBottom: "1px solid rgba(255,255,255,0.28)", borderLeft: "1px solid rgba(255,255,255,0.28)" }} />
+      <div aria-hidden="true" className="cb-hud-corner" style={{ bottom: "max(12px, env(safe-area-inset-bottom))", right: "max(12px, env(safe-area-inset-right))", borderBottom: "1px solid rgba(255,255,255,0.28)", borderRight: "1px solid rgba(255,255,255,0.28)" }} />
+
       {/* ── Header ──
           Edge to edge, aligned to the same container as everything below,
           and deliberately not a frosted capsule. backdrop-filter over a
@@ -5495,6 +5531,17 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 4 }}>
+            {/* HUD status cluster: live instrument readouts. Desktop only —
+                a phone header has room for the brand and the More button. */}
+            {!isMobile && (
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginRight: 14 }} aria-label="System status">
+                <span style={hudReadout}><span className="cb-hud-dot" aria-hidden="true" />LIVE</span>
+                <span style={hudRule} aria-hidden="true" />
+                <span style={hudReadout}>15 DATABASES</span>
+                <span style={hudRule} aria-hidden="true" />
+                <span style={hudReadout}>{utcStr}</span>
+              </div>
+            )}
             {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
             ))}
@@ -5546,11 +5593,18 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             <div>
               <div ref={kickerRef} style={{
                 opacity: hidden,
-                fontFamily: "var(--cb-body)", fontSize: 11, letterSpacing: "0.26em",
-                textTransform: "uppercase", color: withAlpha(introAccent, 0.92),
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 16,
                 marginBottom: isMobile ? 14 : 18,
               }}>
-                A research instrument
+                <span aria-hidden="true" style={{ width: isMobile ? 34 : 56, height: 1, background: `linear-gradient(90deg, transparent, ${withAlpha(introAccent, 0.55)})` }} />
+                <span style={{
+                  fontFamily: "var(--cb-body)", fontSize: 11, letterSpacing: "0.26em",
+                  textTransform: "uppercase", color: withAlpha(introAccent, 0.92),
+                  fontVariantNumeric: "tabular-nums",
+                }}>
+                  A research instrument
+                </span>
+                <span aria-hidden="true" style={{ width: isMobile ? 34 : 56, height: 1, background: `linear-gradient(90deg, ${withAlpha(introAccent, 0.55)}, transparent)` }} />
               </div>
               <h1 style={{
                 /* 44–72 on a desktop, 34–44 on a phone. Two lines, both the
@@ -5598,15 +5652,16 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 gap: isMobile ? 10 : 12, flexWrap: "wrap",
               }}>
                 <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go" style={{
-                  border: "none", cursor: "pointer", borderRadius: 9999,
-                  /* The two hero buttons share one sizing system: identical
-                     padding and type size, so they arrive at exactly the
-                     same height. Hierarchy comes from fill vs. outline and
-                     weight, never from a 1px padding drift. */
-                  padding: isMobile ? "14px 30px" : "15px 36px",
+                  border: "none", cursor: "pointer",
+                  /* Chamfered instrument corners instead of a pill: the tech
+                     read comes from the cut, not a radius. clip-path eats
+                     box-shadow, so the glow is a drop-shadow filter. */
+                  clipPath: "polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)",
+                  padding: isMobile ? "15px 32px" : "16px 38px",
                   background: introAccent, color: "#11140f",
                   fontWeight: 600, fontSize: isMobile ? 15.5 : 16, fontFamily: "var(--cb-body)",
-                  boxShadow: "0 12px 34px rgba(163,184,153,0.26)",
+                  letterSpacing: "0.02em",
+                  filter: "drop-shadow(0 12px 28px rgba(163,184,153,0.28))",
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
                 }}><span>Start researching</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
                 {/* "How it works" is quieter now — a text link, not a second
@@ -5620,16 +5675,23 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 }}>How it works</button>
               </div>
 
-              {/* Both halves are true of the product as it stands: the
-                  search endpoint takes anonymous requests, and saved
-                  articles, collections and history live in the browser
-                  until someone chooses to sign in. If either stops being
-                  true, this line comes out. */}
+              {/* Instrument status line: the techy readout under the door's
+                  buttons. One tracked micro-label row — systems, reach,
+                  price — instead of a sentence. */}
               <div style={{
-                marginTop: 16, textAlign: "center",
-                fontSize: 13, color: "rgba(242,244,242,0.56)",
+                marginTop: 18, display: "flex", alignItems: "center", justifyContent: "center",
+                gap: isMobile ? 10 : 14, flexWrap: "wrap",
+                fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase",
+                color: "rgba(242,244,242,0.58)", fontFamily: "var(--cb-body)",
+                fontVariantNumeric: "tabular-nums",
               }}>
-                <span><b style={{ color: "rgba(242,244,242,0.78)", fontWeight: 500 }}>Free</b> · No account required</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span className="cb-hud-dot" aria-hidden="true" />Systems nominal
+                </span>
+                <span aria-hidden="true" style={{ width: 1, height: 12, background: "rgba(255,255,255,0.16)" }} />
+                <span>15 databases</span>
+                <span aria-hidden="true" style={{ width: 1, height: 12, background: "rgba(255,255,255,0.16)" }} />
+                <span>Free · No account</span>
               </div>
             </div>
           </div>
@@ -12148,6 +12210,10 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
 
   const onPreviewDown = (e) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Never start a canvas drag (or steal pointer capture) from an interactive
+    // element: pointer capture retargets the click to the canvas, which silently
+    // kills zoom/Fit button clicks.
+    if (e.target && e.target.closest && e.target.closest("button, a, input, select, textarea, [contenteditable='true']")) return;
     dragRef.current = { sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
   };
@@ -22520,6 +22586,45 @@ summary::-webkit-details-marker { display: none; }
 /* The outline-chip CTA gets the same keyboard ring as the primary. */
 .cb-intro-chip:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 999px; }
 
+/* ── Intro HUD layer: modern/techy instrument treatment ──
+   The film stays cinematic; the tech reads in the chrome around it.
+   Everything here is 1px lines, tracked uppercase Inter (the one-typeface
+   rule stands — no terminal mono), and tabular numerals. All motion is
+   CSS-only and dies under prefers-reduced-motion. */
+@keyframes cbHudScan {
+  0%   { transform: translateY(-30vh); opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateY(130vh); opacity: 0; }
+}
+.cb-hud-scan {
+  position: fixed; left: 0; right: 0; top: 0; height: 22vh; z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 0%, rgba(163,184,153,0.055) 48%, rgba(163,184,153,0.10) 50%, rgba(163,184,153,0.055) 52%, transparent 100%);
+  animation: cbHudScan 9s cubic-bezier(0.4, 0, 0.2, 1) 2.2s infinite;
+}
+@keyframes cbHudPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(163,184,153,0.45); }
+  50%      { opacity: 0.72; box-shadow: 0 0 0 5px rgba(163,184,153,0); }
+}
+.cb-hud-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #a3b899; flex-shrink: 0;
+  animation: cbHudPulse 2.6s ease-in-out infinite;
+}
+.cb-hud-corner {
+  position: fixed; width: 22px; height: 22px; z-index: 15;
+  pointer-events: none; opacity: 0.55;
+}
+/* Primary CTA: chamfered instrument corners + hover lift. clip-path clips
+   box-shadow, so the glow is a drop-shadow filter instead. */
+.cb-intro-go {
+  transition: filter 240ms var(--cb-ease), transform 240ms var(--cb-ease);
+}
+.cb-intro-go:hover { filter: brightness(1.08); }
+.cb-intro-go:active { transform: translateY(1px); }
+.cb-intro-go:focus-visible { outline: 2px solid rgba(163,184,153,0.85); outline-offset: 3px; }
+
 /* ── Composer states ──
    (The old pill's scan/dots styles were removed with the query-line
    redesign; the query line carries its own reading/busy states.) */
@@ -23227,6 +23332,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-qline-scope, .cb-modepreview-text { animation: none; }
   .cb-echo-cursor { animation: none; display: none; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
+  /* Intro HUD: no scan sweep, no pulsing dot under reduced motion. */
+  .cb-hud-scan { display: none; }
+  .cb-hud-dot { animation: none; }
 }
 
 /* Glass panel depth — multi-layer shadows for 3D float effect */
