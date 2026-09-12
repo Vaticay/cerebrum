@@ -11381,39 +11381,6 @@ export async function onRequest(context) {
         // the footer can label it honestly ("Drafted from sources" vs
         // "AI-synthesized") instead of the UI having to guess.
         synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
-        // TEMP-DIAG 2026-09-12 — REVERT AFTER DIAGNOSIS. When AI synthesis
-        // fails, ship per-wave error CATEGORIES only: no messages, no
-        // bodies, no model names, no key-presence flags. Lets the operator
-        // read the failure mode (401 vs 429 vs timeout vs validation
-        // rejection) without dashboard log access. Aggregate counts cannot
-        // leak credential material.
-        synthDiag: !aiOK ? (() => {
-          const cat = (e) => {
-            const m = String((e && e.message) || e || "");
-            if (/HTTP 401/.test(m)) return "http-401";
-            if (/HTTP 429/.test(m)) return "http-429";
-            if (/HTTP 4\d\d/.test(m)) return "http-4xx";
-            if (/HTTP 5\d\d/.test(m)) return "http-5xx";
-            if (/timed out/i.test(m)) return "timeout";
-            if (/no .*configured|no Workers AI binding/i.test(m)) return "no-key-or-binding";
-            if (/provider returned error text/i.test(m)) return "rejected-error-text";
-            if (/response too short/i.test(m)) return "too-short";
-            if (/missing required/i.test(m)) return "no-bold";
-            return "other";
-          };
-          const out = {};
-          for (const a of aiAttempts) {
-            if (!a || !a.summary || a.diagnostics) continue;
-            const w = "wave" + (a.bulletproof ? 3 : a.wave);
-            const errors = {};
-            for (const e of a.summary) {
-              const c = cat(e);
-              errors[c] = (errors[c] || 0) + 1;
-            }
-            out[w] = { attempted: a.attempted || 0, errors };
-          }
-          return out;
-        })() : null,
         source:
           aiOK && useEvidence
             ? dbUsed + " + AI"
