@@ -5618,28 +5618,42 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 <div ref={head2Ref} style={{ opacity: hidden }}>behind your question.</div>
               </h1>
 
-              <p ref={descRef} style={{
+              {/* The slogan, labeled like an instrument spec: two rows, ASK and
+                  TRACE, divided by hairlines. Same words Dusty wrote —
+                  the techy read comes from the labeling, not new copy. */}
+              <div ref={descRef} style={{
                 opacity: hidden,
-                margin: (isMobile ? "16px auto 0" : "20px auto 0"),
-                fontSize: isMobile ? 16 : 18.5,
-                lineHeight: 1.55, fontWeight: 400,
-                color: "rgba(242,244,242,0.80)",
-                maxWidth: 600,
-                textShadow: "0 1px 20px rgba(0,0,0,0.45)",
+                margin: (isMobile ? "20px auto 0" : "26px auto 0"),
+                maxWidth: 600, textAlign: "left",
               }}>
-                Ask a real research question. Every claim traces to a paper you can open.
-              </p>
-              {/* Supporting copy: what the product does, plainly. */}
-              <p style={{
-                margin: (isMobile ? "12px auto 0" : "14px auto 0"),
-                fontSize: isMobile ? 15 : 16.5,
-                lineHeight: 1.55, fontWeight: 400,
-                color: "rgba(242,244,242,0.72)",
-                maxWidth: 560,
-                textShadow: "0 1px 20px rgba(0,0,0,0.45)",
-              }}>
-                Explore scientific papers and build answers you can trace to their sources.
-              </p>
+                {[
+                  ["01", "ASK", "Ask a real research question."],
+                  ["02", "TRACE", "Every claim traces to a paper you can open."],
+                ].map(([n, label, text], i, arr) => (
+                  <div key={n} style={{
+                    display: "flex", alignItems: "baseline", gap: isMobile ? 12 : 18,
+                    padding: isMobile ? "11px 2px" : "13px 4px",
+                    borderTop: "1px solid rgba(255,255,255,0.10)",
+                    ...(i === arr.length - 1 ? { borderBottom: "1px solid rgba(255,255,255,0.10)" } : {}),
+                  }}>
+                    <span style={{
+                      fontSize: 11, letterSpacing: "0.18em", fontWeight: 600,
+                      color: withAlpha(introAccent, 0.9), fontFamily: "var(--cb-body)",
+                      fontVariantNumeric: "tabular-nums", flexShrink: 0,
+                    }}>{n}</span>
+                    <span style={{
+                      fontSize: 10.5, letterSpacing: "0.26em", fontWeight: 600,
+                      color: "rgba(242,244,242,0.52)", fontFamily: "var(--cb-body)",
+                      width: isMobile ? 46 : 58, flexShrink: 0,
+                    }}>{label}</span>
+                    <span style={{
+                      fontSize: isMobile ? 15.5 : 17, lineHeight: 1.5, fontWeight: 500,
+                      color: "rgba(244,246,244,0.92)", fontFamily: "var(--cb-body)",
+                      textShadow: "0 1px 20px rgba(0,0,0,0.45)",
+                    }}>{text}</span>
+                  </div>
+                ))}
+              </div>
 
               {/* Two ways through the door. "Step inside" opens the
                   workspace with the real composer's cursor waiting;
