@@ -780,6 +780,14 @@ function accentText(hex) {
 }
 function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
 
+function mixHex(h1, h2, t) {
+  const c = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const [a1, b1, d1] = c(h1), [a2, b2, d2] = c(h2);
+  const m = (x, y) => Math.round(x + (y - x) * t);
+  const to = (n) => n.toString(16).padStart(2, "0");
+  return `#${to(m(a1, a2))}${to(m(b1, b2))}${to(m(d1, d2))}`;
+}
+
 // Relative (perceptual) luminance of a hex color, 0 (black) to 1 (white) —
 // used wherever a color needs to be checked against a FIXED surface rather
 // than the current theme, since this app's own accent isn't always a real
@@ -7190,20 +7198,22 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   VENN CREATURE — where the papers stand
+   VENN DIAGRAM — where the papers stand
 
-   The living replacement for "where it disagrees": left lobe = papers
-   backing the answer's core claims, right lobe = papers pushing back,
-   the overlap = papers doing both (cited for a supported claim and
-   inside the disagreement section, or carrying a "partly"/"thin"
-   verdict). Papers with no signal sit outside in a quiet "no clear
-   signal" row — placed honestly, never guessed.
+   A research instrument, not decoration: left lobe = papers backing the
+   answer's core claims, right lobe = papers pushing back, the overlap =
+   papers doing both (cited for a supported claim and inside the
+   disagreement section, or carrying a "partly"/"thin" verdict). Papers
+   with no signal sit outside in a quiet "no clear signal" row — placed
+   honestly, never guessed.
 
-   Placement is deterministic: dots sit on a golden-angle spiral inside
-   their region, sized by citation count where the source carries one.
-   The lobes breathe (slow drift) unless the reader prefers reduced
-   motion. Fewer than two classifiable papers and the creature stays
-   home — an absent diagram beats a fabricated one.
+   The geometry is precise and still: two perfect circles, hairline
+   strokes, low-opacity fills — a figure in a review, not a toy. Nothing
+   on this diagram moves, ever. Placement is deterministic: dots sit on a
+   golden-angle spiral inside their region, sized subtly by citation
+   count where the source carries one. Fewer than two classifiable
+   papers and the diagram stays home — an absent diagram beats a
+   fabricated one.
    ══════════════════════════════════════════════════════════════════ */
 
 function vennDotLayout(count, cx, cy, maxR) {
@@ -7219,23 +7229,25 @@ function vennDotLayout(count, cx, cy, maxR) {
 function vennDotRadius(s) {
   const c = typeof s.citations === "number" ? s.citations
     : typeof s.cited_by_count === "number" ? s.cited_by_count : null;
-  if (c == null || !(c > 0)) return 6;
-  return 5 + Math.min(7, Math.log10(c + 1) * 2.4);
+  /* Subtle sizing: informative without shouting — 4.5px base, up to 8px
+     for heavily cited work. */
+  if (c == null || !(c > 0)) return 4.5;
+  return 4 + Math.min(4, Math.log10(c + 1) * 1.4);
 }
 
-const VENN_MIDDLE = "#a78bfa";
+/* Premium instrument palette: the supports lobe follows the reader's
+   accent; the contests lobe is a muted clay/rust — warn desaturated and
+   darkened so it sits quietly on the page. Middle dots use the arithmetic
+   blend of the two, so the overlap reads as a calm mix, never a third
+   neon color. */
+const VENN_CLAY = "#9e7350";
 
-function VennCreature({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
+function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
   const model = useMemo(
     () => classifyVennPapers({ answer: turn.answer, sources: turn.sources, factCheck: turn.factCheck }),
     [turn]
   );
   const [hoverN, setHoverN] = useState(null);
-  /* Stable per-instance filter ID: several answers on one page each render
-     a creature, and a shared "vennWobble" id means every SVG references the
-     first instance's filter — which breaks the moment that instance
-     unmounts. */
-  const filterId = useMemo(() => "vennWobble-" + Math.random().toString(36).slice(2, 9), []);
   const classifiable = model.agree.length + model.disagree.length + model.middle.length;
   if (classifiable < 2) return null;
 
@@ -7246,6 +7258,7 @@ function VennCreature({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
   const agreePts = vennDotLayout(model.agree.length, 192, 192, 76);
   const disagreePts = vennDotLayout(model.disagree.length, 488, 192, 76);
   const middlePts = vennDotLayout(model.middle.length, 340, 192, 50);
+  const middleColor = mixHex(accent, VENN_CLAY, 0.5);
 
   const regionName = (r) => r === "agree" ? "supports the answer" : r === "disagree" ? "contests the answer" : "supports and contests";
 
@@ -7266,16 +7279,16 @@ function VennCreature({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
           onMouseEnter={() => setHoverN(n)} onMouseLeave={() => setHoverN(null)}
           onFocus={() => setHoverN(n)} onBlur={() => setHoverN(null)}
         />
-        <circle r={r} fill={color} stroke={P.bg} strokeWidth={2} opacity={hot ? 1 : 0.88}
+        <circle r={r} fill={color} stroke={P.bg} strokeWidth={1} opacity={hot ? 1 : 0.92}
           style={{ transition: "opacity 0.15s ease", pointerEvents: "none" }} />
-        {hot && <circle r={r + 4.5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.75} style={{ pointerEvents: "none" }} />}
+        {hot && <circle r={r + 4.5} fill="none" stroke={color} strokeWidth={1} opacity={0.6} style={{ pointerEvents: "none" }} />}
       </g>
     );
   };
 
-  const regionLabel = (x, text, color, count) => (
-    <text x={x} y={336} textAnchor="middle" fill={color}
-      style={{ fontFamily: "var(--cb-body)", fontSize: 10.5, fontWeight: 700, letterSpacing: "0.18em" }}>
+  const regionLabel = (x, text, count) => (
+    <text x={x} y={336} textAnchor="middle" fill={P.ink2}
+      style={{ fontFamily: "var(--cb-body)", fontSize: 10, fontWeight: 500, letterSpacing: "0.22em" }}>
       {text} · {count}
     </text>
   );
@@ -7291,26 +7304,19 @@ function VennCreature({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
         <svg viewBox="0 0 680 372" style={{ width: "100%", height: "auto", display: "block" }}
           role="img"
           aria-label={`Venn diagram of cited papers: ${model.agree.length} support the answer, ${model.disagree.length} contest it, ${model.middle.length} do both.`}>
-          <defs>
-            <filter id={filterId} x="-30%" y="-30%" width="160%" height="160%">
-              <feTurbulence type="fractalNoise" baseFrequency="0.011 0.014" numOctaves="2" seed="7" result="n" />
-              <feDisplacementMap in="SourceGraphic" in2="n" scale="30" />
-            </filter>
-          </defs>
-          <g className="venn-drift-a">
-            <circle cx={250} cy={192} r={136} fill={withAlpha(accent, 0.10)}
-              stroke={withAlpha(accent, 0.5)} strokeWidth={1.2} filter={`url(#${filterId})`} />
-          </g>
-          <g className="venn-drift-b">
-            <circle cx={430} cy={192} r={136} fill={withAlpha(STATUS.warn, 0.10)}
-              stroke={withAlpha(STATUS.warn, 0.5)} strokeWidth={1.2} filter={`url(#${filterId})`} />
-          </g>
+          {/* Two perfect static circles — hairline strokes, low-opacity
+              fills. The overlap tints naturally from the translucent fills;
+              nothing on this diagram moves, ever. */}
+          <circle cx={250} cy={192} r={136} fill={withAlpha(accent, 0.07)}
+            stroke={withAlpha(accent, 0.55)} strokeWidth={1} />
+          <circle cx={430} cy={192} r={136} fill={withAlpha(VENN_CLAY, 0.07)}
+            stroke={withAlpha(VENN_CLAY, 0.55)} strokeWidth={1} />
           {model.agree.map((n, i) => dot(n, agreePts[i], accent, "agree"))}
-          {model.middle.map((n, i) => dot(n, middlePts[i], VENN_MIDDLE, "middle"))}
-          {model.disagree.map((n, i) => dot(n, disagreePts[i], STATUS.warn, "disagree"))}
-          {regionLabel(192, "SUPPORTS", accent, model.agree.length)}
-          {regionLabel(340, "BOTH", VENN_MIDDLE, model.middle.length)}
-          {regionLabel(488, "CONTESTS", STATUS.warn, model.disagree.length)}
+          {model.middle.map((n, i) => dot(n, middlePts[i], middleColor, "middle"))}
+          {model.disagree.map((n, i) => dot(n, disagreePts[i], VENN_CLAY, "disagree"))}
+          {regionLabel(192, "SUPPORTS", model.agree.length)}
+          {regionLabel(340, "BOTH", model.middle.length)}
+          {regionLabel(488, "CONTESTS", model.disagree.length)}
         </svg>
         <div style={{ minHeight: 22, marginTop: 2, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5 }} aria-live="polite">
           {hovered ? (
@@ -8196,7 +8202,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
     () => (done && !synthFailed ? extractOpenQuestions(t.answer, t.factCheck, t.sources, t._selfReasoning) : []),
     [done, synthFailed, t.answer, t.factCheck, t.sources, t._selfReasoning]
   );
-  // Venn readiness, computed the same way VennCreature decides to render —
+  // Venn readiness, computed the same way VennDiagram decides to render —
   // the jump rail's status must match the section, not approximate it.
   const vennReady = useMemo(() => {
     if (!done) return false;
@@ -8668,14 +8674,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           )}
         </div>
       )}
-      {/* The Venn creature replaces "where it disagrees" — see VennCreature.
+      {/* The Venn diagram replaces "where it disagrees" — see VennDiagram.
           Flashpoints (the raw conflicting claim pairs) collapse underneath it;
           when the claims don't split into two camps the section says so
           honestly instead of rendering nothing. */}
       {interactive && done && (
         <div ref={vennSectionRef} style={{ scrollMarginTop: 130 }}>
           {vennReady ? (
-            <VennCreature turn={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)}
+            <VennDiagram turn={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)}
               isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
           ) : (
             <AnswerSection eyebrow="Where the literature disagrees" P={P} accent={accent}>
@@ -22719,15 +22725,10 @@ summary::-webkit-details-marker { display: none; }
 }
 @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
 
-/* ── Venn creature drift — the lobes breathe. Slow, opposite directions,
-   so the diagram feels alive without ever distracting from the dots. */
-@keyframes vennDriftA { from { transform: translate(0, 0); } to { transform: translate(11px, -8px); } }
-@keyframes vennDriftB { from { transform: translate(0, 0); } to { transform: translate(-11px, 8px); } }
-.venn-drift-a { animation: vennDriftA 9s ease-in-out infinite alternate; }
-.venn-drift-b { animation: vennDriftB 11s ease-in-out infinite alternate; }
-@media (prefers-reduced-motion: reduce) {
-  .venn-drift-a, .venn-drift-b { animation: none; }
-}
+/* ── Venn diagram — a static instrument. The lobes used to breathe via
+   drift keyframes and a turbulence wobble filter; both were removed in
+   the premium pass. Nothing on the diagram moves, ever, so reduced
+   motion needs no override here. */
 @keyframes cbMicPulse {
   0%, 100% { opacity: 0.5; transform: scale(1); }
   50%      { opacity: 0; transform: scale(1.5); }
