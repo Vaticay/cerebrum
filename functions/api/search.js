@@ -10536,6 +10536,9 @@ export async function onRequest(context) {
 
     // Check if we know the best model for this topic domain
     const domainKey = query.toLowerCase().split(/\s+/).slice(0, 3).join(" ");
+    // Declared here (not below with the waves) so the fast path can record
+    // its attempt — otherwise the per-leg diagnostics go blind on it.
+    const aiAttempts = []; // diagnostic trail — surfaced in _aiAttempts for debugging
     let preferredModel = null;
     if (env.DB) {
       try {
@@ -10546,14 +10549,26 @@ export async function onRequest(context) {
       } catch {}
     }
 
-    // Fast path: known best model for this domain
+    // Fast path: known best model for this domain.
+    // 2026-09-12: this was an UNBOUNDED serial gamble — callOR's default
+    // 18s timeout ran BEFORE the wave race even started, and its time was
+    // never counted in the synthesis stage (synthesisStageT0 was set after
+    // it). A slow "known best" model (the 13-19s nemotron winner) therefore
+    // single-handedly blew the 20s budget on repeat queries: 32.5s observed
+    // on a query whose fast path fired. Now: 8s cap, then fall through to
+    // the full cross-provider race. Attempt recorded as wave 0.
     if (preferredModel && token) {
+      const fpT0 = Date.now();
       try {
-        const r = await callOR(preferredModel, messages, maxTokens);
+        const r = await callOR(preferredModel, messages, maxTokens, 8000);
         // Same structural rule as raceEntry: error text is never an answer.
+        // (The prompt-leak gate already runs inside callOR.)
         if (isProviderErrorText(r.answer)) throw new Error(preferredModel + ": provider returned error text, not an answer");
         answer = r.answer; aiOK = true;
-      } catch {}
+        aiAttempts.push({ wave: 0, model: "fastpath:" + preferredModel, ok: true, ms: Date.now() - fpT0 });
+      } catch (e) {
+        aiAttempts.push({ wave: 0, model: "fastpath:" + preferredModel, ok: false, ms: Date.now() - fpT0, error: String((e && e.message) || e).slice(0, 120) });
+      }
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -10588,7 +10603,6 @@ export async function onRequest(context) {
     // instead of the generic "all N models failed" that told us nothing.
     // ════════════════════════════════════════════════════════════════
 
-    const aiAttempts = []; // diagnostic trail — surfaced in _aiAttempts for debugging
     const recordWin = (model) => {
       // Commit 86 — model_perf feeds a fast path that calls callOR() with the
       // stored name, so only names OpenRouter can actually resolve may be
