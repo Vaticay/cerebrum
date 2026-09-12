@@ -2,6 +2,7 @@
 # Copy to .dev.vars and fill in. Never commit .dev.vars.
 
 OPENROUTER_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxx
+# Alias also honored: OPENROUTER_API_KEY (either name works; OPENROUTER_KEY wins).
 OPENALEX_KEY=
 NCBI_API_KEY=
 SEMANTIC_SCHOLAR_KEY=
