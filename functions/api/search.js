@@ -26,6 +26,13 @@ import { classifyQuery, cacheKey as derivedCacheKey, CACHE_TTL_MS } from "../lib
 
 // ============ CORE UTILITIES ============
 
+// OpenRouter key lookup — accepts the documented OPENROUTER_KEY and the
+// conventional OPENROUTER_API_KEY alias, so a key set under either name is
+// honored. Missing-key legs stay silent by design; this only widens the match.
+function openRouterKey(env) {
+  return env.OPENROUTER_KEY || env.OPENROUTER_API_KEY || "";
+}
+
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
@@ -3935,13 +3942,13 @@ async function deepFactCheck(answer, papers, env) {
 
   // Tier 2: OpenRouter — only reached if Workers AI is unavailable, timed
   // out, or returned something that didn't parse into usable claims.
-  if (env.OPENROUTER_KEY) {
+  if (openRouterKey(env)) {
     try {
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), 6000);
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.OPENROUTER_KEY, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + openRouterKey(env), "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
         body: JSON.stringify({ model: "deepseek/deepseek-chat-v3-0324:free", temperature: 0, max_tokens: 1900, messages }),
         signal: c.signal,
       });
@@ -7585,7 +7592,7 @@ HOW TO ACTUALLY CONVERSE (Commit 62):
 Respond naturally to the user's message. Be yourself.`;
 
 async function answerConversationally(query, history, env) {
-  const apiKey = env.OPENROUTER_KEY || "";
+  const apiKey = openRouterKey(env);
   if (!apiKey) return null;
   const models = [
     { url: "https://openrouter.ai/api/v1/chat/completions", model: "deepseek/deepseek-chat-v3-0324:free" },
@@ -7975,8 +7982,8 @@ export async function onRequest(context) {
     // call fails or isn't configured, the request still proceeds as a
     // normal text-only search rather than erroring out.
     let imageContext = null;
-    if (hasImage && body.image.length < 8_000_000 && env.OPENROUTER_KEY) {
-      imageContext = await describeImage(body.image, query, env.OPENROUTER_KEY).catch(() => null);
+    if (hasImage && body.image.length < 8_000_000 && openRouterKey(env)) {
+      imageContext = await describeImage(body.image, query, openRouterKey(env)).catch(() => null);
       if (imageContext) {
         query = (query + " " + imageContext).slice(0, MAX_QUERY_LEN);
       }
@@ -8329,7 +8336,7 @@ export async function onRequest(context) {
 
     // 1. LLM Query Resolver — understands what the user actually means
     const resolverPromise = llmResolveQuery(
-      query, body.history || [], prevSourcesForResolver, env.OPENROUTER_KEY
+      query, body.history || [], prevSourcesForResolver, openRouterKey(env)
     ).catch(() => null);
 
     // 2. Self-Reasoning Chain — decomposes complex queries
@@ -8337,7 +8344,7 @@ export async function onRequest(context) {
      * first consumer. It used to be declared here, which put its first use
      * inside its own temporal dead zone — see the note at the declaration. */
     const reasoningPromise = selfReason(
-      query, body.history || [], env.OPENROUTER_KEY
+      query, body.history || [], openRouterKey(env)
     ).catch(() => null);
 
     // 3. Build conversation context for later use in system prompt
@@ -8770,7 +8777,7 @@ export async function onRequest(context) {
       // Launch LLM query generation IN PARALLEL with mechanical search.
       // Zero extra latency — if mechanical search finds enough papers, we
       // discard the LLM queries. If it doesn't, they're already ready.
-      const llmQueriesPromise = llmGenerateSearchQueries(searchQuery, env.OPENROUTER_KEY).catch(() => []);
+      const llmQueriesPromise = llmGenerateSearchQueries(searchQuery, openRouterKey(env)).catch(() => []);
       // NEXT-GEN query intelligence: detect a materially ambiguous question
       // BEFORE retrieval, so the answer never silently picks one meaning.
       // The interpretations ship in the response for one-tap re-searches;
@@ -9168,7 +9175,7 @@ export async function onRequest(context) {
       // a 7s internal abort; this is the outer backstop.
       const validationStage = await runStage(
         "validation",
-        () => llmValidatePapers(query, evidencePapers, env.OPENROUTER_KEY),
+        () => llmValidatePapers(query, evidencePapers, openRouterKey(env)),
         { timeoutMs: 12000, fallback: evidencePapers, health: stageHealth }
       );
       evidencePapers = validationStage.value || evidencePapers;
@@ -10085,7 +10092,7 @@ export async function onRequest(context) {
     // retry, citation retry, D1 learning, fact-check, answer caching) must
     // not run on a non-LLM answer.
     let extractiveOK = false;
-    const token = env.OPENROUTER_KEY;
+    const token = openRouterKey(env);
 
     // Bug: the "good enough to accept" bar below was a flat 30 characters
     // regardless of answerLength, and Promise.any (used in the race below)
@@ -10143,7 +10150,7 @@ export async function onRequest(context) {
     // Loosened to give real generation a fair chance before Promise.any gives
     // up on the whole wave.
     const callOR = async (model, msgs, maxTok, timeoutMs = 18000) => {
-      if (!token) throw new Error(model + ": no OPENROUTER_KEY configured");
+      if (!token) throw new Error(model + ": no OpenRouter key configured (OPENROUTER_KEY or OPENROUTER_API_KEY)");
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), timeoutMs);
       try {
