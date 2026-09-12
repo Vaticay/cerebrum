@@ -2525,38 +2525,18 @@ function SignalComposer({
    work itself. Nothing here implies a percentage or a phase. */
 function EchoField({ q, accent }) {
   const reduced = usePrefersReducedMotion();
-  const N = SCHOLARLY_SOURCES.length;
-  const R = 38; // node ring radius, as a percent of the field
   return (
     <div className="cb-echo" style={{ "--cb-acc": accent }}>
-      <div className="cb-echo-kicker">Transmitting</div>
+      <div className="cb-echo-kicker">reading</div>
       <div className="cb-echo-q">{q}</div>
-      <div className="cb-echo-field" aria-hidden="true">
-        {!reduced && (
-          <>
-            <span className="cb-echo-ring" />
-            <span className="cb-echo-ring" style={{ animationDelay: "1.33s" }} />
-            <span className="cb-echo-ring" style={{ animationDelay: "2.66s" }} />
-          </>
-        )}
-        <span className="cb-echo-core" />
-        {SCHOLARLY_SOURCES.map((s, i) => {
-          const a = (i / N) * Math.PI * 2 - Math.PI / 2;
-          return (
-            <span
-              key={s.id}
-              title={s.name}
-              className="cb-echo-node"
-              style={{
-                left: `calc(${50 + R * Math.cos(a)}% - 3px)`,
-                top: `calc(${50 + R * Math.sin(a)}% - 3px)`,
-                animationDelay: reduced ? undefined : `${(3.1 + (i / N) * 0.7).toFixed(2)}s`,
-              }}
-            />
-          );
-        })}
+      {/* The reading line: one hairline, one marker travelling it slowly,
+          like a read head moving across the literature. No radar, no
+          orbiting nodes, no "transmitting" — the instrument reads; it does
+          not broadcast. */}
+      <div className="cb-echo-rule" aria-hidden="true">
+        {!reduced && <span className="cb-echo-cursor" />}
       </div>
-      <div className="cb-echo-sub">Fifteen databases&ensp;·&ensp;listening for echoes</div>
+      <div className="cb-echo-sub">across {SCHOLARLY_SOURCES.length} databases</div>
     </div>
   );
 }
@@ -12254,29 +12234,15 @@ const BADGE_DISPLAY = {
 // Sort order for a profile's badge row: identity first, achievements after.
 const BADGE_ORDER = ["founder", "verified", "early_adopter"];
 
+// (Profile covers were removed with the dossier redesign: the page's visual
+// identity is the field signature drawn from real activity, not a banner.
+// The `cover` column still exists in the users table but nothing reads it.)
+
 /* The green check. Its own component because it appears inline next to a
    name in five different places, and a check that renders slightly
    differently in each of them reads as a sticker rather than a system
    mark. Green, not blue: verification on Cerebrum speaks the brand's own
    colour language. */
-/* Commit 75 — profile covers.
-   Eight named designs rather than free input, because a cover renders on a
-   public page and a value the client can compose is a value the client can
-   abuse. Each is a real composition — two or three layered gradients with
-   different angles and stops — not one hue rotated eight times, which is
-   what "customization" usually means and why it always feels cheap. The
-   server validates the name against the same list (ALLOWED_COVERS). */
-const PROFILE_COVERS = {
-  aurora: { label: "Aurora", css: "radial-gradient(ellipse 90% 130% at 12% 8%, #1d7a63 0%, transparent 55%), radial-gradient(ellipse 80% 120% at 88% 20%, #2b4c8c 0%, transparent 55%), linear-gradient(160deg, #0b1418 0%, #101b22 100%)" },
-  graphite: { label: "Graphite", css: "linear-gradient(135deg, #23282d 0%, #14171a 45%, #0d0f11 100%), radial-gradient(ellipse 70% 100% at 78% 10%, rgba(255,255,255,0.08), transparent 60%)" },
-  ember: { label: "Ember", css: "radial-gradient(ellipse 90% 120% at 15% 10%, #8a3b12 0%, transparent 55%), radial-gradient(ellipse 70% 110% at 85% 30%, #b8621f 0%, transparent 50%), linear-gradient(155deg, #180d08 0%, #1e1310 100%)" },
-  abyss: { label: "Abyss", css: "radial-gradient(ellipse 100% 130% at 20% 0%, #12324f 0%, transparent 60%), radial-gradient(ellipse 80% 100% at 90% 60%, #1b5566 0%, transparent 55%), linear-gradient(170deg, #060d14 0%, #0a141c 100%)" },
-  moss: { label: "Moss", css: "radial-gradient(ellipse 95% 120% at 10% 15%, #2f5a34 0%, transparent 55%), radial-gradient(ellipse 75% 110% at 80% 75%, #4a7a42 0%, transparent 50%), linear-gradient(150deg, #0c130d 0%, #121a13 100%)" },
-  violet: { label: "Violet", css: "radial-gradient(ellipse 90% 130% at 18% 5%, #4a2a7a 0%, transparent 55%), radial-gradient(ellipse 80% 100% at 85% 45%, #7a3f8f 0%, transparent 50%), linear-gradient(160deg, #0f0a16 0%, #16101f 100%)" },
-  sandstone: { label: "Sandstone", css: "radial-gradient(ellipse 90% 120% at 12% 12%, #8a7038 0%, transparent 55%), radial-gradient(ellipse 70% 100% at 82% 70%, #a8894a 0%, transparent 50%), linear-gradient(155deg, #15120b 0%, #1b1710 100%)" },
-  signal: { label: "Signal", css: "repeating-linear-gradient(115deg, rgba(255,255,255,0.045) 0 2px, transparent 2px 9px), radial-gradient(ellipse 90% 130% at 25% 0%, #1a4f4a 0%, transparent 60%), linear-gradient(165deg, #08100f 0%, #0d1614 100%)" },
-};
-const COVER_KEYS = Object.keys(PROFILE_COVERS);
 
 function VerifiedCheck({ size = 15, title = "Verified: the owner of Cerebrum" }) {
   return (
@@ -12464,20 +12430,109 @@ const DEGREES = [
   "Postdoctoral Fellowship",
 ];
 
-// The Academic CV — a full page now (ProfileView), not a centered ID-card
-// modal. Same real, live data as before (name/username/affiliation/degree/
-// grad_year edit in place, avatar upload, real follower count and badges);
-// laid out the way LinkedIn or Google Scholar lay out a profile instead of
-// how a wallet ID card does — a wide cover banner, a large overlapping
-// avatar, and a two-column body once there's real content to put in a
-// second column.
-/* Commit 87 — one empty state, designed.
+// ═══════════════════════════════════════════════════════════════════
+// The Research Dossier — the profile is not a social page.
+//
+// LinkedIn already perfected the cover-banner / avatar / stat-cards
+// profile, so cloning it a second time was never going to read as
+// different. A profile on a research instrument should feel like a page
+// from a lab archive: the work is the portrait.
+//
+// What changed, and why:
+// - The cover banner is gone. In its place is the field signature — a
+//   ridge drawn from the owner's REAL investigation activity over the
+//   last 120 days (one tick per investigation, height by papers found).
+//   Decoration became data; there is nothing to pick, upload, or fake.
+// - No tabs. The body is one flowing ledger — Investigations, Shelf,
+//   Shelves, Marks — separated by hairlines. A single column can never be
+//   ragged, and an empty section costs one honest empty state.
+// - The "pursuing" line: the owner's current lines of inquiry, derived
+//   from their own recent investigation titles. A research statement the
+//   work writes by itself, updating as the work changes.
+// - Verification is stated once, and only when true. (The old page
+//   appended a hardcoded "Verified sign-in" pill for every account, so
+//   every user on the product displayed a verified mark.)
+// - The avatar is a small roundel beside the name, not the hero. Editing
+//   is "Annotate": quiet, inline, same fields.
+const PURSUIT_EXTRA_STOP = new Set(
+  "study,studies,effects,effect,role,roles,impact,impacts,using,used,between,among,under,over,more,most,very,only,also,such,than,then,them,they,their,have,has,had,been,being,does,done,doing,makes,made,many,much,into,onto,per,via,science,scientific,research,paper,papers".split(",")
+);
 
-   The profile used to show three different "nothing here" strings at once,
-   each a bare grey sentence inside its own card. An empty state is the
-   screen a new account sees FIRST, so it is worth more than a grey
-   sentence: an icon, a plain title, and one line explaining what will fill
-   this space and how. Same component for every tab, so they agree. */
+// The most frequent significant words across the owner's recent
+// investigation titles. Frequency-ranked over the last 14 investigations,
+// one vote per word per title so a long title can't stuff the ballot.
+function derivePursuits(history, max = 4) {
+  const counts = new Map();
+  for (const h of (history || []).slice(0, 14)) {
+    const words = String(h.title || "").toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/[\s-]+/);
+    const seen = new Set();
+    for (const w of words) {
+      if (w.length < 5 || seen.has(w) || QUERY_COMMON_WORDS.has(w) || PURSUIT_EXTRA_STOP.has(w) || /^\d+$/.test(w)) continue;
+      seen.add(w);
+      counts.set(w, (counts.get(w) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([w]) => w);
+}
+
+// The field signature: one tick per investigation in the last 120 days,
+// positioned by time, height by papers found. Pure SVG, nothing to
+// animate, honest at any data volume — including zero.
+function FieldRidge({ history, accent, P }) {
+  const W = 680, H = 60, PAD = 16, BASE = H - 10;
+  const now = Date.now();
+  const SPAN = 120 * 864e5;
+  const items = (history || []).filter((h) => h && h.ts && now - h.ts <= SPAN);
+  const maxPapers = Math.max(1, ...items.map((h) => (h.allSources || []).length));
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`} role="img"
+      aria-label={items.length === 0
+        ? "No investigations in the last 120 days"
+        : `${items.length} investigation${items.length === 1 ? "" : "s"} in the last 120 days`}
+      style={{ display: "block", width: "100%", height: "auto", overflow: "visible" }}
+    >
+      <line x1={0} y1={BASE} x2={W} y2={BASE} stroke={P.line} strokeWidth={1} />
+      {items.map((h) => {
+        const x = PAD + ((h.ts - (now - SPAN)) / SPAN) * (W - PAD * 2);
+        const papers = (h.allSources || []).length;
+        const th = 5 + (papers / maxPapers) * (BASE - 18);
+        return (
+          <line
+            key={h.id || h.ts} x1={x} y1={BASE} x2={x} y2={BASE - th}
+            stroke={withAlpha(accent, 0.6)} strokeWidth={1.5} strokeLinecap="round"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+// One ledger section: a hairline, a small mono eyebrow with an optional
+// count, then the entries. Shared by every section of the dossier.
+function LedgerSection({ P, eyebrow, count, children }) {
+  return (
+    <section style={{ marginTop: 38 }} aria-label={eyebrow}>
+      <div style={{
+        display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12,
+        paddingTop: 12, borderTop: `1px solid ${P.line}`, marginBottom: 2,
+      }}>
+        <span style={{
+          fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.16em",
+          textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)",
+        }}>{eyebrow}</span>
+        {count != null && count !== "" && (
+          <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{count}</span>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function ProfileEmpty({ P, accent, icon, title, body }) {
   return (
     <div style={{
@@ -12501,41 +12556,27 @@ function ProfileEmpty({ P, accent, icon, title, body }) {
 function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, collections, onOpenHistory, onManageAccount }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
-  // A signed-in account always has a real username by the time this modal
+  // A signed-in account always has a real username by the time this page
   // can even open (verify-code defaults it to the email's local part at
   // signup — see functions/api/auth.js) — so `profile.username` is only
   // ever empty for the brief window before get-profile's response lands.
-  // Falls back to the email-local-part guess for that window rather than a
-  // hardcoded person's name, so nobody but the actual account owner is ever
-  // shown here even for a flash of a frame.
   const displayName = profile.name || emailLocal;
   const displayUsername = profile.username ? `@${profile.username}` : `@${emailLocal}`;
   const displayInitial = (displayName || "?")[0]?.toUpperCase() || "?";
-  const avatarSeed = encodeURIComponent((profile.username || emailLocal || "cerebrum"));
   const [avatarFailed, setAvatarFailed] = useState(false);
   useEffect(() => { setAvatarFailed(false); }, [profile.avatar_base64]);
   const fileInputRef = useRef(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState("");
-  // Commit 54 — a profile is a thing you LOOK at; editing it is a mode you
-  // enter. Every field on this page used to be a permanently-open form
-  // control, so the page you landed on to see who someone is was really a
-  // settings screen wearing a cover photo: three empty input boxes with
-  // placeholder text where a name, a degree and an institution should be.
-  // That is the whole of "it looks basic and bare" — there was nothing to
-  // read, only blanks to fill. Display by default, edit on request.
+  // A profile is a thing you LOOK at; editing it is a mode you enter.
+  // "Annotate" rather than "Edit profile": you are annotating the record
+  // of your work, not filling in a social form.
   const [editing, setEditing] = useState(false);
-  const [profileTab, setProfileTab] = useState("investigations");
-  const [tabScrollRef, tabMask] = useEdgeMask();
 
   // Center-crops whatever aspect ratio was uploaded to a square, then
   // downsamples it onto a fixed 256x256 canvas and re-encodes as JPEG —
   // a phone photo comes in at several MB; this keeps what actually gets
-  // stored and sent over the wire down to tens of KB. Defined inside the
-  // component (rather than at module scope, where a stateless helper like
-  // this would normally live) since it's only ever used here and closes
-  // over nothing — kept local on purpose so this modal's avatar pipeline
-  // reads top to bottom in one place.
+  // stored and sent over the wire down to tens of KB.
   async function compressAvatarFile(file) {
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -12572,9 +12613,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
       const base64 = await compressAvatarFile(file);
       setAvatarFailed(false);
       setProfile((p) => ({ ...p, avatar_base64: base64 }));
-      // Saved immediately rather than folded into the 900ms-debounced
-      // name/username/affiliation sync further down in App — a photo you
-      // just picked shouldn't be one closed tab away from being lost.
+      // Saved immediately rather than folded into the debounced profile
+      // sync — a photo you just picked shouldn't be one closed tab away
+      // from being lost.
       await apiDataAction("update-profile", { avatar_base64: base64 });
     } catch (err) {
       setAvatarError(err.message || "Couldn't update your photo.");
@@ -12582,17 +12623,14 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
       setAvatarSaving(false);
     }
   }
+
   const followers = profileMeta?.followers || 0;
-  // Commit 74 — identity badges first, then achievements, then the plain
-  // "you are signed in" note last. It was leading with "Verified sign-in",
-  // which is the least interesting true thing about anybody.
   const rawBadges = profileMeta?.badges || [];
   const isFounder = rawBadges.includes("founder");
   const isVerified = rawBadges.includes("verified");
-  const badges = [
+  const realBadges = [
     ...BADGE_ORDER.filter((k) => rawBadges.includes(k)).map((k) => BADGE_DISPLAY[k]),
     ...rawBadges.filter((k) => !BADGE_ORDER.includes(k)).map((k) => BADGE_DISPLAY[k]).filter(Boolean),
-    { label: "Verified sign-in", icon: "check", real: true },
   ];
 
   // Affiliation command-palette: filters UNIVERSITIES against whatever is
@@ -12614,111 +12652,59 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   ).slice(0, 8);
 
   const inputStyle = { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-body)" };
-  // Raised (not surface) on purpose: the whole profile body now sits inside
-  // its own P.surface panel (see the return below), so these stat cards use
-  // the next elevation step up to still read as distinct, layered blocks
-  // rather than disappearing flush into the panel behind them.
-  const cardStyle = { background: P.raised, border: `1px solid ${P.line}`, borderRadius: 12, padding: 18 };
-  // Commit 75 — was uppercase mono at wide tracking on every panel header
-  // (ACCOLADES, AFFILIATIONS, RECENT INVESTIGATIONS, SAVED COLLECTIONS),
-  // the same shouted-eyebrow pattern Commit 71 removed from the home deck
-  // and never came back for here. Sentence case in the body face.
-  const cardLabel = { fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 12 };
-  const recentHistory = (history || []).slice(0, 6);
+
+  // The ledger, newest first.
+  const ledger = [...(history || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const pursuits = derivePursuits(history);
+  const contextLine = [profile.degree, profile.affiliation, profile.grad_year].filter(Boolean).join(" · ");
   const collectionCounts = (collections || []).map((c) => ({ ...c, count: (saved || []).filter((s) => s.collectionId === c.id).length }));
+  const shelfName = (sv) => (collections || []).find((c) => c.id === sv.collectionId)?.name || "";
+
+  const readout = [
+    `${(history || []).length} investigation${(history || []).length === 1 ? "" : "s"}`,
+    `${(saved || []).length} paper${(saved || []).length === 1 ? "" : "s"} saved`,
+    ...((collections || []).length > 0 ? [`${collections.length} shelf${collections.length === 1 ? "" : "s"}`] : []),
+    ...(followers > 0 ? [`${followers} follower${followers === 1 ? "" : "s"}`] : []),
+  ].join("  ·  ");
+
+  const fmtDate = (ts) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const opts = { month: "short", day: "numeric" };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString(undefined, opts);
+  };
+
+  const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-mono)" };
 
   return (
     <div role="region" aria-label="Your profile" style={{ flex: 1, minHeight: 0 }}>
-      {/* Cover banner — a wide textured header block instead of the old
-          ID-card's flat accent stripe, per the LinkedIn/Scholar-style
-          layout this page is modeled on. No stock photo is faked in here:
-          it's the same accent-tinted gradient wash the rest of the app
-          already uses for depth, just at full page width. */}
-      <div aria-hidden="true" style={{
-        // Commit 87 — 230px of empty banner pushed the name, the stats and
-        // the tabs so far down that a 1000px-tall window showed the header
-        // and almost none of the work. A cover is a band of colour behind a
-        // name, not a hero image; 168px is enough to read as one and leaves
-        // the first tab's content above the fold.
-        height: isMobile ? 128 : 168, width: "100%",
-        // Commit 75 — the chosen cover, or the accent wash for anyone who
-        // hasn't picked one yet.
-        background: PROFILE_COVERS[profile.cover]
-          ? PROFILE_COVERS[profile.cover].css
-          : `linear-gradient(135deg, ${withAlpha(accent, 0.5)} 0%, ${P.raised} 60%, ${P.surface} 100%)`,
-        position: "relative", overflow: "hidden",
-      }}>
-        {!PROFILE_COVERS[profile.cover] && (
-        <div style={{ position: "absolute", inset: 0, opacity: 0.6, backgroundImage: `radial-gradient(circle at 15% 25%, ${withAlpha(accent, 0.45)}, transparent 45%), radial-gradient(circle at 85% 75%, ${withAlpha(accent, 0.3)}, transparent 42%)` }} />
-        )}
-        {/* Fades the banner's bottom edge into the panel's own P.surface so
-            the two read as one continuous piece instead of a hard seam. */}
-        <div style={{ position: "absolute", inset: 0, boxShadow: `inset 0 -46px 40px -20px ${withAlpha(P.surface, 0.95)}` }} />
-        {/* A slow light-sweep across the banner — the profile is the one
-            surface where a little ceremony is the point. Decorative only;
-            disabled under prefers-reduced-motion. */}
-        <div aria-hidden="true" className="cb-banner-sheen" />
-      </div>
+      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "10px 18px 72px" : "18px 28px 96px" }}>
 
-      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: isMobile ? "0 14px 60px" : "0 24px 80px" }}>
-        {/* Profile panel — a single elevated surface the cover banner tucks
-            behind, so identity, affiliation, and the stat cards below read
-            as one cohesive card instead of loose fields floating on bare
-            page background (the previous "soulless" complaint). */}
-        <div style={{
-          position: "relative", background: P.surface, border: `1px solid ${P.line}`,
-          borderRadius: 12,
-          boxShadow: P.dark ? "0 24px 64px rgba(0,0,0,0.35)" : (P.shadow || "0 12px 40px rgba(41,38,31,0.08)"),
-          padding: isMobile ? "0 18px 26px" : "0 28px 34px",
-        }}>
-        {/* Roster info: overlapping avatar + identity + institution crest */}
-        {/* Commit 75 — align to the TOP, not the bottom.
-            flex-end worked while the identity column was three short lines.
-            Adding a bio and a link row made it taller, so bottom-aligning
-            pushed the avatar down the card while the name floated up out of
-            the panel entirely — the two halves stopped looking like one
-            block. Top alignment keeps the avatar and the name on the same
-            line however long the bio gets. */}
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 20, marginTop: isMobile ? -46 : -64, marginBottom: 24 }}>
-          <div className={isFounder ? "cb-founder-avatar" : undefined} style={{ position: "relative", width: isMobile ? 92 : 120, height: isMobile ? 92 : 120, flexShrink: 0 }}>
-            {/* Commit 54: the fallback is now the DEFAULT, not the error
-                path. This used to request a generated avatar from an
-                external service (api.dicebear.com) on every profile view,
-                which meant the most personal element on the page depended
-                on a third party being reachable — and when it wasn't, the
-                page rendered an empty ring (confirmed on screen). A
-                locally-drawn initial always renders, costs no request, and
-                leaks no one's profile view to another host. A real uploaded
-                photo still wins over both. */}
+        {/* The field signature — the shape of the work, drawn from the
+            work. This is the page's "cover": it cannot be picked, posed,
+            or faked, only earned. */}
+        <FieldRidge history={history} accent={accent} P={P} />
+
+        {/* ── Identity plate ─────────────────────────────────────── */}
+        <div style={{ display: "flex", gap: isMobile ? 14 : 20, alignItems: "flex-start", marginTop: 26 }}>
+          <div style={{ position: "relative", width: isMobile ? 60 : 72, height: isMobile ? 60 : 72, flexShrink: 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
                 ...avatarSkin(displayName || user?.id), display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 38, fontWeight: 700, fontFamily: "var(--cb-mono)", border: `4px solid ${P.surface}`,
-                boxShadow: `0 0 0 3px ${withAlpha(accent, 0.4)}, 0 10px 26px rgba(0,0,0,0.28)`,
+                fontSize: isMobile ? 22 : 26, fontWeight: 700, fontFamily: "var(--cb-mono)",
+                boxShadow: `0 0 0 2px ${withAlpha(accent, 0.35)}`,
               }}>{displayInitial}</div>
             ) : (
-              // Dicebear's own default background for the "shapes" style is
-              // an arbitrary hue picked per seed — against this app's warm-
-              // stone palette that reads as a random clash rather than a
-              // deliberate choice, so the background is pinned to the
-              // current accent instead. The ring below (accent-tinted, not
-              // Dicebear's) is what actually integrates the generated
-              // artwork into the page rather than leaving it looking pasted
-              // on top of the cover banner.
               <img
-                /* Commit 100 — this branch only runs when avatar_base64 is
-                   set, so the dicebear URL after the `||` was unreachable
-                   dead code that still read like a live third-party call.
-                   Removed: no avatar in this app is ever fetched from
-                   another host. */
                 src={profile.avatar_base64}
                 alt={`${displayName}'s avatar`}
                 onError={() => setAvatarFailed(true)}
                 style={{
-                  width: "100%", height: "100%", borderRadius: "50%", display: "block", border: `4px solid ${P.surface}`,
+                  width: "100%", height: "100%", borderRadius: "50%", display: "block",
                   objectFit: "cover", background: P.surface,
-                  boxShadow: `0 0 0 3px ${withAlpha(accent, 0.4)}, 0 10px 26px rgba(0,0,0,0.28)`,
+                  boxShadow: `0 0 0 2px ${withAlpha(accent, 0.35)}`,
                 }}
               />
             )}
@@ -12729,47 +12715,24 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               aria-label="Change photo"
               title="Change photo"
               style={{
-                position: "absolute", bottom: 2, right: 2, width: 32, height: 32, borderRadius: "50%",
+                position: "absolute", bottom: -2, right: -2, width: 26, height: 26, borderRadius: "50%",
                 display: "flex", alignItems: "center", justifyContent: "center", cursor: avatarSaving ? "default" : "pointer",
-                background: accent, color: at, border: `2px solid ${P.surface}`,
+                background: P.raised, color: P.ink2, border: `1px solid ${P.line2}`,
                 opacity: avatarSaving ? 0.6 : 1,
-                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
               }}
             >
-              {avatarSaving ? <Icon name="refresh" size={14} className="cb-spin" /> : <Icon name="camera" size={14} />}
+              {avatarSaving ? <Icon name="refresh" size={12} className="cb-spin" /> : <Icon name="camera" size={12} />}
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
           </div>
 
-          <div style={{ flex: 1, minWidth: 220, paddingBottom: 4 }}>
-            {/* ══════════════════════════════════════════════════════
-                Commit 87 — the profile said the same thing five times.
-
-                Counted on the founder account: a gold "Founder & Owner of
-                Cerebrum" banner above the name; a blue verified check
-                beside the name; a green "Founder & Owner" pill on the
-                handle line; a gold "Founder & Owner" pill in an Accolades
-                card below; and a "Verified" pill next to it. One fact —
-                this person runs Cerebrum and the server confirmed it —
-                announced five times inside four hundred pixels.
-
-                Repetition does not make a credential more credible; past
-                about the second time it makes the page look like it is
-                trying to convince you. Every real social product states
-                identity ONCE and moves on. So: the check stays beside the
-                name (that is where a reader looks for it), one role chip
-                sits on the handle line, and the banner and the Accolades
-                card are gone. Anything genuinely additional — early
-                adopter, say — still shows on the About tab.
-                ══════════════════════════════════════════════════════ */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ ...eyebrow, marginBottom: 8 }}>Research dossier</div>
             {!editing ? (
               <div style={{
                 fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700,
-                color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
+                color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.08,
                 display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-                /* The founder's name gets the gold-foil treatment: a metallic
-                   gradient clipped to the glyphs. The verified check beside
-                   it is an SVG, so it keeps its own green fill. */
                 ...(isFounder ? {
                   background: "linear-gradient(105deg, #f7e8b0 0%, #c9a227 40%, #ffe9a8 62%, #a8842a 100%)",
                   WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
@@ -12777,448 +12740,307 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 } : {}),
               }}>
                 {displayName}
-                {isVerified && <VerifiedCheck size={isMobile ? 20 : 26} />}
+                {isVerified && <VerifiedCheck size={isMobile ? 20 : 24} />}
               </div>
             ) : (
-            <input
-              value={profile.name || ""}
-              onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
-              placeholder={displayName}
-              aria-label="Your name"
-              style={{ display: "block", width: "100%", background: "transparent", border: "none", padding: 0, fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}
-            />
+              <input
+                value={profile.name || ""}
+                onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
+                placeholder={displayName}
+                aria-label="Your name"
+                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", outline: "none" }}
+              />
             )}
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 6, fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-mono)" }}>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 7, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-mono)" }}>
               <span>{displayUsername}</span>
-              {badges.length > 0 && (<>
-                <span style={{ opacity: 0.4 }}>·</span>
-                {/* Accolades were buried in a card below the fold. On every
-                    social profile the verification mark sits next to the
-                    handle, because that is where it does its job. The
-                    founder's badge gets the full gold treatment: metallic
-                    gradient, travelling shine, uppercase letterspacing. */}
-                {isFounder ? (
-                  <span className="cb-founder-pill" style={{
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    padding: "3px 13px", borderRadius: 100, color: "#1a1408",
-                    border: "1px solid rgba(247,232,176,0.65)",
-                    fontSize: FONT_SIZES.caption, fontWeight: 800,
-                    letterSpacing: "0.05em", textTransform: "uppercase",
-                  }}><Icon name="sparkle" size={12} /> Founder &amp; Owner</span>
-                ) : (
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", gap: 5,
-                    padding: "2px 9px", borderRadius: 100, color: accent,
-                    background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`,
-                    fontSize: FONT_SIZES.caption, fontWeight: 700,
-                  }}><Icon name="check" size={11} /> {badges[0].label || "Verified"}</span>
-                )}
-              </>)}
+              {isFounder && (
+                <span style={{ color: "#c9a227", fontWeight: 700, fontSize: FONT_SIZES.micro, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  Founder &amp; Owner
+                </span>
+              )}
             </div>
 
-            {/* The identity line a reader actually wants: who you are
-                academically, as prose rather than three empty inputs. Parts
-                that aren't filled in are simply absent — an empty profile
-                shows one honest prompt instead of a row of blank boxes. */}
-            {!editing && (
-              (profile.degree || profile.affiliation || profile.grad_year) ? (
-                <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-                  {[profile.degree, profile.affiliation, profile.grad_year].filter(Boolean).join(" · ")}
-                </div>
-              ) : (
-                /* Commit 87 — this prompt sat at the same size and in the
-                   same flow position as the bio directly beneath it, so a
-                   profile opened with two full paragraphs where only one
-                   was written by the person. A prompt addressed to the
-                   owner is not profile content: it is smaller, quieter,
-                   and marked as a suggestion. */
-                <div style={{
-                  marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint,
-                  lineHeight: 1.5, display: "inline-flex", alignItems: "center", gap: 7,
-                  // RADIUS.md rather than pill: at 390px this wraps to two
-                  // lines, and a stadium shape around two lines of text is
-                  // the shape of a mistake.
-                  padding: "7px 12px", borderRadius: RADIUS.md,
-                  border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-body)",
-                }}>
-                  <Icon name="sparkle" size={12} />
-                  Add your degree and institution so people know who they're reading
-                </div>
-              )
+            {/* The pursuing line — a research statement written by the work
+                itself. Updates as the investigations do. */}
+            {!editing && pursuits.length > 0 && (
+              <div style={{ marginTop: 12, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
+                <span style={{ ...eyebrow, letterSpacing: "0.1em", marginRight: 10 }}>Pursuing</span>
+                {pursuits.join(" · ")}
+              </div>
             )}
 
-            {/* Commit 75 — bio and links.
-                A profile with a name, an avatar and an institution is an
-                account record. A sentence in your own words and a link to
-                your actual work is a profile — and for researchers, ORCID
-                and Scholar are the two links that matter most. */}
+            {!editing && contextLine && (
+              <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
+            )}
+            {!editing && !contextLine && (
+              <button
+                type="button" onClick={() => setEditing(true)}
+                style={{ marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name="sparkle" size={12} /> Add your degree and institution
+              </button>
+            )}
+
             {!editing && profile.bio && (
-              <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
+              <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
             )}
             {!editing && (profile.link_site || profile.link_orcid || profile.link_scholar) && (
-              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-                {[["link", "Website", profile.link_site], ["sparkle", "ORCID", profile.link_orcid], ["history", "Scholar", profile.link_scholar]]
+              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
+                {[["link", "Website", profile.link_site], ["check", "ORCID", profile.link_orcid], ["bookOpen", "Scholar", profile.link_scholar]]
                   .filter(([, , href]) => !!href)
                   .map(([icon, label, href]) => (
-                    <a key={label} href={safeHref(href)} target="_blank" rel="noopener noreferrer nofollow" className="cb-press" style={{
-                      display: "inline-flex", alignItems: "center", gap: 6,
-                      padding: "5px 13px", borderRadius: 100, textDecoration: "none",
-                      border: `1px solid ${P.line2}`, color: P.ink2,
-                      fontSize: FONT_SIZES.caption, fontWeight: 600,
-                    }}><Icon name={icon} size={13} /> {label}</a>
+                    <a key={label} href={safeHref(href)} target="_blank" rel="noopener noreferrer nofollow" style={{
+                      display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+                      color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
+                      borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
+                    }}><Icon name={icon} size={12} /> {label}</a>
                   ))}
               </div>
             )}
-            {editing && (
-              <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12, maxWidth: 620 }}>
-                <div>
-                  <div style={{ ...cardLabel, marginBottom: 6 }}>About you</div>
-                  <textarea
-                    value={profile.bio || ""}
-                    onChange={(e) => setProfile((p2) => ({ ...p2, bio: e.target.value.slice(0, 400) }))}
-                    placeholder="What do you work on? One or two sentences is plenty."
-                    rows={3}
+          </div>
+        </div>
+
+        {/* The readouts — one quiet ledger line, not stat cards. A count
+            that reads 0 is an accusation, so social counts appear only once
+            there is something to count; the work always shows. */}
+        <div style={{
+          marginTop: 22, paddingTop: 14, borderTop: `1px solid ${P.line}`,
+          fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.02em",
+        }}>
+          {readout}
+        </div>
+
+        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16 }}>
+          <button
+            onClick={() => setEditing((v) => !v)}
+            style={{
+              padding: "8px 18px", borderRadius: 100, cursor: "pointer",
+              fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+              background: editing ? accent : "transparent", color: editing ? at : P.ink,
+              border: editing ? "none" : `1px solid ${P.line2}`,
+            }}
+          >{editing ? "Done annotating" : "Annotate"}</button>
+          <button
+            onClick={onManageAccount}
+            style={{
+              padding: "8px 18px", borderRadius: 100, cursor: "pointer",
+              fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+              background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
+            }}
+          >Account &amp; security</button>
+        </div>
+        {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 12 }}>{avatarError}</div>}
+
+        {editing && (
+          <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px dashed ${P.line2}`, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
+            <div>
+              <div style={{ ...eyebrow, marginBottom: 8 }}>About you</div>
+              <textarea
+                value={profile.bio || ""}
+                onChange={(e) => setProfile((p2) => ({ ...p2, bio: e.target.value.slice(0, 400) }))}
+                placeholder="What do you work on? One or two sentences is plenty."
+                rows={3}
+                style={{
+                  width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 8,
+                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                  border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", lineHeight: 1.6,
+                }}
+              />
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", marginTop: 4 }}>
+                {(profile.bio || "").length}/400
+              </div>
+            </div>
+            <div>
+              <div style={{ ...eyebrow, marginBottom: 8 }}>Elsewhere</div>
+              <div style={{ display: "grid", gap: 8, gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr" }}>
+                {[["link_site", "Website"], ["link_orcid", "ORCID profile"], ["link_scholar", "Google Scholar"]].map(([field, label]) => (
+                  <input key={field}
+                    value={profile[field] || ""}
+                    onChange={(e) => setProfile((p2) => ({ ...p2, [field]: e.target.value }))}
+                    placeholder={label}
+                    aria-label={label}
                     style={{
-                      width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 12,
+                      padding: "9px 12px", borderRadius: 8, minWidth: 0,
                       background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                       border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                      fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", lineHeight: 1.6,
+                      fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
                     }}
                   />
-                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", marginTop: 4 }}>
-                    {(profile.bio || "").length}/400
-                  </div>
-                </div>
-                <div style={{ display: "grid", gap: 8, gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr" }}>
-                  {[["link_site", "Website"], ["link_orcid", "ORCID profile"], ["link_scholar", "Google Scholar"]].map(([field, label]) => (
-                    <input key={field}
-                      value={profile[field] || ""}
-                      onChange={(e) => setProfile((p2) => ({ ...p2, [field]: e.target.value }))}
-                      placeholder={label}
-                      aria-label={label}
-                      style={{
-                        padding: "9px 12px", borderRadius: 12, minWidth: 0,
-                        background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-                        border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                        fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
-                      }}
-                    />
-                  ))}
-                </div>
-                <div>
-                  <div style={{ ...cardLabel, marginBottom: 8 }}>Cover</div>
-                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {COVER_KEYS.map((k) => (
-                      <button key={k} type="button"
-                        onClick={() => setProfile((p2) => ({ ...p2, cover: p2.cover === k ? "" : k }))}
-                        title={PROFILE_COVERS[k].label}
-                        aria-label={PROFILE_COVERS[k].label}
-                        aria-pressed={profile.cover === k}
-                        style={{
-                          width: 64, height: 40, borderRadius: 8, cursor: "pointer", padding: 0,
-                          background: PROFILE_COVERS[k].css,
-                          border: profile.cover === k ? `2px solid ${accent}` : `1px solid ${P.line2}`,
-                          boxShadow: profile.cover === k ? `0 0 0 3px ${withAlpha(accent, 0.25)}` : "none",
-                          transition: "box-shadow 0.2s ease, border-color 0.2s ease",
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
+                ))}
               </div>
-            )}
-
-            {/* Stats bar. A social profile leads with its numbers; this page
-                previously mentioned a follower count mid-sentence in a
-                metadata line and showed nothing else countable at all. */}
-            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: isMobile ? 20 : 34, marginTop: 16 }}>
-              {/* Commit 87 — a stat that reads 0 is an accusation, not a
-                  number. "0 Collections / 0 Followers" set in the same
-                  weight as real counts made every new profile open with
-                  two zeros, which is the single most discouraging thing a
-                  profile can show its owner. Investigations and Saved
-                  always render because they are the work; the social
-                  counts appear once there is something to count. */}
-              {[
-                ["Investigations", history.length, true],
-                ["Saved", saved.length, true],
-                ["Collections", collections.length, false],
-                ["Followers", followers, false],
-              ].filter(([, value, always]) => always || value > 0).map(([label, value]) => (
-                <div key={label}>
-                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", lineHeight: 1.1 }}>{value}</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.01em", fontWeight: 500, marginTop: 3 }}>{label}</div>
+            </div>
+            <div>
+              <div style={{ ...eyebrow, marginBottom: 8 }}>Standing</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ position: "relative", flex: "1 1 200px" }}>
+                  <input
+                    value={profile.degree || ""}
+                    onChange={(e) => setProfile((p) => ({ ...p, degree: e.target.value }))}
+                    onFocus={() => setDegreeOpen(true)}
+                    onBlur={() => setDegreeOpen(false)}
+                    placeholder="Degree, e.g. Ph.D. Microbiology"
+                    aria-label="Degree"
+                    autoComplete="off"
+                    style={{ ...inputStyle, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
+                  />
+                  {degreeOpen && degreeMatches.length > 0 && (
+                    <div style={{
+                      position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
+                      background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
+                      overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+                    }}>
+                      {degreeMatches.map((d) => (
+                        <div
+                          key={d}
+                          onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, degree: d })); setDegreeOpen(false); }}
+                          style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                        >{d}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-
-            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
-              <button
-                onClick={() => setEditing((v) => !v)}
-                style={{
-                  padding: "9px 20px", borderRadius: 100, cursor: "pointer",
-                  fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
-                  background: editing ? accent : "transparent", color: editing ? at : P.ink,
-                  border: editing ? "none" : `1px solid ${P.line2}`,
-                }}
-              >{editing ? "Done editing" : "Edit profile"}</button>
-              <button
-                onClick={onManageAccount}
-                style={{
-                  padding: "9px 20px", borderRadius: 100, cursor: "pointer",
-                  fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
-                  background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
-                }}
-              >Account &amp; security</button>
-            </div>
-            {editing && (<div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-              <div style={{ position: "relative", flex: "1 1 200px" }}>
                 <input
-                  value={profile.degree || ""}
-                  onChange={(e) => setProfile((p) => ({ ...p, degree: e.target.value }))}
-                  onFocus={() => setDegreeOpen(true)}
-                  onBlur={() => setDegreeOpen(false)}
-                  placeholder="Degree, e.g. Ph.D. Microbiology"
-                  aria-label="Degree"
-                  autoComplete="off"
-                  style={{ ...inputStyle, width: "100%", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
+                  value={profile.grad_year || ""}
+                  onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
+                  placeholder="Grad. year"
+                  aria-label="Graduating year"
+                  style={{ ...inputStyle, width: 104, flex: "0 0 104px", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
                 />
-                {degreeOpen && degreeMatches.length > 0 && (
+              </div>
+              <div style={{ position: "relative", marginTop: 8, maxWidth: 440 }}>
+                <input
+                  value={profile.affiliation || ""}
+                  onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
+                  onFocus={() => setAffiliationOpen(true)}
+                  onBlur={() => setAffiliationOpen(false)}
+                  placeholder="Affiliation, e.g. University of Tennessee"
+                  aria-label="Affiliation"
+                  autoComplete="off"
+                  style={inputStyle}
+                />
+                {affiliationOpen && affiliationMatches.length > 0 && (
                   <div style={{
                     position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
                     background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
                     overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
                   }}>
-                    {degreeMatches.map((d) => (
+                    {affiliationMatches.map((u) => (
                       <div
-                        key={d}
-                        onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, degree: d })); setDegreeOpen(false); }}
+                        key={u}
+                        onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, affiliation: u })); setAffiliationOpen(false); }}
                         style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                      >{d}</div>
+                      >{u}</div>
                     ))}
                   </div>
                 )}
               </div>
-              <input
-                value={profile.grad_year || ""}
-                onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
-                placeholder="Grad. year"
-                aria-label="Graduating year"
-                style={{ ...inputStyle, width: 100, flex: "0 0 100px", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption }}
-              />
-            </div>)}
-          </div>
-
-          {/* Commit 100 — the institution crest is gone. It was an initials
-              badge fetched from api.dicebear.com with the institution name
-              in the query string, so viewing any profile told a third party
-              which university that person had written down. It also gave
-              affiliation the visual weight of a logo, which is the wrong
-              signal now that an institution is not an entity on Cerebrum —
-              it does not have a page, a roster, or anything to click. It is
-              a line of text on a person's profile, and only if they left it
-              visible. */}
-        </div>
-
-        {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginBottom: 16 }}>{avatarError}</div>}
-
-        {editing && (<div style={{ position: "relative", marginBottom: 24 }}>
-          <input
-            value={profile.affiliation || ""}
-            onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
-            onFocus={() => setAffiliationOpen(true)}
-            onBlur={() => setAffiliationOpen(false)}
-            placeholder="Affiliation, e.g. University of Tennessee"
-            aria-label="Affiliation"
-            autoComplete="off"
-            style={{ ...inputStyle, maxWidth: 420 }}
-          />
-          {affiliationOpen && affiliationMatches.length > 0 && (
-            <div style={{
-              position: "absolute", left: 0, width: "100%", maxWidth: 420, top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
-              background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
-              overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
-            }}>
-              {affiliationMatches.map((u) => (
-                <div
-                  key={u}
-                  onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, affiliation: u })); setAffiliationOpen(false); }}
-                  style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                >{u}</div>
-              ))}
             </div>
-          )}
-        </div>)}
+          </div>
+        )}
 
-        {/* ══════════════════════════════════════════════════════════
-            Commit 87 — tabs, because this is a profile.
-
-            The body was a two-column stack of loose cards: Affiliations
-            (three lines) on the left, Recent Investigations and Saved
-            Collections on the right. The columns had nothing to do with
-            each other, they ended at wildly different heights, and the
-            short one left a ~250px hole at the bottom-left of the page.
-            Worse, three of the five panels on a new account were empty
-            states, so the first thing a profile told its owner was three
-            different versions of "there is nothing here."
-
-            A profile in every product this one is trying to stand beside
-            is a header and a set of tabs. That is not decoration: tabs
-            mean exactly one section is on screen, so the page cannot be
-            ragged and an empty section costs one empty state instead of
-            three simultaneously. `profileTab` state already existed in
-            this component and was never rendered — it has been sitting
-            unused since the day it was added.
-            ══════════════════════════════════════════════════════════ */}
-        <div ref={tabScrollRef} role="tablist" aria-label="Profile sections" className="cb-scroll-x" style={{
-          display: "flex", gap: 4, marginBottom: 18, overflowX: "auto",
-          borderBottom: `1px solid ${P.line}`, WebkitOverflowScrolling: "touch",
-          // Four tabs do not fit 390px; without the fade the row looks like
-          // it ends at "Collection" and About is never found.
-          ...(isMobile ? tabMask : null),
-        }}>
-          {[
-            ["investigations", "Investigations", history.length],
-            ["saved", "Saved", saved.length],
-            ["collections", "Collections", collections.length],
-            ["about", "About", null],
-          ].map(([key, label, count]) => {
-            const on = profileTab === key;
-            return (
-              <button
-                key={key} role="tab" aria-selected={on}
-                onClick={() => setProfileTab(key)}
-                style={{
-                  position: "relative", flexShrink: 0, whiteSpace: "nowrap",
-                  padding: "10px 16px", border: "none", background: "transparent",
-                  cursor: "pointer", fontFamily: "var(--cb-body)",
-                  fontSize: FONT_SIZES.small, fontWeight: on ? 700 : 500,
-                  color: on ? P.ink : P.faint,
-                  borderBottom: `2px solid ${on ? accent : "transparent"}`,
-                  marginBottom: -1,
-                  transition: "color 0.2s ease, border-color 0.2s ease",
-                }}
-              >
-                {label}
-                {count > 0 && (
-                  <span style={{ marginLeft: 7, fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", color: on ? accent : P.faint }}>{count}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {profileTab === "investigations" && (
-          recentHistory.length === 0 ? (
+        {/* ── The ledger ─────────────────────────────────────────── */}
+        <LedgerSection P={P} eyebrow="Investigations" count={ledger.length > 0 ? `${ledger.length} entr${ledger.length === 1 ? "y" : "ies"}` : ""}>
+          {ledger.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="history"
               title="No investigations yet"
               body="Every question you ask is kept as an investigation: the thread, the papers it found, and what you saved from it." />
           ) : (
-            <div style={cardStyle}>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                {recentHistory.map((h, i) => (
-                  <button key={h.id} onClick={() => onOpenHistory(h)} className="cb-row" style={{
-                    textAlign: "left", background: "transparent", border: "none", cursor: "pointer",
-                    padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
-                  }}>
-                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{tidyQuestionTitle(h.title)}</div>
-                    {/* Commit 87 — Commit 84 renamed this language everywhere
-                        else and missed this one call site, so the profile was
-                        still counting "exchanges" while the rest of the app
-                        counted questions and papers. */}
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-body)" }}>
-                      {(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}
-                      {(h.allSources || []).length > 0 && ` · ${(h.allSources || []).length} paper${(h.allSources || []).length === 1 ? "" : "s"}`}
-                      {h.ts ? ` · ${new Date(h.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
-                    </div>
-                  </button>
-                ))}
-              </div>
+            <div>
+              {ledger.map((h, i) => (
+                <button key={h.id || i} onClick={() => onOpenHistory(h)} className="cb-row" style={{
+                  display: "block", width: "100%", textAlign: "left", background: "transparent",
+                  border: "none", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
+                  cursor: "pointer", padding: "12px 0",
+                }}>
+                  <div style={{ display: "flex", gap: 14, alignItems: "baseline" }}>
+                    <span style={{ flexShrink: 0, width: isMobile ? 52 : 64, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+                      {fmtDate(h.ts)}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>
+                      {tidyQuestionTitle(h.title)}
+                    </span>
+                    <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", whiteSpace: "nowrap" }}>
+                      {(h.turns || []).length}q{(h.allSources || []).length > 0 ? ` · ${(h.allSources || []).length}p` : ""}
+                    </span>
+                  </div>
+                </button>
+              ))}
             </div>
-          )
-        )}
+          )}
+        </LedgerSection>
 
-        {profileTab === "saved" && (
-          saved.length === 0 ? (
+        <LedgerSection P={P} eyebrow="Shelf" count={saved.length > 0 ? `${saved.length} kept` : ""}>
+          {saved.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="bookmark"
-              title="Nothing saved yet"
+              title="Nothing on the shelf yet"
               body="Save a paper from any answer and it lands here, with the investigation that found it." />
           ) : (
-            <div style={cardStyle}>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                {saved.slice(0, 12).map((sv, i) => (
-                  <div key={sv.id || i} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
-                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{renderCleanTitle(sv.title)}</div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-body)" }}>
-                      {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
-                    </div>
+            <div>
+              {(saved || []).map((sv, i) => (
+                <div key={sv.id || i} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-body)", lineHeight: 1.5 }}>
+                    {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                    {shelfName(sv) && <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro }}> · filed under {shelfName(sv)}</span>}
                   </div>
-                ))}
-              </div>
-            </div>
-          )
-        )}
-
-        {profileTab === "collections" && (
-          collectionCounts.length === 0 ? (
-            <ProfileEmpty P={P} accent={accent} icon="folder"
-              title="No collections yet"
-              body="Collections group saved papers by question rather than by date. Make one from any paper you have saved." />
-          ) : (
-            <div style={cardStyle}>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                {collectionCounts.map((c, i) => (
-                  <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
-                    <span style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon name="folder" size={14} style={{ color: P.faint }} />{c.name}</span>
-                    <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>{c.count}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )
-        )}
-
-        {profileTab === "about" && (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, alignItems: "start" }}>
-            <div style={cardStyle}>
-              <div style={cardLabel}>Affiliation</div>
-              {profile.affiliation && profile.affiliation.trim() ? (
-                <div style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>{profile.affiliation}</div>
-              ) : (
-                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5 }}>Not set yet — add one from Edit profile.</div>
-              )}
-            </div>
-            {badges.length > 1 && (
-              <div style={cardStyle}>
-                <div style={cardLabel}>Badges</div>
-                <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {badges.map((b) => (
-                    <span key={b.label} style={{
-                      display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
-                      padding: "6px 12px", borderRadius: RADIUS.pill,
-                      color: b.real ? accent : (b.tint || P.ink2),
-                      background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
-                      border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
-                    }}>
-                      <Icon name={b.icon} size={13} />
-                      {b.label}
-                    </span>
-                  ))}
                 </div>
+              ))}
+            </div>
+          )}
+        </LedgerSection>
+
+        <LedgerSection P={P} eyebrow="Shelves" count={collectionCounts.length > 0 ? `${collectionCounts.length}` : ""}>
+          {collectionCounts.length === 0 ? (
+            <ProfileEmpty P={P} accent={accent} icon="folder"
+              title="No shelves yet"
+              body="Shelves group saved papers by question rather than by date. Make one from any paper you have saved." />
+          ) : (
+            <div>
+              {collectionCounts.map((c, i) => (
+                <div key={c.id} style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                  <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, display: "inline-flex", alignItems: "center", gap: 9 }}>
+                    <Icon name="folder" size={14} style={{ color: P.faint }} />{c.name}
+                  </span>
+                  <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+                    {c.count} paper{c.count === 1 ? "" : "s"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </LedgerSection>
+
+        {(realBadges.length > 0 || profile.affiliation) && (
+          <LedgerSection P={P} eyebrow="Marks">
+            {realBadges.length > 0 && (
+              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, padding: "4px 0 2px" }}>
+                {realBadges.map((b) => (
+                  <span key={b.label} style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
+                    padding: "5px 12px", borderRadius: RADIUS.pill,
+                    color: b.real ? accent : (b.tint || P.ink2),
+                    background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                    border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
+                  }}>
+                    <Icon name={b.icon} size={13} />
+                    {b.label}
+                  </span>
+                ))}
               </div>
             )}
-          </div>
+            {profile.affiliation && (
+              <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: realBadges.length > 0 ? 10 : 2 }}>
+                {profile.affiliation}
+              </div>
+            )}
+          </LedgerSection>
         )}
-        </div>
-        {/* /Profile panel */}
-
-        {/* The "Account & security" action moved up next to Edit profile,
-            where a profile's own actions belong; this second copy of the
-            same button at the bottom of the page is just a duplicate now. */}
       </div>
     </div>
   );
@@ -13717,13 +13539,6 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
   // to hide it — the endpoint sends null and this simply doesn't render it.
   const context = u ? [u.degree, u.grad_year, u.affiliation].filter(Boolean).join(" · ") : "";
 
-  const stat = (n, label) => (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-      <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-mono)", letterSpacing: "-0.02em" }}>{n}</span>
-      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>{label}</span>
-    </div>
-  );
-
   return (
     <div
       onClick={onClose}
@@ -13757,34 +13572,26 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
           )}
           {!loading && !error && u && (
             <>
-              {/* Cover. A person's own chosen image if they set one, and
-                  otherwise a calm accent wash rather than a grey slab — the
-                  profile should look composed before anyone has uploaded
-                  anything to it. */}
-              <div style={{
-                height: isMobile ? 104 : 132,
-                background: u.cover
-                  ? `center/cover no-repeat url(${JSON.stringify(u.cover)})`
-                  : `linear-gradient(135deg, ${withAlpha(accent, 0.32)}, ${withAlpha(accent, 0.08)})`,
-                borderBottom: `1px solid ${P.line}`,
-              }} />
-
-              <div style={{ padding: isMobile ? "0 18px 22px" : "0 26px 26px" }}>
-                <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: isMobile ? -38 : -46 }}>
-                  <div style={{ width: isMobile ? 78 : 96, height: isMobile ? 78 : 96, flexShrink: 0 }}>
+              {/* Dossier header — no cover banner. A stranger's profile gets
+                  the same archival plate as your own: a hairline, the name,
+                  and the facts. Nothing to pose with. */}
+              <div style={{ padding: isMobile ? "20px 18px 22px" : "24px 26px 26px" }}>
+                <div style={{ height: 1, background: P.line, marginBottom: 18 }} />
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ width: isMobile ? 64 : 76, height: isMobile ? 64 : 76, flexShrink: 0 }}>
                     {u.avatar_base64 ? (
                       <img
                         src={u.avatar_base64}
                         alt={`${displayName}'s avatar`}
-                        style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", border: `4px solid ${P.surface}`, background: P.surface }}
+                        style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface, boxShadow: `0 0 0 2px ${withAlpha(accent, 0.35)}` }}
                       />
                     ) : (
                       <div style={{
                         width: "100%", height: "100%", borderRadius: "50%",
                         ...avatarSkin(displayName || u.id),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: isMobile ? 30 : 36, fontWeight: 700, fontFamily: "var(--cb-mono)",
-                        border: `4px solid ${P.surface}`,
+                        fontSize: isMobile ? 26 : 30, fontWeight: 700, fontFamily: "var(--cb-mono)",
+                        boxShadow: `0 0 0 2px ${withAlpha(accent, 0.35)}`,
                       }}>{initial}</div>
                     )}
                   </div>
@@ -13851,7 +13658,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                 )}
 
                 {links.length > 0 && (
-                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
                     {links.map((l) => (
                       <a
                         key={l.label}
@@ -13864,18 +13671,17 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                         rel="noopener noreferrer nofollow ugc"
                         style={{
                           display: "inline-flex", alignItems: "center", gap: 6,
-                          fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent,
-                          textDecoration: "none", padding: "5px 11px", borderRadius: RADIUS.pill,
-                          border: `1px solid ${withAlpha(accent, 0.3)}`, background: withAlpha(accent, 0.07),
+                          fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2,
+                          textDecoration: "none", borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
                         }}
                       ><Icon name={l.icon} size={12} />{l.label}</a>
                     ))}
                   </div>
                 )}
 
-                <div style={{ display: "flex", gap: 20, marginTop: 16, paddingTop: 14, borderTop: `1px solid ${P.line}` }}>
-                  {stat(data.followers, data.followers === 1 ? "follower" : "followers")}
-                  {stat(data.followingCount, "following")}
+                <div style={{ display: "flex", gap: 18, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+                  <span><strong style={{ color: P.ink, fontWeight: 700 }}>{data.followers}</strong> {data.followers === 1 ? "follower" : "followers"}</span>
+                  <span><strong style={{ color: P.ink, fontWeight: 700 }}>{data.followingCount}</strong> following</span>
                 </div>
 
                 {(data.badges || []).length > 0 && (
@@ -18370,11 +18176,11 @@ function App() {
               <div style={S.thread}>
                 {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} onStress={(o) => ask(t.q, o)} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} onShowFlowchart={(turn) => setFlowchartOpen({ title: (turn.q || "Untitled flowchart").slice(0, 80), answerText: turn.answer, sources: turn.sources, chartId: null })} />))}
                 {busy && (<div style={S.turn}>
-                  {/* The grey shimmer card is gone. The loading screen is the
-                      second half of the transmission metaphor — see EchoField:
-                      the pulse just fired, propagating out through the fifteen
-                      databases, with the AgentTrace's honest elapsed readout
-                      and status line beneath it. */}
+                  {/* The loading state is the poised counterpart to the query
+                      line: the question in calm display type, one hairline
+                      with a single marker travelling it — the instrument
+                      reads rather than transmits. The AgentTrace below
+                      carries the honest elapsed readout and status line. */}
                   <EchoField q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} accent={accent} />
                   <AgentTrace P={P} accent={accent} done={false} contextual={contextBusy} />
                 </div>)}
@@ -19392,14 +19198,14 @@ summary::-webkit-details-marker { display: none; }
   --cb-acc: #a3b899;
   display: flex; flex-direction: column; align-items: center;
   text-align: center;
-  padding: 14px 0 6px;
+  padding: 40px 0 10px;
   animation: cbSignalIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .cb-echo-kicker {
   font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
   letter-spacing: 0.3em; text-transform: uppercase;
   color: color-mix(in srgb, var(--cb-acc) 85%, white);
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .cb-echo-q {
   font-family: var(--cb-display); font-weight: 600;
@@ -19408,41 +19214,32 @@ summary::-webkit-details-marker { display: none; }
   color: #f2f4f2;
   max-width: 660px; margin: 0;
 }
-.cb-echo-field {
+/* The reading line: a single hairline with one marker travelling it, the
+   whole loading metaphor in two elements. */
+.cb-echo-rule {
   position: relative;
-  width: min(64vw, 300px); height: min(64vw, 300px);
-  margin: 20px auto 4px;
+  width: min(72vw, 380px); height: 1px;
+  background: rgba(255,255,255,0.16);
+  margin: 30px auto 0;
 }
-.cb-echo-ring {
-  position: absolute; inset: 6%;
-  border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--cb-acc) 60%, transparent);
-  opacity: 0; transform: scale(0.06);
-  animation: cbEchoRing 4s cubic-bezier(0.25, 0.6, 0.35, 1) infinite;
-}
-@keyframes cbEchoRing {
-  0%   { transform: scale(0.06); opacity: 0; }
-  14%  { opacity: 0.5; }
-  100% { transform: scale(1); opacity: 0; }
-}
-.cb-echo-core {
-  position: absolute; left: calc(50% - 4px); top: calc(50% - 4px);
-  width: 8px; height: 8px; border-radius: 50%;
+.cb-echo-cursor {
+  position: absolute; top: -2.5px; left: 0;
+  width: 6px; height: 6px; border-radius: 50%;
   background: var(--cb-acc);
-  box-shadow: 0 0 14px var(--cb-acc);
-  animation: cbBreathe 2.8s ease-in-out infinite;
+  box-shadow: 0 0 10px var(--cb-acc);
+  animation: cbEchoScan 3.4s ease-in-out infinite;
 }
-.cb-echo-node {
-  position: absolute; width: 6px; height: 6px; border-radius: 50%;
-  background: rgba(255,255,255,0.26);
-  animation: cbEchoFlash 4s ease-in-out infinite;
-}
-@keyframes cbEchoFlash {
-  0%, 90%, 100% { background: rgba(255,255,255,0.26); box-shadow: none; }
-  95%           { background: var(--cb-acc); box-shadow: 0 0 12px var(--cb-acc); }
+@keyframes cbEchoScan {
+  0%   { left: 0; opacity: 0; }
+  10%  { opacity: 1; }
+  50%  { left: calc(100% - 6px); opacity: 1; }
+  60%  { opacity: 0; }
+  61%  { left: 0; }
+  70%  { opacity: 0; }
+  100% { left: 0; opacity: 0; }
 }
 .cb-echo-sub {
-  margin-top: 14px;
+  margin-top: 16px;
   font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
   letter-spacing: 0.22em; text-transform: uppercase;
   color: rgba(242,244,242,0.4);
@@ -19782,8 +19579,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-qline, .cb-echo { animation: none; }
   .cb-qline-reading { animation: none; }
   .cb-qline-busy { animation-duration: 1.6s; }
-  .cb-echo-ring, .cb-echo-node, .cb-echo-core { animation: none; }
-  .cb-echo-ring { display: none; }
+  .cb-echo-cursor { animation: none; display: none; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
 }
 
@@ -20610,74 +20406,10 @@ button, a, .cb-tap {
 @keyframes cbFounderSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .cb-founder-ring { animation: none; } }
 
-/* The profile avatar's own frame: a gradient halo drawn behind the
-   existing photo/initial rather than replacing it, so nothing about the
-   upload flow changes. */
-.cb-founder-avatar::before {
-  content: '';
-  position: absolute;
-  inset: -7px;
-  border-radius: 50%;
-  background: conic-gradient(from 0deg, #c9a227, #f4e2a1, #34d399, #c9a227);
-  animation: cbFounderSpin 12s linear infinite;
-  z-index: -1;
-}
-@media (prefers-reduced-motion: reduce) { .cb-founder-avatar::before { animation: none; } }
-
 .cb-founder-card { transition: border-color 0.3s ease, box-shadow 0.3s ease; }
 .cb-founder-card:hover {
   border-color: rgba(201,162,39,0.6);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 14px 36px rgba(0,0,0,0.16);
-}
-
-/* ══════════════════════════════════════════════════════════════
-   Flashy profile treatment. The profile is the one surface where
-   ceremony is the point: a slow light-sweep across the banner, a
-   breathing gold aura behind the founder's avatar, and a Founder &
-   Owner pill with travelling shine. All motion is decorative and
-   disabled under prefers-reduced-motion.
-   ══════════════════════════════════════════════════════════════ */
-@keyframes cbSheenSweep {
-  0% { transform: translateX(-130%) skewX(-18deg); }
-  60%, 100% { transform: translateX(260%) skewX(-18deg); }
-}
-.cb-banner-sheen {
-  position: absolute; top: 0; bottom: 0; left: 0; width: 42%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
-  animation: cbSheenSweep 9s ease-in-out infinite;
-  pointer-events: none;
-}
-@keyframes cbAuraPulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.07); }
-}
-.cb-founder-avatar::after {
-  content: '';
-  position: absolute;
-  inset: -15px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(201,162,39,0.4) 0%, rgba(201,162,39,0) 70%);
-  filter: blur(7px);
-  z-index: -2;
-  animation: cbAuraPulse 5s ease-in-out infinite;
-  pointer-events: none;
-}
-@keyframes cbPillShine {
-  0% { background-position: 130% 0; }
-  100% { background-position: -130% 0; }
-}
-.cb-founder-pill {
-  position: relative;
-  overflow: hidden;
-  background: linear-gradient(100deg, #8a6d1c 0%, #c9a227 28%, #f7e8b0 50%, #c9a227 72%, #8a6d1c 100%);
-  background-size: 230% 100%;
-  animation: cbPillShine 5.5s linear infinite;
-  box-shadow: 0 2px 16px rgba(201,162,39,0.4), inset 0 1px 0 rgba(255,255,255,0.4);
-}
-@media (prefers-reduced-motion: reduce) {
-  .cb-banner-sheen { animation: none; display: none; }
-  .cb-founder-avatar::after { animation: none; }
-  .cb-founder-pill { animation: none; }
 }
 
 /* Reading and control rhythm across research views. */
