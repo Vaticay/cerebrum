@@ -377,8 +377,8 @@ await test("title-only papers produce a labeled synthesis, not the dead-end fall
   const out = buildExtractiveSynthesis(NO_ABSTRACT_PAPERS);
   assert.ok(out && out.length > 200, "no synthesis produced");
   assert.ok(!/Unable To Synthesize/i.test(out), "dead-end fallback text leaked through");
-  assert.ok(/^## What the sources indicate/m.test(out), "missing overview heading");
-  assert.ok(/assembled without AI/i.test(out), "missing honesty label");
+  assert.ok(/^## The short answer/m.test(out), "missing overview heading");
+  assert.ok(/Drafted directly from the sources/i.test(out), "missing honesty label");
   for (let n = 1; n <= 4; n++) assert.ok(out.includes("[" + n + "]"), `missing citation [${n}]`);
   assert.ok(out.includes("Molecular Ecology, 2011"), "venue metadata missing");
 });
@@ -415,9 +415,10 @@ await test("citation indices stay 1-based and aligned to input order", () => {
 });
 
 await test("wave 4 is wired into the search handler before the honest fallback", () => {
-  assert.match(searchSrc, /buildExtractiveSynthesis\(extPool, briefClaims\)/, "wave 4 is not attempted on total AI failure");
-  assert.match(searchSrc, /if \(!aiOK && !extractiveOK\)/, "TIER 4 fallback still runs when extractive synthesis exists");
-  assert.match(searchSrc, /synthesisMode: extractiveOK/, "synthesisMode is not reported to the frontend");
+  assert.match(searchSrc, /buildExtractiveSynthesis\(extPool, briefClaims, \{/, "wave 4 is not attempted on total AI failure");
+  assert.match(searchSrc, /if \(!extractiveOK\)/, "no-results terminal state missing when extractive synthesis has nothing to work with");
+  assert.match(searchSrc, /responseKind = "no-results"/, "no-results response kind not set");
+  assert.match(searchSrc, /synthesisMode: extractiveOK \? "extractive"/, "synthesisMode is not reported to the frontend");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

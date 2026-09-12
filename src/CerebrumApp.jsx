@@ -4099,6 +4099,10 @@ function FactCheck({ fc, P, accent }) {
   const colors = { supported: STATUS.good, partly: STATUS.warn, unsupported: STATUS.bad, thin: STATUS.warn };
   const claims = fc.claims || [];
   const isTerms = fc.mode === "terms";
+  // NEXT-GEN: the deterministic (no-AI) path ships a mechanical vocabulary-
+  // overlap check, not quote matching — the copy must say exactly that
+  // rather than borrowing the stronger claim.
+  const isExtractive = fc.mode === "extractive";
   const nThin = claims.filter((c) => c.status === "thin").length;
   const nUns = claims.filter((c) => c.status === "unsupported").length;
   const nSup = claims.filter((c) => c.status === "supported").length;
@@ -4128,7 +4132,11 @@ function FactCheck({ fc, P, accent }) {
         >
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS.good, flexShrink: 0 }} />
           <span>
-            {isTerms
+            {isExtractive
+              ? (total === 1
+                  ? "Checked: the cited claim in this answer shares real vocabulary with the paper it cites"
+                  : `Checked: all ${total} cited claims in this answer share real vocabulary with the papers they cite`)
+              : isTerms
               ? total === 1
                 ? "Checked: the specific name in this answer appears in the papers it cites"
                 : `Checked: all ${total} specific names in this answer appear in the papers it cites`
@@ -4148,7 +4156,17 @@ function FactCheck({ fc, P, accent }) {
             {/* The caveat is the whole point of opening this. A reader who
                 thinks a green line means "verified" is worse off than one
                 who never saw it. */}
-            {isTerms ? (
+            {isExtractive ? (
+              <>
+                This answer was assembled without AI, so instead of the usual
+                claim-by-claim pass it got a mechanical one: every cited claim
+                was checked for shared vocabulary against the title and
+                abstract of the paper it cites. That catches a citation
+                pointing at the wrong paper, but it does not check whether the
+                finding is reported correctly — the sources are still worth
+                opening for anything you plan to rely on.
+              </>
+            ) : isTerms ? (
               <>
                 Every gene, drug and pathway named in the answer was looked for in the
                 title and abstract of each paper it cites, and all of them turned up.
@@ -4189,14 +4207,20 @@ function FactCheck({ fc, P, accent }) {
      listing only the items that are wrong. The ones that passed are a count,
      not a list — they were never the reason to look. */
   const oc = nUns > 0 ? STATUS.bad : STATUS.warn;
-  const headline = isTerms
+  const headline = isExtractive
+    ? (nUns > 0
+        ? `${nUns} claim${nUns === 1 ? "" : "s"} in this answer ${nUns === 1 ? "doesn't" : "don't"} share real vocabulary with the paper ${nUns === 1 ? "it cites" : "they cite"}`
+        : `${nThin} claim${nThin === 1 ? "" : "s"} ${nThin === 1 ? "is" : "are"} only weakly connected to the paper ${nThin === 1 ? "it cites" : "they cite"}`)
+    : isTerms
     ? (nUns > 0
         ? `${nUns} name${nUns === 1 ? "" : "s"} in this answer ${nUns === 1 ? "isn't" : "aren't"} in any paper it cites`
         : `${nThin} name${nThin === 1 ? "" : "s"} only match${nThin === 1 ? "es" : ""} indirectly`)
     : (nUns > 0
         ? `${nUns} claim${nUns === 1 ? "" : "s"} in this answer ${nUns === 1 ? "isn't" : "aren't"} backed by a cited paper`
         : `${nThin} claim${nThin === 1 ? "" : "s"} ${nThin === 1 ? "is" : "are"} only partly backed by a cited paper`);
-  const why = isTerms
+  const why = isExtractive
+    ? "The mechanical vocabulary check found almost no shared terms between the claim and the paper it cites. Worth opening the source before relying on this."
+    : isTerms
     ? "The answer may have reached past its sources here, or attached the wrong citation. Worth opening a source before relying on these."
     : "The quote that should support this either doesn't say it, or says less than the answer claims. Worth reading the source directly.";
 
@@ -4211,7 +4235,9 @@ function FactCheck({ fc, P, accent }) {
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
           {/* "The other 1 claim" reads like a typo. English wants the bare
               noun when there is exactly one of it. */}
-          {isTerms
+          {isExtractive
+            ? (nSup === 1 ? "The other claim matched its cited paper." : `The other ${nSup} claims matched their cited papers.`)
+            : isTerms
             ? (nSup === 1 ? "The other name checked out." : `The other ${nSup} names checked out.`)
             : (nSup === 1 ? "The other claim traced to a source cleanly." : `The other ${nSup} claims traced to a source cleanly.`)}
         </div>
@@ -6649,6 +6675,15 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
             <span>\u26a0</span><span>{source.retracted ? "RETRACTED" : "EXPRESSION OF CONCERN"}</span>
           </div>
         )}
+        {/* NEXT-GEN: the backend flags bibliography entries the answer never
+            cites. Label them as further reading rather than letting the
+            numbered list imply they back a claim. */}
+        {source.uncited && (
+          <div title={source.uncitedReason || "Not cited by the answer"}
+            style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", marginBottom: 5, marginLeft: (source.retracted || source.concern) ? 6 : 0, background: "transparent", border: `1px dashed ${P.faint}`, borderRadius: 8, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-body)", cursor: "help" }}>
+            Further reading — not cited above
+          </div>
+        )}
         {style === "bibtex" ? (
           <pre style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
         ) : (
@@ -7497,6 +7532,52 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
               isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
           </AutopsySection>
         ) : null}
+
+        {/* ── 07 · Pipeline health (NEXT-GEN) — per-stage outcomes, the
+            computed confidence, evidence gaps, and the disagreement
+            verdict. Read from the response; absent on older cached turns. */}
+        {(Array.isArray(t.stageHealth) && t.stageHealth.length > 0) || t.confidence || (Array.isArray(t.evidenceGaps) && t.evidenceGaps.length > 0) || t.disagreementVerdict ? (
+          <AutopsySection P={P} accent={accent} kicker="07 · Pipeline health">
+            {Array.isArray(t.stageHealth) && t.stageHealth.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px", marginBottom: 12 }}>
+                {t.stageHealth.map((s, i) => (
+                  <span key={i} title={s.ok ? `${s.name}: ok` : `${s.name}: failed over to a fallback`}
+                    style={{
+                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-body)",
+                      color: s.ok ? P.ink2 : STATUS.warn,
+                      border: `1px solid ${s.ok ? withAlpha(accent, 0.35) : withAlpha(STATUS.warn, 0.4)}`,
+                      background: s.ok ? withAlpha(accent, 0.07) : withAlpha(STATUS.warn, 0.06),
+                      borderRadius: 9999, padding: "3px 10px",
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                    }}>
+                    <span style={{ width: 4, height: 4, borderRadius: "50%", background: s.ok ? accent : STATUS.warn }} />
+                    {s.name}{typeof s.ms === "number" && s.ms > 0 ? ` ${(s.ms / 1000).toFixed(1)}s` : ""}
+                  </span>
+                ))}
+              </div>
+            )}
+            {t.confidence && t.confidence.line && (
+              <div style={{ ...monoLine, marginBottom: 8 }}>
+                <span style={{ fontWeight: 700, color: P.ink }}>Confidence — {t.confidence.level}: </span>
+                {t.confidence.line}
+              </div>
+            )}
+            {t.disagreementVerdict && t.disagreementVerdict.summary && (
+              <div style={{ ...monoLine, marginBottom: 8 }}>
+                <span style={{ fontWeight: 700, color: P.ink }}>Disagreement — {t.disagreementVerdict.status}: </span>
+                {t.disagreementVerdict.summary}
+              </div>
+            )}
+            {Array.isArray(t.evidenceGaps) && t.evidenceGaps.length > 0 && (
+              <div style={{ marginTop: 4 }}>
+                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 6, fontFamily: "var(--cb-body)", letterSpacing: "0.08em" }}>EVIDENCE GAPS</div>
+                {t.evidenceGaps.map((g, i) => (
+                  <div key={i} style={{ ...monoLine, marginBottom: 4 }}>· {g}</div>
+                ))}
+              </div>
+            )}
+          </AutopsySection>
+        ) : null}
     </ModalChrome>
   );
 }
@@ -8138,7 +8219,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
     { id: "evidence", label: "Evidence", status: sources.length ? "ready" : (connFailed ? "failed" : "empty"), count: sources.length || undefined },
     { id: "videos", label: "Videos", status: videos.length ? "ready" : "empty", count: videos.length || undefined },
     { id: "factcheck", label: "Fact-check", status: t.factCheck ? "ready" : "empty" },
-    { id: "disagreements", label: "Disagreements", status: vennReady ? "ready" : "empty" },
+    { id: "disagreements", label: "Disagreements", status: (vennReady || (t.disagreementVerdict && t.disagreementVerdict.status === "divided")) ? "ready" : "empty" },
     { id: "compare", label: "Compare", status: sources.length >= 2 ? "ready" : "empty" },
     { id: "openquestions", label: "Open questions", status: openQuestions.length ? "ready" : "empty", count: openQuestions.length || undefined },
   ];
@@ -8289,15 +8370,31 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 {Array.isArray(t.sourcesQueried) && t.sourcesQueried.length > 0 && (() => {
                   const ok = t.sourcesQueried.filter((x) => x.ok);
                   const missing = t.sourcesQueried.filter((x) => !x.ok).map((x) => x.source);
+                  // NEXT-GEN: when databases failed, the backend ships an
+                  // explicit coverage note ("2 of 15 didn't respond; answer
+                  // built from 13") — show it verbatim instead of the bare
+                  // fraction, which understates incomplete coverage.
+                  const label = t.coverageNote || `${ok.length}/${t.sourcesQueried.length} databases`;
                   return (
                     <span
-                      title={missing.length ? `Did not answer: ${missing.join(", ")}` : "Every database answered"}
-                      style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", cursor: missing.length ? "help" : "default" }}
+                      title={t.coverageNote || (missing.length ? `Did not answer: ${missing.join(", ")}` : "Every database answered")}
+                      style={{ fontSize: FONT_SIZES.caption, color: missing.length ? STATUS.warn : P.faint, fontFamily: "var(--cb-body)", cursor: missing.length ? "help" : "default" }}
                     >
-                      {ok.length}/{t.sourcesQueried.length} databases
+                      {label}
                     </span>
                   );
                 })()}
+                {/* NEXT-GEN: when any pipeline stage failed (or the answer is
+                    the no-results terminal state), say so in one chip rather
+                    than letting the answer look fully healthy. */}
+                {t.degraded && (
+                  <span
+                    title={(t.stageHealth || []).filter((s) => !s.ok).map((s) => `${s.name}: failed`).join("; ") || "Built under degraded conditions"}
+                    style={{ fontSize: FONT_SIZES.caption, color: STATUS.warn, fontFamily: "var(--cb-body)", cursor: "help", border: `1px solid ${withAlpha(STATUS.warn, 0.4)}`, borderRadius: 8, padding: "1px 7px" }}
+                  >
+                    Degraded
+                  </span>
+                )}
                 {/* Query autopsy: the pipeline's own record of this answer.
                     A quiet mono link, not a button — it opens a drawer, it
                     doesn't act on anything. */}
@@ -8442,12 +8539,16 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           {connFailed ? (
             /* Connection failed: every database reported ok:false, so there
                is nothing retrieved and nothing to synthesize. Plain copy,
-               real retry — never a bare error string, never invented data. */
+               real retry — never a bare error string, never invented data.
+               NEXT-GEN: the panel offers retry, rephrasing, and watching
+               the topic — not just "try again". */
             <AnswerStateCard kicker="CONNECTION FAILED" tone="bad"
               title="The databases couldn't be reached."
               body="Every source we queried for this answer failed to respond. Nothing was retrieved, so there's nothing to synthesize yet."
               actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
-              P={P} accent={accent} />
+              P={P} accent={accent}>
+              <QueryRetryForm P={P} accent={accent} onAsk={adjustQuery} id={`cb-retry-${t.answerId || "turn"}`} />
+            </AnswerStateCard>
           ) : synthFailed && sources.length === 0 ? (
             /* Synthesis failed and the fallback carried no papers either:
                there is no answer text to show at all. */
@@ -8529,10 +8630,18 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           ) : (
             <AnswerSection eyebrow="Fact-check" P={P} accent={accent}>
               <AnswerStateCard
-                kicker={t.factCheck && t.factCheck.error ? "CHECK FAILED" : "NOT CHECKED"}
+                kicker={t.factCheck && t.factCheck.error ? "CHECK FAILED" : "NOTHING TO VERIFY"}
                 tone={t.factCheck && t.factCheck.error ? "bad" : "neutral"}
-                title={t.factCheck && t.factCheck.error ? "The verification pass didn't complete." : "This answer hasn't been fact-checked."}
-                body="The fact-check is a separate pass over the answer's claims — it didn't produce a result here."
+                title={t.factCheck && t.factCheck.error
+                  ? "The verification pass didn't complete."
+                  : t.responseKind === "no-results" || (t.sources || []).length === 0
+                    ? "No scientific claims to verify."
+                    : "Verification didn't produce a result for this answer."}
+                body={t.factCheck && t.factCheck.error
+                  ? "The fact-check is a separate pass over the answer's claims — it didn't produce a result here."
+                  : t.responseKind === "no-results" || (t.sources || []).length === 0
+                    ? "This answer makes no claims about the literature — it reports what the search tried and why nothing citable surfaced — so there is nothing to check against sources."
+                    : "The mechanical claim check didn't return a verdict. The answer's citations still point at the papers they came from."}
                 actions={[{ label: "Retry search", onClick: retrySearch }]}
                 P={P} accent={accent} />
             </AnswerSection>
@@ -8550,9 +8659,28 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
           ) : (
             <AnswerSection eyebrow="Where the literature disagrees" P={P} accent={accent}>
-              <AnswerStateCard kicker="NO CLEAR DIVIDE" title="No clear disagreement surfaced."
-                body="The cited claims don't split into two camps — the literature, as cited, reads as settled or too thin to divide."
-                P={P} accent={accent} />
+              {/* NEXT-GEN: the backend computes a real verdict (divided /
+                  settled / thin) from the sources' own claims. When the
+                  Venn can't form two camps, say what the verdict actually
+                  is instead of defaulting to "no clear divide". */}
+              {(() => {
+                const v = t.disagreementVerdict;
+                const kicker = !v ? "NO CLEAR DIVIDE"
+                  : v.status === "divided" ? "DIVIDED"
+                  : v.status === "settled" ? "CONSISTENT"
+                  : "THIN EVIDENCE";
+                const body = (v && v.summary) || "The cited claims don't split into two camps — the literature, as cited, reads as settled or too thin to divide.";
+                return (
+                  <AnswerStateCard kicker={kicker}
+                    title={v && v.status === "divided"
+                      ? "The sources genuinely split — see the flashpoints below."
+                      : v && v.status === "settled"
+                        ? "No clear disagreement surfaced."
+                        : "No clear disagreement surfaced."}
+                    body={body}
+                    P={P} accent={accent} />
+                );
+              })()}
             </AnswerSection>
           )}
         </div>
@@ -8609,6 +8737,62 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           literature disagrees, then comparison tools, then open questions,
           then the continue strip (suggestions / watch / related). Every
           section renders its shell always — no silent gaps. */}
+      {/* NEXT-GEN: ambiguity notice — when the question used a term with
+          multiple scientific meanings, say which one the answer ran with
+          (or offer the interpretations when it couldn't decide). */}
+      {interactive && done && t.ambiguity && t.ambiguity.ambiguous && Array.isArray(t.ambiguity.interpretations) && t.ambiguity.interpretations.length > 0 && t.responseKind !== "no-results" && (
+        <div style={{ marginTop: 16, padding: "12px 16px", borderRadius: 8, border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, background: withAlpha(STATUS.warn, 0.05) }} className="cb-fade">
+          <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
+            <span style={{ fontWeight: 700 }}>Heads up:</span> “{t.ambiguity.term}” means different things in different fields
+            {t.ambiguity.resolvedAs ? <> — this answer ran with <span style={{ fontWeight: 600 }}>{t.ambiguity.resolvedAs}</span></> : <> — pick the one you meant</>}.
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            {t.ambiguity.interpretations.map((it, i) => (
+              <button key={i} onClick={() => it.query && onRelated && onRelated(it.query)}
+                title={it.query || it.label}
+                style={{ padding: "6px 12px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
+                {it.label} <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* NEXT-GEN: no-results instruments — the reformulations the backend
+          derived from the question, as one-tap re-searches. The answer
+          text already lists them; these make them actionable. Rendered
+          only for genuine no-results turns (not error states). */}
+      {interactive && done && t.responseKind === "no-results" && t.noResults && Array.isArray(t.noResults.reformulations) && t.noResults.reformulations.length > 0 && (
+        <div style={{ marginTop: 20 }} className="cb-fade">
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 10 }}>
+            Try a rephrasing
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {t.noResults.reformulations.map((r, i) => (
+              <button key={i} onClick={() => r.query && onRelated && onRelated(r.query)}
+                title={r.query || r.label}
+                style={{ padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: withAlpha(accent, 0.08), color: accent, border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", textAlign: "left", lineHeight: 1.4 }}>
+                {r.label} <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
+              </button>
+            ))}
+          </div>
+          {t.ambiguity && t.ambiguity.ambiguous && Array.isArray(t.ambiguity.interpretations) && t.ambiguity.interpretations.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 10 }}>
+                “{t.ambiguity.term}” could mean
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {t.ambiguity.interpretations.map((it, i) => (
+                  <button key={i} onClick={() => it.query && onRelated && onRelated(it.query)}
+                    title={it.query || it.label}
+                    style={{ padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", textAlign: "left", lineHeight: 1.4 }}>
+                    {it.label} <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {/* AI suggestions */}
       {interactive && done && t.suggestions && t.suggestions.length > 0 && (
         <div style={{ alignItems: "center", marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
@@ -20477,7 +20661,19 @@ function App() {
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
-        _resolver: data._resolver || null, _selfReasoning: data._selfReasoning || null, _funnel: data._funnel || null };
+        _resolver: data._resolver || null, _selfReasoning: data._selfReasoning || null, _funnel: data._funnel || null,
+        /* NEXT-GEN answer instruments — computed by the backend on every
+           evidence path (AI and deterministic). Absent on older cached
+           turns; every renderer below treats absence as "not computed",
+           never as a value. */
+        noResults: data.noResults || null,
+        disagreementVerdict: data.disagreementVerdict || null,
+        evidenceGaps: Array.isArray(data.evidenceGaps) ? data.evidenceGaps : null,
+        confidence: data.confidence || null,
+        coverageNote: data.coverageNote || null,
+        ambiguity: data.ambiguity || null,
+        degraded: !!data.degraded,
+        stageHealth: Array.isArray(data.stageHealth) ? data.stageHealth : null };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       const nextTurns = [...turns, nt];

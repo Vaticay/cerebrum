@@ -29,22 +29,45 @@ import {
   RELEVANCE_FLOOR,
   fingerprintClaim,
   buildExtractiveSynthesis,
+  // NEXT-GEN resilience pipeline (v7.0)
+  runStage,
+  extractPaperClaims,
+  detectSourceConflicts,
+  verifyExtractiveAlignment,
+  postCheckAIAlignment,
+  buildEvidenceGaps,
+  buildConfidenceLine,
+  buildCoverageNote,
+  buildFalsificationBullets,
+  deriveReformulations,
+  detectAmbiguity,
+  buildNoResultsPayload,
+  renderNoResultsAnswer,
+  retrievalStrategiesTried,
+  labelUncitedSources,
 } from "../functions/api/search.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 let passed = 0;
 const failures = [];
+// Every test() call registers a promise; the suite awaits ALL of them
+// before printing the tally. (Without this, a synchronously-failing test
+// records its failure before the async continuations of the passing tests
+// run, and process.exit(1) murders the rest — the tally lies.)
+const pending = [];
 
-async function test(name, fn) {
-  try {
-    await fn();
-    passed++;
-    console.log(`  ✓ ${name}`);
-  } catch (e) {
-    failures.push({ name, error: e });
-    console.log(`  ✗ ${name}\n      ${e.message.split("\n")[0]}`);
-  }
+function test(name, fn) {
+  pending.push((async () => {
+    try {
+      await fn();
+      passed++;
+      console.log(`  ✓ ${name}`);
+    } catch (e) {
+      failures.push({ name, error: e });
+      console.log(`  ✗ ${name}\n      ${String(e && e.message || e).split("\n")[0]}`);
+    }
+  })());
 }
 
 function group(name) {
@@ -288,5 +311,370 @@ test("frontend accumulator dedupes on intersecting multi-keys", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+group("NEXT-GEN — runStage: every stage degrades, none throws");
+
+test("runStage returns the value on success and records health", async () => {
+  const health = [];
+  const r = await runStage("s", async () => 42, { timeoutMs: 1000, health });
+  assert.equal(r.ok, true);
+  assert.equal(r.value, 42);
+  assert.equal(health.length, 1);
+  assert.equal(health[0].name, "s");
+  assert.equal(health[0].ok, true);
+});
+
+test("runStage times out a hung stage and returns the fallback", async () => {
+  const health = [];
+  const r = await runStage("hung", () => new Promise(() => {}), {
+    timeoutMs: 50, fallback: "FB", health,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.value, "FB");
+  assert.equal(health[0].ok, false);
+});
+
+test("runStage converts a throw into a fallback, never a rejection", async () => {
+  const r = await runStage("boom", async () => { throw new Error("kaput"); }, {
+    timeoutMs: 1000, fallback: [],
+  });
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.value, []);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("NEXT-GEN — no-results: an intelligent terminal state, never a dead end");
+
+test("zero papers yields whatWasTried, likelyReasons, reformulations", () => {
+  const p = buildNoResultsPayload({
+    query: "Why does soil crack into patterns as it dries?",
+    sourcesQueried: [
+      { source: "OpenAlex", ok: true, count: 0 },
+      { source: "PubMed", ok: false, count: 0 },
+    ],
+    rungsTried: ["exact-term matching (4 narrowing rungs)", "synonym + MeSH expansion (6 queries)"],
+    gatedOut: 0,
+    gatedExamples: [],
+  });
+  assert.ok(p.whatWasTried.length >= 2, "whatWasTried too thin");
+  assert.ok(p.whatWasTried.some((w) => /1 of 2 databases didn't respond|didn't respond/.test(w) || /2 scientific databases/.test(w)));
+  assert.ok(p.likelyReasons.length === 3, "expected 3 likely reasons, got " + p.likelyReasons.length);
+  assert.ok(Array.isArray(p.reformulations));
+});
+
+test("gated-out papers are named honestly in the no-results payload", () => {
+  const p = buildNoResultsPayload({
+    query: "quantum soil entanglement",
+    sourcesQueried: [{ source: "OpenAlex", ok: true, count: 3 }],
+    rungsTried: [],
+    gatedOut: 3,
+    gatedExamples: ["Quantum coherence in earthworms"],
+  });
+  assert.ok(p.whatWasTried.some((w) => /cited none/i.test(w) && /3 candidate/.test(w)));
+  assert.ok(p.whatWasTried.some((w) => /Quantum coherence in earthworms/.test(w)), "closest example not named");
+  assert.ok(p.likelyReasons[0].includes("on-topic enough to cite"));
+});
+
+test("renderNoResultsAnswer never guesses at the science", () => {
+  const p = buildNoResultsPayload({ query: "xyzzy quux", sourcesQueried: [], rungsTried: [], gatedOut: 0 });
+  const md = renderNoResultsAnswer("xyzzy quux", p);
+  assert.match(md, /## No citable literature surfaced/);
+  assert.match(md, /### What was tried/);
+  assert.match(md, /### Most likely reasons/);
+  assert.doesNotMatch(md, /Unable To Synthesize|Momentarily At Capacity/);
+});
+
+test("deriveReformulations builds concrete alternatives from the question", () => {
+  const rs = deriveReformulations("Why does soil crack into polygonal patterns as it dries?");
+  assert.ok(rs.length >= 2 && rs.length <= 3, "expected 2-3 reformulations, got " + rs.length);
+  for (const r of rs) {
+    assert.ok(r.label && r.query, "reformulation missing label/query");
+    assert.notEqual(r.query.toLowerCase(), "why does soil crack into polygonal patterns as it dries?");
+  }
+  // At least one strategy must be visible: broaden (drops a word) or rephrase.
+  const qs = rs.map((r) => r.query.toLowerCase());
+  assert.ok(qs.some((x) => x.split(/\s+/).length < 9) || rs.some((r) => /literature's wording|Broaden/.test(r.label)),
+    "no genuine broadening/rephrasing strategy: " + JSON.stringify(rs));
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("NEXT-GEN — query intelligence: ambiguity is surfaced, never silent");
+
+test("bare 'depression' is ambiguous with concrete interpretations", () => {
+  const a = detectAmbiguity("What causes depression?");
+  assert.equal(a.ambiguous, true);
+  assert.ok(a.interpretations.length >= 2);
+  for (const i of a.interpretations) {
+    assert.ok(i.label && i.query && i.query.length > 10, "interpretation not actionable");
+  }
+});
+
+test("'depression' with psychiatric context resolves itself", () => {
+  const a = detectAmbiguity("How do SSRIs treat depression?");
+  assert.equal(a.ambiguous, false);
+  assert.equal(a.resolvedAs, "Depressive disorders (psychiatry)");
+});
+
+test("unambiguous science questions stay unambiguous", () => {
+  assert.equal(detectAmbiguity("Why does soil crack into patterns as it dries?").ambiguous, false);
+  assert.equal(detectAmbiguity("").ambiguous, false);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("NEXT-GEN — disagreement intelligence: computed, not defaulted");
+
+const INC_PAPER = {
+  title: "Fertilizer X increases wheat yield",
+  abstract: "We found that fertilizer X increased wheat yield by 34% across 12 field trials. Results showed significant improvement.",
+  year: "2020",
+};
+const DEC_PAPER = {
+  title: "Fertilizer X decreases wheat yield",
+  abstract: "We found that fertilizer X decreased wheat yield by 21% across 9 field trials. Results showed significant decline.",
+  year: "2021",
+};
+const AGREE_PAPER = {
+  title: "Fertilizer X improves wheat yield further",
+  abstract: "We found that fertilizer X increased wheat yield by 28% in replicated trials. Results confirmed the improvement.",
+  year: "2022",
+};
+
+test("opposing findings on the same topic produce a real divide", () => {
+  const { conflicts, verdict } = detectSourceConflicts([INC_PAPER, DEC_PAPER]);
+  assert.ok(conflicts.length >= 1, "no conflict detected");
+  assert.equal(verdict.status, "divided");
+  assert.equal(verdict.conflictCount, conflicts.length);
+  const c = conflicts[0];
+  assert.ok(c.claimA && c.claimB && c.idxA !== c.idxB, "conflict shape wrong");
+  assert.ok(c.sourceA && c.sourceB, "conflict missing source titles");
+});
+
+test("consistent sources produce a computed settled verdict", () => {
+  const { conflicts, verdict } = detectSourceConflicts([INC_PAPER, AGREE_PAPER, INC_PAPER]);
+  assert.equal(conflicts.length, 0);
+  assert.equal(verdict.status, "settled");
+  assert.match(verdict.summary, /consistent/);
+});
+
+test("fewer than 3 sources yields thin, not a false consensus", () => {
+  const { verdict } = detectSourceConflicts([INC_PAPER]);
+  assert.equal(verdict.status, "thin");
+  assert.match(verdict.summary, /not a consensus/);
+});
+
+test("extractPaperClaims returns finding-dense sentences deterministically", () => {
+  const c1 = extractPaperClaims(INC_PAPER, 2);
+  const c2 = extractPaperClaims(INC_PAPER, 2);
+  assert.deepEqual(c1, c2);
+  assert.ok(c1.length > 0 && c1[0].length > 20);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("NEXT-GEN — claim-level integrity");
+
+test("extractive claims align to their cited papers", () => {
+  const p1 = soilPaper();
+  const p2 = soilPaper({ title: "Evaporation and crust formation in drying soils", abstract: "We measured evaporation decline as crusts formed." });
+  const md = buildExtractiveSynthesis([p1, p2], []);
+  const res = verifyExtractiveAlignment(md, [p1, p2]);
+  assert.equal(res.mode, "extractive");
+  assert.ok(res.checked, "nothing was checked");
+  assert.equal(res.claims.filter((c) => c.status === "unsupported").length, 0,
+    "aligned claims flagged: " + JSON.stringify(res.claims.filter((c) => c.status !== "supported")));
+});
+
+test("out-of-bounds citations are flagged unsupported", () => {
+  const res = verifyExtractiveAlignment(
+    "## The short answer\n\nDesiccation cracking widens measurably as the soil surface dries out [9].",
+    [soilPaper()]
+  );
+  assert.ok(res.claims.some((c) => c.status === "unsupported" && /only 1 source/.test(c.note)));
+});
+
+test("postCheckAIAlignment flags near-zero-overlap claims, spares paraphrase", () => {
+  const papers = [INC_PAPER, DEC_PAPER];
+  const legit = "Fertilizer X increased wheat yield by about a third across a dozen field trials [1].";
+  const fabricated = "Quantum entanglement explains why wheat grows taller near power lines [2].";
+  const r1 = postCheckAIAlignment(legit, papers);
+  assert.equal(r1.issues.length, 0, "legit paraphrase flagged: " + JSON.stringify(r1.issues));
+  const r2 = postCheckAIAlignment(fabricated, papers);
+  assert.equal(r2.issues.length, 1, "fabricated claim not flagged");
+  assert.equal(r2.issues[0].idx, 2);
+});
+
+test("uncited bibliography entries are labeled, not implied as support", () => {
+  const out = labelUncitedSources(
+    [{ title: "A" }, { title: "B" }],
+    "Findings show X [1]."
+  );
+  assert.equal(out[0].uncited, undefined);
+  assert.equal(out[1].uncited, true);
+  assert.match(out[1].uncitedReason, /further reading/);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("NEXT-GEN — computed gaps, confidence, coverage");
+
+test("thin evidence yields thin confidence and honest gaps", () => {
+  const gaps = buildEvidenceGaps({ papers: [INC_PAPER], sourcesQueried: null, relevanceGatedOut: 0 });
+  assert.ok(gaps.some((g) => /Only 1 source/.test(g)));
+  const conf = buildConfidenceLine([INC_PAPER], { status: "thin" });
+  assert.equal(conf.level, "thin");
+  assert.match(conf.line, /provisional/);
+});
+
+test("strong consensus reads differently from thin evidence", () => {
+  const many = [INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER];
+  const strong = buildConfidenceLine(many, { status: "settled" });
+  const thin = buildConfidenceLine([INC_PAPER], { status: "thin" });
+  assert.equal(strong.level, "strong");
+  assert.notEqual(strong.line, thin.line);
+});
+
+test("divided evidence yields moderate, provisional confidence", () => {
+  const conf = buildConfidenceLine([INC_PAPER, DEC_PAPER], { status: "divided", conflictCount: 1 });
+  assert.equal(conf.level, "moderate");
+  assert.match(conf.line, /provisional/);
+});
+
+test("coverage note names the failure honestly, null when all answered", () => {
+  assert.equal(buildCoverageNote([{ source: "A", ok: true }, { source: "B", ok: true }]), null);
+  assert.equal(buildCoverageNote(null), null);
+  const note = buildCoverageNote([
+    { source: "OpenAlex", ok: true }, { source: "PubMed", ok: false }, { source: "arXiv", ok: false },
+  ]);
+  assert.match(note, /2 of 3 databases didn't respond/);
+  assert.match(note, /built from the 1 that did/);
+});
+
+test("falsification bullets are concrete and state-derived", () => {
+  const b = buildFalsificationBullets({
+    papers: [INC_PAPER],
+    verdict: { status: "divided", conflicts: [{ idxA: 1, idxB: 2, topic: "wheat yield" }] },
+    newestYear: 2010,
+  });
+  assert.ok(b.length >= 2 && b.length <= 4);
+  assert.ok(b.some((x) => /\[1\] against \[2\]/.test(x)), "division not addressed");
+  assert.ok(b.some((x) => /post-2010/.test(x)), "staleness not addressed");
+});
+
+test("retrievalStrategiesTried names what ran, nothing more", () => {
+  const s = retrievalStrategiesTried({ rungs: [{}, {}], conceptExpanded: ["a", "b"], nlFallback: 5 });
+  assert.ok(s.some((x) => /exact-term/.test(x)));
+  assert.ok(s.some((x) => /MeSH/.test(x)));
+  assert.deepEqual(retrievalStrategiesTried(null), []);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("NEXT-GEN — structured answers on every path");
+
+test("extractive synthesis emits the shared five-section structure", () => {
+  const md = buildExtractiveSynthesis([soilPaper(), INC_PAPER], [], {
+    sourcesQueried: [{ source: "A", ok: true }],
+    relevanceGatedOut: 2,
+    ambiguity: { ambiguous: false, interpretations: [] },
+  });
+  for (const h of ["## The short answer", "## What the research shows", "## Where researchers disagree", "## How solid is this?", "## What would change this"]) {
+    assert.ok(md.includes(h), "missing section: " + h);
+  }
+  assert.match(md, /Drafted directly from the sources/);
+});
+
+test("ambiguous questions get an honest note in the extractive answer", () => {
+  const md = buildExtractiveSynthesis([soilPaper()], [], {
+    ambiguity: { ambiguous: true, term: "depression", interpretations: [{ label: "A" }, { label: "B" }] },
+  });
+  assert.match(md, /ambiguous/);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("NEXT-GEN — structural: the dead ends are gone");
+
+test("no 'Unable To Synthesize' or 'Momentarily At Capacity' state remains", () => {
+  assert.ok(!searchSrc.includes("Unable To Synthesize"), "dead-end state still present");
+  assert.ok(!searchSrc.includes("Momentarily At Capacity"), "dead-end state still present");
+});
+
+test("top-level catch returns a 200 degraded research response, not a 5xx", () => {
+  // The catch builds a no-results payload and answers 200.
+  const catchIdx = searchSrc.indexOf("top-level error:");
+  assert.ok(catchIdx > 0);
+  const after = searchSrc.slice(catchIdx, catchIdx + 2000);
+  assert.ok(after.includes('status: 200'), "catch no longer answers 200");
+  assert.ok(after.includes('responseKind: "no-results"'), "catch not shaped as no-results");
+  assert.ok(!after.includes("status = 500") && !after.includes("status = 503"), "5xx statuses still present");
+});
+
+test("synthesis waves respect an overall deadline with Wave-4 fallback", () => {
+  assert.ok(searchSrc.includes("synthesisDeadline"), "no synthesis deadline");
+  assert.ok(searchSrc.includes("Date.now() < synthesisDeadline"), "deadline not enforced on waves");
+});
+
+test("retrieval and validation run inside the stage runner", () => {
+  assert.ok(searchSrc.includes('runStage("retrieval"'), "retrieval not staged");
+  assert.ok(searchSrc.includes('runStage(\n        "validation"') || searchSrc.includes('"validation",'), "validation not staged");
+});
+
+test("the evidence-trace promise is not contradicted by prompts", () => {
+  assert.ok(!searchSrc.includes("then answer from your knowledge"), "RULE 7 still contradicts the trace promise");
+  assert.ok(!searchSrc.includes("say so briefly and answer from your knowledge"), "retry prompt still contradicts the trace promise");
+});
+
+test("response envelope carries the NEXT-GEN instruments", () => {
+  for (const f of ["responseKind", "noResults:", "disagreementVerdict", "evidenceGaps", "confidence", "coverageNote", "ambiguity", "degraded:", "stageHealth:"]) {
+    assert.ok(searchSrc.includes(f), "envelope missing: " + f);
+  }
+});
+
+test("turns carry every NEXT-GEN instrument from the response", () => {
+  for (const f of ["noResults: data.noResults", "disagreementVerdict: data.disagreementVerdict", "evidenceGaps: Array.isArray(data.evidenceGaps)", "confidence: data.confidence", "coverageNote: data.coverageNote", "ambiguity: data.ambiguity", "degraded: !!data.degraded", "stageHealth: Array.isArray(data.stageHealth)"]) {
+    assert.ok(appSrc.includes(f), "turn missing: " + f);
+  }
+});
+
+test("FactCheck renders the mechanical extractive check honestly", () => {
+  assert.ok(appSrc.includes('fc.mode === "extractive"'), "extractive mode not handled");
+  assert.ok(appSrc.includes("shares real vocabulary with the paper"), "extractive copy missing");
+  assert.ok(appSrc.includes("assembled without AI"), "extractive caveat missing");
+});
+
+test("'NOT CHECKED' is gone; empty states say what is actually true", () => {
+  assert.ok(!appSrc.includes('"NOT CHECKED"'), "NOT CHECKED still present");
+  assert.ok(appSrc.includes("No scientific claims to verify."), "honest empty state missing");
+});
+
+test("disagreement fallback uses the computed verdict, not a default", () => {
+  assert.ok(appSrc.includes("t.disagreementVerdict"), "verdict not read");
+  assert.ok(appSrc.includes('"THIN EVIDENCE"'), "thin kicker missing");
+  assert.ok(!appSrc.includes('kicker="NO CLEAR DIVIDE"'), "default NO CLEAR DIVIDE still present");
+});
+
+test("coverage failures render the backend's explicit note", () => {
+  assert.ok(appSrc.includes("t.coverageNote"), "coverageNote not rendered");
+});
+
+test("no-results turns get one-tap reformulations and ambiguity picks", () => {
+  assert.ok(appSrc.includes("Try a rephrasing"), "reformulation chips missing");
+  assert.ok(appSrc.includes("t.noResults.reformulations"), "reformulations not read from turn");
+});
+
+test("uncited bibliography entries are labeled further reading", () => {
+  assert.ok(appSrc.includes("source.uncited"), "uncited flag not read");
+  assert.ok(appSrc.includes("Further reading — not cited above"), "further-reading label missing");
+});
+
+test("degraded pipeline states are visible, not silent", () => {
+  assert.ok(appSrc.includes("t.degraded"), "degraded flag not read");
+  assert.ok(appSrc.includes("07 · Pipeline health"), "autopsy health section missing");
+});
+
+test("connection-failure panel offers rephrasing, not just retry", () => {
+  const idx = appSrc.indexOf('kicker="CONNECTION FAILED"');
+  assert.ok(idx > 0);
+  assert.ok(appSrc.indexOf("QueryRetryForm", idx) > 0 && appSrc.indexOf("QueryRetryForm", idx) < idx + 1200,
+    "no rephrase form on the connection-failure panel");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+await Promise.all(pending);
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
