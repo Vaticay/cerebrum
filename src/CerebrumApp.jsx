@@ -416,7 +416,38 @@ function tidyQuestionTitle(raw) {
 // untitled papers distinct in the overwhelmingly common case where they at
 // least have different URLs.
 function sourceKey(s) {
-  return ((s && (s.title || s.url)) || "").toLowerCase().trim();
+  // DOI first when present: the backend dedupes on DOI-vs-title key
+  // intersection, so the frontend key must agree or the same paper (one
+  // record with a DOI, one without) accumulates as two entries in the
+  // cumulative source list. Title is normalized the same way the backend
+  // does (case/punctuation/whitespace-insensitive) so both ends collapse
+  // the same pairs.
+  if (!s) return "";
+  const doi = String(s.doi || s.DOI || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase().replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
+  if (/^10\.\d{4,9}\//.test(doi)) return "doi:" + doi;
+  const t = String(s.title || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+  if (t) return "title:" + t;
+  return "url:" + String(s.url || "").toLowerCase().trim();
+}
+
+/* Every key a source record carries, strongest first — the frontend mirror
+ * of the backend\u2019s paperDedupeKeys(). Two records are the same source
+ * when ANY key intersects, which is what catches \u201cseen with DOI on one
+ * turn, seen without on the next\u201d. Used by the cumulative source
+ * accumulator; sourceKey() (single strongest key) remains for save/pin
+ * identity. */
+function sourceKeys(s) {
+  const keys = [];
+  const push = (k) => { if (k && !keys.includes(k)) keys.push(k); };
+  if (s) {
+    const doi = String(s.doi || s.DOI || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase().replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
+    if (/^10\.\d{4,9}\//.test(doi)) push("doi:" + doi);
+    const t = String(s.title || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+    if (t) push("title:" + t);
+    const u = String(s.url || "").toLowerCase().trim();
+    if (u) push("url:" + u);
+  }
+  return keys.length ? keys : [""];
 }
 
 // Only allow http(s) URLs into href/target=_blank. Paper URLs come from
@@ -6476,7 +6507,7 @@ function InfoPage({ page }) {
    would double it. onRetry / onAdjustQuery wire the honest zero-sources
    empty state (the band always renders this component now; it used to be
    gated off entirely at zero sources — a silent gap). */
-function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null }) {
+function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0 }) {
   const [copied, setCopied] = useState(false);
   const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
   const copyAll = () => {
@@ -6556,7 +6587,15 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
     return (
       <div>
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>{controls}</div>
-        {ledger}
+      {ledger}
+      {/* Honesty: the backend relevance gate withholds papers that score below
+          the citation floor instead of citing them. Say how many were held
+          back so "N sources" never looks like papers silently vanished. */}
+      {gatedOut > 0 && (
+        <div style={{ marginTop: 10, padding: "8px 4px", borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }} className="cb-fade">
+          {gatedOut} additional {gatedOut === 1 ? "paper was" : "papers were"} too tangential to this question to cite — withheld rather than counted.
+        </div>
+      )}
       </div>
     );
   }
@@ -6564,6 +6603,11 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
     <AnswerSection eyebrow={`Bibliography \u00b7 ${sources.length} source${sources.length === 1 ? "" : "s"}`} P={P} accent={accent}
       right={controls}>
       {ledger}
+      {gatedOut > 0 && (
+        <div style={{ marginTop: 10, padding: "8px 4px", borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }} className="cb-fade">
+          {gatedOut} additional {gatedOut === 1 ? "paper was" : "papers were"} too tangential to this question to cite — withheld rather than counted.
+        </div>
+      )}
     </AnswerSection>
   );
 }
@@ -20429,7 +20473,7 @@ function App() {
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setErrorDetail(`empty body · ${elapsedS()}s · ${stamp()}`); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
+      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
@@ -20437,9 +20481,14 @@ function App() {
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       const nextTurns = [...turns, nt];
-      const seen = new Set(allSources.map(sourceKey));
+      // Multi-key dedupe, mirroring the backend: a source is a duplicate
+      // when ANY of its keys (DOI, normalized title, URL) was already seen.
+      // Single-key dedupe let "same paper, one record with a DOI and one
+      // without" accumulate as two entries.
+      const seenKeys = new Set();
+      for (const s of allSources) for (const k of sourceKeys(s)) seenKeys.add(k);
       const nextSources = [...allSources, ...(data.sources || []).filter(source => {
-        const key = sourceKey(source); if (seen.has(key)) return false; seen.add(key); return true;
+        const keys = sourceKeys(source); if (keys.some((k) => seenKeys.has(k))) return false; keys.forEach((k) => seenKeys.add(k)); return true;
       })];
       setTurns(nextTurns);
       setAllSources(nextSources);
@@ -21033,14 +21082,29 @@ function App() {
   // after clicking "Start exploring" — React's "Rendered more hooks than
   // during the previous render" crash, reliably, on the very first
   // interaction of a fresh session.
-  const filteredSources = useMemo(() => allSources.filter((s) => { if (!srcFilter.trim()) return true; const f = srcFilter.toLowerCase(); return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f); }), [allSources, srcFilter]);
-  const sortedSources = useMemo(() => [...filteredSources].sort((a, b) => { if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0); if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || ""); return (b.relevance ?? 0) - (a.relevance ?? 0); }), [filteredSources, srcSort]);
-  // Bug: SourceCard's global index used to be looked up via
+  // The Sources panel shows the CURRENT turn’s sources — the same canonical
+  // list the answer’s citations [1..N] point into — not the cumulative
+  // investigation history. The old panel read from `allSources` (every turn
+  // accumulated), so the panel count and the answer’s "N sources" could
+  // disagree, and in multi-turn threads hovering a citation [3] highlighted
+  // the wrong row (the index was global; the citation is per-turn).
+  // Export/history still use the cumulative allSources; the panel is scoped
+  // to the turn.
+  const activeTurnSources = useMemo(() => {
+    const t = [...turns].reverse().find((x) => x && Array.isArray(x.sources) && x.sources.length);
+    return t ? t.sources : [];
+  }, [turns]);
+  const panelSources = useMemo(() => activeTurnSources.filter((s) => { if (!srcFilter.trim()) return true; const f = srcFilter.toLowerCase(); return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f); }), [activeTurnSources, srcFilter]);
+  const sortedSources = useMemo(() => [...panelSources].sort((a, b) => { if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0); if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || ""); return (b.relevance ?? 0) - (a.relevance ?? 0); }), [panelSources, srcSort]);
+  // Bug: SourceCard’s index used to be looked up via
   // `allSources.indexOf(s)` inside the render loop — O(n) per source, O(n²)
   // for the whole list. `sortedSources`/`grouped` reorder the SAME object
-  // references as `allSources` (spread+sort, not a deep clone), so a single
-  // reference-keyed Map built once gives O(1) lookups instead.
-  const sourceIndexMap = useMemo(() => new Map(allSources.map((s, i) => [s, i])), [allSources]);
+  // references as the panel list (spread+sort, not a deep clone), so a single
+  // reference-keyed Map built once gives O(1) lookups instead. The index is
+  // the position in the current turn’s source list — exactly what a
+  // citation [N] means — so citation-hover highlighting now lands on the
+  // right row.
+  const sourceIndexMap = useMemo(() => new Map(activeTurnSources.map((s, i) => [s, i])), [activeTurnSources]);
   const grouped = useMemo(() => { if (srcSort === "database") { const g = {}; for (const s of sortedSources) { const k = s.type || "Other"; (g[k] = g[k] || []).push(s); } return Object.entries(g); } if (srcSort === "date") { const g = {}; for (const s of sortedSources) { const k = s.year || "Undated"; (g[k] = g[k] || []).push(s); } return Object.entries(g).sort((a, b) => (parseInt(b[0], 10) || 0) - (parseInt(a[0], 10) || 0)); } return null; }, [sortedSources, srcSort]);
 
   /* These hooks live above the `!entered` early return on purpose.
@@ -21164,7 +21228,7 @@ function App() {
 
   const SourcesInner = (
     <>
-      <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{allSources.length}</span></div>
+      <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{panelSources.length}</span></div>
       {pinnedSources.length > 0 && (<div style={{ padding: "7px 10px", margin: "0 0 8px", background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-body)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="pinFilled" size={11} />{pinnedSources.length} pinned</span><button onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
       {corrections.length > 0 && (<div style={{ padding: "7px 10px", margin: "0 0 8px", background: withAlpha(STATUS.warn, 0.06), border: `1px solid ${withAlpha(STATUS.warn, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: STATUS.warn, display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", fontFamily: "var(--cb-body)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="edit" size={11} />{corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><button onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: STATUS.warn, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
       {allSources.length > 0 && (<>
@@ -22087,7 +22151,7 @@ function App() {
             pointerEvents: fabVisible ? "auto" : "none",
           }}
           onClick={() => setMobilePanel(true)}
-          aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}
+          aria-label={`Sources${panelSources.length ? `, ${panelSources.length}` : ""}`}
           aria-hidden={!fabVisible}
           tabIndex={fabVisible ? 0 : -1}
         >
@@ -22101,7 +22165,7 @@ function App() {
               display: "flex", alignItems: "center", justifyContent: "center",
               fontVariantNumeric: "tabular-nums",
               border: `2px solid ${P.dark ? "#0b0d10" : "#ffffff"}`,
-            }}>{allSources.length}</span>
+            }}>{panelSources.length}</span>
           )}
         </button>
       )}
