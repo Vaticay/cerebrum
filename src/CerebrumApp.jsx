@@ -7034,7 +7034,9 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
         </div>
         {done && (
           <div style={{ ...S.byline, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-            <span style={S.aiTag}>AI-synthesized · verify against cited sources</span>
+            {/* synthesisMode comes from the backend: an extractive (non-AI)
+                fallback answer must not wear the "AI-synthesized" label. */}
+            <span style={S.aiTag}>{t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
             <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           </div>
         )}
@@ -17361,7 +17363,7 @@ function App() {
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       const nextTurns = [...turns, nt];

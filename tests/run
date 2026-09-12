@@ -346,5 +346,73 @@ await test("sweep is a no-op without a database rather than throwing", async () 
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+group("Wave 4 — deterministic extractive synthesis (total AI outage fallback)");
+
+const { buildExtractiveSynthesis } = await import(join(root, "functions/api/search.js"));
+
+const NO_ABSTRACT_PAPERS = [
+  { title: "Fine-scale population structure, inbreeding risk and avoidance in a wild insect population", journal: "Molecular Ecology", year: "2011", abstract: "No abstract available." },
+  { title: "Prairie Dogs Avoid Extreme Inbreeding", journal: "Science", year: "1982", abstract: "No abstract available." },
+  { title: "Gene drive escape from resistance depends on mechanism and ecology.", journal: "Evolutionary applications", year: "2022", abstract: "No abstract available." },
+  { title: "Kin recognition and incest avoidance in a group-living insect", journal: "Behavioral Ecology", year: "2007", abstract: "No abstract available." },
+];
+
+const ABSTRACT_PAPERS = [
+  { title: "Gut microbiome shifts during larval development", journal: "Microbiome", year: "2023",
+    abstract: "We found that early instars were dominated by Proteobacteria (62%), while late instars shifted toward Firmicutes (58%, p < 0.01). Diet significantly altered community composition." },
+  { title: "Dietary protein shapes the gut microbiota", journal: "Animal Microbiome", year: "2024",
+    abstract: "We demonstrate that high-protein diets increase Bacteroidetes abundance 3-fold. Larvae showed 24% faster growth." },
+  { title: "Quantum tunneling in photosynthetic reaction centers", journal: "Nature Physics", year: "2022",
+    abstract: "We report evidence of quantum coherence at room temperature. The observed transfer efficiency reached 97%." },
+];
+
+await test("title-only papers produce a labeled synthesis, not the dead-end fallback", () => {
+  const out = buildExtractiveSynthesis(NO_ABSTRACT_PAPERS);
+  assert.ok(out && out.length > 200, "no synthesis produced");
+  assert.ok(!/Unable To Synthesize/i.test(out), "dead-end fallback text leaked through");
+  assert.ok(/^## What the sources indicate/m.test(out), "missing overview heading");
+  assert.ok(/assembled without AI/i.test(out), "missing honesty label");
+  for (let n = 1; n <= 4; n++) assert.ok(out.includes("[" + n + "]"), `missing citation [${n}]`);
+  assert.ok(out.includes("Molecular Ecology, 2011"), "venue metadata missing");
+});
+
+await test("papers with abstracts get clustered themes and extracted findings", () => {
+  const out = buildExtractiveSynthesis(ABSTRACT_PAPERS);
+  assert.ok(out.includes("### "), "no theme sections produced");
+  // The two microbiome papers share vocabulary and must cluster apart from physics.
+  assert.ok(/Gut ·|Microbiome|Larval/i.test(out), "microbiome theme missing");
+  assert.ok(/Quantum/i.test(out), "physics theme missing");
+  assert.ok(out.includes("**62%**"), "quantities are not bolded");
+  assert.ok(out.includes("**p < 0.01**"), "p-value was mangled by sentence splitting");
+});
+
+await test("returns null when there is nothing to synthesize from", () => {
+  assert.equal(buildExtractiveSynthesis([]), null);
+  assert.equal(buildExtractiveSynthesis(null), null);
+  assert.equal(buildExtractiveSynthesis(undefined), null);
+  assert.equal(buildExtractiveSynthesis([{ title: "", abstract: "" }]), null);
+});
+
+await test("never throws on malformed input", () => {
+  assert.doesNotThrow(() => buildExtractiveSynthesis([{ title: null, abstract: 42 }]));
+  assert.doesNotThrow(() => buildExtractiveSynthesis("not an array"));
+  assert.doesNotThrow(() => buildExtractiveSynthesis([{ abstract: "We found X increased 3-fold (p < 0.05)." }]));
+});
+
+await test("citation indices stay 1-based and aligned to input order", () => {
+  const out = buildExtractiveSynthesis(ABSTRACT_PAPERS);
+  // Every citation must reference a real input position — no [0], no [4+].
+  const cites = [...out.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10));
+  assert.ok(cites.length > 0, "no citations emitted");
+  for (const n of cites) assert.ok(n >= 1 && n <= ABSTRACT_PAPERS.length, `dangling citation [${n}]`);
+});
+
+await test("wave 4 is wired into the search handler before the honest fallback", () => {
+  assert.match(searchSrc, /buildExtractiveSynthesis\(extPool\)/, "wave 4 is not attempted on total AI failure");
+  assert.match(searchSrc, /if \(!aiOK && !extractiveOK\)/, "TIER 4 fallback still runs when extractive synthesis exists");
+  assert.match(searchSrc, /synthesisMode: extractiveOK/, "synthesisMode is not reported to the frontend");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

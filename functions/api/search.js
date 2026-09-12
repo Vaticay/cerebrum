@@ -4148,6 +4148,259 @@ function detectWrongOrganismCitations(text) {
   return violations;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// WAVE 4 — DETERMINISTIC EXTRACTIVE SYNTHESIS (no network, no AI)
+//
+// The last line of defense before the honest "Unable To Synthesize"
+// fallback. Every tier above this point depends on an external AI
+// provider, and providers can all be down at once (a throttled shared
+// free-tier bucket, a keyless-pool outage, an unbound Workers AI). This
+// tier depends on nothing but the papers already retrieved, so it cannot
+// be rate-limited, cannot time out on a network call, and cannot fail
+// for any reason except having no usable papers — in which case it
+// returns null and the honest fallback still runs.
+//
+// It writes no new claims. It selects the most finding-dense sentences
+// already present in the retrieved titles/abstracts, groups papers by
+// shared vocabulary into themes, and assembles them into the same
+// Markdown shape (## headings, - bullets, [n] citations) the frontend
+// already renders for AI answers. Citation indices are the 1-based
+// positions in the input array — the same ordering the numbered
+// bibliography is built from — so they stay aligned by construction.
+// The output is explicitly labeled as assembled without AI.
+// ══════════════════════════════════════════════════════════════════════════
+const EXTRACT_STOPWORDS = new Set(
+  ("the,a,an,and,or,but,of,to,in,on,for,with,from,by,as,at,that,this,these,those," +
+   "it,its,is,are,was,were,be,been,being,have,has,had,do,does,did,will,would," +
+   "can,could,should,may,might,must,not,no,yes,into,over,under,between,among," +
+   "through,during,before,after,above,below,up,down,out,off,again,further,then," +
+   "once,here,there,when,where,which,who,whom,what,how,why,all,any,both,each," +
+   "few,more,most,other,some,such,only,own,same,than,too,very,also,within," +
+   "using,use,used,based,well,new,novel,study,studies,paper,papers,research," +
+   "result,results,analysis,method,methods,data,model,models,including,include," +
+   "includes,show,shown,found,report,reported,suggest,suggests,effect,effects," +
+   "via,per,vs,you,our,approach,provides,provide,provide,using").split(",")
+);
+
+// Words that mark a sentence as carrying a finding rather than background.
+const EXTRACT_FIND_HINTS = [
+  "found", "finding", "findings", "show", "shows", "showed", "demonstrate",
+  "demonstrates", "demonstrated", "reveal", "reveals", "revealed", "observ",
+  "indicate", "indicates", "indicated", "conclude", "concludes", "concluded",
+  "significant", "significantly", "increase", "increased", "increases",
+  "decrease", "decreased", "decreases", "reduce", "reduced", "reduces",
+  "associat", "correlat", "predict", "higher", "lower", "greater", "greater",
+  "risk", "compare", "compared", "difference", "p <", "p<",
+];
+
+function extractSentences(text) {
+  // Guard decimals (p < 0.01) and common abbreviations so the splitter
+  // doesn't cut sentences in the middle of a number or "et al."
+  const guarded = String(text || "")
+    .replace(/\s+/g, " ")
+    .replace(/(\d)\.(\d)/g, "$1<DOT>$2")
+    .replace(/\b(et al|e\.g|i\.e|vs)\./gi, "$1<ABBR>");
+  const parts = guarded.match(/[^.!?]+[.!?]+["']?/g) || [];
+  return parts.map((s) => s.replace(/<DOT>/g, ".").replace(/<ABBR>/g, "."));
+}
+
+function scoreFindingSentence(s) {
+  const low = s.toLowerCase();
+  if (low.includes("no abstract")) return -100;
+  let score = 0;
+  for (const h of EXTRACT_FIND_HINTS) if (low.includes(h)) score += 2;
+  if (/\d/.test(s)) score += 2; // quantified claims carry weight
+  const words = s.trim().split(/\s+/).length;
+  if (words < 6 || words > 45) score -= 3;
+  return score;
+}
+
+function tidyExtractSentence(s) {
+  let t = String(s || "").replace(/\s+/g, " ").trim();
+  t = t.replace(/^(abstract|summary|background|objective|results?|conclusion|findings)\s*:\s*/i, "");
+  if (!/[.!?]$/.test(t)) t += ".";
+  return t.replace(/^[a-z]/, (c) => c.toUpperCase());
+}
+
+// Bold quantitative fragments (32%, p < 0.01, 3-fold) — the same emphasis an
+// AI synthesis would give its key numbers, done mechanically.
+function boldExtractQuantities(s) {
+  return String(s || "").replace(
+    /(\b\d+(?:\.\d+)?\s?%|\bp\s?<\s?0\.\d+|\b\d+(?:\.\d+)?\s?fold\b)/gi,
+    "**$1**"
+  );
+}
+
+function extractTitleClaim(title) {
+  const t = String(title || "").replace(/\s+/g, " ").replace(/[.:;]+$/, "").trim();
+  if (!t) return "";
+  return t.replace(/^[a-z]/, (c) => c.toUpperCase());
+}
+
+function extractTermCounts(text) {
+  const counts = {};
+  for (const w of String(text || "").toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)) {
+    if (w.length < 3 || EXTRACT_STOPWORDS.has(w)) continue;
+    counts[w] = (counts[w] || 0) + 1;
+  }
+  return counts;
+}
+
+function titleCaseTerm(t) {
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// Placeholder abstract text ("No abstract available.") carries no signal —
+// letting it into term counts poisons the topic phrase and clustering.
+function usableAbstract(p) {
+  const a = String((p && p.abstract) || "").trim();
+  return /^no abstract available\.?$/i.test(a) ? "" : a;
+}
+
+export function buildExtractiveSynthesis(papers) {
+  try {
+    // Preserve 1-based citation indices into the ORIGINAL array ordering —
+    // the bibliography is built from the same array in the same order.
+    const pool = (papers || [])
+      .map((p, i) => ({ p, idx: i + 1 }))
+      .filter(({ p }) => p && (p.title || p.abstract));
+    if (pool.length === 0) return null;
+    const items = pool.slice(0, 8);
+
+    // Per paper: the two most finding-dense abstract sentences, else the title.
+    const termSets = [];
+    for (const it of items) {
+      const abs = usableAbstract(it.p);
+      const sents = extractSentences(abs).map((s) => s.trim()).filter((s) => s.length > 20);
+      const ranked = sents
+        .map((s) => ({ s, score: scoreFindingSentence(s) }))
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => b.score - a.score);
+      it.findings = ranked.slice(0, 2).map(({ s }) => boldExtractQuantities(tidyExtractSentence(s)));
+      it.titleClaim = extractTitleClaim(it.p.title);
+      it.hasFindings = it.findings.length > 0;
+      const counts = extractTermCounts((it.p.title || "") + " " + abs);
+      termSets.push(new Set(Object.keys(counts)));
+      it.termCounts = counts;
+    }
+
+    const anyAbstractFindings = items.some((it) => it.hasFindings);
+
+    // Shared-vocabulary clustering: each paper joins the cluster it shares
+    // the most significant terms with (minimum 2), else starts a new one.
+    const clusters = [];
+    for (const it of items) {
+      let best = -1, bestScore = 0;
+      for (let c = 0; c < clusters.length; c++) {
+        let s = 0;
+        for (const t of termSets[items.indexOf(it)]) if (clusters[c].termSet.has(t)) s++;
+        if (s > bestScore) { bestScore = s; best = c; }
+      }
+      if (best >= 0 && bestScore >= 2) {
+        clusters[best].items.push(it);
+        for (const t of termSets[items.indexOf(it)]) clusters[best].termSet.add(t);
+      } else {
+        clusters.push({ items: [it], termSet: new Set(termSets[items.indexOf(it)]) });
+      }
+    }
+    // Cap at 4 themes: fold the smallest cluster into the largest.
+    while (clusters.length > 4) {
+      let smallest = 0, largest = 0;
+      for (let c = 0; c < clusters.length; c++) {
+        if (clusters[c].items.length < clusters[smallest].items.length) smallest = c;
+        if (clusters[c].items.length > clusters[largest].items.length) largest = c;
+      }
+      if (smallest === largest) break;
+      for (const it of clusters[smallest].items) {
+        clusters[largest].items.push(it);
+        for (const t of termSets[items.indexOf(it)]) clusters[largest].termSet.add(t);
+      }
+      clusters.splice(smallest, 1);
+    }
+    // Largest theme first — it anchors the overview.
+    clusters.sort((a, b) => b.items.length - a.items.length);
+
+    const labelFor = (cluster) => {
+      const docFreq = {};
+      for (const it of cluster.items) {
+        for (const t of termSets[items.indexOf(it)]) docFreq[t] = (docFreq[t] || 0) + 1;
+      }
+      const terms = Object.entries(docFreq)
+        .sort((a, b) => b[1] - a[1] || (cluster.items[0].termCounts[b[0]] || 0) - (cluster.items[0].termCounts[a[0]] || 0))
+        .slice(0, 3)
+        .map(([t]) => titleCaseTerm(t));
+      return terms.length ? terms.join(" · ") : "Further findings";
+    };
+
+    // Overall topic phrase from terms shared across the whole pool.
+    const globalFreq = {};
+    for (const ts of termSets) for (const t of ts) globalFreq[t] = (globalFreq[t] || 0) + 1;
+    const sharedTopics = Object.entries(globalFreq)
+      .filter(([, n]) => n >= 2)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([t]) => t);
+    const topicPhrase = sharedTopics.length >= 2
+      ? sharedTopics.join(" and ")
+      : sharedTopics.length === 1
+      ? sharedTopics[0]
+      : null;
+
+    const unitWord = pool.length === 1 ? "source" : "sources";
+    let md = "## What the sources indicate\n\n";
+    if (topicPhrase) {
+      md += "The " + pool.length + " " + unitWord + " below converge on " + topicPhrase + ". ";
+    } else {
+      md += "The " + pool.length + " " + unitWord + " below address the question from different angles. ";
+    }
+    // Lead with the strongest finding sentences across the pool.
+    const leadCandidates = [];
+    for (const it of items) for (const f of it.findings) leadCandidates.push({ f, idx: it.idx, score: scoreFindingSentence(f) });
+    leadCandidates.sort((a, b) => b.score - a.score);
+    const leads = [];
+    const usedIdx = new Set();
+    for (const c of leadCandidates) {
+      if (usedIdx.has(c.idx)) continue;
+      usedIdx.add(c.idx);
+      leads.push(c);
+      if (leads.length >= 2) break;
+    }
+    if (leads.length) {
+      md += leads.map((c) => c.f + " [" + c.idx + "]").join(" ") + "\n";
+    } else {
+      md += "Their titles are summarized by theme below.\n";
+    }
+
+    if (anyAbstractFindings) {
+      for (const cluster of clusters) {
+        md += "\n### " + labelFor(cluster) + "\n\n";
+        for (const it of cluster.items) {
+          const lines = it.findings.length ? it.findings : [it.titleClaim];
+          for (const line of lines) {
+            if (line) md += "- " + line + " [" + it.idx + "]\n";
+          }
+        }
+      }
+    } else {
+      // No abstracts anywhere (common for older papers): the titles ARE the
+      // findings. List them with their venues rather than fake clustering.
+      md += "\n### Findings reported\n\n";
+      for (const it of items) {
+        if (!it.titleClaim) continue;
+        const venue = [it.p.journal, it.p.year].filter(Boolean).join(", ");
+        md += "- **" + it.titleClaim + "**" + (venue ? " — " + venue : "") + " [" + it.idx + "]\n";
+      }
+    }
+
+    md += "\n*Drafted directly from the sources below — Cerebrum's AI providers were " +
+      "temporarily unavailable, so this summary was assembled without AI. " +
+      "Verify each claim against its cited source.*";
+    return md;
+  } catch {
+    return null;
+  }
+}
+
 // Master post-processing function — runs ALL quality passes
 function postProcessAnswer(rawAnswer) {
   if (!rawAnswer) return rawAnswer;
@@ -8499,6 +8752,12 @@ export async function onRequest(context) {
     // D1 tracks which model wins per domain so we skip the race.
     let answer = "";
     let aiOK = false;
+    // Wave 4 (below): set when the deterministic extractive synthesis tier
+    // produces the answer after every AI provider failed. It is kept
+    // separate from aiOK because the LLM-only downstream steps (quality
+    // retry, citation retry, D1 learning, fact-check, answer caching) must
+    // not run on a non-LLM answer.
+    let extractiveOK = false;
     const token = env.OPENROUTER_KEY;
 
     // Bug: the "good enough to accept" bar below was a flat 30 characters
@@ -9071,7 +9330,23 @@ export async function onRequest(context) {
         independentProviderCount: activeProviders.length,
       } });
       try { console.log("Cerebrum: ALL AI PROVIDERS FAILED", JSON.stringify(aiAttempts)); } catch {}
-      // Every wave above (including the "bulletproof" wave 3) failed, and
+      // ════════════════════════════════════════════════════════════════
+      // WAVE 4 — DETERMINISTIC EXTRACTIVE SYNTHESIS (last resort)
+      // Fires once waves 1–3 have failed on every provider. Pure local
+      // code over the already-retrieved papers: no network calls, so it
+      // cannot be rate-limited or time out. When it succeeds, the user
+      // gets a real synthesized answer (clearly labeled as assembled
+      // without AI) instead of the "Unable To Synthesize" dead end. It
+      // only returns null when there is nothing to synthesize from at
+      // all, in which case the honest fallback below still runs.
+      // ════════════════════════════════════════════════════════════════
+      try {
+        const extPool = useEvidence ? evidencePapers : useWeb ? webRefs : [];
+        const ext = buildExtractiveSynthesis(extPool);
+        if (ext) { answer = ext; extractiveOK = true; }
+      } catch {}
+      if (!extractiveOK) {
+        // Every wave above (including the "bulletproof" wave 3) failed, and
       // nothing downstream ever sets `answer` in that case — it was left as
       // the empty string it started as, so the response shipped a real
       // bibliography with a blank space where the synthesis should be. The
@@ -9082,6 +9357,7 @@ export async function onRequest(context) {
       answer = sourceList.length > 0
         ? "Cerebrum's AI synthesis didn't complete for this question, but the sources below were found and are ready to read directly."
         : "Cerebrum's AI synthesis didn't complete for this question, and no sources were found either. Please try again in a moment.";
+      }
     }
 
     // ============ v6.0: ANSWER QUALITY ENGINE ============
@@ -9243,17 +9519,11 @@ export async function onRequest(context) {
     }
 
     // ============ TIER 4: HONEST, STRUCTURED FALLBACK ============
-    // v31 fix: every prior version of this text was one raw, unstructured
-    // paragraph starting with "The AI answer service is momentarily
-    // unavailable" — no "## " for renderAnswer() to promote into a heading,
-    // no "- " for it to build a list from, so even a genuinely useful
-    // abstract summary rendered as one dense wall of text on a total AI
-    // outage. Rebuilt as real Markdown, using the exact same "## " header
-    // and "- " bullet syntax renderAnswer() already turns into headings and
-    // lists for a normal synthesized answer, so this path renders as a
-    // page that looks intentional — not broken — even when every model in
-    // every wave above has failed.
-    if (!aiOK) {
+    // Only reachable when Wave 4 (deterministic extractive synthesis)
+    // also failed — i.e. there were no usable papers or references to
+    // synthesize from at all. With any sources present, Wave 4 always
+    // produces a labeled synthesis instead of this dead end.
+    if (!aiOK && !extractiveOK) {
       if (useEvidence && papers.length) {
         const paperBlocks = papers
           .slice(0, 6)
@@ -9546,6 +9816,10 @@ export async function onRequest(context) {
         })() : null,
         related: [],
         answerId, // frontend can use this for upvote/downvote
+        // synthesisMode tells the UI how the answer text was produced, so
+        // the footer can label it honestly ("Drafted from sources" vs
+        // "AI-synthesized") instead of the UI having to guess.
+        synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
         source:
           aiOK && useEvidence
             ? dbUsed + " + AI"
@@ -9553,6 +9827,8 @@ export async function onRequest(context) {
             ? dbUsed + " + AI"
             : aiOK
             ? "General knowledge (AI)"
+            : extractiveOK
+            ? dbUsed + " · drafted from sources"
             : dbUsed,
         /* Which databases actually answered, and how the question was
          * interpreted. This is genuinely useful to a reader — it is what lets
