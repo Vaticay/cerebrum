@@ -1,5 +1,6 @@
-import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
+import { corsHeaders, readOriginAllowed } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { withTimeout, neverFail, fetchWithTimeout, jsonError, clampText } from "../lib/resilience.js";
 
 // TTS endpoint with tiered voice engines. Tries progressively:
 //   1. Cloudflare Aura (Deepgram) — most natural free voice, if available
@@ -33,16 +34,10 @@ export async function onRequest(context) {
     return new Response(null, { status: 204, headers: cors });
   }
   if (request.method !== "POST") {
-    // Bug: this used to return a bare string with no Content-Type at all
-    // (this file's `cors` object doesn't include one — jsonErr()/
-    // audioResponse() each add their own), unlike every other error path in
-    // this file which uses the JSON-shaped jsonErr(). A frontend that
-    // always does res.json() on a non-2xx response would break specifically
-    // on this one path.
-    return jsonErr(cors, 405, "Method not allowed");
+    return jsonError(405, "method_not_allowed", "Method not allowed.", cors);
   }
   if (!readOriginAllowed(request, env)) {
-    return jsonErr(cors, 403, "Origin not allowed");
+    return jsonError(403, "origin_not_allowed", "Origin not allowed.", cors);
   }
 
   const clientIP =
@@ -50,16 +45,15 @@ export async function onRequest(context) {
     request.headers.get("X-Forwarded-For") ||
     "unknown";
   if (!(await checkRateLimit(env, `tts:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
-    return new Response(
-      JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }),
-      { status: 429, headers: { ...cors, "Content-Type": "application/json", "Retry-After": "30" } }
-    );
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", {
+      ...cors, "Retry-After": "30",
+    });
   }
 
   let body;
   try { body = await request.json(); }
   catch {
-    return jsonErr(cors, 400, "Bad JSON");
+    return jsonError(400, "bad_json", "Bad JSON.", cors);
   }
   // Bug: a request body of the literal 4 bytes `null` is valid JSON, so it
   // parses successfully to `body = null` with no exception — the catch
@@ -69,21 +63,23 @@ export async function onRequest(context) {
   // headers attached, since those are only added by this file's own
   // Response construction) instead of this file's normal JSON error shape.
   if (!body || typeof body !== "object") {
-    return jsonErr(cors, 400, "Bad request body");
+    return jsonError(400, "invalid_body", "Bad request body.", cors);
   }
 
   // Cap the RAW input before any processing — see hardening note above.
-  const raw = (body.text || "").toString().trim().slice(0, 6000);
-  if (!raw) return jsonErr(cors, 400, "Missing text");
+  // clampText also coerces non-string input safely, so a numeric or object
+  // `text` can't reach the regex passes in an unexpected form.
+  const raw = clampText(body.text, 6000);
+  if (!raw) return jsonError(400, "missing_text", "Missing text.", cors);
 
   // Preprocess text for more natural speech. Every TTS engine benefits from
   // this — abbreviations expanded, citations stripped, symbols softened,
   // sentence breaks turned into real pauses.
   const text = preprocessForSpeech(raw);
-  if (!text) return jsonErr(cors, 400, "Empty after cleaning");
+  if (!text) return jsonError(400, "empty_after_cleaning", "Empty after cleaning.", cors);
 
   const cap = text.length > 4500 ? text.slice(0, 4500) : text;
-  const voice = (body.voice || "").toString();
+  const voice = clampText(body.voice, 64);
 
   // ------------------------------------------------------------------
   // Commit 85 — why this narration sounded robotic.
@@ -117,6 +113,17 @@ export async function onRequest(context) {
   const wantsMale = /\bmale\b/.test(voice.toLowerCase()) && !/female/.test(voice.toLowerCase());
 
   if (premium && env.AI && typeof env.AI.run === "function") {
+    // Paid tier (Deepgram Aura via Workers AI bills per neuron): only for
+    // signed-in users. Anonymous callers fall through to the free tiers
+    // below instead of burning the site's daily allocation.
+    let signedIn = false;
+    try {
+      const { getSessionUser } = await import("../lib/authHelpers.js");
+      signedIn = !!(await getSessionUser(request, env));
+    } catch { signedIn = false; }
+    if (!signedIn) {
+      console.log("[tts] premium tier skipped: anonymous caller");
+    } else {
     const tiers = premium === "2"
       ? [["@cf/deepgram/aura-2-en", wantsMale ? "orion" : "luna"],
          ["@cf/deepgram/aura-1", wantsMale ? "orion" : "asteria"]]
@@ -132,6 +139,7 @@ export async function onRequest(context) {
           return audioResponse(cors, audioBytes, model.split("/").pop());
         }
       } catch { /* next tier */ }
+      }
     }
   }
 
@@ -142,26 +150,32 @@ export async function onRequest(context) {
   // long answers are sent as sequential chunks and the MP3 frames
   // concatenated, which players handle fine, rather than being truncated
   // mid-sentence the way a single over-long request would be.
+  // Sequential per chunk, in order: concatenation preserves narration order,
+  // and all-or-nothing (below) means a missing chunk never leaves an audible
+  // gap mid-sentence — the tier simply yields and the next one is tried.
   try {
     const seVoice = mapVoiceToStreamElements(voice) || "Brian";
-    const chunks = chunkForPolly(sanitizeForPolly(cap), 540);
+    const chunks = chunkForPolly(sanitizeForPolly(cap), 540).slice(0, 8);
     const parts = [];
     let bytes = 0;
-    for (const piece of chunks.slice(0, 8)) {
+    let failed = false;
+    for (const piece of chunks) {
       const seUrl = "https://api.streamelements.com/kappa/v2/speech?" +
         new URLSearchParams({ voice: seVoice, text: piece });
-      const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 8000);
-      let seRes;
-      try { seRes = await fetch(seUrl, { method: "GET", signal: c.signal }); }
-      finally { clearTimeout(t); }
-      if (!seRes || !seRes.ok) { parts.length = 0; break; }
+      // fetchWithTimeout: an explicit deadline on every upstream call, so a
+      // hanging proxy can never stall the whole tier.
+      const seRes = await neverFail(
+        fetchWithTimeout(seUrl, { method: "GET" }, 8000),
+        null,
+        "streamelements"
+      );
+      if (!seRes || !seRes.ok) { failed = true; break; }
       const buf = new Uint8Array(await seRes.arrayBuffer());
-      if (!looksLikeAudio(buf, seRes.headers.get("Content-Type"))) { parts.length = 0; break; }
+      if (!looksLikeAudio(buf, seRes.headers.get("Content-Type"))) { failed = true; break; }
       parts.push(buf);
       bytes += buf.length;
     }
-    if (parts.length) {
+    if (!failed && parts.length) {
       if (parts.length === 1) return audioResponse(cors, parts[0], "polly");
       const joined = new Uint8Array(bytes);
       let off = 0;
@@ -185,10 +199,13 @@ export async function onRequest(context) {
     } catch { /* fall through to the browser synthesizer */ }
   }
 
-  return jsonErr(cors, 502, "TTS unavailable", true);
+  return jsonError(502, "tts_unavailable", "TTS unavailable.", cors);
 }
 
 // ---- helpers ----
+// withTimeout / safe HTTP / response-shape helpers now live in
+// ../lib/resilience.js and are shared across the media endpoints, so a
+// timeout-semantics fix lands everywhere at once.
 
 /* Commit 85 — "unable to synthesize".
 
@@ -228,24 +245,9 @@ function sanitizeForPolly(s) {
     .trim();
 }
 
-// Bounds a promise to `ms` milliseconds. Used for env.AI.run() calls, which
-// don't accept an AbortSignal the way fetch() does — Promise.race against a
-// rejecting timer is the only way to stop waiting on a stalled model.
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error((label || "operation") + ": timed out")), ms)),
-  ]);
-}
-
-function jsonErr(cors, status, msg, useBrowserFallback) {
-  const body = { error: msg };
-  if (useBrowserFallback) body.useBrowserFallback = true;
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...cors, "Content-Type": "application/json" },
-  });
-}
+// withTimeout, jsonErr: moved to ../lib/resilience.js and shared across the
+// media endpoints, so timeout semantics and the error shape stay identical
+// everywhere instead of drifting per file again.
 
 function audioResponse(cors, audioBytes, engine) {
   return new Response(audioBytes, {

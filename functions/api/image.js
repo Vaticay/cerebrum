@@ -33,6 +33,7 @@
 // a pretty picture is not worth an attribution violation.
 
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { fetchWithTimeout, neverFail, safeErr, jsonOk, jsonError, clampText, isSafeHttpsUrl } from "../lib/resilience.js";
 
 const RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60000;
@@ -43,27 +44,22 @@ const MAX_QUERY_LEN = 160;
 import { corsHeaders, readOriginAllowed, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 
 async function getJSON(url, headers) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await Promise.race([
-      fetch(url, { signal: ctl.signal, headers: { Accept: "application/json", "User-Agent": "Cerebrum/1.0 (+https://askcerebrum.org)", ...(headers || {}) } }),
-      new Promise((r) => setTimeout(() => r(null), FETCH_TIMEOUT_MS + 400)),
-    ]);
+    const res = await fetchWithTimeout(url, {
+      headers: { Accept: "application/json", "User-Agent": "Cerebrum/1.0 (+https://askcerebrum.org)", ...(headers || {}) },
+    }, FETCH_TIMEOUT_MS);
     if (!res || !res.ok) return null;
     return await res.json();
   } catch { return null; }
-  finally { clearTimeout(timer); }
 }
 async function getText(url) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: ctl.signal, headers: { "User-Agent": "Cerebrum/1.0 (+https://askcerebrum.org)" } });
-    if (!res.ok) return null;
+    const res = await fetchWithTimeout(url, {
+      headers: { "User-Agent": "Cerebrum/1.0 (+https://askcerebrum.org)" },
+    }, FETCH_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
     return await res.text();
   } catch { return null; }
-  finally { clearTimeout(timer); }
 }
 
 // Strip question scaffolding and stopwords down to the few words that
@@ -97,13 +93,14 @@ async function fromCustom(env, category) {
   if (!slug) return null;
   for (const ext of ["jpg", "webp", "png"]) {
     const url = `${base}/${slug}.${ext}`;
-    try {
-      const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 2500);
-      const res = await fetch(url, { method: "HEAD", signal: ctl.signal });
-      clearTimeout(t);
-      if (res.ok) return { url, credit: "", creditUrl: "", license: "Licensed", source: "curated" };
-    } catch {}
+    // A HEAD request keeps a miss cheap; explicit timeout so a hanging
+    // origin can't stall the whole fan-out.
+    const res = await neverFail(
+      fetchWithTimeout(url, { method: "HEAD" }, 2500),
+      null,
+      "custom-cover"
+    );
+    if (res && res.ok) return { url, credit: "", creditUrl: "", license: "Licensed", source: "curated" };
   }
   return null;
 }
@@ -376,16 +373,18 @@ export async function onRequest(context) {
   if (!readOriginAllowed(request, env)) return forbiddenOrigin(cors);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   if (request.method !== "GET") {
-    return new Response(JSON.stringify({ error: "Method not allowed." }), { status: 405, headers: cors });
+    return jsonError(405, "method_not_allowed", "Method not allowed.", cors);
   }
   const url = new URL(request.url);
-  const query = (url.searchParams.get("q") || "").trim().slice(0, MAX_QUERY_LEN);
-  const category = (url.searchParams.get("category") || "").trim().slice(0, 60);
-  if (!query) return new Response(JSON.stringify({ image: null }), { status: 200, headers: cors });
+  const query = clampText(url.searchParams.get("q"), MAX_QUERY_LEN);
+  const category = clampText(url.searchParams.get("category"), 60);
+  if (!query) return jsonOk({ image: null }, cors);
 
   const rlKey = await privacyKey("image", clientIp(request), env);
   if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
-    return new Response(JSON.stringify({ image: null, error: "Too many requests." }), { status: 429, headers: cors });
+    // 429, not 200: the frontend treats non-ok as "no image" and falls back
+    // to the generated cover, so this degrades silently.
+    return jsonError(429, "rate_limited", "Too many requests.", { ...cors, "Retry-After": "30" });
   }
 
   const key = (category + "|" + imageTerms(query, 4)).toLowerCase();
@@ -439,11 +438,14 @@ export async function onRequest(context) {
     const t0 = Date.now();
     try {
       const r = await fn();
-      const ok = !!(r && r.url && /^https:\/\//i.test(r.url));
+      // Never hand the client a URL we wouldn't fetch ourselves: https
+      // only, parseable, no embedded credentials. Third-party provider
+      // payloads are untrusted input.
+      const ok = !!(r && r.url && isSafeHttpsUrl(r.url));
       diag.push({ source: name, result: ok ? "hit" : "empty", ms: Date.now() - t0 });
       return ok ? r : null;
     } catch (e) {
-      diag.push({ source: name, result: "error", ms: Date.now() - t0, error: String((e && e.message) || e).slice(0, 120) });
+      diag.push({ source: name, result: "error", ms: Date.now() - t0, error: safeErr(e) });
       return null;
     }
   }));
@@ -472,6 +474,7 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ error: "Not authorized.", code: "forbidden" }), { status: 403, headers: cors });
     }
     return new Response(JSON.stringify({
+      ok: true,
       image,
       query,
       terms: imageTerms(query, 4),
@@ -481,7 +484,7 @@ export async function onRequest(context) {
     }, null, 2), { status: 200, headers: { ...cors, "Cache-Control": "no-store" } });
   }
 
-  const payload = JSON.stringify({ image });
+  const payload = JSON.stringify({ ok: true, image });
   if (env.DB) {
     try {
       await env.DB.prepare(

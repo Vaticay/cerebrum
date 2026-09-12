@@ -63,7 +63,7 @@ import gsap from "gsap";
    than UI chrome.
    ════════════════════════════════════════════════════════════════ */
 
-function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} }
+function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} if (k === "cb_anim2") { try { cbMotionCacheBust(); } catch {} } }
 // Loads OpenDyslexic on demand rather than on every page view — see the
 // dyslexia-font toggle in Settings and loadFonts() further down.
 function ensureDyslexicFont() {
@@ -522,7 +522,7 @@ function formatBibliography(sources, style) {
     .join(style === "bibtex" ? "\n\n" : "\n\n");
 }
 
-const Audio = (() => {
+const Sfx = (() => {
   let ctx = null, ambient = null, lfoTimer = null;
   function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } } return ctx; }
   function tone(freq, dur, vol) { const c = ac(); if (!c) return; const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = freq; g.gain.setValueAtTime(0.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(vol, c.currentTime + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur + 0.02); }
@@ -986,14 +986,24 @@ const CB_EASE = "power3.inOut";
 // always finished animating when it says it is.
 try { gsap.ticker.lagSmoothing(0); } catch {}
 
+let __cbMotionCache = null; // { v: boolean, t: number } — see cbMotionOff
 function cbMotionOff() {
+  // Cached ~1s: this runs in hot paths (pointer handlers, count-up hooks)
+  // and each uncached call re-parses document.cookie plus a matchMedia
+  // query. The setting only changes from Settings, which writes through
+  // setCookie — that busts the cache (see setCookie below), so a 1s TTL
+  // here is purely a hot-loop guard, never a staleness risk.
+  const now = Date.now();
+  if (__cbMotionCache && now - __cbMotionCache.t < 1000) return __cbMotionCache.v;
+  let v = false;
   try {
-    if (getCookie("cb_anim2") === "off") return true;
+    if (getCookie("cb_anim2") === "off") v = true;
+    else v = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   } catch {}
-  try {
-    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  } catch { return false; }
+  __cbMotionCache = { v, t: now };
+  return v;
 }
+function cbMotionCacheBust() { __cbMotionCache = null; }
 
 /* Premium pointer layer: cursor spotlight, magnetic pull, and 3D tilt —
    driven by ONE delegated pointermove listener, not per-component
@@ -6737,7 +6747,7 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
   );
 }
 
-function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, onShowFlowchart = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false }) {
+function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, onShowFlowchart = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {} }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
   // Only fires once the text has stopped changing (see the comment at the
@@ -6959,8 +6969,10 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                       onClick={() => {
                         if (vote) return;
                         setVote("up");
-                        fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: "up" }) }).catch(() => {});
-                        toast("Thanks. That helps rank this answer.");
+                        fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: "up" }) })
+                          .then((r) => { toast(r.status === 401 ? "Sign in to have your vote counted." : "Thanks. That helps rank this answer."); })
+                          .catch(() => {});
+
                       }}
                     />
                     <ToolbarBtn
@@ -6969,13 +6981,15 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
                       onClick={() => {
                         if (vote) return;
                         setVote("down");
-                        fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: "down" }) }).catch(() => {});
-                        toast("Noted. This answer won't be reused.");
+                        fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: "down" }) })
+                          .then((r) => { toast(r.status === 401 ? "Sign in to have your vote counted." : "Noted. This answer won't be reused."); })
+                          .catch(() => {});
+
                       }}
                     />
                   </>
                 ) : null}
-                <ToolbarBtn title="Report bad answer" icon="flag" accent={STATUS.bad} P={P} onClick={() => setShowReport(true)} />
+                <ToolbarBtn title={user ? "Report bad answer" : "Sign in to report a bad answer"} icon="flag" accent={STATUS.bad} P={P} onClick={() => { if (user) setShowReport(true); else onRequireAuth(); }} />
                 </div>
               </div>
             )}
@@ -7203,6 +7217,20 @@ function Turn({ t, P, accent, at, S, typewriter, last = false, autoRead = false,
     </div>
   );
 }
+// Memoized: a keystroke in the shared search input re-renders App, and
+// without this every mounted turn re-rendered with it (each Turn received
+// ~8 fresh inline callbacks). The per-turn handlers are stabilized in
+// TurnRow below so this memo actually holds.
+const Turn = React.memo(TurnInner);
+/* Per-turn row with stabilized callbacks. onStress closes over t.q so it
+   can't be hoisted to App scope; this wrapper memoizes it per turn.
+   askRef breaks the ask→input dependency chain — ask is useCallback'd on
+   `input`, so it changes on every keystroke and any closure over it would
+   defeat the memo. */
+const TurnRow = React.memo(function TurnRow({ t, askRef, ...rest }) {
+  const onStress = useCallback((o) => askRef.current?.(t.q, o), [askRef, t.q]);
+  return <Turn t={t} onStress={onStress} {...rest} />;
+});
 
 
 // Shared keyboard-trap for every modal in the app: focuses the first
@@ -7256,48 +7284,9 @@ function useFocusTrap() {
 }
 
 /* ============================================================
-   HOW IT WORKS MODAL + SETTINGS — same logic, new visual system
+   HOW IT WORKS + SETTINGS — same logic, new visual system
+   (HowItWorksModal was deleted: dead code, superseded by HowItWorksDialog.)
    ============================================================ */
-function HowItWorksModal({ P, accent, close }) {
-  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
-  const trapRef = useFocusTrap();
-  const Section = ({ title, children }) => (
-    <div style={{ marginBottom: 28 }}>
-      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.1em", color: accent, marginBottom: 10, fontFamily: "var(--cb-body)" }}>{title}</div>
-      <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.7, color: P.ink }}>{children}</div>
-    </div>
-  );
-  const List = ({ items }) => (
-    <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
-      {items.map((it, i) => <li key={i} style={{ marginBottom: 6, fontSize: FONT_SIZES.small, lineHeight: 1.65, color: P.ink2 }}>{it}</li>)}
-    </ul>
-  );
-  return (
-    <div onClick={close} role="dialog" aria-modal="true" aria-label="How Cerebrum works" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
-      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 600, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
-        <div style={{ position: "sticky", top: 0, background: P.bg, padding: "20px 24px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>How Cerebrum works</div>
-            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 2, fontFamily: "var(--cb-mono)" }}>A short, honest technical explanation.</div>
-          </div>
-          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
-        </div>
-        <div style={{ padding: "24px 24px 32px" }}>
-          <Section title="The retrieval layer">Every query fans out to 15 scholarly databases in parallel, all free and keyless.
-            <List items={[<><strong>Europe PMC</strong> — biomedical, includes preprints</>,<><strong>PubMed</strong> (NCBI E-utilities) — biomedical, automatic term mapping</>,<><strong>OpenAlex</strong> — cross-disciplinary, concept graph</>,<><strong>Crossref</strong> — DOI-registered works, checked for retraction status</>,<><strong>arXiv</strong> — physics, math, CS, quantitative biology</>,<><strong>Semantic Scholar</strong> — includes auto-generated TL;DR summaries</>,<><strong>bioRxiv</strong> preprints (via OpenAlex)</>,<><strong>DOAJ, PLOS, Zenodo</strong> — additional open-access coverage</>,<><strong>CORE, BASE, PMC full-text, OpenAIRE</strong> — additional aggregator/repository coverage</>]} />
-          </Section>
-          <Section title="Query intelligence"><List items={[<><strong>Species queries</strong> are wrapped in quoted phrases with strict species-level filtering.</>,<><strong>Author queries</strong> hit OpenAlex's author disambiguation endpoint.</>,<><strong>Acronym expansion</strong> for common scientific abbreviations.</>,<><strong>Fallback ladder</strong>: if a strict query returns nothing, we retry looser, then plain.</>]} /></Section>
-          <Section title="Trust and safety"><List items={[<><strong>Retraction flagging</strong> via Crossref's crossmark data.</>,<><strong>No fabricated citations</strong> — the AI is instructed to never invent DOIs, authors, or journal names.</>,<><strong>Honest hedging</strong> — when literature is thin, the model says so.</>]} /></Section>
-          <Section title="The AI layer">Answers are synthesized by free-tier language models. Dozens of models across three providers (OpenRouter, Cloudflare Workers AI, and Pollinations) are raced in parallel in two waves — whichever responds first with a good answer wins — so a slow or rate-limited provider can't stall the others.</Section>
-          <Section title="Known limitations"><List items={["New preprints may not be indexed anywhere for hours or days.","The AI can misinterpret papers: verify claims.","Free AI models rate-limit under load.","Non-English literature is under-indexed."]} /></Section>
-          <Section title="What Cerebrum is not"><List items={["Not a replacement for reading the actual papers","Not a systematic review tool","Not medical, legal, or financial advice","Not paywalled or ad-supported"]} /></Section>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 24, paddingTop: 16, borderTop: `1px solid ${P.line}`, fontFamily: "var(--cb-mono)" }}>Cerebrum™ · Built by Vaticay</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* Commit 92 — V5AnnouncementModal deleted.
    Nothing rendered it (see the note where v5Open used to live), it
    advertised the concept-illustration feature that this commit removed,
@@ -7752,7 +7741,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
                 value={scopedInput}
                 onChange={(e) => setScopedInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && askScoped()}
-                placeholder="e.g. What methodology did they use?"
+                aria-label="Ask a follow-up question about this source" placeholder="e.g. What methodology did they use?"
                 style={{ flex: 1, padding: "10px 14px", fontSize: FONT_SIZES.small, border: "1px solid " + P.line, borderRadius: 8, background: "transparent", color: P.ink, fontFamily: "var(--cb-body)", outline: "none" }}
               />
               <button onClick={askScoped} disabled={scopedBusy} style={{
@@ -7842,7 +7831,7 @@ function SourceNetworkGraph({ P, accent, at, sources, close }) {
               <g
                 key={i}
                 tabIndex={0}
-                role="button"
+                role="img"
                 aria-label={label}
                 onMouseEnter={() => setHoverIdx(i)}
                 onMouseLeave={() => setHoverIdx(null)}
@@ -9041,7 +9030,7 @@ function LiteratureTimeline({ P, accent, at, sources, close }) {
                   <g
                     key={i}
                     tabIndex={0}
-                    role="button"
+                    role="img"
                     aria-label={`${p.s.title || "Untitled source"}${p.s.journal ? ` — ${p.s.journal}` : ""}, ${p.year}${typeof p.s.relevance === "number" ? `, ${p.s.relevance}% relevance` : ""}`}
                     onMouseEnter={() => setHoverIdx(i)}
                     onMouseLeave={() => setHoverIdx(null)}
@@ -11229,7 +11218,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
             </div>
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Anything else? (optional)</div>
-              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="Add context for the review team" style={{
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} aria-label="Add context for the review team (optional)" placeholder="Add context for the review team" style={{
                 width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 8,
                 border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
                 color: P.ink, fontFamily: "var(--cb-body)", resize: "vertical", outline: "none",
@@ -12839,7 +12828,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               <textarea
                 value={profile.bio || ""}
                 onChange={(e) => setProfile((p2) => ({ ...p2, bio: e.target.value.slice(0, 400) }))}
-                placeholder="What do you work on? One or two sentences is plenty."
+                aria-label="What do you work on" placeholder="What do you work on? One or two sentences is plenty."
                 rows={3}
                 style={{
                   width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 8,
@@ -13245,7 +13234,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                 <div
                   role="button" tabIndex={0}
                   onClick={() => onOpenProfile(founder.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter") onOpenProfile(founder.id); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenProfile(founder.id); } }}
                   style={{ minWidth: 0, flex: 1, cursor: "pointer" }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -14056,9 +14045,10 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
               onDragLeave={() => setDragActive(false)}
               onDrop={onDrop}
               onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
               role="button"
               tabIndex={0}
-              aria-label="Drop a document file or click to browse"
+              aria-label="Drop a document file or press Enter to browse"
               style={{
                 flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
                 border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "18px 16px", textAlign: "center", cursor: "pointer",
@@ -14079,7 +14069,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
             <textarea
               value={documentText}
               onChange={(e) => setDocumentText(e.target.value)}
-              placeholder="Paste the full text of a paper, report, or document here…"
+              aria-label="Paste the full text of a paper, report, or document" placeholder="Paste the full text of a paper, report, or document here…"
               style={{
                 flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
                 background: inputBg, color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, lineHeight: 1.6, minHeight: isMobile ? 140 : 240,
@@ -15182,7 +15172,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             <Section title="Interface sounds">
               <Row label="Sound effects" desc="Click sounds and ambient tones while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
               <Row label="Search ambience" desc="Background tone while a search runs" control={
-                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Audio.preview(v); }} />
+                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Sfx.preview(v); }} />
               } last />
             </Section>
 
@@ -16827,6 +16817,12 @@ function App() {
   }
   const [turns, setTurns] = useState([]);
   const investigationRequest = useRef(0);
+  // Aborts the in-flight /api/search (+videos) request when a new question
+  // supersedes it. The old code only *ignored* stale responses after they
+  // fully arrived — the server still burned a full synthesis on a question
+  // the user had already moved past, and on a slow network two answers
+  // could interleave their streaming updates.
+  const askAbortRef = useRef(null);
   const [pinnedSources, setPinnedSources] = useState([]);
   const [corrections, setCorrections] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -17043,6 +17039,15 @@ function App() {
   // persist anything — genuinely just for whoever finds it.
   const dpEggRef = useRef({ longPressed: false, timer: null });
   const threadRef = useRef(null);
+  const mainRef = useRef(null);
+  // Skip the focus move on first mount — moving focus on load would yank
+  // screen-reader users away from the page title. Only nav changes move it.
+  const viewFirstRef = useRef(true);
+  useEffect(() => {
+    if (viewFirstRef.current) { viewFirstRef.current = false; return; }
+    mainRef.current?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0 });
+  }, [view]);
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
@@ -17073,7 +17078,7 @@ function App() {
   // React.memo(Sidebar) skip re-rendering the nav rail on unrelated App
   // state changes (typing in the search box, hover states, etc.) instead
   // of bailing out on a "new function every render" prop every time.
-  const sfx = useCallback(() => { if (!mutedRef.current) Audio.click(); }, []);
+  const sfx = useCallback(() => { if (!mutedRef.current) Sfx.click(); }, []);
 
   // Scroll progress bar
   // v6.4: reads window/document scroll now instead of a dedicated inner
@@ -17109,17 +17114,20 @@ function App() {
     // is most of what "it is also automatically playing TTS" is. Narration
     // now requires an ask in THIS session.
     const requestVersion = ++investigationRequest.current;
+    try { askAbortRef.current?.abort(); } catch {}
+    const askCtrl = new AbortController();
+    askAbortRef.current = askCtrl;
     setAskedThisSession(true);
     setContextBusy(!imageToSend && !!contextAction(question));
-    if (!mutedRef.current) Audio.click();
+    if (!mutedRef.current) Sfx.click();
     setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
-      const videosPromise = (imageToSend || contextAction(question)) ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections,
+      const videosPromise = (imageToSend || contextAction(question)) ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, signal: askCtrl.signal, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
+      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, signal: askCtrl.signal, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections,
         /* A stress test is the same request with constraints attached, not a
            second endpoint — the point is that the answer being compared is
            produced by identical machinery. */
@@ -17163,11 +17171,23 @@ function App() {
       setAllSources(nextSources);
       setHistory(previous => saveInvestigation(previous, nextTurns, nextSources));
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
-      if (!mutedRef.current) Audio.pop();
+      if (!mutedRef.current) Sfx.pop();
       videosPromise.then(({ videos }) => { if (requestVersion === investigationRequest.current && data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); } });
-    } catch (e) { if (requestVersion === investigationRequest.current) setError("Couldn't reach the research service. Please try again."); }
+    } catch (e) { if (e && e.name === "AbortError") return; if (requestVersion === investigationRequest.current) setError("Couldn't reach the research service. Please try again."); }
     finally { if (requestVersion === investigationRequest.current) setBusy(false); }
   }, [input, attachedImage, busy, turns, allSources, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
+  // Stable indirection for per-turn callbacks: ask changes on every
+  // keystroke (it closes over `input`), so anything closing over ask
+  // directly defeats React.memo(Turn). TurnRow reads through this ref.
+  const askRef = useRef(null);
+  askRef.current = ask;
+  const stableOnWatchChanged = useCallback(() => setWatchKey((k) => k + 1), []);
+  const stableOnRelated = useCallback((q) => askRef.current?.(q), []);
+  const stableOnShowFlowchart = useCallback((turn) => setFlowchartOpen({ title: (turn.q || "Untitled flowchart").slice(0, 80), answerText: turn.answer, sources: turn.sources, chartId: null }), []);
+  // Opens the auth modal when an anonymous user hits a signed-in-only
+  // action (report, and anywhere else that needs it). Stable so TurnRow
+  // memoization isn't defeated.
+  const stableOnRequireAuth = useCallback(() => { setAuthInitialTab("login"); setAuthOpen(true); }, []);
 
   /* preventScroll, and it is not a micro-optimisation.
      Focusing an element makes the browser scroll it into view, and this
@@ -17304,7 +17324,7 @@ function App() {
     // "back to top" button below, anchor links, etc).
     if (wasNearBottom) window.scrollTo({ top: doc.scrollHeight, left: 0, behavior: "instant" });
   }, [turns.length, busy]);
-  useEffect(() => { if (busy && !muted) Audio.startAmbient(soundMode); else Audio.stopAmbient(); return () => Audio.stopAmbient(); }, [busy, muted, soundMode]);
+  useEffect(() => { if (busy && !muted) Sfx.startAmbient(soundMode); else Sfx.stopAmbient(); return () => Sfx.stopAmbient(); }, [busy, muted, soundMode]);
   /* The film is position:fixed, so it only ever paints the viewport. On
      iOS the rubber-band overscroll drags PAST that and reveals whatever
      colour the document itself is — which was P.bg, a different, lighter
@@ -17521,7 +17541,7 @@ function App() {
     setSaved((prev) => prev.map((s) => sourceKey(s) === sourceKey(source) ? { ...s, collectionId } : s));
   }
   function newSession() {
-    if (!mutedRef.current) Audio.click();
+    if (!mutedRef.current) Sfx.click();
     investigationRequest.current += 1;
     setBusy(false); setAskedThisSession(false);
     setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
@@ -17811,7 +17831,7 @@ function App() {
           <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.bib", toBibTeX(exportList)); }}>BibTeX</button>
           <button style={S.sBtnP} onClick={() => { sfx(); setZoteroOpen(!zoteroOpen); }}>Zotero</button>
         </div>
-        <input style={S.srcFilterInput} placeholder="Filter sources…" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
+        <input style={S.srcFilterInput} placeholder="Filter sources…" aria-label="Filter sources" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
         <div style={S.sortTabs}>
           {[["relevance", "Relevance"], ["date", "Date"], ["database", "Type"]].map(([k, label]) => (
             <button key={k} style={{ ...S.sortTab, ...(srcSort === k ? S.sortTabActive : {}) }} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
@@ -17850,6 +17870,7 @@ function App() {
 
   return (
     <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
+      <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
       {/* ── The field, at application level ──────────────────────────────
           Three things drive it, and all three are real application state:
@@ -17934,7 +17955,7 @@ function App() {
         onToggleMute={handleToggleMute}
         onLogoClick={handleLogoClick}
       />
-      <div style={S.appMain}>
+      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, outline: "none"}}>
       {/* Commit 46: the top header is gone for good — every destination it
           used to hold (search command bar, Inbox, Profile/Sign-in, the
           brand/back-to-landing mark) already lives in the Sidebar too (see
@@ -18174,7 +18195,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} onStress={(o) => ask(t.q, o)} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={() => setWatchKey((k) => k + 1)} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={(q) => ask(q)} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} onShowFlowchart={(turn) => setFlowchartOpen({ title: (turn.q || "Untitled flowchart").slice(0, 80), answerText: turn.answer, sources: turn.sources, chartId: null })} />))}
+                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} />))}
                 {busy && (<div style={S.turn}>
                   {/* The loading state is the poised counterpart to the query
                       line: the question in calm display type, one hairline
@@ -18334,7 +18355,7 @@ function App() {
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
                   <div style={{ flex: "1 1 240px", minWidth: 0 }}>
                     <UIField P={P} accent={accent} value={libraryQuery} onChange={setLibraryQuery}
-                      placeholder="Filter by title, author or journal…" ariaLabel="Filter your library" />
+                      placeholder="Filter by title, author or journal…" aria-label="Filter your library" />
                   </div>
                   {/* A library sorts by when you saved it or by how old the
                       work is — two genuinely different questions, and the
@@ -18445,7 +18466,7 @@ function App() {
                 {history.length > 6 && (
                   <div style={{ marginBottom: 16 }}>
                     <UIField P={P} accent={accent} value={historyQuery} onChange={setHistoryQuery}
-                      placeholder="Filter investigations…" ariaLabel="Filter investigations" />
+                      placeholder="Filter investigations…" aria-label="Filter investigations" />
                   </div>
                 )}
                 {visibleHistory.length === 0 ? (
@@ -18610,7 +18631,7 @@ function App() {
           />
         </Reveal>
       )}
-      </div>
+      </main>
       {started && isMobile && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 8, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
       {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside role="dialog" aria-modal="true" aria-label="Sources" style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}</aside></>)}
       {cmdOpen && (<div role="dialog" aria-modal="true" aria-label="Command palette" style={S.cmdWrap} onClick={() => setCmdOpen(false)}><div style={S.cmdBox} onClick={(e) => e.stopPropagation()} className="cb-pop"><div style={S.cmdInputRow}><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg><input ref={cmdRef} style={S.cmdInput} value={cmdQuery} onChange={(e) => setCmdQuery(e.target.value)} onKeyDown={onCmdKeyDown} placeholder="Search or type a command…" /><kbd style={S.kbd}>esc</kbd></div><div style={S.cmdList}>{cmdSuggest.length > 0 && <div style={S.cmdSection}>Ask</div>}{cmdSuggest.map((s, i) => (<button key={s} style={{ ...S.cmdItem, background: cmdActive === i ? withAlpha(accent, 0.1) : "transparent" }} onClick={() => ask(s)} onMouseEnter={() => setCmdActive(i)}><span style={{ color: accent }}>→</span>{s}</button>))}<div style={S.cmdSection}>Commands</div>{filteredCmds.map((c, i) => { const flatIdx = cmdSuggest.length + i; return (<button key={c.label} style={{ ...S.cmdItem, background: cmdActive === flatIdx ? withAlpha(accent, 0.1) : "transparent" }} onClick={c.run} onMouseEnter={() => setCmdActive(flatIdx)}><span>{c.label}</span>{c.hint && <kbd style={{ ...S.kbd, marginLeft: "auto" }}>{c.hint}</kbd>}</button>); })}</div></div></div>)}
@@ -18872,18 +18893,19 @@ html, body { margin: 0; }
    the same way it does in Chrome/Firefox. Has no effect outside WebKit. */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
-/* Belt-and-suspenders guarantee that the decorative ConstellationField
-   canvas (see LivingBackground) can never sit in the hit-test path for
-   wheel, touch, or click input meant for the real page underneath it —
-   the component already sets pointer-events:none inline, this just makes
-   it non-negotiable via the stylesheet too. */
-.cb-constellation-host, .cb-constellation-host canvas {
-  pointer-events: none !important;
-  touch-action: pan-y !important;
-}
 @supports (padding: max(0px)) {
   body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
 }
+/* Skip link: invisible until keyboard focus lands on it, then a clear
+   pill in the top-left. The one class every keyboard user needs. */
+.cb-skip-link {
+  position: fixed; top: -48px; left: 16px; z-index: 10000;
+  padding: 10px 18px; border-radius: 999px;
+  background: var(--cb-accent, #34d399); color: #0b0f0d;
+  font-size: 14px; font-weight: 600; text-decoration: none;
+  transition: top 160ms var(--cb-ease);
+}
+.cb-skip-link:focus-visible { top: 12px; outline: 2px solid #fff; outline-offset: 2px; }
 input, textarea, select { font-size: 16px; }
 a { color: inherit; text-decoration: none; }
 input::placeholder, textarea::placeholder { color: inherit; opacity: 0.62; }
@@ -18903,7 +18925,6 @@ summary::-webkit-details-marker { display: none; }
   50%      { box-shadow: 0 0 0 16px rgba(255,255,255,0); }
 }
 @keyframes cbHuddlePulse { 0%, 100% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 0.35; } }
-@keyframes cbpulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(255,255,255,0.1); } 50% { box-shadow: 0 0 0 8px rgba(255,255,255,0.2); } }
 
 /* v6.6: this used to drift via a continuous 34s transform animation. Given
    a live, repeated report of laggy/unresponsive scrolling, that's a risk not
@@ -18922,29 +18943,12 @@ summary::-webkit-details-marker { display: none; }
 .cb-scroll-x { scrollbar-width: none; -ms-overflow-style: none; }
 .cb-scroll-x::-webkit-scrollbar { display: none; height: 0; }
 
-/* v43: every "to" frame below used to land on the value "filter: blur(0)"
-   instead of the keyword "filter: none". Visually identical (zero-radius
-   blur draws nothing) — but not the same value to the CSS engine: a filter
-   of anything other than the literal keyword "none" makes the element a
-   containing block for its fixed/absolute-positioned descendants, and with
-   animation-fill-mode "both" that "to" state is what the element is left
-   holding forever once the 200-700ms entrance animation finishes, not just
-   while it's mid-flight. Every one of these classes sits on some ancestor
-   of ordinary page content, so this was a standing landmine for any fixed
-   or absolutely positioned element mounted underneath one — including
-   Turn's own print/export overlay (see .cb-print-paper-doc and its fixed
-   watermark, sitting under Turn's own "cb-rise" wrapper): once the entrance
-   animation settled, that wrapper silently became the watermark's
-   containing block instead of the viewport, and the export doc's own
-   width:100% resolved against that narrow flex column instead of the full
-   page — the reported "exports as one squeezed column" bug. Swapping the
-   endpoint to the real "none" keyword removes the stray containing block
-   with no visual change. */
-@keyframes cbEnter {
-  from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
-  to   { opacity: 1; transform: none; filter: none; }
-}
-@keyframes cbFade {
+/* v43 lesson, kept with the surviving entrance keyframes: every "to" frame
+   below lands on the keyword "filter: none", never "filter: blur(0)".
+   Visually identical, but only the keyword avoids making the element a
+   containing block for fixed/absolute descendants once the animation
+   settles (this was the "exports as one squeezed column" bug). */
+@keyframes cbModal {
   from { opacity: 0; filter: blur(4px); }
   to   { opacity: 1; filter: none; }
 }
@@ -18960,19 +18964,11 @@ summary::-webkit-details-marker { display: none; }
   from { opacity: 0; transform: translateY(20px); filter: blur(10px); }
   to   { opacity: 1; transform: none; filter: none; }
 }
-@keyframes cbGate {
-  from { opacity: 0; transform: translateY(16px); filter: blur(8px); }
-  to   { opacity: 1; transform: none; filter: none; }
-}
 @keyframes cbModal {
   from { opacity: 0; transform: translateY(16px) scale(0.98); filter: blur(6px); }
   to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
-@keyframes cbSlideUp {
-  from { opacity: 0; transform: translateY(24px); filter: blur(6px); }
-  to   { opacity: 1; transform: none; filter: none; }
-}
 @keyframes cbMicPulse {
   0%, 100% { opacity: 0.5; transform: scale(1); }
   50%      { opacity: 0; transform: scale(1.5); }
@@ -19014,15 +19010,6 @@ summary::-webkit-details-marker { display: none; }
   35%      { opacity: 1; transform: scale(1.2); }
   65%      { opacity: 0.35; transform: scale(0.85); }
 }
-@keyframes cb-float {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-4px); }
-}
-@keyframes cbGlowPulse {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50%      { opacity: 0.8; transform: scale(1.1); }
-}
-@keyframes cbCaret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0.15; } }
 
 /* ══════════════════════════════════════════════════════════════
    INNOVATION REFINEMENT — new motion + instrument card language.
@@ -19067,37 +19054,9 @@ summary::-webkit-details-marker { display: none; }
     #05070a;
 }
 
-/* ── Composer scan: a light band travelling the pill while searching,
-   plus a slow breathing of the shell's shadow. Ambient by design —
-   it says "working", never "42% done". */
-.cb-search-scanning { position: relative; overflow: hidden; }
-.cb-search-scanning::after {
-  content: ""; position: absolute; inset: -1px; border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(100deg,
-    transparent 30%, rgba(255,255,255,0.13) 47%, rgba(255,255,255,0.20) 50%,
-    rgba(255,255,255,0.13) 53%, transparent 70%);
-  transform: translateX(-101%);
-  animation: cbScanSweep 1.7s cubic-bezier(.45,0,.55,1) infinite;
-}
-@keyframes cbScanSweep { to { transform: translateX(101%); } }
-.cb-search-scanning { animation: cbScanBreathe 1.7s ease-in-out infinite; }
-@keyframes cbScanBreathe {
-  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.35), 0 18px 48px rgba(0,0,0,0.45); }
-  50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 2px 10px rgba(0,0,0,0.40), 0 22px 60px rgba(0,0,0,0.55), 0 0 0 3px rgba(163,184,153,0.10); }
-}
-/* The ask button's arrow becomes a working pulse while searching. */
-.cb-search-dots { display: inline-flex; align-items: center; gap: 3px; height: 17px; }
-.cb-search-dots i {
-  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
-  animation: cbDotHop 0.9s ease-in-out infinite;
-}
-.cb-search-dots i:nth-child(2) { animation-delay: 0.15s; }
-.cb-search-dots i:nth-child(3) { animation-delay: 0.30s; }
-@keyframes cbDotHop {
-  0%, 100% { transform: translateY(0); opacity: 0.45; }
-  50%      { transform: translateY(-3px); opacity: 1; }
-}
+/* ── Composer states ──
+   (The old pill's scan/dots styles were removed with the query-line
+   redesign; the query line carries its own reading/busy states.) */
 
 /* ── SignalComposer: the query line ──
    No box, no glow, no oscilloscope. The question is the object: large
@@ -19326,7 +19285,6 @@ summary::-webkit-details-marker { display: none; }
 .cb-fade    { animation: cbFade  180ms var(--cb-ease) both; }
 .cb-rise    { animation: cbRise  320ms var(--cb-ease) both; }
 .cb-pop     { animation: cbPop   320ms var(--cb-ease) both; }
-.cb-gate    { animation: cbGate  460ms var(--cb-ease) both; }
 .cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 560ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
@@ -19406,24 +19364,6 @@ button:not(:disabled):hover { filter: none; }
 button:not(:disabled):active { transition-duration: 80ms; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── Search focus glow — clean, no radar ── */
-.cb-search-glow { position: relative; }
-.cb-search-glow:focus-within {
-  border-color: var(--cb-accent, #34d399) !important;
-  box-shadow: 0 0 0 2px var(--cb-accent, #34d399) !important;
-}
-/* The pill itself already draws the accent ring above the moment anything
-   inside it takes focus, and the input is a borderless element filling that
-   pill — so the global :focus-visible ring firing on the input too stacked a
-   second ring inside the first (visible on a real render). One focus
-   indicator per control: the wrapper's, since that is the shape a person
-   reads as "the search bar". Only suppressed where a wrapper ring is
-   guaranteed to be showing — every other input in the app keeps its own. */
-.cb-search-glow input:focus-visible {
-  outline: none;
-  box-shadow: none;
-}
-
 /* ── Header buttons ── */
 .cb-hbtn:hover:not(:disabled) { background: rgba(138,155,186,0.08) !important; }
 .cb-hbtn:active:not(:disabled) { background: rgba(138,155,186,0.14) !important; }
@@ -19433,18 +19373,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   transition: border-color 160ms ease, background-color 160ms ease;
 }
 .cb-card[role="button"]:hover { border-color: var(--cb-accent); }
-
-
-/* Source card hover lift */
-.cb-src-card {
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-              box-shadow 0.25s, border-color 0.25s;
-}
-.cb-src-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06), 0 10px 28px rgba(0,0,0,0.10);
-  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 32%, transparent);
-}
 
 /* ════════════════════════════════════════════════════════════════
    PREMIUM INTERACTION LAYER
@@ -19514,29 +19442,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .cb-tilt-wrap { perspective: 900px; }
 .cb-tilt { transition: transform 380ms var(--cb-spring); transform-style: preserve-3d; will-change: transform; }
 
-/* ── Lift+ ──
-   The next step up from a plain hover lift: the card rises, its border
-   catches the accent, and a deep soft shadow grounds it. For the cards
-   that represent the product's core objects (sources, papers). */
-.cb-lift {
-  transition: transform 300ms var(--cb-ease), box-shadow 300ms var(--cb-ease),
-              border-color 300ms var(--cb-ease);
-}
-.cb-lift:hover {
-  transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 38%, transparent);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 12px 32px rgba(0,0,0,0.14),
-    0 0 0 1px color-mix(in srgb, var(--cb-accent, #34d399) 12%, transparent);
-}
-.cb-lift:active { transform: translateY(-1px) scale(0.995); transition-duration: 120ms; }
-
-/* ── Spring chips ──
-   Citation chips and small pills get a springy hover instead of a flat
-   color swap — the overshoot in --cb-spring is what reads as physical. */
-.cb-spring-chip { transition: transform 280ms var(--cb-spring), background-color 200ms ease, border-color 200ms ease, color 200ms ease; }
-.cb-spring-chip:hover { transform: translateY(-1px) scale(1.06); }
-.cb-spring-chip:active { transform: scale(0.94); transition-duration: 100ms; }
-
 /* ── Animated gradient hairline ──
    For featured panels: a 1px top border that slowly cycles through the
    accent at low opacity. background-attachment trick keeps it cheap —
@@ -19556,26 +19461,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   50%      { background-position: -20% 0; opacity: 1; }
 }
 
-/* ── Breathing dot ──
-   For live/status indicators: a dot that breathes rather than blinks. */
-.cb-breathe { animation: cbBreathe 2.8s ease-in-out infinite; }
-@keyframes cbBreathe {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.55; transform: scale(0.82); }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .cb-spotlight::before, .cb-shine::after, .cb-glow-line::before { display: none; }
-  .cb-magnetic, .cb-tilt, .cb-lift, .cb-spring-chip { transition: none; }
-  .cb-breathe { animation: none; }
   /* Innovation refinement: every new motion dies here too. The iris veil
      would otherwise leave a black disc over the screen with its animation
      removed mid-flight — display:none guarantees the content is reachable. */
   .cb-iris-veil { display: none; }
   .cb-threshold-veil { display: none; }
-  .cb-search-scanning::after, .cb-search-scanning,
-  .cb-search-dots i, .cb-trace-comet, .cb-trace-chip { animation: none; }
-  .cb-search-scanning::after { display: none; }
+  .cb-trace-comet, .cb-trace-chip { animation: none; }
   .cb-qline, .cb-echo { animation: none; }
   .cb-qline-reading { animation: none; }
   .cb-qline-busy { animation-duration: 1.6s; }
@@ -19646,12 +19539,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .cb-intro-sourcelink { transition: color 220ms var(--cb-ease); }
 .cb-intro-sourcelink:hover { color: #f2f4f2 !important; }
-.cb-intro-search { transition: border-color 300ms var(--cb-ease), box-shadow 300ms var(--cb-ease), transform 300ms var(--cb-ease); }
-.cb-intro-search:focus-within {
-  border-color: rgba(163,184,153,0.42) !important;
-  transform: translateY(-2px);
-  box-shadow: 0 34px 90px rgba(0,0,0,0.65), 0 0 0 4px rgba(163,184,153,0.10);
-}
 .cb-intro-go { transition: transform 260ms var(--cb-ease), box-shadow 260ms var(--cb-ease), filter 260ms var(--cb-ease); }
 .cb-intro-go:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 10px 28px rgba(163,184,153,0.40); }
 .cb-intro-go:active { transform: translateY(0); }
@@ -19686,27 +19573,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   from { opacity: 0; transform: translateY(30px); filter: blur(12px); }
   to { opacity: 1; transform: none; filter: none; }
 }
-
-/* Suggestion chip hover ripple */
-.cb-chip-hover {
-  position: relative;
-  overflow: hidden;
-  outline: none !important;
-}
-.cb-chip-hover:focus,
-.cb-chip-hover:focus-visible {
-  outline: none !important;
-  box-shadow: none;
-}
-.cb-chip-hover::after {
-  content: '';
-  position: absolute; inset: 0;
-  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.08), transparent 60%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
-}
-.cb-chip-hover:hover::after { opacity: 1; }
 
 /* Premium text reveal for headings */
 .cb-text-reveal {
@@ -20011,15 +19877,6 @@ html { scroll-behavior: smooth; }
    property the rest of the theme already uses. */
 ::selection { background: color-mix(in srgb, var(--cb-accent, #34d399) 25%, transparent); }
 
-/* ── Scroll-to-top button ── */
-.cb-scroll-top {
-  transition: opacity 0.3s ease, transform 0.3s ease !important;
-}
-.cb-scroll-top:hover {
-  transform: translateY(-2px) !important;
-  opacity: 1 !important;
-}
-
 /* ── Smooth theme transitions ── */
 body {
   transition: background-color 0.4s ease;
@@ -20033,12 +19890,6 @@ body {
   .cb-hbtn {
     min-width: 44px !important;
   }
-}
-
-/* ── Loading step checklist ── */
-@keyframes cbCheckIn {
-  from { opacity: 0; transform: translateX(-8px); }
-  to { opacity: 1; transform: none; }
 }
 
 /* ── Reduced motion ── */
@@ -20069,7 +19920,7 @@ body {
    one that feels considered is usually 160ms on the properties that were
    already changing. "transform" is deliberately NOT in this list — see
    above. */
-button, a, .cb-tap {
+button, a {
   transition: background-color 0.18s ease, border-color 0.18s ease,
               color 0.18s ease, opacity 0.18s ease, box-shadow 0.22s ease;
 }
@@ -20333,69 +20184,6 @@ button, a, .cb-tap {
 }
 
 
-/* ── The Observatory: instrument chrome ──
-   A hairline frame with corner ticks around the viewport — the feel of
-   looking through a precision instrument, not a browser window. Purely
-   decorative: pointer-events none, no layout impact. The ticks catch the
-   accent; the frame itself is barely there. */
-.cb-instrument-frame {
-  position: fixed;
-  inset: 10px;
-  z-index: 9000;
-  pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--cb-accent, #8ba888) 14%, transparent);
-  border-radius: 14px;
-  contain: strict;
-}
-.cb-instrument-frame::before,
-.cb-instrument-frame::after,
-.cb-instrument-frame > i::before,
-.cb-instrument-frame > i::after {
-  content: "";
-  position: absolute;
-  width: 14px; height: 14px;
-  border: 1.5px solid color-mix(in srgb, var(--cb-accent, #8ba888) 65%, transparent);
-}
-.cb-instrument-frame::before { top: -1.5px; left: -1.5px; border-right: none; border-bottom: none; border-top-left-radius: 14px; }
-.cb-instrument-frame::after { top: -1.5px; right: -1.5px; border-left: none; border-bottom: none; border-top-right-radius: 14px; }
-.cb-instrument-frame > i::before { bottom: -1.5px; left: -1.5px; border-right: none; border-top: none; border-bottom-left-radius: 14px; }
-.cb-instrument-frame > i::after { bottom: -1.5px; right: -1.5px; border-left: none; border-top: none; border-bottom-right-radius: 14px; }
-@media (max-width: 760px) {
-  .cb-instrument-frame { inset: 6px; border-radius: 10px; }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .cb-instrument-frame { display: none; }
-}
-/* Instrument readout: mono micro-labels pinned to the frame's corners. */
-.cb-readout {
-  position: fixed;
-  z-index: 9001;
-  pointer-events: none;
-  font-family: var(--cb-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--cb-accent, #8ba888) 55%, transparent);
-  white-space: nowrap;
-}
-.cb-readout-tl { top: 18px; left: 26px; }
-.cb-readout-tr { top: 18px; right: 26px; text-align: right; }
-.cb-readout-bl { bottom: 18px; left: 26px; }
-.cb-readout-br { bottom: 18px; right: 26px; text-align: right; }
-@media (max-width: 760px) { .cb-readout-bl, .cb-readout-br { display: none; } }
-/* Blur-to-sharp: the microscope-focusing reveal for answer sections. */
-@keyframes cbFocusIn {
-  from { opacity: 0; filter: blur(14px); transform: translateY(14px); }
-  to { opacity: 1; filter: blur(0); transform: translateY(0); }
-}
-.cb-focus-in {
-  animation: cbFocusIn 1.1s var(--cb-ease) both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .cb-focus-in { animation: none; }
-}
-
-
 /* ── Commit 74: the founder's frame ──
    A slowly rotating conic ring around the avatar. Slow on purpose — 12
    seconds, so it reads as a sheen catching the light rather than a
@@ -20416,11 +20204,13 @@ button, a, .cb-tap {
 .cb-answer-enter { overflow-wrap: anywhere; }
 .cb-answer-enter p, .cb-answer-enter li { line-height: 1.75; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 { text-wrap: balance; }
-.cb-search-glow { min-width: 0; }
 .cb-intro-go:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
 @media (pointer: coarse) {
   .cb-hbtn, .cb-intro-navlink { min-height: 44px; min-width: 44px; }
-  .cb-search-glow input { font-size: 16px; }
+  .cb-qline-input { font-size: 16px; }
+  /* Touch targets: icon buttons designed at 28-36px get bumped to the
+     40px minimum on touch devices. Desktop keeps the designed sizes. */
+  button { min-width: 40px; min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .cb-stagger > *, .cb-hero-ring, .cb-hero-glow { animation: none !important; opacity: 1; }

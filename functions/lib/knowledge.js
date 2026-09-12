@@ -706,7 +706,12 @@ export function expandViaMesh(rawQuery) {
   // hyphenated compounds ("x-ray", "5-ht", "2d material" aside) that need to
   // survive as one token to match; a query containing "x-ray" verbatim
   // still tokenizes to the single word "x-ray" this way.
-  const words = q.replace(/[^\p{L}\p{N}\s\-']/gu, " ").split(/\s+/).filter(Boolean);
+  // The word cap bounds the n-gram scan below: it is O(words × maxWords),
+  // so an unbounded caller handing us a pasted document would otherwise
+  // turn a per-request lookup into a CPU stall. Real queries are bounded by
+  // the 2000-char input limit (~a few hundred words), so this never fires
+  // on legitimate traffic.
+  const words = q.replace(/[^\p{L}\p{N}\s\-']/gu, " ").split(/\s+/).filter(Boolean).slice(0, 1000);
   if (!words.length) return [];
   const out = new Set();
   // Longest n-grams first: a precise multi-word match ("mobile genetic
@@ -1154,7 +1159,12 @@ export function looksLikeGeneSymbol(token) {
  * spread/concat the result without a null check.
  */
 export function extractEntities(text) {
-  const hay = (text || "");
+  // The drug/pathway scan below is O(terms × text length) via indexOf, so
+  // cap the scanned text: every real caller passes abstracts or answers
+  // (tens of KB at most), and a multi-MB blob would otherwise stall the
+  // request. Entities past the cap are simply not detected — a bounded
+  // recall loss, never a hang.
+  const hay = (text || "").slice(0, 200_000);
   const lower = hay.toLowerCase();
   const drugs = new Set();
   for (const drug of COMMON_DRUGS) {
@@ -1410,7 +1420,9 @@ function phraseFoundInText(rawPhrase, haystackLower) {
  * but the phrase the answer used to define it is.
  */
 export function verifyAnswerAgainstSources(answerText, papers) {
-  const text = answerText || "";
+  // Same input bound as extractEntities() — the acronym-definition scan
+  // below runs over this text too.
+  const text = (answerText || "").slice(0, 200_000);
   const answerEntities = extractEntities(text);
   const namedInAnswer = [...answerEntities.drugs, ...answerEntities.pathways, ...answerEntities.genes];
   if (namedInAnswer.length === 0) {
@@ -1429,8 +1441,13 @@ export function verifyAnswerAgainstSources(answerText, papers) {
   // matching, and the set comparison below is already case-insensitive, so
   // preserving case here only helps the gene/acronym side — it doesn't cost
   // the other two.
-  const sourceText = papers
-    .map((p) => ((p && p.title) || "") + " " + ((p && p.abstract) || ""))
+  // Bound the joined source text: callers pass ranked papers whose
+  // abstracts are already trimmed, but the join itself is unbounded if a
+  // caller ever hands us full texts. The entity scan is linear in this
+  // string, so cap both the paper count and each paper's contribution.
+  const pool = (Array.isArray(papers) ? papers : []).slice(0, 100);
+  const sourceText = pool
+    .map((p) => (String((p && p.title) || "").slice(0, 500)) + " " + (String((p && p.abstract) || "").slice(0, 5000)))
     .join(" ");
   const sourceEntities = extractEntities(sourceText);
   const sourceSet = new Set([...sourceEntities.drugs, ...sourceEntities.pathways, ...sourceEntities.genes].map((e) => e.toLowerCase()));

@@ -15,8 +15,8 @@
 import { getSessionUser, newId, ensureUserProfileColumns, ensureSocialTables, isBlockedPair } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { maybeSweep } from "../lib/retention.js";
-import { safeUrl, cleanString, safeId, LIMITS } from "../lib/validate.js";
-import { clientIp, privacyKey, requireTrustedOrigin, forbiddenOrigin, corsHeaders, readOriginAllowed } from "../lib/http.js";
+import { safeUrl, cleanString, safeId, safeInt, LIMITS } from "../lib/validate.js";
+import { clientIp, privacyKey, requireTrustedOrigin, corsHeaders, readOriginAllowed, readJsonBody } from "../lib/http.js";
 
 const MAX_MESSAGE_LEN = 4000;
 const MAX_NAME_LEN = 120;
@@ -51,6 +51,38 @@ const MAX_ATTACHMENT_DATA_LEN = 700000;
 const MAX_ATTACHMENT_URL_LEN = 600;
 const MAX_ATTACHMENT_META_LEN = 4000;
 const ALLOWED_ATTACHMENT_KINDS = new Set(["image", "audio", "paper"]);
+
+// The POST body is buffered in full before parsing. Whole-library syncs
+// (saved/history replace-all) are legitimately large — up to ~2000 saved
+// items — so this ceiling is generous, but it still stops a hostile client
+// from OOMing the worker with an unbounded JSON body. readJsonBody checks
+// Content-Length before buffering and measures the buffered text too.
+const MAX_BODY_BYTES = 64 * 1024 * 1024;
+
+// ---- consistent response shapes ----
+// Every response from this endpoint carries `ok`. Failures are always
+// { ok: false, error, code? } with a human-safe message; successes are
+// { ok: true, ... }. `error` text and HTTP status are unchanged so existing
+// clients keep working — `ok`/`code` are additive.
+const okRes = (payload, status, headers) =>
+  new Response(JSON.stringify({ ok: true, ...payload }), { status: status || 200, headers });
+const errRes = (message, status, code, headers) =>
+  new Response(JSON.stringify({ ok: false, error: message, code: code || "error" }), { status: status || 400, headers });
+// Exported for unit tests (tests/content-endpoints.mjs).
+export { okRes, errRes };
+
+// D1 batches are a single transaction, but an unbounded statement list is
+// not free — chunk large write sets so a 2000-item library sync can't hit
+// statement/parameter limits in one batch. The first chunk carries the
+// DELETE so a partial failure never leaves a half-synced table behind a
+// completed delete... in practice D1 batch is atomic per batch() call, and
+// chunking keeps each call well inside the limits.
+async function batchedWrites(db, stmts, chunkSize) {
+  const size = chunkSize || 100;
+  for (let i = 0; i < stmts.length; i += size) {
+    await db.batch(stmts.slice(i, i + size));
+  }
+}
 
 // The live social tables declare their timestamp columns DATETIME DEFAULT
 // CURRENT_TIMESTAMP (a SQLite string default), but every write this file
@@ -289,10 +321,10 @@ export async function onRequest(context) {
    * writes must prove they came from one of our pages, because a cookie
    * that is SameSite=Lax still rides along on a top-level cross-site POST. */
   if (request.method === "POST" && !requireTrustedOrigin(request, env)) {
-    return forbiddenOrigin(cors);
+    return errRes("Request blocked.", 403, "origin_not_allowed", cors);
   }
-  if (!readOriginAllowed(request, env)) return forbiddenOrigin(cors);
-  if (!env.DB) return new Response(JSON.stringify({ error: "Accounts are not configured on this deployment." }), { status: 503, headers: cors });
+  if (!readOriginAllowed(request, env)) return errRes("Request blocked.", 403, "origin_not_allowed", cors);
+  if (!env.DB) return errRes("Accounts are not configured on this deployment.", 503, "service_unavailable", cors);
 
   const user = await getSessionUser(request, env);
 
@@ -325,10 +357,13 @@ export async function onRequest(context) {
   if (!user && request.method === "GET" && url.searchParams.get("resource") === "public-profile") {
     const clientIPAnon = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
     if (!(await checkRateLimit(env, `anonprofile:${clientIPAnon}`, 20, 60000))) {
-      return new Response(JSON.stringify({ error: "Too many requests." }), { status: 429, headers: { ...cors, "Retry-After": "30" } });
+      return errRes("Too many requests.", 429, "rate_limited", { ...cors, "Retry-After": "30" });
     }
-    const targetId = (url.searchParams.get("id") || "").toString().slice(0, 64);
-    if (!targetId) return new Response(JSON.stringify({ error: "Missing id." }), { status: 400, headers: cors });
+    // Ids are opaque values we generated (newId) — safeId rejects anything
+    // else outright, so junk never reaches a query bind and "missing" and
+    // "malformed" share one clear 400.
+    const targetId = safeId(url.searchParams.get("id"));
+    if (!targetId) return errRes("Missing id.", 400, "missing_id", cors);
     try {
       await ensureUserProfileColumns(env);
       const row = await env.DB.prepare(
@@ -337,9 +372,10 @@ export async function onRequest(context) {
       // Same 404 for "no such account" and "opted out", so this cannot be
       // used to confirm that a hidden account exists.
       if (!row || row.discoverable === 0) {
-        return new Response(JSON.stringify({ error: "Profile not found." }), { status: 404, headers: cors });
+        return errRes("Profile not found.", 404, "not_found", cors);
       }
       return new Response(JSON.stringify({
+        ok: true,
         limited: true,
         user: {
           id: row.id,
@@ -350,11 +386,11 @@ export async function onRequest(context) {
         },
       }), { status: 200, headers: cors });
     } catch {
-      return new Response(JSON.stringify({ error: "Profile not found." }), { status: 404, headers: cors });
+      return errRes("Profile not found.", 404, "not_found", cors);
     }
   }
 
-  if (!user) return new Response(JSON.stringify({ error: "Sign in first." }), { status: 401, headers: cors });
+  if (!user) return errRes("Sign in first.", 401, "unauthenticated", cors);
 
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
   // Commit 56 — polling resources are exempt from the shared per-IP budget
@@ -375,7 +411,7 @@ export async function onRequest(context) {
   const rateKey = pollingResource ? `data-poll:${user.id}` : `data:${clientIP}`;
   const rateLimit = pollingResource ? 240 : DATA_RATE_LIMIT;
   if (!(await checkRateLimit(env, rateKey, rateLimit, DATA_RATE_WINDOW_MS))) {
-    return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment." }), { status: 429, headers: { ...cors, "Retry-After": "20" } });
+    return errRes("Too many requests. Please wait a moment.", 429, "rate_limited", { ...cors, "Retry-After": "20" });
   }
 
 
@@ -390,21 +426,27 @@ export async function onRequest(context) {
     if (request.method === "GET") {
       const resource = url.searchParams.get("resource");
       if (resource === "saved") {
+        // Optional pagination via `?limit=` / `?offset=`. The client syncs
+        // whole libraries through replace-all, so the default is the full
+        // list — but nothing here is ever unbounded: the write path caps a
+        // library at MAX_SAVED_PER_USER rows, and so does this read.
+        const limit = safeInt(url.searchParams.get("limit"), { min: 1, max: MAX_SAVED_PER_USER, fallback: MAX_SAVED_PER_USER });
+        const offset = safeInt(url.searchParams.get("offset"), { min: 0, max: 1000000, fallback: 0 });
         const rows = await env.DB.prepare(
-          "SELECT id, collection_id, source_json, created_at FROM user_saved_sources WHERE user_id = ? ORDER BY created_at DESC"
-        ).bind(user.id).all();
+          "SELECT id, collection_id, source_json, created_at FROM user_saved_sources WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        ).bind(user.id, limit, offset).all();
         const items = (rows.results || []).map((r) => {
           let source = {};
           try { source = JSON.parse(r.source_json); } catch {}
           return { id: r.id, collectionId: r.collection_id, createdAt: r.created_at, ...source };
         });
-        return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
+        return okRes({ items }, 200, cors);
       }
       if (resource === "collections") {
         const rows = await env.DB.prepare(
           "SELECT id, name, created_at FROM user_collections WHERE user_id = ? ORDER BY created_at ASC"
         ).bind(user.id).all();
-        return new Response(JSON.stringify({ items: rows.results || [] }), { status: 200, headers: cors });
+        return okRes({ items: rows.results || [] }, 200, cors);
       }
       // Your own profile: base row from `users` plus a computed follower
       // count and whatever accolades actually exist for you in the DB.
@@ -418,7 +460,7 @@ export async function onRequest(context) {
         const row = await env.DB.prepare(
           "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, bio, cover, link_site, link_orcid, link_scholar, terms_version, terms_accepted_at, discoverable, dm_policy, show_affiliation FROM users WHERE id = ?"
         ).bind(user.id).first();
-        if (!row) return new Response(JSON.stringify({ error: "Account not found." }), { status: 404, headers: cors });
+        if (!row) return errRes("Account not found.", 404, "not_found", cors);
         const followerCount = await env.DB.prepare(
           "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
         ).bind(user.id).first();
@@ -430,6 +472,7 @@ export async function onRequest(context) {
           "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
         ).bind(user.id).all();
         return new Response(JSON.stringify({
+          ok: true,
           user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, degree: row.degree || null, grad_year: row.grad_year || null, avatar_base64: row.avatar_base64 || null, bio: row.bio || null, cover: row.cover || null, link_site: row.link_site || null, link_orcid: row.link_orcid || null, link_scholar: row.link_scholar || null },
           followers: followerCount?.n || 0,
           badges: (badgeRows.results || []).map((b) => b.badge_type),
@@ -481,10 +524,10 @@ export async function onRequest(context) {
          person" from "hidden" from "they blocked you."
          ══════════════════════════════════════════════════════════════ */
       if (resource === "public-profile") {
-        const targetId = (url.searchParams.get("id") || "").toString().slice(0, 64);
-        if (!targetId) return new Response(JSON.stringify({ error: "Missing id." }), { status: 400, headers: cors });
+        const targetId = safeId(url.searchParams.get("id"));
+        if (!targetId) return errRes("Missing id.", 400, "missing_id", cors);
         if (targetId === user.id) {
-          return new Response(JSON.stringify({ error: "Use resource=profile for your own account.", code: "self" }), { status: 400, headers: cors });
+          return errRes("Use resource=profile for your own account.", 400, "self", cors);
         }
         const row = await env.DB.prepare(
           `SELECT id, username, name, affiliation, show_affiliation, degree, grad_year,
@@ -493,7 +536,7 @@ export async function onRequest(context) {
         ).bind(targetId).first();
         const blocked = row ? await isBlockedPair(env, user.id, targetId) : false;
         if (!row || row.discoverable === 0 || blocked) {
-          return new Response(JSON.stringify({ error: "Profile not found." }), { status: 404, headers: cors });
+          return errRes("Profile not found.", 404, "not_found", cors);
         }
         const followers = await env.DB.prepare(
           "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
@@ -515,6 +558,7 @@ export async function onRequest(context) {
           badges = (badgeRows.results || []).map((b) => b.badge_type);
         } catch {}
         return new Response(JSON.stringify({
+          ok: true,
           limited: false,
           user: {
             id: row.id,
@@ -614,7 +658,7 @@ export async function onRequest(context) {
           });
         }
         items.sort((a, b) => (b.lastMessage?.createdAt || 0) - (a.lastMessage?.createdAt || 0));
-        return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
+        return okRes({ items }, 200, cors);
       }
       // Commit 54 — "is anyone calling me right now?", polled app-wide by
       // every signed-in client. This is what makes a video huddle actually
@@ -654,14 +698,15 @@ export async function onRequest(context) {
           // degraded answer.
           row = null;
         }
-        if (!row) return new Response(JSON.stringify({ call: null }), { status: 200, headers: cors });
+        if (!row) return okRes({ call: null }, 200, cors);
         if (await isBlockedPair(env, user.id, row.sender_id)) {
-          return new Response(JSON.stringify({ call: null }), { status: 200, headers: cors });
+          return okRes({ call: null }, 200, cors);
         }
         const caller = await env.DB.prepare(
           "SELECT name, username FROM users WHERE id = ?"
         ).bind(row.sender_id).first();
         return new Response(JSON.stringify({
+          ok: true,
           call: {
             threadId: row.thread_id,
             fromId: row.sender_id,
@@ -689,12 +734,12 @@ export async function onRequest(context) {
       // this thread and this user means a 403, not a peek at someone else's
       // conversation.
       if (resource === "thread") {
-        const threadId = (url.searchParams.get("thread_id") || "").toString();
-        if (!threadId) return new Response(JSON.stringify({ error: "Missing thread_id." }), { status: 400, headers: cors });
+        const threadId = safeId(url.searchParams.get("thread_id"));
+        if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
         const membership = await env.DB.prepare(
           "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
         ).bind(threadId, user.id).first();
-        if (!membership) return new Response(JSON.stringify({ error: "You're not part of that conversation." }), { status: 403, headers: cors });
+        if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
         // Commit 47: opening a thread is what "read" means here — no
         // separate mark-as-read action, matching how every real DM inbox
         // (Instagram, iMessage, etc.) actually behaves. Awaited rather than
@@ -708,7 +753,7 @@ export async function onRequest(context) {
             .bind(Date.now(), threadId, user.id).run();
         } catch (e) { console.error("Couldn't mark thread read:", e); }
         const threadRow = await env.DB.prepare("SELECT id, kind, name FROM threads WHERE id = ?").bind(threadId).first();
-        if (!threadRow) return new Response(JSON.stringify({ error: "That conversation no longer exists." }), { status: 404, headers: cors });
+        if (!threadRow) return errRes("That conversation no longer exists.", 404, "not_found", cors);
         // last_read_at rides along per participant so a DM can report
         // "Seen" on the read side's own last message — see otherLastReadAt
         // below. Not attempted for groups (kind !== "dm"): "seen by which
@@ -763,10 +808,19 @@ export async function onRequest(context) {
         // (send-message enforces that on the way in), so the participant
         // rows already fetched above double as the sender-lookup table —
         // no extra per-message query needed for the "who said this" label.
+        //
+        // Newest-first with a hard cap: an unbounded ASC fetch turns one
+        // very active conversation into a multi-megabyte response. The cap
+        // is generous — ordinary threads never notice it — and `truncated`
+        // tells the client when it bit, instead of silently dropping the
+        // oldest messages.
+        const MAX_THREAD_MESSAGES = 1000;
         const messageRows = await env.DB.prepare(
-          "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at FROM messages WHERE thread_id = ? ORDER BY created_at ASC"
-        ).bind(threadId).all();
-        const messages = (messageRows.results || []).map((m) => ({
+          "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?"
+        ).bind(threadId, MAX_THREAD_MESSAGES + 1).all();
+        const fetchedMessages = messageRows.results || [];
+        const truncated = fetchedMessages.length > MAX_THREAD_MESSAGES;
+        const messages = fetchedMessages.slice(0, MAX_THREAD_MESSAGES).reverse().map((m) => ({
           id: m.id,
           senderId: m.sender_id,
           mine: m.sender_id === user.id,
@@ -780,6 +834,7 @@ export async function onRequest(context) {
           who: displayNameFor(byId.get(m.sender_id)),
         }));
         return new Response(JSON.stringify({
+          ok: true,
           id: threadRow.id,
           kind: threadRow.kind,
           name: name || "Conversation",
@@ -790,6 +845,7 @@ export async function onRequest(context) {
           otherLastReadAt,
           blocked,
           messages,
+          truncated,
         }), { status: 200, headers: cors });
       }
       // Find People / the network directory. This used to be a hardcoded
@@ -846,7 +902,7 @@ export async function onRequest(context) {
         // that has explicitly volunteered to be contacted — not a sample of
         // other people's.
         if (q.length < 2) {
-          return new Response(JSON.stringify({ items: [], founder: await founderCard(env, user) }), { status: 200, headers: cors });
+          return okRes({ items: [], founder: await founderCard(env, user) }, 200, cors);
         }
 
         // Commit 100 — a search endpoint that returns real accounts is a
@@ -856,10 +912,7 @@ export async function onRequest(context) {
         // already requires a session — so the budget follows whoever is
         // actually spending it.
         if (!(await checkRateLimit(env, `usersearch:${user.id}`, 30, 60000))) {
-          return new Response(
-            JSON.stringify({ error: "You're searching very quickly. Give it a few seconds." }),
-            { status: 429, headers: { ...cors, "Retry-After": "20" } }
-          );
+          return errRes("You're searching very quickly. Give it a few seconds.", 429, "rate_limited", { ...cors, "Retry-After": "20" });
         }
 
         const like = "%" + escapeLikeWildcards(q) + "%";
@@ -894,7 +947,7 @@ export async function onRequest(context) {
           following: !!r.is_following,
         }));
 
-        return new Response(JSON.stringify({ items, founder: await founderCard(env, user) }), { status: 200, headers: cors });
+        return okRes({ items, founder: await founderCard(env, user) }, 200, cors);
       }
 
       /* Commit 100 — the `hub` resource is deleted, not disabled.
@@ -924,7 +977,7 @@ export async function onRequest(context) {
           try { blob = JSON.parse(r.turns_json); } catch {}
           return { id: r.id, title: r.title, turns: blob.turns || [], allSources: blob.allSources || [], createdAt: r.created_at, updatedAt: r.updated_at };
         });
-        return new Response(JSON.stringify({ items }), { status: 200, headers: cors });
+        return okRes({ items }, 200, cors);
       }
       // Commit 65 — the watchlist. This is the retention mechanic, and it
       // is deliberately the honest version of one.
@@ -978,7 +1031,7 @@ export async function onRequest(context) {
           });
         }
         const totalNew = out.reduce((s, w) => s + (w.newCount || 0), 0);
-        return new Response(JSON.stringify({ items: out, totalNew }), { status: 200, headers: cors });
+        return okRes({ items: out, totalNew }, 200, cors);
       }
       // Commit 69 — milestones.
       //
@@ -1050,6 +1103,7 @@ export async function onRequest(context) {
           .filter((i) => !i.earned)
           .sort((a2, b2) => (b2.have / b2.need) - (a2.have / a2.need))[0] || null;
         return new Response(JSON.stringify({
+          ok: true,
           items,
           next,
           earnedCount: items.filter((i) => i.earned).length,
@@ -1096,11 +1150,13 @@ export async function onRequest(context) {
          * show a "not set up" hint, and nothing about who the owner is. */
         if (!youAreFounder) {
           return new Response(JSON.stringify({
+            ok: true,
             configured,
             youAreFounder: false,
           }), { status: 200, headers: cors });
         }
         return new Response(JSON.stringify({
+          ok: true,
           configured,
           configuredValue: configured ? mask(target) : null,
           yourEmail: mask(myEmail),
@@ -1108,14 +1164,20 @@ export async function onRequest(context) {
         }), { status: 200, headers: cors });
       }
 
-      return new Response(JSON.stringify({ error: "Unknown resource." }), { status: 400, headers: cors });
+      return errRes("Unknown resource.", 400, "bad_request", cors);
     }
 
     if (request.method !== "POST") {
-      return new Response(JSON.stringify({ error: "Method not allowed." }), { status: 405, headers: cors });
+      return errRes("Method not allowed.", 405, "method_not_allowed", cors);
     }
 
-    const body = await request.json().catch(() => ({}));
+    // Bounded body parse (see MAX_BODY_BYTES above): an unbounded
+    // request.json() would buffer a body of any size into worker memory.
+    // Malformed JSON gets an explicit 400 here instead of silently becoming
+    // {} and failing later as a confusing "missing field" error.
+    const parsedBody = await readJsonBody(request, cors, MAX_BODY_BYTES);
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.body;
     const resource = body && body.resource;
     const action = body && body.action;
 
@@ -1139,7 +1201,13 @@ export async function onRequest(context) {
         stmts.push(env.DB.prepare("INSERT INTO user_saved_sources (id, user_id, collection_id, source_json, created_at) VALUES (?, ?, ?, ?, ?)")
           .bind(newId("src"), user.id, validCollections.has(collectionId) ? collectionId : null, sourceJson, now));
       }
-      await env.DB.batch(stmts);
+      // Chunked (see batchedWrites): a full-library sync is thousands
+      // of statements, and one giant batch risks D1 statement/parameter
+      // limits. Chunking trades the single-batch atomicity for bounded
+      // batch sizes — a failed chunk leaves a partial sync, but the
+      // client's debounced whole-array sync re-sends the full list on the
+      // next change and heals it.
+      await batchedWrites(env.DB, stmts);
       return new Response(JSON.stringify({ ok: true, count: items.length }), { status: 200, headers: cors });
     }
 
@@ -1150,40 +1218,47 @@ export async function onRequest(context) {
       for (const item of items) {
         const turnsJson = JSON.stringify({ turns: item?.turns || [], allSources: item?.allSources || [] });
         if (turnsJson.length > MAX_TURNS_JSON_LEN) {
-          return new Response(JSON.stringify({ error: "An investigation is too large to sync. Existing account history has been preserved." }), { status: 413, headers: cors });
+          return errRes("An investigation is too large to sync. Existing account history has been preserved.", 413, "too_large", cors);
         }
         const title = (item?.title || "").toString().slice(0, 300);
         const ts = Number(item?.ts) || now;
         stmts.push(env.DB.prepare("INSERT INTO user_history (id, user_id, title, turns_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
           .bind(newId("hist"), user.id, title, turnsJson, ts, ts));
       }
-      await env.DB.batch(stmts);
+      // Chunked (see batchedWrites): a full-history sync is hundreds of
+      // statements, and one giant batch risks D1 statement/parameter
+      // limits. Chunking trades the single-batch atomicity for bounded
+      // batch sizes — a failed chunk leaves a partial sync, but the
+      // client's debounced whole-array sync re-sends the full list on the
+      // next change and heals it. (The 413 check above runs before any
+      // write, so an oversized item still preserves existing history.)
+      await batchedWrites(env.DB, stmts);
       return new Response(JSON.stringify({ ok: true, count: items.length }), { status: 200, headers: cors });
     }
 
     if (resource === "collections" && action === "create") {
       const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM user_collections WHERE user_id = ?").bind(user.id).first();
-      if ((count?.n || 0) >= MAX_COLLECTIONS_PER_USER) return new Response(JSON.stringify({ error: "Collection limit reached." }), { status: 400, headers: cors });
+      if ((count?.n || 0) >= MAX_COLLECTIONS_PER_USER) return errRes("Collection limit reached.", 400, "bad_request", cors);
       const name = (body.name || "").toString().trim().slice(0, 80);
-      if (!name) return new Response(JSON.stringify({ error: "Name a collection first." }), { status: 400, headers: cors });
+      if (!name) return errRes("Name a collection first.", 400, "bad_request", cors);
       const id = newId("col");
       await env.DB.prepare("INSERT INTO user_collections (id, user_id, name, created_at) VALUES (?, ?, ?, ?)")
         .bind(id, user.id, name, Date.now()).run();
-      return new Response(JSON.stringify({ id, name }), { status: 200, headers: cors });
+      return okRes({ id, name }, 200, cors);
     }
 
     if (resource === "collections" && (action === "rename" || action === "delete")) {
       // Both actions bind body.id straight into a D1 query — guard it here
-      // once rather than in each branch. An absent/non-string id used to
-      // reach .bind() as `undefined`, which D1 can reject outright, turning
-      // a simple "no id was sent" mistake into an opaque 500 instead of a
-      // clear 400.
-      const collectionId = (body.id || "").toString();
-      if (!collectionId) return new Response(JSON.stringify({ error: "Missing collection id." }), { status: 400, headers: cors });
+      // once rather than in each branch. safeId also rejects the old
+      // failure mode where an absent/non-string id reached .bind() as
+      // `undefined` and D1 turned a simple "no id was sent" into an
+      // opaque 500 instead of a clear 400.
+      const collectionId = safeId(body.id);
+      if (!collectionId) return errRes("Missing collection id.", 400, "missing_id", cors);
 
       if (action === "rename") {
         const name = (body.name || "").toString().trim().slice(0, 80);
-        if (!name) return new Response(JSON.stringify({ error: "Name can't be empty." }), { status: 400, headers: cors });
+        if (!name) return errRes("Name can't be empty.", 400, "bad_request", cors);
         await env.DB.prepare("UPDATE user_collections SET name = ? WHERE id = ? AND user_id = ?").bind(name, collectionId, user.id).run();
         return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
       }
@@ -1232,10 +1307,10 @@ export async function onRequest(context) {
         avatarBase64 = null;
       } else if (typeof body.avatar_base64 === "string") {
         if (body.avatar_base64.length > MAX_AVATAR_BASE64_LEN) {
-          return new Response(JSON.stringify({ error: "Image is too large. Try a smaller photo." }), { status: 400, headers: cors });
+          return errRes("Image is too large. Try a smaller photo.", 400, "bad_request", cors);
         }
         if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(body.avatar_base64)) {
-          return new Response(JSON.stringify({ error: "Unsupported image format." }), { status: 400, headers: cors });
+          return errRes("Unsupported image format.", 400, "bad_request", cors);
         }
         avatarBase64 = body.avatar_base64;
       }
@@ -1250,7 +1325,7 @@ export async function onRequest(context) {
       if (bio === "") bio = null;
       let cover = typeof body.cover === "string" ? body.cover.trim().slice(0, 40) : undefined;
       if (cover !== undefined && cover !== "" && !ALLOWED_COVERS.has(cover)) {
-        return new Response(JSON.stringify({ error: "Unknown cover." }), { status: 400, headers: cors });
+        return errRes("Unknown cover.", 400, "bad_request", cors);
       }
       if (cover === "") cover = null;
       const safeUrl = (v) => {
@@ -1266,7 +1341,7 @@ export async function onRequest(context) {
       const linkOrcid = safeUrl(body.link_orcid);
       const linkScholar = safeUrl(body.link_scholar);
       if (linkSite === false || linkOrcid === false || linkScholar === false) {
-        return new Response(JSON.stringify({ error: "That doesn't look like a web address." }), { status: 400, headers: cors });
+        return errRes("That doesn't look like a web address.", 400, "bad_request", cors);
       }
 
       const sets = [];
@@ -1301,13 +1376,13 @@ export async function onRequest(context) {
         sets.push("dm_policy = ?"); binds.push(body.dm_policy);
       }
 
-      if (!sets.length) return new Response(JSON.stringify({ error: "Nothing to update." }), { status: 400, headers: cors });
+      if (!sets.length) return errRes("Nothing to update.", 400, "bad_request", cors);
       binds.push(user.id);
       try {
         await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).bind(...binds).run();
       } catch (e) {
         if (username !== undefined && username !== null && /UNIQUE constraint failed:\s*users\.username/i.test(String(e && e.message))) {
-          return new Response(JSON.stringify({ error: "That username is already taken." }), { status: 409, headers: cors });
+          return errRes("That username is already taken.", 409, "conflict", cors);
         }
         throw e;
       }
@@ -1318,12 +1393,12 @@ export async function onRequest(context) {
       // Wire format keeps `target_id` (matching the original spec) even
       // though the live column is `following_id` — that's a DB-shape
       // detail, not something the frontend needs to know about.
-      const targetId = (body.target_id || "").toString();
-      if (!targetId) return new Response(JSON.stringify({ error: "Missing target_id." }), { status: 400, headers: cors });
+      const targetId = safeId(body.target_id);
+      if (!targetId) return errRes("Missing target_id.", 400, "missing_id", cors);
       // Not in the literal spec, but following yourself isn't a real
       // action — worth rejecting outright rather than letting it silently
       // inflate your own follower count.
-      if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't follow yourself." }), { status: 400, headers: cors });
+      if (targetId === user.id) return errRes("You can't follow yourself.", 400, "bad_request", cors);
       /* Three fixes in one guard.
        *
        * Blocks: every sibling action (send-message, start-thread,
@@ -1341,7 +1416,7 @@ export async function onRequest(context) {
       const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
       const blockedPair = target ? await isBlockedPair(env, user.id, targetId) : false;
       if (!target || target.discoverable === 0 || blockedPair) {
-        return new Response(JSON.stringify({ error: "That account isn't available.", code: "not_available" }), { status: 404, headers: cors });
+        return errRes("That account isn't available.", 404, "not_available", cors);
       }
       const existing = await env.DB.prepare(
         "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
@@ -1349,14 +1424,18 @@ export async function onRequest(context) {
       if (existing) {
         await env.DB.prepare("DELETE FROM follows WHERE follower_id = ? AND following_id = ?").bind(user.id, targetId).run();
       } else {
-        await env.DB.prepare("INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)").bind(user.id, targetId, Date.now()).run();
+        // OR IGNORE closes a real race: two concurrent toggles can both pass
+        // the existence check above, and the second INSERT used to die on
+        // the UNIQUE constraint as a 500. The outcome is identical either
+        // way (the row exists), so ignoring the conflict is correct.
+        await env.DB.prepare("INSERT OR IGNORE INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)").bind(user.id, targetId, Date.now()).run();
       }
       const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM follows WHERE following_id = ?").bind(targetId).first();
-      return new Response(JSON.stringify({ following: !existing, followers: count?.n || 0 }), { status: 200, headers: cors });
+      return okRes({ following: !existing, followers: count?.n || 0 }, 200, cors);
     }
 
     if (action === "send-message") {
-      const threadId = (body.thread_id || "").toString();
+      const threadId = safeId(body.thread_id);
       const text = typeof body.text === "string" ? body.text.trim().slice(0, MAX_MESSAGE_LEN) : "";
       // attachment_title wasn't in the original spec — it's a real column
       // on the live `messages` table this code wasn't using at all, and it
@@ -1381,7 +1460,7 @@ export async function onRequest(context) {
         // error, so the composer can tell someone their file is too big
         // instead of showing them a generic send failure.
         if (attachmentData.length > MAX_ATTACHMENT_DATA_LEN) {
-          return new Response(JSON.stringify({ error: "That attachment is too large to send. Try a smaller image or a shorter voice note." }), { status: 413, headers: cors });
+          return errRes("That attachment is too large to send. Try a smaller image or a shorter voice note.", 413, "too_large", cors);
         }
         // Only ever a self-contained data URL of the kind claimed — this is
         // rendered straight into an <img>/<audio> src on someone else's
@@ -1389,11 +1468,11 @@ export async function onRequest(context) {
         // be an injection vector, not merely a wrong file.
         const expected = attachmentKind === "image" ? /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/ : /^data:audio\/(webm|ogg|mp4|mpeg|wav)(;codecs=[a-z0-9.,=]+)?;base64,[A-Za-z0-9+/=]+$/;
         if (!expected.test(attachmentData)) {
-          return new Response(JSON.stringify({ error: "That attachment format isn't supported." }), { status: 400, headers: cors });
+          return errRes("That attachment format isn't supported.", 400, "bad_request", cors);
         }
       }
       if (!threadId || (!text && !attachmentTitle && !attachmentData)) {
-        return new Response(JSON.stringify({ error: "Missing thread_id, or a message needs text or an attachment." }), { status: 400, headers: cors });
+        return errRes("Missing thread_id, or a message needs text or an attachment.", 400, "bad_request", cors);
       }
       // Not in the literal spec, but load-bearing: without this, any
       // signed-in user who knew or guessed a thread_id could post into a
@@ -1404,7 +1483,7 @@ export async function onRequest(context) {
       const membership = await env.DB.prepare(
         "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
       ).bind(threadId, user.id).first();
-      if (!membership) return new Response(JSON.stringify({ error: "You're not part of that conversation." }), { status: 403, headers: cors });
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
       // Commit 48 enforcement: a blocked DM stops accepting new messages
       // from either side — history stays visible (the GET above never
       // hides it), this just closes the door on adding to it. Groups are
@@ -1416,7 +1495,7 @@ export async function onRequest(context) {
           "SELECT user_id FROM thread_participants WHERE thread_id = ? AND user_id != ?"
         ).bind(threadId, user.id).first();
         if (other && (await isBlockedPair(env, user.id, other.user_id))) {
-          return new Response(JSON.stringify({ error: "You can't message this person." }), { status: 403, headers: cors });
+          return errRes("You can't message this person.", 403, "forbidden", cors);
         }
       }
       const now = Date.now();
@@ -1448,18 +1527,18 @@ export async function onRequest(context) {
     // there, otherwise create one, and hand back a thread_id the frontend
     // can open straight into and send-message against.
     if (action === "start-thread") {
-      const targetId = (body.target_id || "").toString();
-      if (!targetId) return new Response(JSON.stringify({ error: "Missing target_id." }), { status: 400, headers: cors });
-      if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't message yourself." }), { status: 400, headers: cors });
+      const targetId = safeId(body.target_id);
+      if (!targetId) return errRes("Missing target_id.", 400, "missing_id", cors);
+      if (targetId === user.id) return errRes("You can't message yourself.", 400, "bad_request", cors);
       const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
-      if (!target || target.discoverable === 0) return new Response(JSON.stringify({ error: "That account isn't available.", code: "not_available" }), { status: 404, headers: cors });
+      if (!target || target.discoverable === 0) return errRes("That account isn't available.", 404, "not_available", cors);
       // Commit 48 enforcement: blocked in either direction means no new
       // conversation gets started or reopened via this path — including
       // finding-and-returning an existing thread just below, since that
       // would otherwise be a quiet backdoor back into a conversation the
       // block was meant to close.
       if (await isBlockedPair(env, user.id, targetId)) {
-        return new Response(JSON.stringify({ error: "You can't message this person." }), { status: 403, headers: cors });
+        return errRes("You can't message this person.", 403, "forbidden", cors);
       }
       // A DM thread has exactly two participants, so "a thread both of us
       // are in, that's a DM" is unambiguous — no need to also check that
@@ -1472,7 +1551,7 @@ export async function onRequest(context) {
          LIMIT 1`
       ).bind(user.id, targetId).first();
       if (existing) {
-        return new Response(JSON.stringify({ thread_id: existing.id, created: false }), { status: 200, headers: cors });
+        return okRes({ thread_id: existing.id, created: false }, 200, cors);
       }
       /* Commit 100 — the recipient's DM policy gates NEW conversations. This
          check sits after the find-existing lookup on purpose: an open thread
@@ -1485,10 +1564,7 @@ export async function onRequest(context) {
          and following is not the answer (it is the recipient's follow that
          matters). */
       if (!(await mayStartConversation(env, user.id, targetId))) {
-        return new Response(JSON.stringify({
-          error: "This person only accepts messages from people they follow. Follow them and they may follow you back, which opens a conversation.",
-          code: "dm_not_allowed",
-        }), { status: 403, headers: cors });
+        return errRes("This person only accepts messages from people they follow. Follow them and they may follow you back, which opens a conversation.", 403, "dm_not_allowed", cors);
       }
       // Note: back-to-back double-clicks could theoretically race past this
       // check and create two separate DM threads for the same pair — low-
@@ -1499,7 +1575,7 @@ export async function onRequest(context) {
       await env.DB.prepare("INSERT INTO threads (id, kind, name, created_at) VALUES (?, 'dm', NULL, ?)").bind(threadId, now).run();
       await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, user.id, now).run();
       await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, targetId, now).run();
-      return new Response(JSON.stringify({ thread_id: threadId, created: true }), { status: 200, headers: cors });
+      return okRes({ thread_id: threadId, created: true }, 200, cors);
     }
 
     // Commit 48: block/unblock the other person in a DM. Storage is
@@ -1510,11 +1586,11 @@ export async function onRequest(context) {
     // double-click race — both), so it fully clears the pair regardless of
     // who blocked whom first.
     if (action === "toggle-block") {
-      const targetId = (body.target_id || "").toString();
-      if (!targetId) return new Response(JSON.stringify({ error: "Missing target_id." }), { status: 400, headers: cors });
-      if (targetId === user.id) return new Response(JSON.stringify({ error: "You can't block yourself." }), { status: 400, headers: cors });
+      const targetId = safeId(body.target_id);
+      if (!targetId) return errRes("Missing target_id.", 400, "missing_id", cors);
+      if (targetId === user.id) return errRes("You can't block yourself.", 400, "bad_request", cors);
       const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
-      if (!target || target.discoverable === 0) return new Response(JSON.stringify({ error: "That account isn't available.", code: "not_available" }), { status: 404, headers: cors });
+      if (!target || target.discoverable === 0) return errRes("That account isn't available.", 404, "not_available", cors);
       const wasBlocked = await isBlockedPair(env, user.id, targetId);
       if (wasBlocked) {
         await env.DB.prepare(
@@ -1525,7 +1601,7 @@ export async function onRequest(context) {
           "INSERT OR IGNORE INTO user_blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)"
         ).bind(user.id, targetId, Date.now()).run();
       }
-      return new Response(JSON.stringify({ blocked: !wasBlocked }), { status: 200, headers: cors });
+      return okRes({ blocked: !wasBlocked }, 200, cors);
     }
 
     // Commit 48: user/message/call conduct reports, filed from the Inbox
@@ -1539,19 +1615,27 @@ export async function onRequest(context) {
     if (action === "file-report") {
       const kind = (body.kind || "").toString();
       if (!["message", "user", "call"].includes(kind)) {
-        return new Response(JSON.stringify({ error: "Invalid report type." }), { status: 400, headers: cors });
+        return errRes("Invalid report type.", 400, "bad_request", cors);
       }
       const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, MAX_REPORT_REASON_LEN) : "";
       const note = typeof body.note === "string" ? body.note.trim().slice(0, MAX_REPORT_NOTE_LEN) : "";
-      if (!reason) return new Response(JSON.stringify({ error: "Pick a reason." }), { status: 400, headers: cors });
-      const reportedUserId = body.reported_user_id ? body.reported_user_id.toString() : null;
-      const threadId = body.thread_id ? body.thread_id.toString() : null;
-      const messageId = body.message_id ? body.message_id.toString() : null;
+      if (!reason) return errRes("Pick a reason.", 400, "bad_request", cors);
+      // Optional ids, but when present they must look like ids we generated —
+      // a 40KB string in reported_user_id previously rode straight into a
+      // query bind.
+      const reportedUserId = body.reported_user_id == null ? null : safeId(body.reported_user_id);
+      const threadId = body.thread_id == null ? null : safeId(body.thread_id);
+      const messageId = body.message_id == null ? null : safeId(body.message_id);
+      if ((body.reported_user_id != null && !reportedUserId) ||
+          (body.thread_id != null && !threadId) ||
+          (body.message_id != null && !messageId)) {
+        return errRes("Invalid report target.", 400, "invalid_id", cors);
+      }
       if (!reportedUserId && !threadId) {
-        return new Response(JSON.stringify({ error: "Nothing to report.", code: "empty_report" }), { status: 400, headers: cors });
+        return errRes("Nothing to report.", 400, "empty_report", cors);
       }
       if (reportedUserId === user.id) {
-        return new Response(JSON.stringify({ error: "You can't report yourself.", code: "self_report" }), { status: 400, headers: cors });
+        return errRes("You can't report yourself.", 400, "self_report", cors);
       }
 
       /* SECURITY: the membership guard below only ran when a thread_id was
@@ -1574,7 +1658,7 @@ export async function onRequest(context) {
             LIMIT 1`
         ).bind(user.id, reportedUserId, user.id, reportedUserId, reportedUserId, user.id).first();
         if (!related) {
-          return new Response(JSON.stringify({ error: "You can only report someone you've interacted with.", code: "no_relationship" }), { status: 403, headers: cors });
+          return errRes("You can only report someone you've interacted with.", 403, "no_relationship", cors);
         }
       }
 
@@ -1584,7 +1668,7 @@ export async function onRequest(context) {
         "SELECT 1 FROM content_reports WHERE reporter_id = ? AND reported_user_id IS ? AND created_at > ? LIMIT 1"
       ).bind(user.id, reportedUserId, Date.now() - 24 * 60 * 60 * 1000).first().catch(() => null);
       if (dupe) {
-        return new Response(JSON.stringify({ error: "You've already reported this. We're looking at it.", code: "duplicate_report" }), { status: 429, headers: cors });
+        return errRes("You've already reported this. We're looking at it.", 429, "duplicate_report", cors);
       }
       // Same membership guard as send-message/thread: reporting a
       // conversation (or a message/call inside one) you're not actually
@@ -1593,7 +1677,7 @@ export async function onRequest(context) {
         const membership = await env.DB.prepare(
           "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
         ).bind(threadId, user.id).first();
-        if (!membership) return new Response(JSON.stringify({ error: "You're not part of that conversation." }), { status: 403, headers: cors });
+        if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
       }
       // A reported message has to actually belong to the reported thread —
       // otherwise thread_id and message_id could point at two unrelated
@@ -1601,7 +1685,7 @@ export async function onRequest(context) {
       if (messageId) {
         const msgRow = await env.DB.prepare("SELECT thread_id FROM messages WHERE id = ?").bind(messageId).first();
         if (!msgRow || msgRow.thread_id !== threadId) {
-          return new Response(JSON.stringify({ error: "That message couldn't be found in that conversation." }), { status: 400, headers: cors });
+          return errRes("That message couldn't be found in that conversation.", 400, "bad_request", cors);
         }
       }
       await env.DB.prepare(
@@ -1619,24 +1703,24 @@ export async function onRequest(context) {
     // contact with a scientist.
     if (action === "watch-topic" || action === "unwatch-topic") {
       const topic = normalizeTopic(body.topic);
-      if (!topic) return new Response(JSON.stringify({ error: "Missing topic." }), { status: 400, headers: cors });
+      if (!topic) return errRes("Missing topic.", 400, "bad_request", cors);
       if (action === "unwatch-topic") {
         await env.DB.prepare(
           "DELETE FROM watched_topics WHERE user_id = ? AND lower(topic) = lower(?)"
         ).bind(user.id, topic).run();
-        return new Response(JSON.stringify({ watching: false, topic }), { status: 200, headers: cors });
+        return okRes({ watching: false, topic }, 200, cors);
       }
       const existing = await env.DB.prepare(
         "SELECT id FROM watched_topics WHERE user_id = ? AND lower(topic) = lower(?)"
       ).bind(user.id, topic).first();
-      if (existing) return new Response(JSON.stringify({ watching: true, topic }), { status: 200, headers: cors });
+      if (existing) return okRes({ watching: true, topic }, 200, cors);
       // A cap, because a 200-topic watchlist produces a number nobody
       // reads and a page nobody opens twice.
       const countRow = await env.DB.prepare(
         "SELECT COUNT(*) AS n FROM watched_topics WHERE user_id = ?"
       ).bind(user.id).first();
       if ((countRow && countRow.n) >= 40) {
-        return new Response(JSON.stringify({ error: "You're watching 40 topics already — remove one to add another." }), { status: 400, headers: cors });
+        return errRes("You're watching 40 topics already — remove one to add another.", 400, "bad_request", cors);
       }
       const now = Date.now();
       // last_seen_at starts at now, so the first count is "published since
@@ -1644,7 +1728,7 @@ export async function onRequest(context) {
       await env.DB.prepare(
         "INSERT INTO watched_topics (id, user_id, topic, created_at, last_seen_at, last_count) VALUES (?, ?, ?, ?, ?, 0)"
       ).bind(newId("wt"), user.id, topic, now, now).run();
-      return new Response(JSON.stringify({ watching: true, topic }), { status: 200, headers: cors });
+      return okRes({ watching: true, topic }, 200, cors);
     }
 
     // Called when the user actually opens a watched topic's new results.
@@ -1652,7 +1736,7 @@ export async function onRequest(context) {
     // without looking, and it doesn't clear itself on a page view.
     if (action === "watchlist-seen") {
       const topic = normalizeTopic(body.topic);
-      if (!topic) return new Response(JSON.stringify({ error: "Missing topic." }), { status: 400, headers: cors });
+      if (!topic) return errRes("Missing topic.", 400, "bad_request", cors);
       await env.DB.prepare(
         "UPDATE watched_topics SET last_seen_at = ?, last_count = 0 WHERE user_id = ? AND lower(topic) = lower(?)"
       ).bind(Date.now(), user.id, topic).run();
@@ -1670,7 +1754,7 @@ export async function onRequest(context) {
       // text from the client — validate the shape so a hostile client
       // can't write arbitrary content into an audit column.
       if (!/^[0-9A-Za-z._-]{1,40}$/.test(version)) {
-        return new Response(JSON.stringify({ error: "Invalid version." }), { status: 400, headers: cors });
+        return errRes("Invalid version.", 400, "bad_request", cors);
       }
       await env.DB.prepare(
         "UPDATE users SET terms_version = ?, terms_accepted_at = ? WHERE id = ?"
@@ -1678,9 +1762,9 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ ok: true, version }), { status: 200, headers: cors });
     }
 
-    return new Response(JSON.stringify({ error: "Unknown resource/action." }), { status: 400, headers: cors });
+    return errRes("Unknown resource/action.", 400, "bad_request", cors);
   } catch (e) {
     console.error("Cerebrum data endpoint error:", e);
-    return new Response(JSON.stringify({ error: "Something went wrong. Please try again." }), { status: 500, headers: cors });
+    return errRes("Something went wrong. Please try again.", 500, "internal_error", cors);
   }
 }

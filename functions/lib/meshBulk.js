@@ -8525,3 +8525,14 @@ export const MESH_BULK = {
   "zytram": ["Tramadol","Adolonta","Amadol","Biodalgic"],
   "zyvox": ["Linezolid","Linezolide"],
 };
+
+// ── Shared-vocabulary integrity ──────────────────────────────────────────
+// MESH_BULK is imported once per isolate and read on every search request.
+// Nothing in the codebase writes to it, but a single accidental mutation
+// anywhere (a `.push` on a synonym array, a reassigned key) would poison
+// query expansion for every later request served by that isolate — the
+// exact "poisoned cache" failure this file exists to avoid. Freeze it
+// (and every synonym array) once, at load, so any future write attempt
+// fails loudly instead of corrupting silently.
+for (const syns of Object.values(MESH_BULK)) Object.freeze(syns);
+Object.freeze(MESH_BULK);

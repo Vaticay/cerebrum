@@ -6896,8 +6896,14 @@ export async function onRequest(context) {
   }
 
   try {
-    const body = await request.json().catch(() => ({}));
-    let query = (body.query || "").trim();
+    // Bounded body: the search payload carries history, settings, and an
+    // optional attached image — cap it well above any legitimate request
+    // but far below what could exhaust worker memory.
+    const { readJsonBody } = await import("../lib/http.js");
+    const parsed = await readJsonBody(request, secureCors, 4 * 1024 * 1024);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
+    let query = typeof body.query === "string" ? body.query.trim() : "";
     // An attached image can carry the whole question on its own (a photo of
     // a specimen with no typed text at all) — only reject the request if
     // there's neither a typed query NOR an image to fall back to.
@@ -9215,21 +9221,15 @@ export async function onRequest(context) {
     let briefText = "";
     let briefClaims = [];
     const extractQuickCall = (msgs) => {
+      // Two legs max: the brief is best-effort pre-digestion, not worth
+      // burning the shared rate-limit buckets that waves 1-3 need to
+      // actually answer. (This used to fan out 4 legs per paper.)
       const legs = [];
-      const usedUrls = new Set();
-      for (const pv of activeProviders.slice(0, 2)) {
+      const pv = activeProviders[0];
+      if (pv) {
         const pm = PROVIDER_MODELS[pv.id] || {};
         const m = (pm.w2 && pm.w2[pm.w2.length - 1]) || (pm.w1 && pm.w1[0]);
-        if (!m) continue;
-        legs.push(postChatCompletion({ url: pv.url, key: pv.key, model: m, messages: msgs, maxTokens: 300, timeoutMs: 12000 }));
-        usedUrls.add(pv.url);
-      }
-      if (token && !usedUrls.has("https://openrouter.ai/api/v1/chat/completions")) {
-        legs.push(postChatCompletion({
-          url: "https://openrouter.ai/api/v1/chat/completions", key: token,
-          model: "meta-llama/llama-3.2-3b-instruct:free", messages: msgs, maxTokens: 300, timeoutMs: 12000,
-          extraHeaders: { "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
-        }));
+        if (m) legs.push(postChatCompletion({ url: pv.url, key: pv.key, model: m, messages: msgs, maxTokens: 300, timeoutMs: 12000 }));
       }
       legs.push((async () => {
         const c = new AbortController();
@@ -9248,11 +9248,15 @@ export async function onRequest(context) {
       })());
       return Promise.any(legs);
     };
+    // Capped at 3 papers: the brief is a head start for the small wave-2/3
+    // models, not a second full synthesis. 8 papers x N legs of speculative
+    // calls used to drain the same rate-limit buckets waves 1-3 draw from —
+    // a self-inflicted cause of the "every model rate-limited" outages.
     const briefPromise = (useEvidence && evidencePapers.length >= 2)
       ? (async () => {
           try {
             const results = await Promise.allSettled(
-              evidencePapers.slice(0, 8).map((p) => (async () => {
+              evidencePapers.slice(0, 3).map((p) => (async () => {
                 const raw = await extractQuickCall([
                   { role: "system", content: "Extract this paper's key findings as 2-4 atomic claims. One claim per line, each starting with '- '. Each claim: a single specific sentence, with numbers where the paper gives them. No preamble, no numbering, no citations, no extra text." },
                   { role: "user", content: "Title: " + (p.title || "") + "\nAbstract: " + (usableAbstract(p) || "(no abstract)") },
@@ -9265,14 +9269,15 @@ export async function onRequest(context) {
               })())
             );
             const aligned = evidencePapers.map((_, i) =>
-              (i < 8 && results[i] && results[i].status === "fulfilled" ? results[i].value : []));
+              (i < 3 && results[i] && results[i].status === "fulfilled" ? results[i].value : []));
             return buildEvidenceBrief(evidencePapers, aligned);
           } catch {
             return { text: "", claims: [] };
           }
         })()
       : Promise.resolve({ text: "", claims: [] });
-    // Never unhandled, never awaited on the hot path: wave 1 doesn't wait.
+    // Never unhandled. Wave 1 never waits for it; waves 2+ take a bounded
+    // await below so a fast wave-1 failure doesn't outrun the extraction.
     briefPromise.then((r) => {
       briefText = (r && r.text) || "";
       briefClaims = (r && r.claims) || [];
@@ -9445,6 +9450,13 @@ export async function onRequest(context) {
     const POLLINATIONS_WAVE2 = ["mistral", "llama", "qwen-coder"];
 
     const cfBound = !!(env.AI && typeof env.AI.run === "function");
+    // Loud when unbound: the "structurally immune" provider silently drops
+    // out of every wave otherwise, and a wave that looks like 3 independent
+    // providers is really 2. Once per isolate to avoid log spam.
+    if (!cfBound && !globalThis.__cbAiUnboundWarned) {
+      globalThis.__cbAiUnboundWarned = true;
+      console.warn("Cerebrum search: Workers AI binding (env.AI) is NOT bound — Cloudflare models are absent from all synthesis waves. Bind it in the Pages project's dashboard settings.");
+    }
 
     // WAVE 1: small, fast, historically-reliable set from EVERY provider,
     // raced together. This is what actually fixes "OpenRouter-only outage
@@ -9472,6 +9484,18 @@ export async function onRequest(context) {
     // WAVE 2: broader set from every provider, raced together. Only fires if
     // wave 1 fully failed across ALL providers simultaneously.
     if (!aiOK) {
+      // Bounded wait for the speculative brief: a fast-failing wave 1 can
+      // outrun the extraction, and the small wave-2 models do far better
+      // composing from pre-digested claims than from raw abstracts. 4s max —
+      // if the brief isn't ready by then, wave 2 goes with the full
+      // evidence block rather than stalling the user.
+      try {
+        const r = await Promise.race([
+          briefPromise,
+          new Promise((res) => setTimeout(() => res(null), 4000)),
+        ]);
+        if (r && r.text) { briefText = r.text; briefClaims = r.claims || []; }
+      } catch {}
       // If the speculative brief finished while wave 1 raced, compose from
       // pre-digested atomic claims — a much easier task for the smaller
       // models in this tier than the full abstract block.

@@ -31,7 +31,6 @@ import { fetchTrendingItems } from "../lib/trendingSource.js";
 
 const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 60000;
-
 // If the cached row is older than this, treat it as if it doesn't exist.
 // The hourly refresh should be repopulating it every 60 minutes, so
 // anything this stale means that job has been failing for a while, not
@@ -67,6 +66,78 @@ const MAX_CACHE_AGE_MS = 90 * 60 * 1000; // 90 minutes
    ══════════════════════════════════════════════════════════════════ */
 const REFRESH_AFTER_MS = 60 * 60 * 1000; // 60 minutes
 
+// ---- consistent response shapes ----
+// Every response from this endpoint carries `ok`. Failures are always
+// { ok: false, error, code } with a human-safe message; successes are
+// { ok: true, ... }. `error` text and HTTP status are unchanged so existing
+// clients keep working — `ok`/`code` are additive.
+const okRes = (payload, status, headers) =>
+  new Response(JSON.stringify({ ok: true, ...payload }), { status: status || 200, headers });
+const errRes = (message, status, code, headers) =>
+  new Response(JSON.stringify({ ok: false, error: message, code: code || "error" }), { status: status || 400, headers });
+// Exported for unit tests (tests/content-endpoints.mjs).
+export { okRes, errRes };
+
+// ---- cache evaluation, factored pure for unit tests ----
+
+// Parses a trending_cache row into { items, generatedAt, fetchedAt }, or
+// null when the row is missing or its payload isn't JSON we understand.
+// Never throws — a corrupt cache row is a degraded feed, not a 500.
+export function parseCachePayload(row) {
+  if (!row || typeof row.payload !== "string") return null;
+  try {
+    const parsed = JSON.parse(row.payload);
+    const items = parsed && Array.isArray(parsed.items) ? parsed.items : [];
+    return {
+      items,
+      generatedAt: parsed && parsed.generatedAt != null ? parsed.generatedAt : null,
+      fetchedAt: Number(row.fetched_at) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// A parsed payload is servable when it has real items in the current
+// multi-discipline shape. Commit 61's rule, unchanged: items from the
+// current feed carry a `category`, so a cached payload without one is the
+// old single-source (space-only) feed and is discarded no matter how fresh.
+export function isUsableCachePayload(parsed) {
+  if (!parsed || !Array.isArray(parsed.items) || parsed.items.length === 0) return false;
+  return parsed.items.some((x) => x && x.category);
+}
+
+// One place that decides how a cache row should be treated, given its age:
+// "fresh" (serve, no refresh), "stale" (serve now, refresh in background),
+// or "ancient" (try live first; serve only if live fails). A row that fails
+// parseCachePayload/isUsableCachePayload never reaches this function.
+// Exported for unit tests — pure function of (fetchedAt, now).
+export function classifyCacheAge(fetchedAt, now) {
+  const age = now - (Number(fetchedAt) || 0);
+  if (age < 0) return { state: "fresh", ageMs: 0 };
+  if (age <= REFRESH_AFTER_MS) return { state: "fresh", ageMs: age };
+  if (age <= MAX_CACHE_AGE_MS) return { state: "stale", ageMs: age };
+  return { state: "ancient", ageMs: age };
+}
+
+// In the stale window, EVERY visitor would otherwise kick off their own
+// background refresh via waitUntil — ten concurrent visitors means ten
+// concurrent upstream fetch fans. One module-level flag per isolate makes
+// the first request in the window the only one that refreshes; the rest
+// just serve the stale payload. The safety timer clears a flag stuck by an
+// isolate that was frozen mid-refresh (module state would otherwise stay
+// true for the isolate's whole remaining life).
+let _refreshInFlight = false;
+function scheduleRefresh(env, waitUntil) {
+  if (_refreshInFlight) return;
+  _refreshInFlight = true;
+  const done = () => { _refreshInFlight = false; };
+  const safety = setTimeout(done, 120000);
+  const p = refreshCache(env).finally(() => { clearTimeout(safety); done(); });
+  if (typeof waitUntil === "function") waitUntil(p);
+  else p.catch(() => {});
+}
+
 // Refreshes the cache row from upstream. Never throws — this runs
 // detached via waitUntil() where a rejection has nobody to catch it, and
 // a failed background refresh must not affect the response already sent.
@@ -97,53 +168,56 @@ export async function onRequest(context) {
   const cors = corsHeaders(request, env);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  if (request.method !== "GET") return new Response(JSON.stringify({ error: "Method not allowed." }), { status: 405, headers: cors });
-  if (!readOriginAllowed(request, env)) return new Response(JSON.stringify({ error: "Origin not allowed." }), { status: 403, headers: cors });
+  if (request.method !== "GET") return errRes("Method not allowed.", 405, "method_not_allowed", cors);
+  if (!readOriginAllowed(request, env)) return errRes("Origin not allowed.", 403, "origin_not_allowed", cors);
 
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
   if (!(await checkRateLimit(env, `trending:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
-    return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }), { status: 429, headers: { ...cors, "Retry-After": "30" } });
+    return errRes("Too many requests. Please wait a moment and try again.", 429, "rate_limited", { ...cors, "Retry-After": "30" });
   }
 
+  // Serves a cache payload with the consistent { ok: true, ... } shape.
+  // The payload is re-serialized (not returned verbatim) so every path out
+  // of this endpoint — cache, live, or degraded — carries the same fields.
+  const serveCache = (cached, source, extra) => okRes(
+    { items: cached.items, generatedAt: cached.generatedAt, stale: source !== "cache", ...(extra || {}) },
+    200,
+    {
+      ...cors,
+      // A stale-but-serving payload gets a short browser TTL so the next
+      // visitor picks up the refreshed one promptly.
+      "Cache-Control": source === "cache" ? "public, max-age=300" : "public, max-age=60",
+      "X-Trending-Source": source,
+      "X-Trending-Age": String(Math.round(cached.ageMs / 1000)),
+    }
+  );
+
   // ---- Fast path: serve the hourly-refreshed D1 cache ----
+  // `lastResort` holds a usable-but-ancient payload: older than
+  // MAX_CACHE_AGE_MS, so it is NOT served as the primary answer — but if
+  // the live fetch below fails, yesterday's real feed beats a 502 and an
+  // empty page. The old behaviour discarded it and failed the request.
+  let lastResort = null;
   if (env.DB) {
     try {
       await ensureTable(env);
       const row = await env.DB.prepare("SELECT payload, fetched_at FROM trending_cache WHERE id = 1").first();
-      // Commit 61 — a cached payload from the OLD single-source feed is
-      // still "fresh" by age but is 100% space news, so broadening the
-      // sources changed nothing on screen: every visitor kept being served
-      // the pre-existing cache row until it aged out, and the hourly job
-      // that would replace it may not be running at all. Age alone is the
-      // wrong staleness test after a source change; the shape of the data
-      // is the real one. Items from the multi-discipline feed carry a
-      // `category`, so a cached payload without one is by definition from
-      // the old feed and gets discarded no matter how recent it is.
-      let cacheUsable = false;
-      if (row && row.payload && Date.now() - row.fetched_at < MAX_CACHE_AGE_MS) {
-        try {
-          const parsed = JSON.parse(row.payload);
-          const list = Array.isArray(parsed && parsed.items) ? parsed.items : [];
-          cacheUsable = list.length > 0 && list.some((x) => x && x.category);
-        } catch { cacheUsable = false; }
-      }
-      if (cacheUsable) {
-        // Past the refresh window but still inside the max age: serve this
-        // payload now, and rebuild it after the response has been sent.
-        const age = Date.now() - row.fetched_at;
-        const stale = age > REFRESH_AFTER_MS;
-        if (stale && typeof waitUntil === "function") waitUntil(refreshCache(env));
-        return new Response(row.payload, {
-          status: 200,
-          headers: {
-            ...cors,
-            // A stale-but-serving payload gets a short browser TTL so the
-            // next visitor picks up the refreshed one promptly.
-            "Cache-Control": stale ? "public, max-age=60" : "public, max-age=300",
-            "X-Trending-Source": stale ? "cache-revalidating" : "cache",
-            "X-Trending-Age": String(Math.round(age / 1000)),
-          },
-        });
+      const parsed = parseCachePayload(row);
+      if (parsed && isUsableCachePayload(parsed)) {
+        const { state, ageMs } = classifyCacheAge(parsed.fetchedAt, Date.now());
+        const cached = { ...parsed, ageMs };
+        if (state === "fresh") {
+          return serveCache(cached, "cache");
+        }
+        if (state === "stale") {
+          // Past the refresh window but still inside the max age: serve
+          // this payload now, and rebuild it after the response has gone
+          // out. scheduleRefresh dedups so concurrent visitors in the same
+          // window trigger exactly one background refresh per isolate.
+          scheduleRefresh(env, waitUntil);
+          return serveCache(cached, "cache-revalidating");
+        }
+        lastResort = cached;
       }
     } catch (e) {
       console.error("Cerebrum trending cache read failed:", e);
@@ -152,22 +226,31 @@ export async function onRequest(context) {
     }
   }
 
-  // ---- Fallback: cache missing, stale, or no DB bound. Fetch live. ----
+  // ---- Fallback: cache missing, stale, ancient, or no DB bound. Fetch live. ----
   try {
     const items = await fetchTrendingItems();
-    const body = JSON.stringify({ items, generatedAt: Date.now() });
+    const generatedAt = Date.now();
+    const body = JSON.stringify({ items, generatedAt });
     // Opportunistically warm the cache with this live result too, so the
     // next visitor — and the next hourly refresh, whenever it lands —
     // isn't starting from nothing either.
     if (env.DB) {
       const write = env.DB.prepare(
         "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"
-      ).bind(body, Date.now()).run().catch(() => {});
+      ).bind(body, generatedAt).run().catch(() => {});
       if (typeof waitUntil === "function") waitUntil(write); else await write;
     }
-    return new Response(body, { status: 200, headers: { ...cors, "Cache-Control": "public, max-age=300", "X-Trending-Source": "live" } });
+    return okRes({ items, generatedAt }, 200, { ...cors, "Cache-Control": "public, max-age=300", "X-Trending-Source": "live" });
   } catch (e) {
     console.error("Cerebrum trending endpoint error:", e);
-    return new Response(JSON.stringify({ error: "Couldn't load the trending feed right now. Please try again shortly.", items: [] }), { status: 502, headers: cors });
+    // Upstream failed. Serve the ancient cache rather than a 5xx when one
+    // exists; otherwise a 200 with an empty list and degraded: true. The
+    // frontend keeps whatever feed it already had on screen for background
+    // polls and only shows its error state on a genuine first-load
+    // failure — either way, no visitor ever sees a 502 page here.
+    if (lastResort) {
+      return serveCache(lastResort, "cache-expired", { degraded: true });
+    }
+    return okRes({ items: [], generatedAt: null, degraded: true }, 200, cors);
   }
 }

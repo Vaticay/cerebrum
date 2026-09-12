@@ -1,5 +1,6 @@
-import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
+import { corsHeaders, readOriginAllowed } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { neverFail, raceFirst, fetchWithTimeout, safeErr, jsonOk, jsonError, clampText } from "../lib/resilience.js";
 
 // Dedicated videos endpoint. Frontend fires this in parallel with /api/search
 // so the answer isn't delayed by video fetching. Keyless, uses direct YouTube
@@ -91,17 +92,15 @@ async function youtubeDirectSearch(query, limit = 6) {
     "https://www.youtube.com/results?" +
     new URLSearchParams({ search_query: searchQuery });
   try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 5000);
-    const res = await fetch(url, {
-      signal: c.signal,
+    // fetchWithTimeout: a YouTube edge that accepts the connection and never
+    // answers must not hold a Worker open until the platform kills it.
+    const res = await fetchWithTimeout(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
       },
-    });
-    clearTimeout(t);
+    }, 5000);
     if (!res.ok) return [];
     const html = await res.text();
     const m = html.match(/var ytInitialData = (\{[\s\S]*?\});<\/script>/);
@@ -179,11 +178,8 @@ async function tryProxy(inst, query) {
   const url = inst.type === "piped"
     ? inst.url + "/search?q=" + qs + "&filter=videos"
     : inst.url + "/api/v1/search?q=" + qs + "&type=video";
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), 2000);
   try {
-    const r = await fetch(url, { signal: c.signal, headers: { "User-Agent": "Mozilla/5.0" } });
-    clearTimeout(t);
+    const r = await fetchWithTimeout(url, { headers: { "User-Agent": "Mozilla/5.0" } }, 2000);
     if (!r.ok) throw new Error(inst.url + ": HTTP " + r.status);
     const data = await r.json();
     const items = Array.isArray(data) ? data : (data.items || []);
@@ -212,7 +208,7 @@ async function tryProxy(inst, query) {
     }
     if (!out.length) throw new Error(inst.url + ": no usable results");
     return out;
-  } catch (e) { clearTimeout(t); throw e; }
+  } catch (e) { throw e; }
 }
 
 export async function onRequest(context) {
@@ -221,50 +217,65 @@ export async function onRequest(context) {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: cors });
   }
-  if (request.method !== "POST") {
-    return new Response(JSON.stringify({ videos: [], error: "Method not allowed." }), { status: 405, headers: cors });
+  if (request.method !== "POST" && request.method !== "GET") {
+    return jsonError(405, "method_not_allowed", "Method not allowed.", cors);
   }
   if (!readOriginAllowed(request, env)) {
-    return new Response(JSON.stringify({ videos: [], error: "Origin not allowed." }), { status: 403, headers: cors });
+    return jsonError(403, "origin_not_allowed", "Origin not allowed.", cors);
   }
   const clientIP =
     request.headers.get("CF-Connecting-IP") ||
     request.headers.get("X-Forwarded-For") ||
     "unknown";
   if (!(await checkRateLimit(env, `videos:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
-    return new Response(
-      JSON.stringify({ videos: [], error: "Too many requests. Please wait a moment and try again." }),
-      { status: 429, headers: { ...cors, "Retry-After": "30" } }
-    );
+    return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", {
+      ...cors, "Retry-After": "30",
+    });
   }
   try {
-    const body = await request.json().catch(() => ({}));
-    const query = (body.query || "").toString().trim().slice(0, 300);
-    if (!query) return new Response(JSON.stringify({ videos: [] }), { status: 200, headers: cors });
+    // Both shapes exist in the wild: the search page POSTs {query}, the
+    // article modal fires a GET with ?q=. Accepting both is cheaper than
+    // auditing every caller, and a refused method is a silent broken video
+    // rail, not a security boundary.
+    let query = "";
+    if (request.method === "GET") {
+      query = clampText(new URL(request.url).searchParams.get("q"), 300);
+    } else {
+      const body = await request.json().catch(() => ({}));
+      query = clampText(body && body.query, 300);
+    }
+    if (!query) return jsonOk({ videos: [] }, cors);
 
-    const timedRace = new Promise((resolve) => setTimeout(() => resolve([]), 4000));
     const doFetch = async () => {
-      const direct = await youtubeDirectSearch(query, 6).catch(() => []);
-      if (direct.length) return direct;
-      // shuffle
-      const arr = PROXIES.slice();
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-      try {
-        const result = await Promise.any(arr.slice(0, 4).map((p) => tryProxy(p, query)));
-        if (result && result.length) return result;
-      } catch {}
-      return [];
+      // First HEALTHY leg wins; a fast failure can never beat a slow
+      // success. Every leg degrades to "out of the race" rather than
+      // throwing, and the whole race has a hard deadline — the client
+      // always gets an answer within ~4s, even if that answer is [].
+      const legs = [
+        neverFail(youtubeDirectSearch(query, 6), null, "youtube-direct"),
+        (async () => {
+          // shuffle
+          const arr = PROXIES.slice();
+          for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+          }
+          const proxies = arr.slice(0, 4).map((p) =>
+            neverFail(tryProxy(p, query), null, "proxy:" + p.url)
+          );
+          const result = await raceFirst(proxies, { timeoutMs: 2500, label: "proxies", fallback: null });
+          return result && result.length ? result : null;
+        })(),
+      ];
+      const videos = await raceFirst(legs, { timeoutMs: 4000, label: "videos", fallback: [] });
+      return videos || [];
     };
-    const videos = await Promise.race([doFetch(), timedRace]);
-    return new Response(JSON.stringify({ videos }), { status: 200, headers: cors });
+    const videos = await doFetch();
+    return jsonOk({ videos }, cors);
   } catch (e) {
-    // Bug: this used to echo the raw exception (`String(e)`) straight to the
-    // client — a genuine internal failure could leak implementation detail.
-    // Log server-side, return a static message to the client.
-    console.error("Cerebrum videos endpoint error:", e);
-    return new Response(JSON.stringify({ videos: [], error: "Video search unavailable." }), { status: 200, headers: cors });
+    console.error("Cerebrum videos endpoint error:", safeErr(e));
+    // Never a 500: no videos is an honest, renderable outcome; a failure
+    // page is not.
+    return jsonOk({ videos: [] }, cors);
   }
 }

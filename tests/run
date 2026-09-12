@@ -490,6 +490,67 @@ await test("evidence brief is launched before wave 1 and consumed by waves 2+", 
   assert.match(searchSrc, /EVIDENCE BRIEF \(pre-extracted claims — lead with these/, "wave 3 does not consume the brief");
   assert.match(searchSrc, /Promise\.any\(legs\)/, "extraction has no provider race");
 });
+await test("speculative brief fan-out is capped and wave 2 waits boundedly", () => {
+  // The brief must not drain the rate-limit buckets waves 1-3 need:
+  // capped papers and a small fixed leg count.
+  assert.match(searchSrc, /evidencePapers\.slice\(0, 3\)/, "brief paper fan-out is not capped");
+  assert.ok(!/activeProviders\.slice\(0, 2\)/.test(searchSrc), "brief still fans out across multiple provider legs");
+  // A fast-failing wave 1 must not outrun the extraction: bounded await
+  // before wave-2 messages are built.
+  assert.match(searchSrc, /Promise\.race\(\[\s*briefPromise/, "wave 2 does not take a bounded await on the brief");
+});
+await test("Turn is memoized with stabilized per-turn callbacks", async () => {
+  const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
+  assert.match(appSrc, /const Turn = React\.memo\(TurnInner\)/, "Turn is not wrapped in React.memo");
+  assert.match(appSrc, /askRef\.current/, "per-turn callbacks do not read through a stable ask ref");
+  assert.match(appSrc, /<TurnRow key=\{t\.id \?\? ti\}/, "turn list does not render the stabilized TurnRow");
+  assert.ok(!/onStress=\{\(o\) => ask\(t\.q, o\)\}/.test(appSrc), "unstable inline onStress still passed per render");
+});
+await test("a11y: skip link, main landmark, input names, SVG roles, abort", async () => {
+  const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
+  assert.match(appSrc, /className="cb-skip-link"/, "skip link missing");
+  assert.match(appSrc, /<main id="cb-main" ref=\{mainRef\}/, "main landmark missing");
+  assert.match(appSrc, /useEffect\(\(\) => \{\s*if \(viewFirstRef\.current\)/, "view-change focus move missing");
+  assert.ok(!/<(?:input|textarea|button|select|a)\b[^>]*ariaLabel=/.test(appSrc), "invalid ariaLabel prop on a native element (must be aria-label)");
+  assert.ok(!/role="button"\s*\n\s*aria-label=\{\s*label\s*\}/.test(appSrc), "SVG node still claims role=button with no activation");
+  assert.match(appSrc, /askAbortRef\.current\?\.abort\(\)/, "superseded searches are not aborted");
+  assert.match(appSrc, /signal: askCtrl\.signal/, "abort signal not passed to search fetch");
+  assert.match(appSrc, /cbMotionCacheBust/, "motion-preference cookie reads are not cached");
+});
+await test("vote/report UI is honest about the auth requirement", async () => {
+  const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
+  // Votes: a 401 must not be thanked for.
+  assert.match(appSrc, /r\.status === 401 \? "Sign in to have your vote counted\."/, "vote 401 feedback missing");
+  // Report: anonymous users are routed to sign-in before the modal opens.
+  assert.match(appSrc, /onRequireAuth=\{stableOnRequireAuth\}/, "onRequireAuth not wired to TurnRow");
+  assert.match(appSrc, /if \(user\) setShowReport\(true\); else onRequireAuth\(\)/, "report button not gated on sign-in");
+});
+await test("premium TTS tier requires a signed-in session", async () => {
+  const ttsSrc = (await (await import("node:fs/promises")).readFile(join(root, "functions/api/tts.js"), "utf8"));
+  assert.match(ttsSrc, /getSessionUser/, "premium TTS has no session check");
+  assert.match(ttsSrc, /premium tier skipped: anonymous caller/, "anonymous premium path not logged/skipped");
+});
+await test("auth email sends have hard timeouts", async () => {
+  const authSrc = (await (await import("node:fs/promises")).readFile(join(root, "functions/api/auth.js"), "utf8"));
+  assert.match(authSrc, /fetchWithTimeout\("https:\/\/api\.resend\.com\/emails"/, "resend fetch not timeout-bounded");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Worker-owned suites (backend overhaul passes): each is a standalone
+// script with its own assertions; run them as child processes so a
+// failure here fails the whole suite.
+for (const suite of ["auth-security.mjs", "content-endpoints.mjs", "media-resilience.mjs", "shared-libs.mjs"]) {
+  await test(`suite ${suite}`, async () => {
+    const { execFile } = await import("node:child_process");
+    await new Promise((resolve, reject) => {
+      execFile(process.execPath, [join(root, "tests", suite)], { timeout: 60000 }, (err, stdout, stderr) => {
+        if (stdout) console.log(stdout.trim().split("\n").map((l) => "    " + l).join("\n"));
+        if (err) reject(new Error(`${suite} failed:\n${stderr || err.message}`));
+        else resolve();
+      });
+    });
+  });
+}
 
 // ══════════════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);

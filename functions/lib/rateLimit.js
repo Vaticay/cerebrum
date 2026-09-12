@@ -38,8 +38,14 @@ const memoryBuckets = new Map();
 function checkMemory(key, limit, windowMs) {
   const now = Date.now();
   const rec = memoryBuckets.get(key) || [];
-  const recent = rec.filter((t) => now - t < windowMs);
+  let recent = rec.filter((t) => now - t < windowMs);
   recent.push(now);
+  // A hot key on a long window would otherwise accumulate timestamps
+  // without bound, making every later filter() call O(all-time hits).
+  // The limiter only needs to know whether the count exceeds `limit`, so
+  // keep at most limit+1 entries — enough to answer the question exactly.
+  const cap = Math.max(limit + 1, 1);
+  if (recent.length > cap) recent = recent.slice(-cap);
   memoryBuckets.set(key, recent);
   if (memoryBuckets.size > 8000) {
     for (const [k, v] of memoryBuckets) {

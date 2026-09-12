@@ -136,6 +136,71 @@ function getSessionCookie(request) {
 
 const PENDING_COOKIE = "cb_pending_auth";
 const OTP_TTL_MS = 15 * 60 * 1000;
+// Hard ceiling on wrong guesses per issued code. A 6-digit space is only one
+// million possibilities; without a per-code bound, "rate limited" is theater.
+const OTP_MAX_ATTEMPTS = 5;
+
+// Module-local constant-time hex comparison, shared by the exported OTP
+// decision logic below and the verify-code handler, so the unit tests in
+// tests/auth-security.mjs exercise the exact primitive the live path uses.
+function otpHexEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/* ── OTP attempt decision (pure; exported for unit tests) ──────────────
+ *
+ * Decides what a verification attempt MEANS without touching storage, so
+ * the rules — expiry, single-use, attempt burn, cookie pairing — can be
+ * tested without a database. The handler in onRequest binds these decisions
+ * to D1 transitions via runOtpAttempt's `store` argument.
+ *
+ * Check order is load-bearing:
+ *   expired > exhausted > no_cookie > bad_flow > bad_code > valid
+ * "exhausted" is evaluated BEFORE the cookie pairing check, matching the
+ * handler's historical order: a burned code is burned regardless of which
+ * cookie (if any) arrived with the request.
+ */
+export function decideOtpAttempt(row, { codeHash, flowHash, now = Date.now() } = {}) {
+  if (!row) return "no_row";
+  if (typeof row.expires_at === "number" && row.expires_at <= now) return "expired";
+  if ((row.attempts | 0) >= OTP_MAX_ATTEMPTS) return "exhausted";
+  if (!flowHash) return "no_cookie";
+  if (!otpHexEqual(flowHash, String(row.flow_hash))) return "bad_flow";
+  if (!otpHexEqual(codeHash, String(row.code_hash))) return "bad_code";
+  return "valid";
+}
+
+/* Applies an OTP attempt against a storage backend.
+ *
+ * `store` is the only thing that touches persistence:
+ *   getOtpRow(emailLower)    -> the pending row, or null
+ *   consumeOtpRow(emailLower) -> delete the pending row (single-use burn)
+ *   bumpOtpAttempts(emailLower) -> increment the wrong-guess counter
+ *
+ * Transitions:
+ *   valid     -> consume (a correct code can never be replayed)
+ *   bad_code  -> bump attempts; the NEXT wrong guess after the 5th finds a
+ *                burned row, because "exhausted" consumes too
+ *   expired / exhausted -> consume (dead rows are swept, never left live)
+ *   no_row / no_cookie / bad_flow -> no state change; the attacker learns
+ *                nothing and the legitimate pending code is untouched
+ *
+ * Returns the decision string; the handler maps anything but "valid" to the
+ * same generic response so the reason never becomes an oracle.
+ */
+export async function runOtpAttempt(store, emailLower, { codeHash, flowHash, now = Date.now() } = {}) {
+  const row = await store.getOtpRow(emailLower);
+  const decision = decideOtpAttempt(row, { codeHash, flowHash, now });
+  if (decision === "valid" || decision === "expired" || decision === "exhausted") {
+    await store.consumeOtpRow(emailLower);
+  } else if (decision === "bad_code") {
+    await store.bumpOtpAttempts(emailLower);
+  }
+  return decision;
+}
 
 function pendingCookieHeader(token, isSecure) {
   return `${PENDING_COOKIE}=${token}; Path=/; Max-Age=${Math.floor(OTP_TTL_MS / 1000)}; HttpOnly; SameSite=Lax${isSecure ? "; Secure" : ""}`;
@@ -225,11 +290,14 @@ async function sendOtpEmail(env, email, code) {
   </div>
 </div>`;
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    // 12s hard timeout: a Resend edge that accepts and never answers must
+    // not hold the sign-in request open until the platform kills it.
+    const { fetchWithTimeout } = await import("../lib/resilience.js");
+    const res = await fetchWithTimeout("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from, to: email, subject: "Your Cerebrum sign-in code", html }),
-    });
+    }, 12000);
     if (!res.ok) {
       // Read and log Resend's actual rejection reason — "domain not
       // verified", "invalid from address", "API key revoked", etc. This
@@ -256,7 +324,8 @@ async function sendMagicLinkEmail(env, email, link) {
   }
   const from = env.RESEND_FROM || RESEND_FROM_DEFAULT;
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    const { fetchWithTimeout } = await import("../lib/resilience.js");
+    const res = await fetchWithTimeout("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.RESEND_API_KEY}`,
@@ -268,7 +337,7 @@ async function sendMagicLinkEmail(env, email, link) {
         subject: "Your Cerebrum sign-in link",
         html: `<p>Click below to sign in to Cerebrum. This link expires in 15 minutes and can only be used once.</p><p><a href="${link}">Sign in to Cerebrum</a></p><p>If you didn't request this, you can ignore this email.</p>`,
       }),
-    });
+    }, 12000);
     if (!res.ok) {
       const detail = await res.text().catch(() => "<unreadable response body>");
       console.error("Magic link send rejected by Resend:", res.status, detail);
@@ -551,29 +620,23 @@ export async function onRequest(context) {
         await ensureOtpTable(env);
         await auth.ensureUserProfileColumns(env);
         await auth.ensureSocialTables(env);
-        const row = await env.DB.prepare("SELECT * FROM otp_codes WHERE email_lower = ?")
-          .bind(emailLower)
-          .first();
-        if (!row) return fail("no pending D1 row for this email — was send-code ever called, or already consumed?");
-        if (row.expires_at < Date.now()) return fail("D1 row expired");
-        if (row.attempts >= 5) {
-          await env.DB.prepare("DELETE FROM otp_codes WHERE email_lower = ?").bind(emailLower).run();
-          return json({ error: "Too many incorrect attempts. Request a new code." }, 429, cors);
-        }
-        if (!flowToken) return fail("missing cb_pending_auth cookie");
-        const flowHash = await auth.sha256Hex(flowToken);
-        if (!auth.timingSafeEqualHex(flowHash, row.flow_hash)) return fail("pending-auth cookie doesn't match the one send-code issued");
-
+        // Computed unconditionally, even when no row exists: a uniform cost
+        // here means the presence or absence of a pending code does not leak
+        // through timing.
         const codeHash = await auth.hashOtp(env, emailLower, code);
-        if (!auth.timingSafeEqualHex(codeHash, row.code_hash)) {
-          await env.DB.prepare("UPDATE otp_codes SET attempts = attempts + 1 WHERE email_lower = ?")
-            .bind(emailLower)
-            .run();
-          return fail("code does not match the one on record (wrong digits, or a stale/already-superseded code)");
-        }
-
-        // Correct — burn it immediately so it can never be replayed.
-        await env.DB.prepare("DELETE FROM otp_codes WHERE email_lower = ?").bind(emailLower).run();
+        const flowHash = flowToken ? await auth.sha256Hex(flowToken) : null;
+        const store = {
+          getOtpRow: (e) => env.DB.prepare("SELECT * FROM otp_codes WHERE email_lower = ?").bind(e).first(),
+          consumeOtpRow: (e) => env.DB.prepare("DELETE FROM otp_codes WHERE email_lower = ?").bind(e).run(),
+          bumpOtpAttempts: (e) => env.DB.prepare("UPDATE otp_codes SET attempts = attempts + 1 WHERE email_lower = ?").bind(e).run(),
+        };
+        const decision = await runOtpAttempt(store, emailLower, { codeHash, flowHash });
+        /* Every non-"valid" decision returns the same generic response. This
+         * used to answer a burned code with a distinct 429, which let anyone
+         * probe whether a sign-in code was currently pending for an address
+         * they do not own (and whether five guesses had already landed on
+         * it). The reason still goes to the server log, where it belongs. */
+        if (decision !== "valid") return fail(`otp decision: ${decision}`);
 
         // email_lower, not email, is the lookup key here — same as every
         // other query in this file — so "Foo@x.com" and "foo@x.com" resolve

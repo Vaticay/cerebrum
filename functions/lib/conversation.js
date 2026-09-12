@@ -15,7 +15,10 @@ export function contextAction(query) {
 }
 
 export function previousAnswer(history) {
-  return Array.isArray(history) ? [...history].reverse().find(t => t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) : null;
+  // Only the tail can matter: the most recent assistant message is what a
+  // follow-up refers to. Slicing first bounds the copy+scan for pathological
+  // histories (thousands of turns) instead of walking the whole array.
+  return Array.isArray(history) ? history.slice(-100).reverse().find(t => t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) : null;
 }
 
 export async function answerFromContext(query, history, env, action) {

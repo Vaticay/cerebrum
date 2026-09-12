@@ -32,7 +32,7 @@
 // AND thread membership AND that the two participants haven't blocked each
 // other — strictly more access control than what it replaces, not less.
 
-import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
+import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey, readJsonBody } from "../lib/http.js";
 import { getSessionUser, isBlockedPair, ensureSocialTables } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 
@@ -55,6 +55,47 @@ const WINDOW_MS = 60000;
 const ALLOWED_TYPES = new Set(["hello", "offer", "answer", "ice", "bye", "ring"]);
 const MAX_PAYLOAD_JSON_LEN = 8000; // SDP blobs are a few KB; ICE candidates are tiny
 const MAX_CLIENT_ID_LEN = 100;
+// Thread ids are server-minted short strings; an unbounded one is either a
+// bug or a probe, and it is interpolated into SQL binds everywhere below.
+const MAX_THREAD_ID_LEN = 128;
+
+/* Pure input validation, exported so tests can exercise it without a DB.
+ * Returns { ok: true, ...fields } or { ok: false, code, message }. */
+export function validateSignalGet(params) {
+  const threadId = (params.get("threadId") || "").trim();
+  const clientId = (params.get("clientId") || "").trim().slice(0, MAX_CLIENT_ID_LEN);
+  const since = parseInt(params.get("since") || "0", 10) || 0;
+  if (!threadId || !clientId) {
+    return { ok: false, code: "missing_params", message: "Missing threadId or clientId." };
+  }
+  if (threadId.length > MAX_THREAD_ID_LEN) {
+    return { ok: false, code: "invalid_thread", message: "Invalid request." };
+  }
+  return { ok: true, threadId, clientId, since: Math.max(0, since) };
+}
+
+export function validateSignalPost(body) {
+  const b = body && typeof body === "object" ? body : {};
+  const threadId = (b.threadId || "").toString().trim();
+  const clientId = (b.clientId || "").toString().trim().slice(0, MAX_CLIENT_ID_LEN);
+  const type = (b.type || "").toString().trim();
+  if (!threadId || !clientId || !ALLOWED_TYPES.has(type)) {
+    return { ok: false, code: "invalid_request", message: "Invalid request." };
+  }
+  if (threadId.length > MAX_THREAD_ID_LEN) {
+    return { ok: false, code: "invalid_thread", message: "Invalid request." };
+  }
+  let payloadStr;
+  try {
+    payloadStr = JSON.stringify(b.payload != null ? b.payload : {});
+  } catch {
+    return { ok: false, code: "invalid_payload", message: "Invalid payload." };
+  }
+  if (payloadStr.length > MAX_PAYLOAD_JSON_LEN) {
+    return { ok: false, code: "payload_too_large", message: "Payload too large." };
+  }
+  return { ok: true, threadId, clientId, type, payloadStr };
+}
 const SIGNAL_TTL_MS = 10 * 60 * 1000; // 10 minutes — a call's signaling is long done well before this
 
 // Confirms the requester is a real participant of the thread and, for a DM,
@@ -95,7 +136,11 @@ export async function onRequest(context) {
   if (!user) {
     return new Response(JSON.stringify({ error: "Sign in required." }), { status: 401, headers: cors });
   }
-  const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
+  /* Rate-limit budgets are charged to the account (hashed under a server
+   * secret) rather than a raw IP string — and clientIp() deliberately
+   * ignores the client-settable X-Forwarded-For, which the old code
+   * consulted first and which let anyone rotate their own bucket. */
+  const ip = clientIp(request);
 
   try {
     // Commit 70 — this endpoint reads and writes call_signals,
@@ -111,16 +156,15 @@ export async function onRequest(context) {
     await ensureSocialTables(env);
 
     if (request.method === "GET") {
-      if (!(await checkRateLimit(env, `call-signal-get:${user.id}:${clientIP}`, GET_LIMIT, WINDOW_MS))) {
+      const rlKey = await privacyKey("call-signal-get", `${user.id}:${ip}`, env);
+      if (!(await checkRateLimit(env, rlKey, GET_LIMIT, WINDOW_MS))) {
         return new Response(JSON.stringify({ error: "Too many requests." }), { status: 429, headers: { ...cors, "Retry-After": "10" } });
       }
-      const url = new URL(request.url);
-      const threadId = (url.searchParams.get("threadId") || "").trim();
-      const clientId = (url.searchParams.get("clientId") || "").trim().slice(0, MAX_CLIENT_ID_LEN);
-      const since = parseInt(url.searchParams.get("since") || "0", 10) || 0;
-      if (!threadId || !clientId) {
-        return new Response(JSON.stringify({ error: "Missing threadId or clientId." }), { status: 400, headers: cors });
+      const vg = validateSignalGet(new URL(request.url).searchParams);
+      if (!vg.ok) {
+        return new Response(JSON.stringify({ error: vg.message }), { status: vg.code === "payload_too_large" ? 413 : 400, headers: cors });
       }
+      const { threadId, clientId, since } = vg;
       const authorized = await authorizeThread(env, user.id, threadId);
       if (!authorized) {
         return new Response(JSON.stringify({ error: "Not authorized for this call." }), { status: 403, headers: cors });
@@ -142,25 +186,21 @@ export async function onRequest(context) {
     }
 
     if (request.method === "POST") {
-      if (!(await checkRateLimit(env, `call-signal-post:${user.id}:${clientIP}`, POST_LIMIT, WINDOW_MS))) {
+      const rlKey = await privacyKey("call-signal-post", `${user.id}:${ip}`, env);
+      if (!(await checkRateLimit(env, rlKey, POST_LIMIT, WINDOW_MS))) {
         return new Response(JSON.stringify({ error: "Too many requests." }), { status: 429, headers: { ...cors, "Retry-After": "10" } });
       }
-      const body = await request.json().catch(() => ({}));
-      const threadId = (body.threadId || "").toString().trim();
-      const clientId = (body.clientId || "").toString().trim().slice(0, MAX_CLIENT_ID_LEN);
-      const type = (body.type || "").toString().trim();
-      if (!threadId || !clientId || !ALLOWED_TYPES.has(type)) {
-        return new Response(JSON.stringify({ error: "Invalid request." }), { status: 400, headers: cors });
+      // Hard byte ceiling on the body: readJsonBody refuses an oversized
+      // request before it is buffered (a client-supplied Content-Length can
+      // lie, so the text is measured too).
+      const parsed = await readJsonBody(request, cors, 64_000);
+      if (!parsed.ok) return parsed.response;
+      const vp = validateSignalPost(parsed.body);
+      if (!vp.ok) {
+        const status = vp.code === "payload_too_large" ? 413 : 400;
+        return new Response(JSON.stringify({ error: vp.message }), { status, headers: cors });
       }
-      let payloadStr;
-      try {
-        payloadStr = JSON.stringify(body.payload != null ? body.payload : {});
-      } catch {
-        return new Response(JSON.stringify({ error: "Invalid payload." }), { status: 400, headers: cors });
-      }
-      if (payloadStr.length > MAX_PAYLOAD_JSON_LEN) {
-        return new Response(JSON.stringify({ error: "Payload too large." }), { status: 413, headers: cors });
-      }
+      const { threadId, clientId, type, payloadStr } = vp;
       const authorized = await authorizeThread(env, user.id, threadId);
       if (!authorized) {
         return new Response(JSON.stringify({ error: "Not authorized for this call." }), { status: 403, headers: cors });
@@ -171,13 +211,12 @@ export async function onRequest(context) {
           "INSERT INTO call_signals (thread_id, sender_id, client_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)"
         ).bind(threadId, user.id, clientId, type, payloadStr, now).run();
       } catch (e) {
-        // Commit 70 — a write failure here used to fall through to the
-        // endpoint's generic catch and surface as an opaque 500, which the
-        // client then rendered as a guess about what went wrong. Say what
-        // actually broke: the caller shows this string verbatim.
+        // The old code echoed the database's exception message to the
+        // client, verbatim — a D1 error string names tables and constraints.
+        // Log it for the operator, return a generic message.
         console.error("call-signal insert failed:", e);
         return new Response(JSON.stringify({
-          error: "Couldn't record the call signal: " + String((e && e.message) || e).slice(0, 200),
+          error: "Couldn't record the call signal. Please try again.",
         }), { status: 500, headers: cors });
       }
       // Opportunistic cleanup, scoped to this thread — cheap (indexed on

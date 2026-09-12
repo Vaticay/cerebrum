@@ -151,7 +151,11 @@ export async function onRequest(context) {
           // Cloudflare returns its own STUN entries alongside TURN; keep
           // the STUN block above too so a single provider being blocked on
           // a given network cannot stop candidate gathering outright.
-          for (const entry of data.iceServers) iceServers.push(entry);
+          // Validate before serving: a malformed entry (no urls) makes
+          // RTCPeerConnection throw on the client.
+          for (const entry of data.iceServers) {
+            if (entry && Array.isArray(entry.urls) && entry.urls.length) iceServers.push(entry);
+          }
           return new Response(JSON.stringify({ iceServers, relay: "cloudflare" }), { status: 200, headers: cors });
         }
       }
@@ -167,13 +171,14 @@ export async function onRequest(context) {
      * keep using them after they stop being a user. Cloudflare's minted
      * credentials above are time-limited and per-request, which is why they
      * are tried first. If you configure this path, treat TURN_CREDENTIAL as a
-     * rotating secret rather than a permanent one. */
-    iceServers.push({
-      urls: env.TURN_URLS.split(",").map((s) => s.trim()).filter(Boolean),
-      username: env.TURN_USERNAME,
-      credential: env.TURN_CREDENTIAL,
-    });
-    return new Response(JSON.stringify({ iceServers, relay: "static" }), { status: 200, headers: cors });
+     * rotating secret rather than a permanent one. An empty URL list (e.g.
+     * TURN_URLS set to whitespace) is not a usable server entry, so it
+     * falls through to the last-resort branch instead of being served. */
+    const urls = env.TURN_URLS.split(",").map((s) => s.trim()).filter(Boolean);
+    if (urls.length) {
+      iceServers.push({ urls, username: env.TURN_USERNAME, credential: env.TURN_CREDENTIAL });
+      return new Response(JSON.stringify({ iceServers, relay: "static" }), { status: 200, headers: cors });
+    }
   }
 
   /* No relay is configured. Say so in the payload rather than silently

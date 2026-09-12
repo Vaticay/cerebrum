@@ -15,8 +15,9 @@
 //                  contain the answer rather than filling the gap from the
 //                  model's general knowledge.
 
-import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
+import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey, readJsonBody } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { withTimeout } from "../lib/resilience.js";
 
 
 // Lower than search.js's 20/min — a document analysis call carries a much
@@ -39,14 +40,27 @@ const RATE_WINDOW_MS = 60000;
 // instead of refusing the document outright (see the handler below).
 const MAX_DOCUMENT_LEN = 250000;
 const MAX_QUERY_LEN = 2000;
+// The request body is buffered in full before parsing, so cap it well above
+// the largest legitimate document submission (MAX_DOCUMENT_LEN chars plus
+// history and query) but far below anything that could exhaust worker
+// memory. readJsonBody enforces this in two stages: Content-Length first
+// (refused before buffering), then the actual buffered text.
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+// Exported for the unit tests in tests/content-endpoints.mjs.
+export { MAX_DOCUMENT_LEN, MAX_QUERY_LEN, MAX_BODY_BYTES };
 
-function cleanAIResponse(raw) {
+// Exported for unit tests — pure functions, no I/O.
+export function cleanAIResponse(raw) {
   if (!raw) return "";
   let c = raw;
   c = c.replace(/<think>[\s\S]*?<\/think>/gi, "");
   c = c.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "");
   c = c.replace(/<analysis>[\s\S]*?<\/analysis>/gi, "");
-  c = c.replace(/^```(?:markdown|json)?\s*\n([\s\S]*?)\n```\s*$/i, "$1");
+  // The fence strip tolerates leading whitespace/newlines: a <think> block
+  // stripped just above can leave a bare "\n" in front of the fence, which
+  // used to defeat the ^ anchor and leak a literal ```markdown block into
+  // the rendered answer.
+  c = c.replace(/^\s*```(?:markdown|json)?\s*\n([\s\S]*?)\n```\s*$/i, "$1");
   return c.trim();
 }
 
@@ -109,7 +123,9 @@ const QA_SYSTEM_PROMPT =
 // would just crowd out the document itself.
 const MAX_HISTORY_TURNS = 6;
 const MAX_HISTORY_ENTRY_LEN = 1200;
-function formatHistory(history) {
+export { MAX_HISTORY_TURNS, MAX_HISTORY_ENTRY_LEN };
+// Exported for unit tests — pure function, no I/O.
+export function formatHistory(history) {
   if (!Array.isArray(history) || !history.length) return "";
   const turns = history
     .filter((h) => h && typeof h.text === "string" && h.text.trim() && (h.role === "user" || h.role === "assistant"))
@@ -117,6 +133,64 @@ function formatHistory(history) {
     .map((h) => (h.role === "user" ? "Q: " : "A: ") + h.text.trim().slice(0, MAX_HISTORY_ENTRY_LEN));
   if (!turns.length) return "";
   return "\n\n---\nPRIOR CONVERSATION ABOUT THIS DOCUMENT (for context only — verify every fact against the document above, not this):\n" + turns.join("\n");
+}
+
+// Timeout helper now comes from the shared lib (created by the media
+// pass after this file's local copy was written) — one implementation,
+// one set of semantics. The local `okRes`/`errRes` shapes below are kept
+// because they predate jsonOk/jsonError and match this endpoint's tests;
+// both produce the same { ok, ... } / { ok: false, error, code } contract.
+
+// ---- consistent response shapes ----
+// Every response from this endpoint carries `ok`. Failures are always
+// { ok: false, error, code } with a human-safe message; successes are
+// { ok: true, ... }. `error` text and HTTP status are unchanged so existing
+// clients keep working — `ok`/`code` are additive.
+const okRes = (payload, status, headers) =>
+  new Response(JSON.stringify({ ok: true, ...payload }), { status: status || 200, headers });
+const errRes = (message, status, code, headers) =>
+  new Response(JSON.stringify({ ok: false, error: message, code: code || "error" }), { status: status || 400, headers });
+// Exported for unit tests (tests/content-endpoints.mjs).
+export { okRes, errRes };
+
+// Maps a thrown error to a safe, user-facing failure. Exported for unit
+// tests — pure function, no I/O.
+//
+// The old catch block surfaced the raw exception message whenever it was
+// short, which leaked internals: "no OPENROUTER_KEY configured" names an
+// environment variable, and provider failures carried upstream HTTP bodies.
+// Nothing from the exception ever reaches the client now — the message, the
+// model name that failed, and the upstream body all stay in console.error,
+// which is operator-only. The code is a stable machine-readable category;
+// the message is written for a person and its advice matches the cause.
+export function classifyDocumentError(e) {
+  const msg = String((e && e.message) || e || "");
+  if (/OPENROUTER_KEY|Workers AI binding|no .* configured|ENV/i.test(msg)) {
+    return {
+      status: 500,
+      code: "provider_unavailable",
+      message: "The analysis service isn't configured right now. Please try again later.",
+    };
+  }
+  if (/timed out|timeout|aborted|AbortError/i.test(msg)) {
+    return {
+      status: 503,
+      code: "upstream_timeout",
+      message: "The analysis took too long and timed out. Please try again — a shorter document usually goes through faster.",
+    };
+  }
+  if (/429|rate.?limit|quota|too many requests|All providers failed/i.test(msg)) {
+    return {
+      status: 503,
+      code: "upstream_rate_limited",
+      message: "Every free AI model is rate-limited right now — this isn't a problem with your document. Capacity usually returns within a minute.",
+    };
+  }
+  return {
+    status: 500,
+    code: "analysis_failed",
+    message: "Couldn't analyze that document. The analysis service returned an unexpected error.",
+  };
 }
 
 const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
@@ -204,7 +278,8 @@ async function generate(env, messages, maxTokens) {
 // model gluing a header onto the end of the previous section without a
 // blank line (see normalizeSectionHeaders in src/main.jsx) — a real failure
 // mode on free-tier models this endpoint shares with search.js.
-function splitSummarySections(text) {
+// Exported for unit tests — pure function, no I/O.
+export function splitSummarySections(text) {
   const sections = { executiveSummary: "", methodology: "", keyFindings: "", limitations: "" };
   const map = [
     ["executiveSummary", /##\s*Executive Summary/i],
@@ -232,22 +307,33 @@ export async function onRequest(context) {
   const cors = corsHeaders(request, env);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  if (request.method !== "POST") return new Response(JSON.stringify({ error: "Method not allowed." }), { status: 405, headers: cors });
-  if (!readOriginAllowed(request, env)) return new Response(JSON.stringify({ error: "Origin not allowed." }), { status: 403, headers: cors });
+  if (request.method !== "POST") return errRes("Method not allowed.", 405, "method_not_allowed", cors);
+  if (!readOriginAllowed(request, env)) return errRes("Origin not allowed.", 403, "origin_not_allowed", cors);
 
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
   if (!(await checkRateLimit(env, `document:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
-    return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }), { status: 429, headers: { ...cors, "Retry-After": "30" } });
+    return errRes("Too many requests. Please wait a moment and try again.", 429, "rate_limited", { ...cors, "Retry-After": "30" });
   }
 
   try {
-    const body = await request.json().catch(() => ({}));
+    // Bounded body parse: Content-Length is refused before buffering, and
+    // the buffered text is measured too, so a hostile client can't OOM the
+    // worker with a gigabyte of JSON. Malformed JSON gets a 400, not a
+    // silent empty body that later 400s as "no document text" anyway.
+    const parsed = await readJsonBody(request, cors, MAX_BODY_BYTES);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     let documentText = typeof body.documentText === "string" ? body.documentText.trim() : "";
     const query = typeof body.query === "string" ? body.query.trim().slice(0, MAX_QUERY_LEN) : "";
-    const historyBlock = formatHistory(body.history);
+    // Bound the history input BEFORE formatHistory touches it: the client
+    // sends the whole Q&A thread and a hostile one could send thousands of
+    // turns. formatHistory keeps only the tail, so slicing first loses
+    // nothing legitimate.
+    const historyInput = Array.isArray(body.history) ? body.history.slice(-MAX_HISTORY_TURNS * 4) : [];
+    const historyBlock = formatHistory(historyInput);
 
     if (!documentText) {
-      return new Response(JSON.stringify({ error: "No document text provided." }), { status: 400, headers: cors });
+      return errRes("No document text provided.", 400, "missing_document", cors);
     }
     // Commit 64 — a long document is no longer refused. It used to return
     // a 413 telling the person to go and cut their own paper down, which is
@@ -278,31 +364,28 @@ export async function onRequest(context) {
     // more headroom than a target that only just covers the minimum, or it
     // gets cut off approaching its own closing section.
     const maxTokens = isQA ? 1400 : 4000;
-    const result = await generate(env, messages, maxTokens);
+    // A global ceiling over the provider race: the individual calls time
+    // out at 15s each and the small-model retry at 25s, so worst case was
+    // ~40s of a visitor staring at a spinner. Thirty seconds is the most
+    // patience a document analysis deserves; past that the classifier below
+    // turns the timeout into advice instead of a hang.
+    const result = await withTimeout(generate(env, messages, maxTokens), 30000, "document analysis");
 
     if (isQA) {
-      return new Response(JSON.stringify({ mode: "qa", answer: result.answer + truncatedNote, model: result.model }), { status: 200, headers: cors });
+      return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model }, 200, cors);
     }
     const sectioned = splitSummarySections(result.answer);
     // The truncation note is appended to what the reader actually sees —
     // a summary that silently covers only part of a document is worse than
     // no summary, because nothing on screen says so.
     const raw = result.answer + truncatedNote;
-    return new Response(JSON.stringify({ mode: "summary", raw, ...sectioned, truncated: !!truncatedNote, model: result.model }), { status: 200, headers: cors });
+    return okRes({ mode: "summary", raw, ...sectioned, truncated: !!truncatedNote, model: result.model }, 200, cors);
   } catch (e) {
     console.error("Cerebrum document endpoint error:", e);
-    // Commit 64 — "Something went wrong. Please try again." was shown for
-    // every failure, including the one that actually happens: every free-tier
-    // model being rate-limited at once. Retrying immediately is the WORST
-    // response to that, and the message advised exactly that. A 3,400-character
-    // paper was being refused with a message implying the document was at
-    // fault. Distinguish the cases so the advice matches the cause.
-    const msg = String((e && e.message) || e);
-    const rateLimited = /429|rate.?limit|quota|too many requests|All providers failed/i.test(msg);
-    return new Response(JSON.stringify({
-      error: rateLimited
-        ? "Every free AI model is rate-limited right now — this isn't a problem with your document. Capacity usually returns within a minute."
-        : "Couldn't analyze that document. " + (msg.length < 160 ? msg : "The analysis service returned an unexpected error."),
-    }), { status: rateLimited ? 503 : 500, headers: cors });
+    // The exception message never reaches the client — see
+    // classifyDocumentError above. It may name environment variables,
+    // models, or carry upstream response bodies.
+    const classified = classifyDocumentError(e);
+    return errRes(classified.message, classified.status, classified.code, cors);
   }
 }

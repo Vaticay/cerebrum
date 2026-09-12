@@ -17,6 +17,40 @@ const POLITE_UA =
 // inventory to fill both without repeating the same handful of stories.
 const SOURCE_URL = "https://api.spaceflightnewsapi.net/v4/articles/?limit=24&ordering=-published_at";
 
+/**
+ * Read a response body with a hard byte ceiling.
+ *
+ * These feeds are third-party and untrusted: a misbehaving or compromised
+ * upstream answering with a multi-hundred-MB body would otherwise be
+ * buffered whole by res.text()/res.json() into the isolate's memory.
+ * The reader is cancelled the moment the budget is exceeded.
+ */
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+
+async function readCappedText(res) {
+  const reader = res.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel();
+        throw new Error("response body exceeded size limit");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const buf = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { buf.set(c, off); off += c.byteLength; }
+  return new TextDecoder().decode(buf);
+}
+
 async function getJSON(url, timeoutMs = 8000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -30,7 +64,7 @@ async function getJSON(url, timeoutMs = 8000) {
       await res.text().catch(() => {});
       throw new Error("HTTP " + res.status);
     }
-    return res.json();
+    return JSON.parse(await readCappedText(res));
   } catch (e) {
     clearTimeout(timer);
     throw e;
@@ -101,10 +135,14 @@ const SOURCES = [
     // bioRxiv's documented shape is /details/{server}/{from}/{to}; the date
     // window is computed rather than relying on a "recent" alias whose
     // existence isn't guaranteed by their docs.
-    url: (() => {
+    // A THUNK, not a value: this module lives for the lifetime of a warm
+    // isolate, so computing the window once at import would freeze "today"
+    // and serve an ever-more-stale date range after midnight. Resolved on
+    // every refresh instead.
+    url: () => {
       const d = (offsetDays) => new Date(Date.now() - offsetDays * 86400000).toISOString().slice(0, 10);
       return `https://api.biorxiv.org/details/biorxiv/${d(4)}/${d(0)}`;
-    })(),
+    },
     parse: (d) => ((d && d.collection) || []).slice(0, 12).map((r) => ({
       title: (r.title || "").trim(),
       summary: (r.abstract || `${r.category || "Preprint"} · ${r.authors || ""}`).trim(),
@@ -163,18 +201,21 @@ async function getText(url, timeoutMs = 8000) {
   try {
     const res = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": "Cerebrum/1.0 (https://askcerebrum.org)" } });
     if (!res.ok) return null;
-    return await res.text();
+    return await readCappedText(res);
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
 export async function fetchTrendingItems() {
   const perSource = await Promise.all(SOURCES.map(async (src) => {
     try {
+      // Source URLs may be thunks (see the bioRxiv entry) so date windows
+      // are computed at refresh time, not at module load.
+      const url = typeof src.url === "function" ? src.url() : src.url;
       if (src.xml) {
-        const text = await getText(src.url);
+        const text = await getText(url);
         return text ? { category: src.category, items: src.parse(text) } : null;
       }
-      const data = await getJSON(src.url);
+      const data = await getJSON(url);
       return data ? { category: src.category, items: src.parse(data) } : null;
     } catch { return null; }
   }));
