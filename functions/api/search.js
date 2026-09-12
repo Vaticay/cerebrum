@@ -8859,12 +8859,19 @@ export async function onRequest(context) {
     const userContent = buildUserContent("");
     const buildBriefMessages = (brief) => {
       if (!brief || brief.length < 100) return messages;
+      // The brief itself is DATA (model-generated claims extracted from the
+      // papers), so it goes inside the nonce fence via fence.clean — the
+      // prose around it is the only instruction. Previously this passed only
+      // the prose and dropped `brief` entirely, so wave 2 never actually saw
+      // the pre-digested claims it was supposed to compose from.
+      const briefSection =
+        "EVIDENCE BRIEF — atomic claims pre-extracted from the papers above. " +
+        "These are the load-bearing facts: lead with them, group them into themes, " +
+        "and cite the [n] shown. Consult the full abstracts only for nuance the brief lacks.\n\n" +
+        fence.clean(brief);
       return [
         { role: "system", content: systemPrompt },
-        { role: "user", content: buildUserContent(
-          "EVIDENCE BRIEF — atomic claims pre-extracted from the papers above. " +
-          "These are the load-bearing facts: lead with them, group them into themes, " +
-          "and cite the [n] shown. Consult the full abstracts only for nuance the brief lacks.") + enforcer },
+        { role: "user", content: buildUserContent(briefSection) + enforcer },
       ];
     };
     // Reinforce ALL rules at user level — free models routinely ignore system prompts.

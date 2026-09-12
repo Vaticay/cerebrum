@@ -316,8 +316,12 @@ await test("the question is stated outside the source fence", () => {
   assert.match(searchSrc, /fence\.open \+ "\\n" \+ evidence \+ \(briefSection \? "\\n\\n" \+ briefSection : ""\) \+ "\\n" \+ fence\.close/,
     "evidence and question are still concatenated into one blob");
   // The brief is untrusted model output: it must live INSIDE the fence (data),
-  // never outside it where it could speak as instruction.
-  assert.match(searchSrc, /buildUserContent\(\s*"EVIDENCE BRIEF/, "brief section is not built through the fenced content builder");
+  // never outside it where it could speak as instruction — and the ACTUAL
+  // brief text must reach wave 2, not just the explanatory prose. (A prior
+  // version checked the brief's presence but dropped its content, so wave 2
+  // composed from prose about claims rather than the claims themselves.)
+  assert.match(searchSrc, /fence\.clean\(brief\)/, "wave 2 never receives the actual brief text");
+  assert.match(searchSrc, /briefSection\s*=\s*\n?\s*"EVIDENCE BRIEF/, "brief section is not built through the fenced content builder");
 });
 await test("our own annotation markers cannot be forged by a source", () => {
   assert.match(searchSrc, /RETRACTED\|WRONG SPECIES/, "reserved markers are not stripped from source text");
