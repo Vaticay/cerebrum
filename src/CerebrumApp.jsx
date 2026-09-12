@@ -4214,6 +4214,24 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-36.mp4", // Soap bubble freezing, macro — Aaron Burden
   "/assets/cinematic/science-37.mp4", // Nebula field with stars — Adis Resic
   "/assets/cinematic/science-38.mp4", // Ants on a tiny white flower — Vung Nguyen
+  "/assets/cinematic/science-39.mp4", // DNA chain animation — Pressmaster
+  "/assets/cinematic/science-40.mp4", // Glowing blue DNA strand — Pressmaster
+  "/assets/cinematic/science-41.mp4", // Sun illuminating Earth's surface — Ingrid
+  "/assets/cinematic/science-42.mp4", // Rotating Earth and Sun — Endiae Genius
+  "/assets/cinematic/science-43.mp4", // Starry night sky — Pexels contributor
+  "/assets/cinematic/science-44.mp4", // Milky Way over mountain lake — Dmitry Varennikov
+  "/assets/cinematic/science-45.mp4", // Milky Way over beach — Luz Calor Som
+  "/assets/cinematic/science-46.mp4", // Lightning strikes over ocean — Tom Fisk
+  "/assets/cinematic/science-47.mp4", // Night thunderstorm — Kmeel.com Videos
+  "/assets/cinematic/science-48.mp4", // Thunderclouds from below — Magda Ehlers
+  "/assets/cinematic/science-49.mp4", // Dark thunderstorm — Pixabay
+  "/assets/cinematic/science-50.mp4", // Orange lunar eclipse — Kindel Media
+  "/assets/cinematic/science-51.mp4", // Lunar eclipse — Tom Fisk
+  "/assets/cinematic/science-52.mp4", // Lunar eclipse close-up — Tom Fisk
+  "/assets/cinematic/science-53.mp4", // Sharks and marine life — Ruvim M
+  "/assets/cinematic/science-54.mp4", // Grayscale cloud timelapse — CESAR A RAMIREZ VALLEJO TRAPHITHO
+  "/assets/cinematic/science-55.mp4", // Moody sky over hill — CESAR A RAMIREZ VALLEJO TRAPHITHO
+  "/assets/cinematic/science-56.mp4", // Ink swirling in water — Engin Akyurt
 ];
 
 /* Portrait. Used when the window is taller than it is wide — a phone held
@@ -4222,6 +4240,8 @@ const FILM_CLIPS_PORTRAIT = [
   "/assets/cinematic/science-24.mp4", // Coral reef close-up — JUN HO LEE
   "/assets/cinematic/science-25.mp4", // Yellowstone geyser — Rec Everywhere
   "/assets/cinematic/science-28.mp4", // Butterfly feeding on a flower — Hao Le
+  "/assets/cinematic/science-57.mp4", // Moon behind clouds — ren lavsad
+  "/assets/cinematic/science-58.mp4", // Ice cave — Nadezhda Moryak
 ];
 
 /* What the component actually reads. Landscape is the fallback when the
