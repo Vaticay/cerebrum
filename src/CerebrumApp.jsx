@@ -2399,22 +2399,60 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
   );
 }
 
-/* ── SignalComposer: the search screen as a transmitter ────────────────
-   The dial was a shape without a meaning — a circle says nothing about
-   asking a question. This is the same product idea with the meaning put
-   back in: your question is a SIGNAL. You transmit it; it propagates out
-   to fifteen databases; echoes come back; Cerebrum synthesises them.
+/* ── SignalComposer: the query line ───────────────────────────────────
+   The transmitter metaphor was decoration wearing meaning's clothes — a
+   glowing oscilloscope says "look at me", not "ask well". Poised is the
+   opposite: the bar gets out of the way and lets the question be the
+   object. One hairline rule, large calm type, ghost controls.
 
-   The band is a strip of oscilloscope. Idle, the line drifts. Every
-   keystroke injects energy and the line ripples — typing visibly becomes
-   the signal that is about to be transmitted. On submit, the loading
-   screen (EchoField, below) continues the same metaphor: the pulse you
-   just fired, travelling outward, with the databases as the nodes it
-   passes through. One continuous narrative, not two decorations.
+   The innovation moved from chrome to behaviour: the line READS. As you
+   type, a lightweight parse surfaces what Cerebrum understood — organism,
+   gene, DOI, exact phrase, comparison — in a single hushed line beneath
+   the rule. No literature search shows its parse live; it turns the dead
+   moment of typing into visible comprehension, and it costs nothing (pure
+   client-side heuristics, no network).
 
    Everything the old controls did is preserved: the same input value,
-   Enter to ask, image attach, voice dictation, the busy dots, the
+   Enter to ask, image attach, voice dictation, busy state, and the
    mode-aware placeholder. */
+const QUERY_COMMON_WORDS = new Set(
+  "what,does,why,how,when,which,this,that,these,those,there,their,with,from,have,has,been,were,are,was,will,would,should,could,between,among,versus,under,over,into,about,whats,whos".split(",")
+);
+
+/* Conservative client-side entity parse. Heuristics only — the backend
+   does the real understanding; this is the line showing its work. Capped
+   at four findings so the reading line stays a whisper, not a readout. */
+function parseQueryEntities(text) {
+  const found = [];
+  const seen = new Set();
+  const push = (kind, value) => {
+    const key = kind + ":" + value.toLowerCase();
+    if (seen.has(key) || found.length >= 4) return;
+    seen.add(key);
+    found.push({ kind, value });
+  };
+  const t = String(text || "");
+  if (t.trim().length < 4) return found;
+  const doi = t.match(/10\.\d{4,9}\/[^\s"<>]+/i);
+  if (doi) push("doi", doi[0].replace(/[.,;:]+$/, ""));
+  const quoted = t.match(/"([^"]{3,60})"/);
+  if (quoted) push("phrase", "\u201c" + quoted[1] + "\u201d");
+  // matchAll: the first binomial-shaped pair is often "What does" — skip
+  // common words and take the first real-looking one.
+  for (const bm of t.matchAll(/\b([A-Z][a-z]{2,})\s([a-z]{4,})\b/g)) {
+    if (QUERY_COMMON_WORDS.has(bm[1].toLowerCase()) || QUERY_COMMON_WORDS.has(bm[2])) continue;
+    push("organism", bm[1] + " " + bm[2]);
+    break;
+  }
+  for (const m of t.matchAll(/\b([A-Z][A-Z0-9]{1,7})\b/g)) {
+    if (/^\d+$/.test(m[1])) continue;
+    push("gene", m[1]);
+    if (found.length >= 4) break;
+  }
+  if (/\bvs\.?\b|\bversus\b/i.test(t)) push("mode", "comparison");
+  return found;
+}
+
 function SignalComposer({
   input, setInput, inputRef, ask, busy,
   askMode, isMobile, accent, P,
@@ -2423,76 +2461,13 @@ function SignalComposer({
 }) {
   const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
   const placeholder = isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder;
-  const reduced = usePrefersReducedMotion();
-  const waveRef = useRef(null);
-  const energyRef = useRef(0);
-  const lenRef = useRef(0);
-
-  /* Keystrokes inject energy into the line; it decays back to a drift. */
-  useEffect(() => {
-    const added = input.length - lenRef.current;
-    lenRef.current = input.length;
-    if (added > 0) energyRef.current = Math.min(1.6, energyRef.current + 0.28 + added * 0.10);
-  }, [input]);
-
-  useEffect(() => {
-    if (reduced) return undefined;
-    const canvas = waveRef.current;
-    if (!canvas) return undefined;
-    const ctx = canvas.getContext("2d");
-    let raf = 0;
-    let t = Math.random() * 10;
-    const draw = () => {
-      t += 0.016;
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (w === 0) { raf = requestAnimationFrame(draw); return; }
-      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-        canvas.width = Math.round(w * dpr);
-        canvas.height = Math.round(h * dpr);
-      }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-      energyRef.current *= 0.962;
-      const e = energyRef.current;
-      const amp = (0.05 + Math.min(1.3, e)) * h * 0.30;
-      ctx.beginPath();
-      for (let x = 0; x <= w; x += 3) {
-        const p = x / w;
-        /* Swell mid-band, calm at the edges — the signal lives in the
-           middle of the instrument, the way a voice lives in a wire. */
-        const env = Math.sin(p * Math.PI);
-        const y = h * 0.5
-          + Math.sin(x * 0.021 + t * 2.2) * amp * env
-          + Math.sin(x * 0.047 - t * 3.4) * amp * 0.42 * env
-          + Math.sin(x * 0.009 + t * 0.8) * h * 0.04;
-        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      const a = Math.min(0.9, 0.22 + e * 0.45 + (focused ? 0.18 : 0));
-      ctx.strokeStyle = withAlpha(accent, a);
-      ctx.lineWidth = 1.6;
-      ctx.lineCap = "round";
-      ctx.shadowColor = withAlpha(accent, 0.55);
-      ctx.shadowBlur = 6 + Math.min(16, e * 12);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      raf = requestAnimationFrame(draw);
-    };
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
-  }, [reduced, focused, accent]);
-
+  const entities = useMemo(() => parseQueryEntities(input), [input]);
   return (
-    <div role="search" style={{ "--cb-acc": accent }}
-      className={"cb-signal" + (focused ? " cb-signal-live" : "")}>
-      <div className="cb-signal-top" aria-hidden="true">
-        <span>Transmit&ensp;//&ensp;{mode.label}</span>
-        <span>15 databases</span>
-      </div>
-      <div className="cb-signal-main">
+    <div role="search" style={{ "--cb-acc": accent }} className="cb-qline">
+      <div className="cb-qline-row">
         <input
           ref={inputRef}
-          className="cb-signal-input"
+          className="cb-qline-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -2503,30 +2478,37 @@ function SignalComposer({
           autoComplete="off"
           spellCheck="true"
         />
-        <div className="cb-signal-btns">
+        <div className="cb-qline-btns">
           <button
             onClick={() => imageInputRef.current?.click()}
             title="Attach an image" aria-label="Attach an image"
-            className="cb-signal-toolbtn"
-            style={{ color: attachedImage ? accent : "rgba(242,244,242,0.6)" }}
+            className="cb-qline-tool"
+            style={attachedImage ? { color: accent } : undefined}
           ><Icon name="image" size={17} /></button>
-          {/* The voice button is shared with other call sites and brings
-              its own 34px square styling; the wrapper gives it the same
-              40px circle as its neighbours here without touching it. */}
-          <span className="cb-tool-micwrap"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
+          {/* The voice button brings its own 34px square styling; the ghost
+              wrapper gives it the same 40px hit area as its neighbours. */}
+          <span className="cb-qline-mic"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
           <button
             onClick={() => ask()}
+            disabled={busy}
             title="Ask" aria-label={busy ? "Searching" : "Ask"}
-            className="cb-signal-askbtn cb-magnetic cb-shine"
-            style={{ background: accent, color: "#11140f" }}
+            className="cb-qline-ask"
           >{busy
-            ? <span className="cb-search-dots" aria-hidden="true"><i /><i /><i /></span>
+            ? <span className="cb-qline-busy" aria-hidden="true" />
             : <Icon name="arrowRight" size={18} />}</button>
         </div>
       </div>
-      {reduced
-        ? <div className="cb-signal-waveflat" aria-hidden="true" />
-        : <canvas ref={waveRef} className="cb-signal-wave" aria-hidden="true" />}
+      <div className={"cb-qline-rule" + (focused ? " cb-qline-rule-live" : "")} aria-hidden="true" />
+      <div className="cb-qline-sub" aria-live="polite">
+        {entities.length > 0 && (
+          <span className="cb-qline-reading" key={entities.map((e) => e.kind + e.value).join("|")}>
+            <span className="cb-qline-rk">reading</span>
+            {entities.map((e, i) => (
+              <span key={i}><span className="cb-qline-rk">{e.kind}</span>&ensp;{e.value}</span>
+            ))}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -18286,8 +18268,8 @@ function App() {
                 }}>{composerPrompt}</h2>
               )}
               {/* The pill search bar is gone — see SignalComposer. The question
-                  is a signal; typing makes the line ripple, and asking
-                  transmits it. */}
+                  is the object: one hairline rule, and the line reads what
+                  you type as you type it. */}
               <SignalComposer
                 input={input} setInput={setInput} inputRef={inputRef}
                 ask={ask} busy={busy}
@@ -19311,105 +19293,95 @@ summary::-webkit-details-marker { display: none; }
   50%      { transform: translateY(-3px); opacity: 1; }
 }
 
-/* ── SignalComposer: the search screen as a transmitter ──
-   A horizontal instrument band. The top strip names the act (transmit)
-   and the reach (15 databases); the input is a large open field; the
-   canvas beneath it draws the question as a living signal line. */
-.cb-signal {
-  --cb-acc: #a3b899;
-  width: 100%; max-width: 820px; margin: 0 auto;
-  border-radius: 20px;
-  background: rgba(13, 15, 20, 0.66);
-  border: 1px solid rgba(255,255,255,0.13);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.07),
-    0 24px 70px rgba(0,0,0,0.5),
-    0 0 80px rgba(0,0,0,0.25);
-  backdrop-filter: blur(18px) saturate(1.25);
-  -webkit-backdrop-filter: blur(18px) saturate(1.25);
-  padding: 14px 18px 8px;
-  transition: border-color 0.4s ease, box-shadow 0.4s ease;
-  animation: cbSignalIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
+/* ── SignalComposer: the query line ──
+   No box, no glow, no oscilloscope. The question is the object: large
+   calm type over a single hairline rule. Focus grows a 2px accent line
+   out from the centre; the reading line beneath shows the live parse. */
 @keyframes cbSignalIn {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: none; }
 }
-.cb-signal-live {
-  border-color: color-mix(in srgb, var(--cb-acc) 55%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.09),
-    0 24px 70px rgba(0,0,0,0.5),
-    0 0 110px color-mix(in srgb, var(--cb-acc) 16%, transparent);
+.cb-qline {
+  --cb-acc: #a3b899;
+  width: 100%; max-width: 760px; margin: 0 auto;
+  animation: cbSignalIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.cb-signal-top {
-  display: flex; align-items: center; justify-content: space-between;
-  font-family: var(--cb-mono); font-size: 10px; font-weight: 500;
-  letter-spacing: 0.24em; text-transform: uppercase;
-  color: rgba(242,244,242,0.42);
-  margin-bottom: 4px;
-}
-.cb-signal-live .cb-signal-top {
-  color: color-mix(in srgb, var(--cb-acc) 75%, white);
-}
-.cb-signal-main {
+.cb-qline-row {
   display: flex; align-items: center; gap: 12px;
 }
-.cb-signal-input {
+.cb-qline-input {
   flex: 1; min-width: 0;
   background: transparent; border: none; outline: none;
   color: #f2f4f2;
   font-family: var(--cb-display); font-weight: 500;
-  font-size: clamp(19px, 2.6vw, 26px);
-  letter-spacing: -0.01em; line-height: 1.3;
-  padding: 10px 0;
+  font-size: clamp(20px, 2.8vw, 28px);
+  letter-spacing: -0.015em; line-height: 1.35;
+  padding: 12px 0;
   caret-color: var(--cb-acc);
 }
-.cb-signal-input::placeholder { color: rgba(242,244,242,0.35); }
-/* The band itself is the focus indicator (it lights up via .cb-signal-live),
-   so the input suppresses the global :focus-visible ring — otherwise the
-   ring draws a second rectangle inside the instrument. */
-.cb-signal-input:focus-visible { outline: none; box-shadow: none; }
-.cb-signal-btns {
-  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+.cb-qline-input::placeholder { color: rgba(242,244,242,0.32); }
+/* The rule below is the focus indicator, so the input suppresses the
+   global :focus-visible ring — otherwise the ring draws a second
+   rectangle inside the instrument. */
+.cb-qline-input:focus-visible { outline: none; box-shadow: none; }
+.cb-qline-btns {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
 }
-.cb-signal-toolbtn {
+/* Ghost tools: no circles, no borders — just the glyph, present on hover. */
+.cb-qline-tool {
   width: 40px; height: 40px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.13);
-  cursor: pointer; flex-shrink: 0;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  background: transparent; border: none; cursor: pointer;
+  color: rgba(242,244,242,0.48);
+  transition: color 0.2s ease, background 0.2s ease;
 }
-.cb-signal-toolbtn:hover { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); }
-/* The voice button is shared with other call sites and brings its own
-   34px square styling; inside the composer it rides in a matching 40px
-   circle so the three controls read as one instrument row. */
-.cb-tool-micwrap {
+.cb-qline-tool:hover { color: rgba(242,244,242,0.92); background: rgba(255,255,255,0.06); }
+.cb-qline-mic {
   width: 40px; height: 40px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.13);
-  cursor: pointer; flex-shrink: 0;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  color: rgba(242,244,242,0.48);
+  transition: color 0.2s ease, background 0.2s ease;
 }
-.cb-tool-micwrap:hover { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); }
-.cb-tool-micwrap .cb-hbtn:hover:not(:disabled) { background: transparent !important; }
-.cb-signal-askbtn {
-  width: 48px; height: 48px; border-radius: 50%;
-  display: inline-flex;
-  align-items: center; justify-content: center;
-  border: none; cursor: pointer; flex-shrink: 0;
-  box-shadow: 0 8px 28px color-mix(in srgb, var(--cb-acc) 35%, transparent);
+.cb-qline-mic:hover { color: rgba(242,244,242,0.92); background: rgba(255,255,255,0.06); }
+.cb-qline-mic .cb-hbtn:hover:not(:disabled) { background: transparent !important; }
+/* The ask button: a quiet ring that fills on hover. Poised, not magnetic. */
+.cb-qline-ask {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid rgba(255,255,255,0.24);
+  color: #f2f4f2; cursor: pointer; flex-shrink: 0;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
 }
-.cb-signal-wave {
-  display: block; width: 100%; height: 46px; margin-top: 2px;
+.cb-qline-ask:hover:not(:disabled) { background: var(--cb-acc); border-color: var(--cb-acc); color: #11140f; }
+.cb-qline-ask:disabled { opacity: 0.55; cursor: default; }
+.cb-qline-busy {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.25); border-top-color: #f2f4f2;
+  animation: cbQlineSpin 0.9s linear infinite;
 }
-/* Reduced-motion fallback: the canvas never draws, so the band gets a
-   plain rule instead of an empty strip. */
-.cb-signal-waveflat {
-  height: 1px; background: rgba(255,255,255,0.12); margin: 22px 0;
+@keyframes cbQlineSpin { to { transform: rotate(360deg); } }
+/* The rule is the instrument: one hairline, a 2px accent that grows from
+   the centre on focus. */
+.cb-qline-rule { position: relative; height: 1px; background: rgba(255,255,255,0.16); margin-top: 2px; }
+.cb-qline-rule::after {
+  content: ""; position: absolute; left: 0; right: 0; top: -0.5px; height: 2px;
+  background: var(--cb-acc);
+  transform: scaleX(0);
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.cb-qline-rule-live::after { transform: scaleX(1); }
+/* The reading line: one hushed row. Kind in tracked-out small caps, value
+   in plain text. It appears only while there is something to show; the
+   fixed min-height keeps the layout from jumping as you type. */
+.cb-qline-sub { min-height: 24px; margin-top: 8px; display: flex; align-items: flex-start; }
+.cb-qline-reading {
+  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  font-family: var(--cb-mono); font-size: 11px; letter-spacing: 0.03em;
+  color: rgba(242,244,242,0.5);
+  animation: cbReadingIn 0.35s ease both;
+}
+@keyframes cbReadingIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.cb-qline-rk { font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(242,244,242,0.34); }
 
 /* ── EchoField: the loading screen as a signal in flight ──
    The transmitted pulse propagates outward through the fifteen database
@@ -19807,7 +19779,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-search-scanning::after, .cb-search-scanning,
   .cb-search-dots i, .cb-trace-comet, .cb-trace-chip { animation: none; }
   .cb-search-scanning::after { display: none; }
-  .cb-signal, .cb-echo { animation: none; }
+  .cb-qline, .cb-echo { animation: none; }
+  .cb-qline-reading { animation: none; }
+  .cb-qline-busy { animation-duration: 1.6s; }
   .cb-echo-ring, .cb-echo-node, .cb-echo-core { animation: none; }
   .cb-echo-ring { display: none; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
