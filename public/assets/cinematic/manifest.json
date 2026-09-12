@@ -389,23 +389,6 @@
     "webm_bytes": 221343
   },
   {
-    "file": "science-26.mp4",
-    "title": "Octopus over a rocky seabed",
-    "credit": "Jozef Papp",
-    "source": "https://www.pexels.com/video/underwater-footage-of-an-octopus-swimming-in-the-ocean-15623347/",
-    "license": "Pexels License",
-    "license_url": "",
-    "note": "Attribution not recorded in repository; credit unknown. Not for promotional use until verified.",
-    "duration_seconds": 10,
-    "bytes": 4337796,
-    "modifications": "Re-encoded 2026-09-11: 720p, H.264 (libx264, preset slow), CRF 23, 2.5 Mbps maxrate cap, yuv420p, silent, faststart — for smooth background playback. Re-encoded 2026-09-11 (quality pass): H.264 CRF 20 (up from CRF 23), preset slow, 4 Mbps cap — same baked grade, visibly cleaner. New VP9 CRF 28 .webm rendition alongside; player prefers VP9 where supported, H.264 as universal fallback.",
-    "width": 1280,
-    "height": 720,
-    "licenseUrl": "https://www.pexels.com/license/",
-    "webm_file": "science-26.webm",
-    "webm_bytes": 3770833
-  },
-  {
     "file": "science-27.mp4",
     "title": "Waterfall and river rapids",
     "credit": "Ryan Klaus",

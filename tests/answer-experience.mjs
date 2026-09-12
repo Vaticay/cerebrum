@@ -128,12 +128,13 @@ await test("connection failure is narrowed to all-databases-failed", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Jump rail — sticky, mono, live status, touch-safe");
+group("Jump rail — sticky, unified type, live status, touch-safe");
 
-await test("JumpRail is sticky with mono labels and real statuses", () => {
+await test("JumpRail is sticky with unified-type labels and real statuses", () => {
   assert.match(appSrc, /function JumpRail/, "JumpRail missing");
   assert.match(appSrc, /position: "sticky"/, "rail is not sticky");
-  assert.match(appSrc, /var\(--cb-mono\)/, "rail labels are not mono");
+  assert.match(appSrc, /var\(--cb-body\)/, "rail labels are not on the unified body face");
+  assert.ok(!/var\(--cb-mono\)/.test(appSrc), "mono token still referenced");
 });
 
 await test("rail statuses are derived from real turn data", () => {
