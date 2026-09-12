@@ -708,10 +708,10 @@ const PALETTES = {
      shadow, not a drop shadow. Grain stays, and slightly stronger, because
      it is what keeps large pale surfaces from looking like a blank div. */
   Light: { dark: false, bg: "#f1f0ec", surface: "#f9f9f7", raised: "#ffffff", ink: "#22252a", ink2: "#4b5058", faint: "#6c727b", line: "rgba(34,37,42,0.10)", line2: "rgba(34,37,42,0.17)", shadow: "0 1px 2px rgba(34,37,42,0.04), 0 10px 30px rgba(34,37,42,0.07)", shadowSm: "0 1px 2px rgba(34,37,42,0.05)", grain: 0.009, skel: "linear-gradient(90deg, #e9e8e3 25%, #f3f2ef 50%, #e9e8e3 75%)" },
-  // Sage — "Modern Organic," and now the default palette a fresh browser
-  // lands on (see App()'s paletteName useState below): near-black stone
-  // instead of neutral charcoal, paired by default with the muted
-  // sage-green accent (ACCENTS.Sage) instead of a neon hue.
+  // Sage — "Modern Organic": near-black stone instead of neutral charcoal,
+  // paired by default with the muted sage-green accent (ACCENTS.Sage)
+  // instead of a neon hue. (Was the fresh-browser default until Sep 2026;
+  // the default is now Dark — "make the default dark mode.")
   // Commit 46: lifted back toward near-black alongside Dark, same
   // "razor-sharp contrast" request and same fog-bug root cause — see the
   // comment on Dark above. `ink`/`line` keep Sage's own warm-green
@@ -6373,8 +6373,8 @@ function LegalProgress({ accent }) {
 }
 
 function InfoPage({ page }) {
-  const paletteName = (() => { try { return getCookie("cb_palette") || "Sage"; } catch { return "Sage"; } })();
-  const P = PALETTES[paletteName] || PALETTES.Sage;
+  const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
+  const P = PALETTES[paletteName] || PALETTES.Dark;
   // ACCENTS was collapsed to a single { Mono } entry when the app moved to
   // its current monochrome accent direction (App()'s own accentName state,
   // a few thousand lines down, already defaults to "Mono" to match) — this
@@ -17610,7 +17610,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     // initializer in App() — the cookie-absent default. Getting one wrong
     // would make "reset" quietly set a NEW value rather than restore the
     // original, which is worse than having no reset at all.
-    setPaletteName("Sage");         // cb_pal
+    setPaletteName("Dark");          // cb_pal
     setAccentName("Sage");          // cb_accent
     setCustomAccent("");            // cb_ca
     setAnswerLength("medium");      // cb_len
@@ -20495,7 +20495,7 @@ function App() {
   const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
   const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
-  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Sage");
+  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Dark");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Sage");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
   const [hoverCite, setHoverCite] = useState(0);
@@ -20546,7 +20546,7 @@ function App() {
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
-  const P = PALETTES[paletteName] || PALETTES.Sage;
+  const P = PALETTES[paletteName] || PALETTES.Dark;
   // "Mono" isn't a real color swatch — it means "match the current palette's
   // own ink," which is why it's derived from P.dark rather than read out of
   // ACCENTS. Any other named accent (Sage, or a future addition) is a real
