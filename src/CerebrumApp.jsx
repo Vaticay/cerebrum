@@ -19502,6 +19502,159 @@ function VersionBanner({ P, accent, onRefresh, onDismiss }) {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   Live tab icon. The favicon is redrawn from a canvas so the browser
+   tab reflects what the app is doing:
+     · idle    → the modern mark, tinted with the user's accent color
+     · busy    → a sweeping activity arc while a search is in flight
+     · unread  → an inbox badge (capped at 9+)
+   The canvas renders one static frame when idle; the animation loop
+   runs only while busy, honours prefers-reduced-motion, and pauses
+   when the tab is hidden. The static favicon.svg stays in <head> as
+   the no-JS fallback. */
+const FAVICON_BRAIN_L = "M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z";
+const FAVICON_BRAIN_R = "M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z";
+
+/* Badge text for the live favicon: null when there is nothing to show. */
+function liveFaviconBadge(unread) {
+  const n = Math.floor(Number(unread) || 0);
+  if (n <= 0) return null;
+  return n > 9 ? "9+" : String(n);
+}
+
+function useDynamicFavicon({ accent, busy, unread }) {
+  const stateRef = useRef({ accent, busy, unread });
+  stateRef.current = { accent, busy, unread };
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const S = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = S; canvas.height = S;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let link = document.querySelector('link[rel="icon"][data-live="1"]');
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      link.type = "image/png";
+      link.setAttribute("data-live", "1");
+      document.head.appendChild(link);
+    }
+
+    const reduceMotion = () =>
+      !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+    const rr = (x, y, w, h, r) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    };
+
+    const drawFrame = (t) => {
+      const { accent: ac, busy: bz, unread: un } = stateRef.current;
+      const mark = ac || "#34d399";
+      ctx.clearRect(0, 0, S, S);
+      // deep-ink tile
+      const tile = ctx.createLinearGradient(0, 0, S, S);
+      tile.addColorStop(0, "#1d2129");
+      tile.addColorStop(0.55, "#11141a");
+      tile.addColorStop(1, "#0a0c10");
+      rr(0, 0, S, S, 15);
+      ctx.fillStyle = tile;
+      ctx.fill();
+      // emerald lift
+      const lift = ctx.createRadialGradient(S * 0.32, S * 0.2, 2, S * 0.32, S * 0.2, S * 0.95);
+      lift.addColorStop(0, "rgba(16,185,129,0.38)");
+      lift.addColorStop(0.55, "rgba(16,185,129,0.08)");
+      lift.addColorStop(1, "rgba(16,185,129,0)");
+      rr(0, 0, S, S, 15);
+      ctx.fillStyle = lift;
+      ctx.fill();
+      // hairline top-light
+      rr(1, 1, S - 2, S - 2, 14);
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // brain mark in the user's accent
+      ctx.save();
+      ctx.translate(8, 9);
+      ctx.scale(2, 2);
+      ctx.strokeStyle = mark;
+      ctx.lineWidth = 3.2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.shadowColor = mark;
+      ctx.shadowBlur = 6;
+      ctx.stroke(new Path2D(FAVICON_BRAIN_L));
+      ctx.stroke(new Path2D(FAVICON_BRAIN_R));
+      ctx.restore();
+      ctx.shadowBlur = 0;
+      // sweeping activity arc while a search is in flight
+      if (bz && !reduceMotion()) {
+        const a0 = ((t || 0) / 900) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(S / 2, S / 2, S / 2 - 4, a0, a0 + Math.PI * 1.35);
+        ctx.strokeStyle = mark;
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        ctx.shadowColor = mark;
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      // unread inbox badge
+      const badge = liveFaviconBadge(un);
+      if (badge) {
+        const bx = S - 17, by = 15, br = 12;
+        ctx.beginPath();
+        ctx.arc(bx, by, br, 0, Math.PI * 2);
+        ctx.fillStyle = "#f43f5e";
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = "#0a0c10";
+        ctx.stroke();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = `700 ${badge.length > 1 ? 11 : 13}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(badge, bx, by + 0.5);
+      }
+      link.href = canvas.toDataURL("image/png");
+    };
+
+    let raf = 0;
+    let running = false;
+    const loop = (t) => {
+      if (!running) return;
+      drawFrame(t || 0);
+      raf = requestAnimationFrame(loop);
+    };
+    const sync = () => {
+      const { busy: bz } = stateRef.current;
+      const shouldRun = bz && !reduceMotion() && !document.hidden;
+      if (shouldRun && !running) { running = true; raf = requestAnimationFrame(loop); }
+      else if (!shouldRun) {
+        if (running) { running = false; cancelAnimationFrame(raf); }
+        drawFrame(0);
+      }
+    };
+    const onVis = () => sync();
+    document.addEventListener("visibilitychange", onVis);
+    sync();
+    return () => {
+      running = false;
+      cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [accent, busy, unread]);
+}
+
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
@@ -19870,6 +20023,9 @@ function App() {
   const [pinnedSources, setPinnedSources] = useState([]);
   const [corrections, setCorrections] = useState([]);
   const [busy, setBusy] = useState(false);
+  /* Live tab icon: sweeping activity arc while a search is in flight,
+     inbox badge for unread threads, mark tinted with the user's accent. */
+  useDynamicFavicon({ accent, busy, unread: threads.filter((t) => t.unread).length });
   /* ReadingRoom milestone: set when /api/videos resolves with a non-empty
      videos array while the current request is still current (see the
      videosPromise.then guard in ask). Reset at the start of every ask. */

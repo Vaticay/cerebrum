@@ -1,15 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Cerebrum brain mark. Dark rounded square background + accent-colored
-       two-hemisphere brain silhouette, sized for favicon rendering. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Cerebrum mark, modernized: layered deep-ink tile with an emerald
+       radial lift, hairline top-light, and the two-hemisphere brain in a
+       luminous mint→teal gradient with a soft bloom. -->
   <defs>
-    <linearGradient id="cbgrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#10b981" />
-      <stop offset="1" stop-color="#059669" />
+    <linearGradient id="cb-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d2129"/>
+      <stop offset="0.55" stop-color="#11141a"/>
+      <stop offset="1" stop-color="#0a0c10"/>
     </linearGradient>
+    <radialGradient id="cb-lift" cx="0.32" cy="0.2" r="0.95">
+      <stop offset="0" stop-color="#10b981" stop-opacity="0.38"/>
+      <stop offset="0.55" stop-color="#10b981" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#10b981" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cb-mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.5" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+    <filter id="cb-bloom" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.1" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <rect width="32" height="32" rx="7" fill="#0f1116" />
-  <g fill="none" stroke="url(#cbgrad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" transform="translate(4 4) scale(1)">
-    <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
-    <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
+  <rect width="64" height="64" rx="15" fill="url(#cb-tile)"/>
+  <rect width="64" height="64" rx="15" fill="url(#cb-lift)"/>
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="14.5" fill="none" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1.5"/>
+  <g fill="none" stroke="url(#cb-mark)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" filter="url(#cb-bloom)" transform="translate(8 9) scale(2)">
+    <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/>
+    <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/>
   </g>
 </svg>
