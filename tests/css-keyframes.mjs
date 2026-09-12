@@ -1,12 +1,11 @@
 /**
  * CSS keyframes integrity — regression test for a real production bug.
  *
- * The bibliography and the video cards both render with an inline
- * `opacity: 0` pre-animation state plus the `.cb-fade` entrance class.
- * A dead-CSS cleanup deleted `@keyframes cbFade` while `.cb-fade` still
- * referenced it — so the animation named nothing, the inline opacity: 0
- * persisted forever, and both sections rendered real content into the DOM
- * that no one could see ("blank bibliography", "blank videos").
+ * The bibliography and the video cards use the `.cb-fade` entrance class.
+ * A dead-CSS cleanup once deleted `@keyframes cbFade` while `.cb-fade`
+ * still referenced it — so the animation named nothing and both sections
+ * rendered invisible. The fix: content is visible by default (opacity: 1)
+ * and the animation is an enhancement, never a requirement.
  *
  * This test asserts the structural invariant: every cb* animation name
  * referenced anywhere in src/CerebrumApp.jsx (CSS rules AND inline JS
@@ -63,10 +62,11 @@ await test("every referenced cb* animation has @keyframes", () => {
 });
 
 await test("cbFade exists — the bibliography/video entrance depends on it", () => {
-  // .cb-fade pairs an inline opacity: 0 with this animation. If it goes
-  // missing again, bibliography rows and video cards go invisible.
-  assert.ok(defined.has("cbFade"), "@keyframes cbFade is missing — bibliography and video cards will render invisible");
-  assert.match(src, /\.cb-fade\s*\{\s*animation:\s*cbFade/, ".cb-fade no longer uses the cbFade keyframes");
+  // .cb-fade uses this animation for its entrance. Content is visible by
+  // default (opacity: 1); the animation is an enhancement, not a requirement.
+  // If the keyframes go missing again, the entrance simply doesn't play.
+  assert.ok(defined.has("cbFade"), "@keyframes cbFade is missing — the entrance animation will not play");
+  assert.match(src, /\.cb-fade\s*\{[^}]*animation:\s*cbFade/, ".cb-fade no longer uses the cbFade keyframes");
 });
 
 await test("no @keyframes block is defined twice under the same name", () => {

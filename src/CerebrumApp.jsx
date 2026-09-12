@@ -1,5 +1,18 @@
-import { saveInvestigation } from "./investigationHistory.js";
 import { contextAction } from "../functions/lib/conversation.js";
+/* Inlined from investigationHistory.js — a one-function module was a
+   deployment hazard (Cloudflare failed the build when the file was
+   absent/misnamed). One history entry per conversation, refreshed after
+   each completed answer. */
+function saveInvestigation(history, turns, allSources, now = Date.now()) {
+  const entries = Array.isArray(history) ? history : [];
+  if (!Array.isArray(turns) || !turns.length || turns[0]?.id == null) return entries;
+  const firstId = turns[0].id;
+  const previous = entries.find(entry => entry.turns?.[0]?.id === firstId);
+  const entry = { ...previous, id: previous?.id || `h${firstId}`,
+    title: previous?.title || String(turns[0].q || "Untitled investigation").slice(0, 140),
+    ts: now, turns, allSources };
+  return [entry, ...entries.filter(item => item.turns?.[0]?.id !== firstId)].slice(0, 40);
+}
 /**
  * CerebrumApp — the Cerebrum interface.
  *
@@ -2748,12 +2761,11 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
   );
 }
 
-/* ── AskModePicker: numbered index plates ──
-   The five verbs were pills — five equals with no order and no weight.
-   Plates carry an index (01–05): an order you can learn, a position you
-   can remember. One consequence line beneath says what each plate does
-   to your question; it follows hover and keyboard focus and settles on
-   the active mode. aria-pressed, keyboard focusability and the two-row
+/* ── AskModePicker: mode plates ──
+   Five verbs as plates. No numbering — the numbers suggested a sequence
+   that doesn't exist. One consequence line beneath says what each plate
+   does to your question; it follows hover and keyboard focus and settles
+   on the active mode. aria-pressed, keyboard focusability and the two-row
    mobile wrap are preserved. */
 function AskModePicker({ mode, setMode, P, accent, isMobile }) {
   /* React.useState, not the bare hook, and the consequence map lives
@@ -2790,7 +2802,6 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
         {ASK_MODES.map((m) => {
           const on = mode === m.key;
           const hovered = hoverKey === m.key;
-          const idx = String(ASK_MODES.indexOf(m) + 1).padStart(2, "0");
           return (
             <button
               key={m.key}
@@ -2817,7 +2828,6 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
                 transform: hovered && !on ? "translateY(-1px)" : "none",
               }}
             >
-              <span className="cb-modeplate-idx" style={{ color: on ? accent : P.faint }}>{idx}</span>
               {m.label}
             </button>
           );
@@ -5415,6 +5425,17 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               }}>
                 Ask a real research question. Every claim traces to a paper you can open.
               </p>
+              {/* Supporting copy: what the product does, plainly. */}
+              <p style={{
+                margin: (isMobile ? "12px auto 0" : "14px auto 0"),
+                fontSize: isMobile ? 15 : 16.5,
+                lineHeight: 1.55, fontWeight: 400,
+                color: "rgba(242,244,242,0.72)",
+                maxWidth: 560,
+                textShadow: "0 1px 20px rgba(0,0,0,0.45)",
+              }}>
+                Explore scientific papers and build answers you can trace to their sources.
+              </p>
 
               {/* Two ways through the door. "Step inside" opens the
                   workspace with the real composer's cursor waiting;
@@ -5437,15 +5458,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                   fontWeight: 600, fontSize: isMobile ? 15.5 : 16, fontFamily: "var(--cb-body)",
                   boxShadow: "0 12px 34px rgba(163,184,153,0.26)",
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
-                }}><span>Step inside</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
+                }}><span>Start researching</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
+                {/* "How it works" is quieter now — a text link, not a second
+                    button competing with the primary action. */}
                 <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip" style={{
-                  cursor: "pointer", borderRadius: 9999,
-                  padding: isMobile ? "14px 30px" : "15px 36px",
-                  fontSize: isMobile ? 15.5 : 16, fontWeight: 500,
-                  color: "rgba(242,244,242,0.86)", fontFamily: "var(--cb-body)",
-                  background: "rgba(15, 17, 21, 0.62)",
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer", border: "none", background: "none", padding: "14px 8px",
+                  fontSize: isMobile ? 14 : 14.5, fontWeight: 500,
+                  color: "rgba(242,244,242,0.6)", fontFamily: "var(--cb-body)",
+                  textDecoration: "underline", textUnderlineOffset: 3,
+                  textDecorationColor: "rgba(242,244,242,0.3)",
                 }}>How it works</button>
               </div>
 
@@ -5465,39 +5486,22 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         </div>
 
         {/* ── Now showing ──
-            The scene prompt as a specimen plate: a tracked-out "NOW
-            SHOWING" kicker, the clip's subject, and the question as the
-            press target. The hold/release contract is untouched — a swap
-            that lands while someone is reading or pressing is held, never
-            applied under them. In normal flow at the bottom of the hero,
-            so it can never land on the headline or the buttons however
-            short the window gets. */}
-        <div ref={sceneRef} style={{ ...container, opacity: hidden, marginTop: isMobile ? 36 : 50 }}>
+            Compact: a scene caption and one example question. No decorative
+            corner brackets — the footage speaks for itself. */}
+        <div ref={sceneRef} style={{ ...container, opacity: hidden, marginTop: isMobile ? 30 : 40 }}>
           {scene ? (
             <div
               onMouseEnter={() => { holdRef.current = true; }}
               onMouseLeave={releaseHold}
               onFocus={() => { holdRef.current = true; }}
               onBlur={releaseHold}
-              className="cb-specimen cb-showing"
               style={{
-                maxWidth: 560, marginLeft: "auto", marginRight: "auto",
+                maxWidth: 520, marginLeft: "auto", marginRight: "auto",
                 textAlign: "center",
-                background: "rgba(10, 12, 16, 0.55)",
-                border: "1px solid rgba(255,255,255,0.10)",
-                borderRadius: 14,
-                padding: isMobile ? "16px 20px 14px" : "18px 28px 16px",
-                backdropFilter: "blur(12px)",
-                WebkitBackdropFilter: "blur(12px)",
-                boxShadow: "0 18px 44px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.06)",
               }}>
               <div style={{
-                fontFamily: "var(--cb-body)", fontSize: 10.5, letterSpacing: "0.24em",
-                textTransform: "uppercase", color: withAlpha(introAccent, 0.9), marginBottom: 8,
-              }}>Now showing</div>
-              <div style={{
-                fontSize: 12.5, letterSpacing: "0.06em", textTransform: "uppercase",
-                fontFamily: "var(--cb-body)", color: "rgba(242,244,242,0.52)", marginBottom: 8,
+                fontSize: 12, letterSpacing: "0.08em",
+                fontFamily: "var(--cb-body)", color: "rgba(242,244,242,0.55)", marginBottom: 10,
               }}>{scene.subject}</div>
               <button
                 type="button"
@@ -5507,23 +5511,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                   display: "block", textAlign: "center", width: "100%",
                   background: "none", border: "none", padding: 0, cursor: "pointer",
                   fontFamily: "var(--cb-body)", color: "#f2f4f2",
-                  fontSize: isMobile ? 16.5 : 19, lineHeight: 1.45, fontWeight: 500,
+                  fontSize: isMobile ? 16 : 18, lineHeight: 1.45, fontWeight: 500,
                 }}>
                 <span style={{ display: "block", marginBottom: 8 }}>{scene.question}</span>
                 <span className="cb-intro-scene-cta" style={{
                   fontSize: 13.5, fontWeight: 500, color: withAlpha(introAccent, 0.95),
                 }}>Ask this question ↗</span>
               </button>
-              <div style={{
-                marginTop: 10, fontSize: 11.5, lineHeight: 1.5,
-                color: "rgba(242,244,242,0.40)",
-              }}>
-                Footage is illustrative, not a result.
-              </div>
             </div>
           ) : (
-            /* No entry for this clip, or the reel has not reported one
-               yet. Nothing is shown rather than a placeholder question. */
             <div style={{ minHeight: isMobile ? 0 : 96 }} />
           )}
         </div>
@@ -6585,7 +6581,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
 // filters, and source network. Skip button dismisses permanently.
 const TOUR_STEPS = [
   {
-    title: "Command Line",
+    title: "Ask a question",
     icon: "⌘",
     text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel, PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more, then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
     hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to focus the search bar from anywhere.`,
@@ -6619,9 +6615,11 @@ const TOUR_STEPS = [
   },
 ];
 
-function GuidedTour({ P, accent }) {
+function GuidedTour({ P, accent, forceShow = false, onClose = () => {} }) {
   const [step, setStep] = useState(0);
   const [dismissed, setDismissed] = useState(() => {
+    /* The tour is opt-in now — "Show me around" — not automatic. */
+    if (forceShow) return false;
     try { return localStorage.getItem("cb_tour_done") === "1"; } catch { return false; }
   });
   const [entering, setEntering] = useState(true);
@@ -6646,6 +6644,7 @@ function GuidedTour({ P, accent }) {
   const dismiss = () => {
     try { localStorage.setItem("cb_tour_done", "1"); } catch {}
     setDismissed(true);
+    onClose();
   };
   const next = () => {
     if (step >= TOUR_STEPS.length - 1) { dismiss(); return; }
@@ -8026,8 +8025,23 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         <span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Inquiry</span>
       </div>
       <h2 style={S.headline}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
+      {/* Save-state: Saving… / Saved / Couldn't save · Retry — beside the
+          title so a storage failure is visible now, not tomorrow. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, marginBottom: 2 }}>
+        {saveState === "saving" && (
+          <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>Saving…</span>
+        )}
+        {saveState === "saved" && (
+          <span style={{ fontSize: FONT_SIZES.micro, color: withAlpha(STATUS.good, 0.8), fontFamily: "var(--cb-body)" }}>Saved</span>
+        )}
+        {saveState === "error" && (
+          <button onClick={retrySave} style={{ fontSize: FONT_SIZES.micro, color: STATUS.bad, fontFamily: "var(--cb-body)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+            Couldn't save · Retry
+          </button>
+        )}
+      </div>
       {/* Answer card */}
-      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel cb-glow-line cb-specimen">
+      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel cb-specimen">
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
             docked via `position: absolute; top; right`. On a narrow mobile
@@ -14387,7 +14401,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
   // The ledger, newest first.
   const ledger = [...(history || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  const pursuits = derivePursuits(history);
+  /* Research interests are user-written, not extracted from query
+     fragments. Auto-derived "pursuits" read like broken keywords. */
+  const interests = Array.isArray(profile.interests) ? profile.interests.filter(Boolean) : [];
   const contextLine = [profile.degree, profile.affiliation, profile.grad_year].filter(Boolean).join(" · ");
   const collectionCounts = (collections || []).map((c) => ({ ...c, count: (saved || []).filter((s) => s.collectionId === c.id).length }));
   const shelfName = (sv) => (collections || []).find((c) => c.id === sv.collectionId)?.name || "";
@@ -14412,13 +14428,13 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             eight named designs, picked in the Annotate panel below); the
             avatar overlaps its lower edge the way every profile people
             already use lays out. */}
-        <ProfileCover P={P} cover={profile.cover} accent={accent} height={isMobile ? 118 : 150} />
+        <ProfileCover P={P} cover={profile.cover} accent={accent} height={isMobile ? 140 : 150} />
 
         <div style={{
           display: "flex", gap: isMobile ? 14 : 18, alignItems: "flex-end",
           marginTop: isMobile ? -30 : -36, padding: isMobile ? "0 6px" : "0 10px",
         }}>
-          <div style={{ position: "relative", width: isMobile ? 76 : 88, height: isMobile ? 76 : 88, flexShrink: 0 }}>
+          <div style={{ position: "relative", width: isMobile ? 80 : 88, height: isMobile ? 80 : 88, flexShrink: 0, marginTop: isMobile ? -24 : 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
@@ -14483,11 +14499,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 5, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}>
               <span>{displayUsername}</span>
-              {isFounder && (
-                <span style={{ color: "#c9a227", fontWeight: 700, fontSize: FONT_SIZES.micro, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                  Founder &amp; Owner
-                </span>
-              )}
             </div>
             {/* Badges live with the identity now, not in a ledger section
                 at the bottom of the page — they are about who this is. */}
@@ -14513,12 +14524,12 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         {/* Bio, context and links read full-width under the identity row —
             the social-profile order: who, then what they're about. */}
         <div style={{ padding: isMobile ? "0 6px" : "0 10px", marginTop: 14 }}>
-          {/* The pursuing line — a research statement written by the work
-              itself. Updates as the investigations do. */}
-          {!editing && pursuits.length > 0 && (
+          {/* Research interests — written by the user, not extracted from
+              queries. */}
+          {!editing && interests.length > 0 && (
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-              <span style={{ ...eyebrow, letterSpacing: "0.1em", marginRight: 10 }}>Pursuing</span>
-              {pursuits.join(" · ")}
+              <span style={{ ...eyebrow, letterSpacing: "0.1em", marginRight: 10 }}>Research interests</span>
+              {interests.join(" · ")}
             </div>
           )}
 
@@ -14562,7 +14573,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           borderTop: `1px solid ${P.line}`,
         }}>
           <ProfileStats P={P} stats={[
-            { label: "Questions", value: (history || []).length },
+            /* history.length counts conversations (investigations), not
+               individual questions — one conversation with five questions
+               is one investigation. */
+            { label: "Investigations", value: (history || []).length },
             { label: "Papers", value: (saved || []).length },
             { label: "Followers", value: profileMeta?.followers || 0 },
             { label: "Following", value: profileMeta?.followingCount || 0 },
@@ -14578,7 +14592,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               background: editing ? accent : "transparent", color: editing ? at : P.ink,
               border: editing ? "none" : `1px solid ${P.line2}`,
             }}
-          >{editing ? "Done annotating" : "Annotate"}</button>
+          >{editing ? "Done" : "Edit profile"}</button>
           <button
             onClick={onManageAccount}
             style={{
@@ -14643,6 +14657,24 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               />
               <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", marginTop: 4 }}>
                 {(profile.bio || "").length}/400
+              </div>
+            </div>
+            <div>
+              <div style={{ ...eyebrow, marginBottom: 8 }}>Research interests</div>
+              <input
+                value={(profile.interests || []).join(", ")}
+                onChange={(e) => setProfile((p2) => ({ ...p2, interests: e.target.value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8) }))}
+                aria-label="Research interests, separated by commas"
+                placeholder="e.g. protein folding, climate modeling"
+                style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 8,
+                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                  border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
+                }}
+              />
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", marginTop: 4 }}>
+                Separate with commas — up to 8.
               </div>
             </div>
             <div>
@@ -14737,15 +14769,16 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </div>
         )}
 
-        {/* ── Field signature ──────────────────────────────────────
-            The shape of the work, drawn from the work: it cannot be
-            picked, posed, or faked, only earned. Cerebrum's answer to the
-            contribution graph — one tick per investigation over the last
-            120 days, taller where the paper haul was bigger. */}
-        <div style={{ marginTop: 30 }}>
-          <div style={{ ...eyebrow, marginBottom: 4 }}>Field signature · last 120 days</div>
-          <FieldRidge history={history} accent={accent} P={P} />
-        </div>
+        {/* ── Research activity ────────────────────────────────────
+            The shape of the work, drawn from the work: one tick per
+            investigation over the last 120 days, taller where the paper
+            haul was bigger. Collapses when there is little data. */}
+        {(history || []).length >= 3 && (
+          <div style={{ marginTop: 30 }}>
+            <div style={{ ...eyebrow, marginBottom: 4 }}>Research activity · last 120 days</div>
+            <FieldRidge history={history} accent={accent} P={P} />
+          </div>
+        )}
 
         {/* ── Content tabs ─────────────────────────────────────────
             Investigations, the shelf, and shelves are tabs now, not a
@@ -14808,9 +14841,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   </div>
                 </button>
               ))}
+
             </div>
-          ))}
-            )}
+            ))}
             {tab === "shelf" && (saved.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="bookmark"
               title="Nothing on the shelf yet"
@@ -14827,8 +14860,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 </div>
               ))}
             </div>
-          ))}
-            )}
+            ))}
             {tab === "shelves" && (collectionCounts.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="folder"
               title="No shelves yet"
@@ -14846,8 +14878,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 </div>
               ))}
             </div>
-          ))}
-            )}
+            ))}
           </div>
         </div>
       </div>
@@ -17455,6 +17486,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        nice front page. Light stays opaque: the reel is not legible under
        white glass at any blur. */
     pageView: { flex: 1, width: "100%", background: P.dark ? "transparent" : P.bg, minHeight: "100%", position: "relative", zIndex: 1 },
+    /* Reading panels: stable surfaces for profiles, bibliography, inbox,
+       and long answers. The footage stays visible around them; the text
+       sits on a surface that doesn't compete with it.
+       Dark: rgba(15,17,21,0.94). Light: rgba(250,251,249,0.97). */
+    readingPanel: {
+      background: P.dark ? "rgba(15,17,21,0.94)" : "rgba(250,251,249,0.97)",
+      borderRadius: 16, padding: isMobile ? 18 : 28,
+      border: `1px solid ${P.line}`,
+    },
     // Commit 67 (mobile fix) — the floating menu button is fixed at
     // top:14 left:14 and is 38px square, so it occupies the first ~52px of
     // both axes. Page content started at 24px from the top and 18px from
@@ -18117,6 +18157,21 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
       onMouseEnter={() => { if (!isMobile && railCollapsed) setRailHover(true); }}
       onMouseLeave={() => setRailHover(false)}
       style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: railW, transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1), transform 240ms cubic-bezier(0.4, 0, 0.2, 1)", overflowX: "hidden", ...(railCollapsed && railHover && !isMobile ? { boxShadow: "12px 0 40px rgba(0,0,0,0.35)" } : {}) }}>
+      {/* Explicit close button for the mobile drawer. */}
+      {isMobile && mobileOpen && (
+        <button
+          onClick={onCloseMobile}
+          aria-label="Close menu"
+          style={{
+            position: "absolute", top: 12, right: 12, zIndex: 5,
+            width: 36, height: 36, borderRadius: "50%",
+            background: "transparent", border: `1px solid ${P.line}`,
+            color: P.ink, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 18,
+          }}
+        >✕</button>
+      )}
       <div style={{ ...S.sidebarBrand, ...(expanded ? {} : { padding: "24px 0 20px", justifyContent: "center" }) }} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
         <Mark size={18} accent={accent} glow={P.dark} />
         {expanded && <span style={{ fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-display)" }}>Cerebrum</span>}
@@ -18481,6 +18536,7 @@ function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
   const [filmCreditsOpen, setFilmCreditsOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   /* Attention, as a piece of state. The backdrop is at its most present
      when someone is looking around, and steps back the moment they start
      doing something — typing a question, or reading an answer. */
@@ -18551,6 +18607,30 @@ function App() {
   // its existing dialog; only its trigger moved into the Sidebar.
   const [view, setView] = useState("search"); // "search" | "profile" | "settings" | "trending" | "inbox"
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
+  /* Scroll lock: when the mobile drawer is open, the background must not
+     scroll. Focus trap: Tab cycles within the drawer. */
+  useEffect(() => {
+    if (!sidebarMobileOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => {
+      if (e.key === "Escape") { setSidebarMobileOpen(false); return; }
+      if (e.key !== "Tab") return;
+      const drawer = document.querySelector('nav[aria-label="Main"]');
+      if (!drawer) return;
+      const focusable = drawer.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [sidebarMobileOpen]);
   /* Compact rail: collapse to a 68px icon strip, persisted. Hovering the
      strip re-expands it as an overlay (content stays put). Desktop only. */
   const [railCollapsed, setRailCollapsed] = useState(() => { try { return localStorage.getItem("cb-rail-collapsed") === "1"; } catch { return false; } });
@@ -18768,6 +18848,25 @@ function App() {
   // the rescue, and tidyQuestionTitle keeps the list readable regardless.
   const [historyRenameId, setHistoryRenameId] = useState(null);
   const [historyRenameValue, setHistoryRenameValue] = useState("");
+  const [historyMenuId, setHistoryMenuId] = useState(null);
+  /* Export a single investigation as a readable text file. */
+  const exportInvestigation = useCallback((h) => {
+    const lines = [
+      `Investigation: ${h.title || "Untitled"}`,
+      `Date: ${h.ts ? new Date(h.ts).toLocaleString() : "—"}`,
+      "",
+    ];
+    (h.turns || []).forEach((t, i) => {
+      lines.push(`Q${i + 1}: ${t.q || ""}`);
+      if (t.answer) lines.push(t.answer.replace(/<[^>]+>/g, "").slice(0, 2000));
+      lines.push("");
+    });
+    if ((h.allSources || []).length) {
+      lines.push("Sources:");
+      h.allSources.forEach((s, i) => lines.push(`${i + 1}. ${s.title || s.url || ""}`));
+    }
+    download(`investigation-${(h.title || "untitled").slice(0, 40).replace(/[^\w\-]+/g, "-")}.txt`, lines.join("\n"));
+  }, []);
   // Attached image (a figure, a screenshot of a chart, a photo of a
   // specimen) sent alongside the next question — see describeImage() on
   // the backend, which converts it to text via a vision model before it
@@ -19097,15 +19196,23 @@ function App() {
   const [fabVisible, setFabVisible] = useState(true);
   const lastScrollY = useRef(0);
   useEffect(() => {
+    /* Isolated via rAF: scroll fires at 60-120Hz; setState on every event
+       rerenders the entire app. We coalesce to one update per frame. */
+    let ticking = false;
     const onScroll = () => {
-      const doc = document.documentElement;
-      const max = doc.scrollHeight - doc.clientHeight;
-      const top = window.scrollY || doc.scrollTop || 0;
-      setScrollProg(max > 0 ? top / max : 0);
-      setShowScrollTop(top > 400);
-      const showFab = top < 140 || top <= lastScrollY.current;
-      lastScrollY.current = top;
-      setFabVisible((v) => (v === showFab ? v : showFab));
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        const doc = document.documentElement;
+        const max = doc.scrollHeight - doc.clientHeight;
+        const top = window.scrollY || doc.scrollTop || 0;
+        setScrollProg(max > 0 ? top / max : 0);
+        setShowScrollTop(top > 400);
+        const showFab = top < 140 || top <= lastScrollY.current;
+        lastScrollY.current = top;
+        setFabVisible((v) => (v === showFab ? v : showFab));
+      });
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
@@ -19509,7 +19616,29 @@ function App() {
   // why it was removed. Native scrolling + the sticky header's own
   // translateZ(0) compositor layer handle this correctly without it.)
 
-  useEffect(() => { try { localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40))); } catch { toast("Browser storage is full or unavailable. Keep this tab open until your investigation is saved to your account.", { tone: "error" }); } }, [history]);
+  /* Save-state indicator: "Saving…" while writing, "Saved" on success,
+     "Couldn't save · Retry" on failure. Users shouldn't discover a save
+     problem tomorrow. */
+  const [saveState, setSaveState] = useState("saved");
+  const retrySave = useCallback(() => {
+    setSaveState("saving");
+    try {
+      localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }, [history]);
+  useEffect(() => {
+    setSaveState("saving");
+    try {
+      localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+      toast("Browser storage is full or unavailable. Keep this tab open until your investigation is saved to your account.", { tone: "error" });
+    }
+  }, [history]);
   const historySyncTimer = useRef(null);
   useEffect(() => {
     if (!user || !syncReady) return;
@@ -19965,7 +20094,7 @@ function App() {
       <div style={S.grain} />
       {opening && <InvestigationOpening accent={accent} animationMode={animationMode} />}
       {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
-      <GuidedTour P={P} accent={accent} />
+      {tourOpen && <GuidedTour P={P} accent={accent} forceShow onClose={() => setTourOpen(false)} />}
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {/* Back to top. Two mobile fixes: it sat at 10% white over the page,
           so the Home Deck's rows read straight through it (a watchlist
@@ -20003,32 +20132,32 @@ function App() {
           doesn't fit next to search results on a phone screen — gets its
           own minimal floating trigger just below instead of a full bar. */}
       {isMobile && (
-        <button
-          className="cb-hbtn"
-          onClick={() => { sfx(); setSidebarMobileOpen(true); }}
-          aria-label="Open menu"
-          title="Menu"
-          style={{
-            position: "fixed", top: 14, left: 14, zIndex: 21,
-            /* 44px touch target. Was 38px with a 16px backdrop blur — the
-               blur re-composited every frame over playing video for a
-               button nobody looks at, and 38px is under the touch rule.
-               Solid background now; the border keeps it legible over
-               footage. */
-            width: 44, height: 44, borderRadius: "50%",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            // Was 0.75/0.85 — translucent enough that the Home Deck's first
-            // stat read straight through the button as it scrolled under.
-            // A control that content shows through isn't glass, it's a
-            // smudge.
-            background: P.dark ? "#101317" : "#ffffff",
-            border: `1px solid ${P.line}`,
-            boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)",
-            color: P.ink, cursor: "pointer",
-          }}
-        >
+        /* 56px header bar: the menu button lives here, not floating over
+           content. It can no longer cover article titles or the profile
+           cover. */
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, height: 56, zIndex: 21,
+          display: "flex", alignItems: "center", padding: "0 12px",
+          background: P.dark ? "rgba(11,13,16,0.85)" : "rgba(255,255,255,0.9)",
+          backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          borderBottom: `1px solid ${P.line}`,
+        }}>
+          <button
+            className="cb-hbtn"
+            onClick={() => { sfx(); setSidebarMobileOpen(true); }}
+            aria-label="Open menu"
+            title="Menu"
+            style={{
+              width: 44, height: 44, borderRadius: "50%",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "transparent",
+              border: `1px solid ${P.line}`,
+              color: P.ink, cursor: "pointer",
+            }}
+          >
           <Icon name="menu" size={18} />
-        </button>
+          </button>
+        </div>
       )}
       {view === "search" && (
       /* Commit 85 -- this container used to carry
@@ -20164,7 +20293,7 @@ function App() {
                 <div style={{ width: "100%", maxWidth: 820, marginTop: 10 }}>
                   <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px 4px" }}>Try</div>
                   <div className="cb-scroll-x" style={{ display: "flex", gap: 8, flexWrap: "nowrap", overflowX: "auto", scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", padding: "2px 4px 6px" }}>
-                    {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3).map((ex) => (
+                    {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2).map((ex) => (
                       <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
                         style={{
                           flex: "0 0 82%", scrollSnapAlign: "center",
@@ -20176,11 +20305,17 @@ function App() {
                       >{ex}</button>
                     ))}
                   </div>
+                  {/* Optional tour — "Show me around" instead of an automatic tour. */}
+                  <div style={{ textAlign: "center", marginTop: 8 }}>
+                    <button onClick={() => setTourOpen(true)}
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", textDecoration: "underline", textUnderlineOffset: 3 }}
+                    >Show me around</button>
+                  </div>
                 </div>
               ) : (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, flexWrap: "wrap", maxWidth: 820, padding: "0 8px" }}>
                   <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.08em", textTransform: "uppercase", flexShrink: 0 }}>Try</span>
-                  {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3).map((ex) => (
+                  {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2).map((ex) => (
                     <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
                       style={{
                         padding: isMobile ? "7px 12px" : "8px 14px", borderRadius: 100, cursor: "pointer",
@@ -20562,26 +20697,29 @@ function App() {
                               </span>
                             </div>
                           ) : (
-                          <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit", display: "flex", gap: 14, alignItems: "flex-start" }}>
-                            <InvestigationCover title={h.title} accent={accent} P={P} size={isMobile ? 44 : 52} />
+                          <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit", display: "flex", gap: 14, alignItems: "flex-start", width: "100%", borderRadius: 8, transition: "background 0.15s ease" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                            onMouseDown={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.1); }}
+                            onMouseUp={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
+                            onFocus={(e) => { e.currentTarget.style.outline = `2px solid ${withAlpha(accent, 0.5)}`; e.currentTarget.style.outlineOffset = 2; }}
+                            onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
+                          >
+                            {!isMobile && <InvestigationCover title={h.title} accent={accent} P={P} size={52} />}
                             <span style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em" }}>{tidyQuestionTitle(h.title)}</div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-body)" }}>
+                            {/* Mobile: title spans full width, up to 3 lines. Desktop: denser row. */}
+                            <div style={{
+                              fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em",
+                              display: "-webkit-box", WebkitLineClamp: isMobile ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                            }}>{tidyQuestionTitle(h.title)}</div>
+                            {/* Second line: "12 Sep · 1 question · 11 papers" */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT_SIZES.caption, color: P.faint, marginTop: isMobile ? 6 : 5, fontFamily: "var(--cb-body)" }}>
+                              {h.ts && <span>{new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</span>}
+                              <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
                               <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
                               {(h.allSources || []).length > 0 && (<>
                                 <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-                                <span style={{ color: accent, fontWeight: 600 }}>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
-                              </>)}
-                              {h.ts && (<>
-                                <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-                                {/* Touched in the last 48 hours: a pulse, so
-                                    the live investigations announce
-                                    themselves instead of reading identically
-                                    to the stale ones. */}
-                                {Date.now() - h.ts < 48 * 3600 * 1000 && (
-                                  <span aria-hidden="true" title="Active recently" style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS.good, animation: "cbHuddlePulse 1.6s ease-in-out infinite", flexShrink: 0 }} />
-                                )}
-                                <span>{relativeTime(h.ts)}</span>
+                                <span>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
                               </>)}
                             </div>
                             {/* A preview of the actual material, not a
@@ -20618,8 +20756,54 @@ function App() {
                             </span>
                           ) : (
                             <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                              <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Rename ${h.title}`} onClick={() => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); }}>Rename</UIButton>
-                              <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Delete ${h.title}`} onClick={() => setHistoryConfirmId(h.id)}>Delete</UIButton>
+                              {/* Overflow menu: rename, export, delete. Mobile gets the
+                                  compact ⋯; desktop keeps the explicit actions. */}
+                              {isMobile ? (
+                                <div style={{ position: "relative" }}>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setHistoryMenuId(historyMenuId === h.id ? null : h.id); }}
+                                    aria-label={`Options for ${h.title}`}
+                                    style={{
+                                      width: 32, height: 32, borderRadius: 8, border: `1px solid ${P.line}`,
+                                      background: "transparent", color: P.faint, cursor: "pointer",
+                                      display: "flex", alignItems: "center", justifyContent: "center",
+                                      fontSize: 18, lineHeight: 1,
+                                    }}
+                                  >⋯</button>
+                                  {historyMenuId === h.id && (
+                                    <div style={{
+                                      position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10,
+                                      background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
+                                      border: `1px solid ${P.line}`, borderRadius: 10,
+                                      boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: 140,
+                                      overflow: "hidden",
+                                    }}>
+                                      {[
+                                        { label: "Rename", action: () => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); } },
+                                        { label: "Export", action: () => { exportInvestigation(h); } },
+                                        { label: "Delete", action: () => setHistoryConfirmId(h.id), danger: true },
+                                      ].map((item) => (
+                                        <button key={item.label}
+                                          onClick={() => { setHistoryMenuId(null); item.action(); }}
+                                          style={{
+                                            display: "block", width: "100%", textAlign: "left",
+                                            padding: "10px 14px", background: "none", border: "none",
+                                            fontSize: FONT_SIZES.small, color: item.danger ? STATUS.bad : P.ink,
+                                            cursor: "pointer", fontFamily: "var(--cb-body)",
+                                          }}
+                                          onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
+                                          onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+                                        >{item.label}</button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Rename ${h.title}`} onClick={() => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); }}>Rename</UIButton>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Delete ${h.title}`} onClick={() => setHistoryConfirmId(h.id)}>Delete</UIButton>
+                                </>
+                              )}
                             </span>
                           )}
                         </div>
@@ -21577,9 +21761,12 @@ summary::-webkit-details-marker { display: none; }
    real content into the DOM that no one could see. Never remove this
    without also removing the inline opacity: 0 pattern. */
 @keyframes cbFade { from { opacity: 0; } to { opacity: 1; } }
-.cb-fade    { animation: cbFade  180ms var(--cb-ease) both; }
-.cb-rise    { animation: cbRise  320ms var(--cb-ease) both; }
-.cb-pop     { animation: cbPop   320ms var(--cb-ease) both; }
+/* Content is visible by default — the animation is an enhancement, never
+   a requirement. If animations are disabled (reduced motion) or fail to
+   run, citations and buttons must still be visible. */
+.cb-fade    { opacity: 1; animation: cbFade  180ms var(--cb-ease) both; }
+.cb-rise    { opacity: 1; animation: cbRise  320ms var(--cb-ease) both; }
+.cb-pop     { opacity: 1; animation: cbPop   320ms var(--cb-ease) both; }
 .cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 560ms var(--cb-ease) both; will-change: transform, opacity, filter; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
