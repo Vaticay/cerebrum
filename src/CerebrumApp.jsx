@@ -2791,20 +2791,20 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
             <>
               {/* sonar pings: the query reaching out to the databases — two
                   rings, staggered, each expanding from the clock out to the
-                  database ring over four seconds */}
+                  database ring over three seconds */}
               <g className="cb-tx-ping"><circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="1" /></g>
               <g className="cb-tx-ping cb-tx-ping-b"><circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="1" /></g>
               {/* counter-rotating dashed hairline: depth against the comet */}
               <g className="cb-tx-inner-orbit">
                 <circle cx="160" cy="160" r="96" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray="2 7" />
               </g>
-              {/* the comet: glowing head + fading tail, one 10-second orbit.
+              {/* the comet: glowing head + fading tail, one 6-second orbit.
                   The head dot sits at 3 o'clock, exactly where the dash
                   starts and where the gradient is brightest, so they fly
                   as one body. */}
               <g className="cb-tx-comet">
                 <circle cx="160" cy="160" r="118" fill="none" stroke="url(#cbTxPulse)" strokeWidth="2.5"
-                  strokeDasharray="86 656" strokeLinecap="round" />
+                  strokeDasharray="110 632" strokeLinecap="round" />
                 <circle cx="278" cy="160" r="3.5" fill={accent} className="cb-tx-head" />
               </g>
             </>
@@ -5597,14 +5597,14 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             Quiet sci-fi pacing: a beat of pure footage under the veil, then
             the type finds focus — tiny tracked kicker, the title resolving
             like a film card, the slogan, and finally the single way in.
-            Blur-to-sharp, slow and staggered. No pointer motion anywhere on
+            Blur-to-sharp, quick and staggered. No pointer motion anywhere on
             this screen. */}
         <div style={{
           ...container, maxWidth: 1040,
           display: "flex", flexDirection: "column", alignItems: "center",
         }}>
           <div className={animate ? "cb-focus-in" : undefined}
-            style={animate ? { animationDelay: "1.1s" } : undefined}>
+            style={animate ? { animationDelay: "0.5s" } : undefined}>
             <span style={{
               fontFamily: "var(--cb-body)", fontSize: 10, letterSpacing: "0.42em",
               textIndent: "0.42em", fontWeight: 500,
@@ -5622,7 +5622,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             textWrap: "balance",
           }}>
             <span className={animate ? "cb-focus-in" : undefined}
-              style={{ display: "block", ...(animate ? { animationDelay: "1.7s" } : null) }}>There&rsquo;s a world behind your question.</span>
+              style={{ display: "block", ...(animate ? { animationDelay: "0.8s" } : null) }}>There&rsquo;s a world behind your question.</span>
           </h1>
           <p className={animate ? "cb-focus-in" : undefined} style={{
             margin: "26px 0 0", maxWidth: "52ch",
@@ -5630,7 +5630,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             letterSpacing: "0.02em",
             color: "rgba(242,244,242,0.62)",
             textShadow: "0 2px 30px rgba(0,0,0,0.5)",
-            ...(animate ? { animationDelay: "2.8s" } : null),
+            ...(animate ? { animationDelay: "1.2s" } : null),
           }}>
             Ask a real research question. Every claim traces to a paper you can open.
           </p>
@@ -5638,7 +5638,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             marginTop: 40,
             display: "flex", alignItems: "center", justifyContent: "center",
             gap: isMobile ? 16 : 22, flexWrap: "wrap",
-            ...(animate ? { animationDelay: "3.6s" } : null),
+            ...(animate ? { animationDelay: "1.6s" } : null),
           }}>
             <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
               cursor: "pointer",
@@ -22796,7 +22796,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-iris-veil {
   position: fixed; inset: 0; z-index: 300; pointer-events: none;
   background: #05070a;
-  animation: cbIrisOpen 1.6s cubic-bezier(.22,1,.36,1) .05s both;
+  animation: cbIrisOpen 1.1s cubic-bezier(.22,1,.36,1) .05s both;
 }
 
 /* ── Threshold veil: the bloom that carries you inside.
@@ -22840,24 +22840,24 @@ summary::-webkit-details-marker { display: none; }
    parallax, no scene plates, no information stack. The film provides the
    continuous motion. */
 @keyframes cbFocusIn {
-  from { opacity: 0; filter: blur(16px); }
+  from { opacity: 0; filter: blur(12px); }
   to   { opacity: 1; filter: blur(0); }
 }
 .cb-focus-in {
-  animation: cbFocusIn 2s cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation: cbFocusIn 1.15s cubic-bezier(0.33, 1, 0.68, 1) both;
 }
-/* The opening beat: near-black holds, then lifts over four seconds to
-   reveal the footage underneath. Opacity only — the veil never touches
-   layout or the video elements. */
+/* The opening beat: near-black holds briefly, then lifts over two and a
+   half seconds to reveal the footage underneath. Opacity only — the veil
+   never touches layout or the video elements. */
 @keyframes cbVeilLift {
   0%   { opacity: 1; }
-  55%  { opacity: 1; }
+  38%  { opacity: 1; }
   100% { opacity: 0; }
 }
 .cb-title-veil {
   position: fixed; inset: 0; z-index: 3; pointer-events: none;
   background: #06080a;
-  animation: cbVeilLift 4s cubic-bezier(0.33, 1, 0.68, 1) 0.2s both;
+  animation: cbVeilLift 2.4s cubic-bezier(0.33, 1, 0.68, 1) 0.2s both;
 }
 /* Leaving: the chrome fades fast, the film frame stays behind for the
    handoff into the workspace (see .cb-enter-frame). */
@@ -22908,7 +22908,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-enter-frame {
   position: fixed; inset: 0; z-index: 240; pointer-events: none;
   background-size: cover; background-position: center; background-repeat: no-repeat;
-  animation: cbEnterFrameOut 1s ease 0.15s both;
+  animation: cbEnterFrameOut 0.85s ease 0.1s both;
 }
 @keyframes cbEnterFrameOut {
   from { opacity: 1; }
@@ -22989,7 +22989,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-qline-ring {
   width: 14px; height: 14px; border-radius: 50%;
   border: 2px solid var(--cb-acc);
-  animation: cbQlineRing 1.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: cbQlineRing 1.3s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 @keyframes cbQlineRing {
   0%   { transform: scale(0.55); opacity: 0.9; }
@@ -23190,12 +23190,12 @@ summary::-webkit-details-marker { display: none; }
   width: 100%; height: 100%;
   overflow: visible;
 }
-/* The comet: one bright 10-second orbit — the master interval of the
+/* The comet: one bright 6-second orbit — the master interval of the
    whole instrument. The head dot rides the brightest end of the tail so
    they fly as one body. */
 .cb-tx-comet {
   transform-origin: 160px 160px; transform-box: view-box;
-  animation: cbTxOrbit 10s linear infinite;
+  animation: cbTxOrbit 6s linear infinite;
 }
 .cb-tx-head { filter: drop-shadow(0 0 6px var(--cb-acc)); }
 /* Sonar pings: the query reaching out. Each ring expands from the clock
@@ -23203,9 +23203,9 @@ summary::-webkit-details-marker { display: none; }
    is always one in flight. */
 .cb-tx-ping {
   transform-origin: 160px 160px; transform-box: view-box;
-  animation: cbTxPing 4s ease-out infinite;
+  animation: cbTxPing 3s ease-out infinite;
 }
-.cb-tx-ping-b { animation-delay: 2s; }
+.cb-tx-ping-b { animation-delay: 1.5s; }
 @keyframes cbTxPing {
   0% { transform: scale(0.04); opacity: 0; }
   15% { opacity: 0.45; }
@@ -23214,7 +23214,7 @@ summary::-webkit-details-marker { display: none; }
 /* Counter-rotating dashed hairline: depth against the comet's direction. */
 .cb-tx-inner-orbit {
   transform-origin: 160px 160px; transform-box: view-box;
-  animation: cbTxOrbitRev 36s linear infinite;
+  animation: cbTxOrbitRev 24s linear infinite;
 }
 @keyframes cbTxOrbitRev { to { transform: rotate(-360deg); } }
 /* The clock ticks: a soft thump on each second, in step with the digit. */
@@ -23228,13 +23228,13 @@ summary::-webkit-details-marker { display: none; }
 }
 /* Database nodes twinkle while the query is in flight — staggered via
    inline animation-delay so they shimmer rather than blink in unison. */
-.cb-tx-live .cb-tx-dot { animation: cbTxTwinkle 2.8s ease-in-out infinite; }
+.cb-tx-live .cb-tx-dot { animation: cbTxTwinkle 2.2s ease-in-out infinite; }
 @keyframes cbTxTwinkle {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
 }
 /* LISTENING breathes while it waits. */
-.cb-tx-live .cb-tx-state { animation: cbTxBreathe 2.4s ease-in-out infinite; }
+.cb-tx-live .cb-tx-state { animation: cbTxBreathe 2s ease-in-out infinite; }
 @keyframes cbTxBreathe {
   0%, 100% { opacity: 0.7; }
   50% { opacity: 1; }
@@ -23243,7 +23243,7 @@ summary::-webkit-details-marker { display: none; }
    quiet drift rather than the full instrument. */
 .cb-tx-arc {
   transform-origin: 160px 160px;
-  animation: cbTxOrbit 14s linear infinite;
+  animation: cbTxOrbit 12s linear infinite;
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--cb-acc) 80%, transparent));
 }
 @keyframes cbTxOrbit { to { transform: rotate(360deg); } }
