@@ -7585,38 +7585,93 @@ function QueryRetryForm({ P, accent, onAsk, id }) {
    TurnInner, not invented here. Buttons, so touch works; nothing here
    depends on hover. */
 function JumpRail({ items, P, accent, onJump }) {
+  /* Four tabs, not seven: Answer, Evidence, Videos stay; Fact-check,
+     Disagreements, Compare and Open questions move behind "More".
+     No status dots — a count says "has content" better than a 6px dot
+     nobody decodes. Sentence case, one hairline underneath. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef(null);
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const onDown = (e) => { if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setMoreOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [moreOpen]);
+  const primary = items.slice(0, 3);
+  const overflow = items.slice(3);
+  const tabBtn = (it) => (
+    <button
+      key={it.id} type="button" onClick={() => onJump(it.id)}
+      aria-label={`${it.label}${it.count != null ? ` — ${it.count}` : ""}`}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 6,
+        padding: "10px 12px", background: "none", border: "none",
+        cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+        fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 600,
+        letterSpacing: "-0.01em", color: it.status === "empty" ? P.faint : P.ink2,
+      }}
+    >
+      {it.label}
+      {it.count != null && (
+        <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums", fontWeight: 500 }}>
+          {it.count}
+        </span>
+      )}
+    </button>
+  );
   return (
     <div style={{
       position: "sticky", top: 64, zIndex: 30, background: P.bg,
-      marginTop: 22, borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}`,
+      marginTop: 22, borderBottom: `1px solid ${P.line}`,
     }}>
       <div role="navigation" aria-label="Answer sections"
-        style={{ display: "flex", gap: 2, overflowX: "auto", padding: "9px 2px", scrollbarWidth: "none" }}>
-        {items.map((it) => (
-          <button
-            key={it.id} type="button" onClick={() => onJump(it.id)}
-            aria-label={`${it.label} — ${it.status}${it.count != null ? ` — ${it.count}` : ""}`}
+        style={{ display: "flex", gap: 2, overflowX: "auto", padding: "4px 2px", scrollbarWidth: "none", alignItems: "center" }}>
+        {primary.map(tabBtn)}
+        <div ref={moreRef} style={{ position: "relative", flexShrink: 0 }}>
+          <button type="button" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-haspopup="menu"
             style={{
-              display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 10px",
-              background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap",
-              flexShrink: 0,
-              fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.micro, fontWeight: 700,
-              letterSpacing: "0.14em", textTransform: "uppercase",
-              color: it.status === "empty" ? P.faint : P.ink2,
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-                background: it.status === "ready" ? accent : it.status === "failed" ? STATUS.bad : "transparent",
-                border: it.status === "empty" ? `1px solid ${P.line2}` : "none",
-              }}
-            />
-            {it.label}
-            {it.count != null && <span style={{ color: P.faint, fontWeight: 400 }}>{it.count}</span>}
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "10px 12px", background: "none", border: "none",
+              cursor: "pointer", whiteSpace: "nowrap",
+              fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 600,
+              letterSpacing: "-0.01em", color: P.ink2,
+            }}>
+            More
+            <span style={{ display: "inline-flex", transform: moreOpen ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }}>
+              <Icon name="chevronDown" size={12} />
+            </span>
           </button>
-        ))}
+          {moreOpen && (
+            <div role="menu" aria-label="More answer sections" className="cb-fade"
+              style={{
+                position: "absolute", left: 0, top: "calc(100% + 6px)", minWidth: 200, zIndex: 70,
+                background: P.dark ? "rgba(20,22,26,0.98)" : "rgba(255,255,255,0.98)",
+                border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
+                boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
+              }}>
+              {overflow.map((it) => (
+                <button key={it.id} type="button" role="menuitem"
+                  onClick={() => { setMoreOpen(false); onJump(it.id); }}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    width: "100%", padding: "10px 12px", background: "none", border: "none",
+                    borderRadius: 8, cursor: "pointer", textAlign: "left",
+                    fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, fontWeight: 500,
+                    color: it.status === "empty" ? P.faint : P.ink,
+                  }}>
+                  <span>{it.label}</span>
+                  {it.count != null && (
+                    <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>
+                      {it.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -13715,11 +13770,19 @@ function ToolChip({ icon, label, count, onClick, accent, P, active = false, titl
 }
 
 function SegControl({ options, value, onChange, P, accent, ariaLabel, small = false }) {
+  /* Underline-and-motion instead of pill-in-a-pill: the options read as
+     plain text and a single accent bar slides beneath the active one.
+     Sentence case — the labels arrive that way and no longer get shouted. */
+  const btnRefs = useRef({});
+  const [bar, setBar] = useState({ left: 0, width: 0 });
+  useEffect(() => {
+    const el = btnRefs.current[value];
+    if (el) setBar({ left: el.offsetLeft, width: el.offsetWidth });
+  }, [value, options]);
   return (
     <div role="tablist" aria-label={ariaLabel} style={{
-      display: "inline-flex", gap: 2, padding: 3, borderRadius: 9999,
-      border: `1px solid ${P.line}`,
-      background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
+      position: "relative", display: "inline-flex", alignItems: "stretch",
+      gap: small ? 2 : 6, borderBottom: `1px solid ${P.line}`,
     }}>
       {options.map((o) => {
         const id = o && typeof o === "object" ? o.id : o;
@@ -13727,17 +13790,25 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
         const on = id === value;
         return (
           <button
-            key={String(id)} role="tab" aria-selected={on} onClick={() => onChange(id)}
+            key={String(id)} ref={(el) => { btnRefs.current[id] = el; }}
+            role="tab" aria-selected={on} onClick={() => onChange(id)}
             style={{
-              padding: small ? "4px 10px" : "6px 14px", borderRadius: 9999, border: "none",
-              cursor: "pointer", background: on ? withAlpha(accent, 0.16) : "transparent",
-              color: on ? accent : P.ink2,
-              fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
-              letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap",
+              padding: small ? "9px 12px 11px" : "10px 15px 12px",
+              border: "none", background: "none", cursor: "pointer",
+              color: on ? P.ink : P.faint,
+              fontSize: small ? FONT_SIZES.caption : FONT_SIZES.small,
+              fontWeight: on ? 700 : 500, fontFamily: "var(--cb-body)",
+              letterSpacing: "-0.01em", whiteSpace: "nowrap", flexShrink: 0,
+              transition: "color 180ms ease",
             }}
           >{lab}</button>
         );
       })}
+      <div aria-hidden="true" style={{
+        position: "absolute", bottom: -1, left: bar.left, width: bar.width, height: 2,
+        background: accent, borderRadius: 2,
+        transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1), width 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+      }} />
     </div>
   );
 }
@@ -14685,8 +14756,8 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           <div role="tablist" aria-label="Profile content" style={{ display: "flex", gap: 2, borderBottom: `1px solid ${P.line}` }}>
             {[
               { key: "investigations", label: "Investigations", count: ledger.length },
-              { key: "shelf", label: "Shelf", count: (saved || []).length },
-              { key: "shelves", label: "Shelves", count: collectionCounts.length },
+              { key: "shelf", label: "Saved", count: (saved || []).length },
+              { key: "shelves", label: "Collections", count: collectionCounts.length },
             ].map((t) => {
               const on = tab === t.key;
               return (
@@ -14698,13 +14769,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   style={{
                     background: "none", border: "none", cursor: "pointer",
                     padding: "10px 14px", marginBottom: -1,
-                    fontSize: FONT_SIZES.small, fontWeight: on ? 700 : 500,
+                    /* Color carries the state, not weight — swapping 500/700
+                       reshuffles the row width on every tap. */
+                    fontSize: FONT_SIZES.small, fontWeight: 600,
                     fontFamily: "var(--cb-body)", color: on ? P.ink : P.faint,
                     borderBottom: on ? `2px solid ${accent}` : "2px solid transparent",
                   }}
                 >
                   {t.label}
-                  <span style={{ marginLeft: 7, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", fontVariantNumeric: "tabular-nums" }}>{t.count}</span>
+                  <span style={{ marginLeft: 7, fontSize: FONT_SIZES.micro, color: on ? P.ink2 : P.faint, fontFamily: "var(--cb-body)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{t.count}</span>
                 </button>
               );
             })}
@@ -16376,7 +16449,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["account", "Account", "user"],
     ["answers", "Answers", "settings"],
     ["appearance", "Appearance", "sparkle"],
-    ["data", "Notifications & data", "bell"],
+    ["notifications", "Notifications", "bell"],
+    ["data", "Data & storage", "database"],
   ];
 
   // Commit 67 — settings search.
@@ -16402,9 +16476,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Accent color", "appearance", "colour highlight brand"],
     ["Background animation", "appearance", "motion particles effects reduce"],
     ["Data density", "appearance", "compact comfortable spacing padding layout"],
-    ["Desktop notifications", "data", "permission browser alerts push"],
-    ["Incoming calls", "data", "ring call video audio"],
-    ["Direct messages", "data", "inbox dm chat message"],
+    ["Desktop notifications", "notifications", "permission browser alerts push"],
+    ["Incoming calls", "notifications", "ring call video audio"],
+    ["Direct messages", "notifications", "inbox dm chat message"],
     ["Watched topics", "data", "papers literature alerts new research"],
     ["High contrast", "appearance", "contrast vision legibility"],
     ["Text size", "appearance", "font size larger bigger zoom"],
@@ -16799,7 +16873,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
           </>)}
 
-          {tab === "data" && (<>
+          {tab === "notifications" && (<>
             {/* Commit 67. Cerebrum was raising three kinds of desktop
                 notification with no way to turn any of them off short of
                 revoking the browser permission for all three — see
@@ -17997,9 +18071,11 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      active-row highlight works by construction instead of by a lookup
      table that would silently rot the next time a view was renamed.
      ══════════════════════════════════════════════════════════════ */
+  /* Flat list with section labels — no accordions. Eight items don't need
+     collapsible sections, and "New investigation" duplicated "Search"
+     (both land on the search view; newSession runs when you ask). */
   const NAV_GROUPS = [
     { label: null, items: [
-      ["new", "New investigation", "plus", null],
       ["search", "Search", "search", null],
     ] },
     { label: "Explore", items: [
@@ -18026,7 +18102,6 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      labels visible, so they apply in the expanded state. All desktop-only:
      mobile keeps the full slide-over drawer. */
   const [railHover, setRailHover] = useState(false);
-  const [openGroups, setOpenGroups] = useState(() => ({ Explore: true, "Your work": true, People: true }));
   const expanded = isMobile || !railCollapsed || railHover;
   const railW = !isMobile && railCollapsed && !railHover ? 68 : 260;
 
@@ -18048,20 +18123,15 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
       </div>
       <div style={{ ...S.sidebarNav, ...(expanded ? {} : { padding: "6px 8px", alignItems: "center" }) }}>
         {NAV_GROUPS.map((group, gi) => {
-          const open = !group.label || openGroups[group.label] !== false;
           return (
           <React.Fragment key={group.label || `g${gi}`}>
             {group.label && expanded && (
-              <button onClick={() => setOpenGroups((g) => ({ ...g, [group.label]: !(g[group.label] !== false) }))} aria-expanded={open}
-                style={{ ...S.sidebarSectionLabel, display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 10px 6px", textAlign: "left" }}>
-                <span>{group.label}</span>
-                <span style={{ display: "inline-flex", transform: open ? "none" : "rotate(-90deg)", transition: "transform 150ms ease", color: P.faint }}>
-                  <Icon name="chevronDown" size={12} />
-                </span>
-              </button>
+              <div style={{ ...S.sidebarSectionLabel, padding: "14px 10px 6px" }}>
+                {group.label}
+              </div>
             )}
             {group.label && !expanded && gi > 0 && <div style={{ width: 24, height: 1, background: P.line, margin: "10px 0 6px" }} aria-hidden="true" />}
-            {open && group.items.map(([key, label, icon, badge]) => (
+            {group.items.map(([key, label, icon, badge]) => (
               /* data-nav: the landing target for the save-to-library flight.
                  A stable hook on the row itself, so the animation never has
                  to guess at the rail's structure. */
