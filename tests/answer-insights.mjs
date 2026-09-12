@@ -473,6 +473,43 @@ await test("empty sources classify to empty regions", () => {
     { agree: [], disagree: [], middle: [], unclear: [] });
 });
 
+await test("papers cited in the answer body default to agree (Venn renders without fact-check)", () => {
+  // Regression: the soil-cracking answer cited [1][2][3] in the body with no
+  // fact-check claims and an uncited disagreement section — the Venn must
+  // still render instead of vanishing.
+  const r = classifyVennPapers({
+    answer: "## The short answer\nCracks form as soil dries [1][2].\n## What the research shows\nTensile stress drives it [2][3].\n## Where researchers disagree\nNo clear divide on timing.",
+    sources: [{ title: "A" }, { title: "B" }, { title: "C" }],
+    factCheck: null,
+  });
+  assert.deepEqual(r.agree, [1, 2, 3]);
+  assert.deepEqual(r.disagree, []);
+  assert.deepEqual(r.middle, []);
+  assert.deepEqual(r.unclear, []);
+  assert.ok(r.agree.length + r.disagree.length + r.middle.length >= 2, "Venn renders");
+});
+
+await test("a paper cited in both the body and the disagreement section lands in the middle", () => {
+  const r = classifyVennPapers({
+    answer: "## The short answer\nCracks form [1][2].\n## Where researchers disagree\nBut [2] reports otherwise.",
+    sources: [{ title: "A" }, { title: "B" }],
+    factCheck: null,
+  });
+  assert.deepEqual(r.agree, [1]);
+  assert.deepEqual(r.disagree, []);
+  assert.deepEqual(r.middle, [2]);
+});
+
+await test("fact-check status beats the body-citation default", () => {
+  const r = classifyVennPapers({
+    answer: "Cracks form [1][2].",
+    sources: [{ title: "A" }, { title: "B" }],
+    factCheck: { claims: [{ claim: "Cracks form [2]", status: "contradicted" }] },
+  });
+  assert.deepEqual(r.agree, [1]);
+  assert.deepEqual(r.disagree, [2]);
+});
+
 // ══════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
