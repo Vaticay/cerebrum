@@ -2752,6 +2752,7 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
   const active = ASK_MODES.find((m) => m.key === mode) || ASK_MODES[0];
   const preview = ASK_MODES.find((m) => m.key === hoverKey) || active;
   return (
+
     <div role="group" aria-label="What do you want to do?">
       <div
         className="cb-modeplates"
@@ -2809,6 +2810,7 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
           {CONSEQUENCES[preview.key] || preview.blurb}
         </span>
       </div>
+
     </div>
   );
 }
@@ -20034,15 +20036,42 @@ function App() {
               />
               {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
               <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
+              {/* The mode blurb stays on desktop, where there is room for a
+                  line of explanation. On a phone the active pill already
+                  names the mode — a third line of text under the pills was
+                  pure vertical weight, so mobile drops it. */}
+              {isMobile ? null : (
               <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 9, marginBottom: 2, textAlign: "center", minHeight: 15, lineHeight: 1.4 }}>
                 {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
               </div>
+              )}
               {/* Mode-aware "Try asking" examples. The verb pills stay the
                   primary control (see Commit 83) — but a first-time visitor
                   staring at an empty composer gets a starting point in the
                   current mode's voice. Clicking fills the composer so the
                   question can be edited before asking. Hidden while typing. */}
-              {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (
+              {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (isMobile ? (
+                /* Mobile: a swipeable example carousel, one row tall. Three
+                   full-width stacked chips were three rows of chrome before
+                   the deck; the swipe row keeps every example reachable in
+                   the height of one. */
+                <div style={{ width: "100%", maxWidth: 820, marginTop: 10 }}>
+                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px 4px" }}>Try</div>
+                  <div className="cb-scroll-x" style={{ display: "flex", gap: 8, flexWrap: "nowrap", overflowX: "auto", scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", padding: "2px 4px 6px" }}>
+                    {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3).map((ex) => (
+                      <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
+                        style={{
+                          flex: "0 0 82%", scrollSnapAlign: "center",
+                          padding: "9px 14px", borderRadius: 100, cursor: "pointer",
+                          background: withAlpha(accent, 0.07), border: `1px solid ${withAlpha(accent, 0.22)}`, color: P.ink2,
+                          fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-body)",
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}
+                      >{ex}</button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, flexWrap: "wrap", maxWidth: 820, padding: "0 8px" }}>
                   <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.08em", textTransform: "uppercase", flexShrink: 0 }}>Try</span>
                   {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3).map((ex) => (
@@ -20059,7 +20088,7 @@ function App() {
                     >{ex}</button>
                   ))}
                 </div>
-              )}
+              ))}
               {/* ══════════════════════════════════════════════════════
                   Commit 87 — the evidence filter is a disclosure now.
 
