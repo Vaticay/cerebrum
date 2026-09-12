@@ -10647,6 +10647,7 @@ export async function onRequest(context) {
     // raced together. This is what actually fixes "OpenRouter-only outage
     // blocks everything" — Workers AI and Pollinations are in flight from
     // the very first attempt, not after two OpenRouter tiers exhaust.
+    globalThis.__TEMP_DIAG = null; // TEMP-DIAG reset (will revert)
     if (!aiOK) {
       const wave1Calls = [
         ...(token ? OR_WAVE1.map((m) => raceEntry(1, m, callOR(m, messages, maxTokens))) : []),
@@ -10656,12 +10657,15 @@ export async function onRequest(context) {
         ...compatLegs(1, "w1", messages, maxTokens),
         ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, messages, maxTokens))) : []),
       ];
+      const w1t0 = Date.now(); // TEMP-DIAG latency (will revert)
       try {
         const winner = await Promise.any(wave1Calls);
         answer = winner.answer; aiOK = true;
         recordWin(winner.model);
+        globalThis.__TEMP_DIAG = { wave: 1, ms: Date.now() - w1t0, winner: winner.model }; // TEMP-DIAG (will revert)
       } catch (agg) {
         aiAttempts.push({ wave: 1, ok: false, attempted: wave1Calls.length, summary: errMsgs(agg) });
+        globalThis.__TEMP_DIAG = { wave: 1, ms: Date.now() - w1t0, winner: null, failed: true }; // TEMP-DIAG (will revert)
       }
     }
 
@@ -10691,12 +10695,15 @@ export async function onRequest(context) {
         ...(cfBound ? CF_WAVE2.map((m) => raceEntry(2, m, callCF(m, wave2Messages, maxTokens))) : []),
       ];
       if (wave2Calls.length > 0) {
+        const w2t0 = Date.now(); // TEMP-DIAG latency (will revert)
         try {
           const winner = await Promise.any(wave2Calls);
           answer = winner.answer; aiOK = true;
           recordWin(winner.model);
+          globalThis.__TEMP_DIAG = { wave: 2, ms: Date.now() - w2t0, winner: winner.model }; // TEMP-DIAG (will revert)
         } catch (agg) {
           aiAttempts.push({ wave: 2, ok: false, attempted: wave2Calls.length, summary: errMsgs(agg) });
+          globalThis.__TEMP_DIAG = { wave: 2, ms: Date.now() - w2t0, winner: null, failed: true }; // TEMP-DIAG (will revert)
         }
       }
     }
@@ -11381,6 +11388,7 @@ export async function onRequest(context) {
         // the footer can label it honestly ("Drafted from sources" vs
         // "AI-synthesized") instead of the UI having to guess.
         synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
+        _tempDiag: globalThis.__TEMP_DIAG || null, // TEMP-DIAG latency (will revert)
         source:
           aiOK && useEvidence
             ? dbUsed + " + AI"
