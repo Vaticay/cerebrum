@@ -29,13 +29,34 @@ import { App, InfoPage, CSS } from "./CerebrumApp.jsx";
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { failed: false };
+    this.state = { failed: false, error: null, info: null, copied: false };
   }
   static getDerivedStateFromError() {
     return { failed: true };
   }
   componentDidCatch(error, info) {
     console.error("Cerebrum: render error", error, info && info.componentStack);
+    this.setState({ error, info });
+  }
+  copyDetails() {
+    const { error, info } = this.state;
+    const text = [
+      "Cerebrum render error",
+      "Message: " + (error && error.message ? error.message : String(error)),
+      "Stack: " + (error && error.stack ? error.stack : "(none)"),
+      "Component stack: " + (info && info.componentStack ? info.componentStack : "(none)"),
+      "URL: " + (typeof window !== "undefined" ? window.location.href : "(unknown)"),
+      "Time: " + new Date().toISOString(),
+    ].join("\n");
+    const done = () => this.setState({ copied: true });
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => this.setState({ copied: "failed" }));
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); done(); } catch { this.setState({ copied: "failed" }); }
+      document.body.removeChild(ta);
+    }
   }
   render() {
     if (!this.state.failed) return this.props.children;
@@ -56,6 +77,11 @@ class ErrorBoundary extends React.Component {
             Your saved work is unaffected. Reloading usually clears it. If it keeps
             happening, the console has the details and we would like to see them.
           </p>
+          {this.state.error && (
+            <p style={{ fontSize: 13, lineHeight: 1.6, color: "rgba(232,230,225,0.55)", margin: "0 0 18px", wordBreak: "break-word" }}>
+              {String((this.state.error && this.state.error.message) || this.state.error).slice(0, 220)}
+            </p>
+          )}
           <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
             <button
               onClick={() => window.location.reload()}
@@ -67,7 +93,7 @@ class ErrorBoundary extends React.Component {
               Reload
             </button>
             <a
-              href="mailto:contact@askcerebrum.org?subject=Cerebrum%20error"
+              href="mailto:dusty@askcerebrum.org?subject=Cerebrum%20error"
               style={{
                 padding: "10px 20px", borderRadius: 999, cursor: "pointer",
                 border: "1px solid rgba(232,230,225,0.25)", color: "rgba(232,230,225,0.85)",
@@ -76,7 +102,20 @@ class ErrorBoundary extends React.Component {
             >
               Tell us
             </a>
+            <button
+              onClick={() => this.copyDetails()}
+              style={{
+                padding: "10px 20px", borderRadius: 999, cursor: "pointer",
+                border: "1px solid rgba(232,230,225,0.25)", color: "rgba(232,230,225,0.85)",
+                background: "transparent", fontWeight: 600, fontSize: 14,
+              }}
+            >
+              {this.state.copied === true ? "Copied ✓" : this.state.copied === "failed" ? "Copy failed" : "Copy details"}
+            </button>
           </div>
+          <p style={{ fontSize: 12, lineHeight: 1.6, color: "rgba(232,230,225,0.4)", margin: "18px 0 0" }}>
+            Copy details grabs the technical error text (it may include your search words) so you can paste it to us.
+          </p>
         </div>
       </div>
     );

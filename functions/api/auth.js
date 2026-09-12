@@ -552,6 +552,23 @@ export async function onRequest(context) {
           cors
         );
       }
+      /* Mail-bombing backstop: the 5-per-15-minutes cap stops a burst, but a
+       * caller rotating IPs — or simply waiting out each window — could still
+       * drip-feed unwanted OTP emails into a victim's inbox all day (5 per
+       * 15 minutes is ~480 a day). Nobody legitimately needs more than a
+       * couple of sign-in codes a day, so each address gets 10 sends per
+       * rolling 24 hours on top of the burst cap. This is the per-email
+       * backoff the abuse review called for: no CAPTCHA friction on the
+       * sign-in form, but the endpoint stops being a usable mail-bombing
+       * primitive. */
+      const sendDayKey = await _pk("otp-send-day", emailLower, env);
+      if (!(await checkRateLimit(env, sendDayKey, 10, 24 * 3600000))) {
+        return json(
+          { error: "Too many codes requested for this email. Try again tomorrow." },
+          429,
+          cors
+        );
+      }
 
       const auth = await fullAuth(); // pure crypto helpers — no DB/JWT dependency
       const code = randomOtp();

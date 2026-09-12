@@ -18577,7 +18577,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
               That's completely fine
             </h2>
             <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 20px" }}>
-              Cerebrum can't be used without agreeing to these terms — that isn't a pressure tactic, it's just what the agreement is for. Nothing has been stored, and you can come back any time. If something in the documents is the reason you said no, {link("mailto:contact@askcerebrum.org", "tell us which part")} — that's genuinely useful feedback.
+              Cerebrum can't be used without agreeing to these terms — that isn't a pressure tactic, it's just what the agreement is for. Nothing has been stored, and you can come back any time. If something in the documents is the reason you said no, {link("mailto:dusty@askcerebrum.org", "tell us which part")} — that's genuinely useful feedback.
             </p>
             <button onClick={() => setDeclined(false)} className="cb-press" style={{
               width: "100%", padding: "12px 18px", borderRadius: 100, cursor: "pointer",
