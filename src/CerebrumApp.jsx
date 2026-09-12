@@ -7991,7 +7991,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
   );
 }
 
-function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {} }) {
+function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   /* Failure model, derived from the turn's real data — never invented.
      synthesisMode "none" is the backend's explicit "no synthesis produced"
@@ -8173,7 +8173,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       </div>
       <h2 style={S.headline}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
       {/* Save-state: Saving… / Saved / Couldn't save · Retry — beside the
-          title so a storage failure is visible now, not tomorrow. */}
+          title so a storage failure is visible now, not tomorrow. Only
+          rendered when the host passes saveState (the live thread); read-only
+          contexts like history detail omit it. */}
+      {saveState && (
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, marginBottom: 2 }}>
         {saveState === "saving" && (
           <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>Saving…</span>
@@ -8182,11 +8185,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <span style={{ fontSize: FONT_SIZES.micro, color: withAlpha(STATUS.good, 0.8), fontFamily: "var(--cb-body)" }}>Saved</span>
         )}
         {saveState === "error" && (
-          <button onClick={retrySave} style={{ fontSize: FONT_SIZES.micro, color: STATUS.bad, fontFamily: "var(--cb-body)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+          <button onClick={retrySave || (() => {})} style={{ fontSize: FONT_SIZES.micro, color: STATUS.bad, fontFamily: "var(--cb-body)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
             Couldn't save · Retry
           </button>
         )}
       </div>
+      )}
       {/* Answer card */}
       <div style={S.answerCard} className="cb-answer-enter cb-glass-panel cb-specimen">
         {/* v34: the metadata badge and the action toolbar used to be two
@@ -16593,7 +16597,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   async function submitDeleteAccount() {
     setDelBusy(true);
     try { await apiAuth("delete-account", {}); onAccountDeleted(); close(); }
-    catch (err) { setPwMsg(err.message || "Couldn't delete account."); setDelBusy(false); }
+    catch (err) { toast(err.message || "Couldn't delete account.", { tone: "error" }); setDelBusy(false); }
   }
 
   // Commit 67 — Notifications is new. Cerebrum raises three kinds of
@@ -20008,9 +20012,9 @@ function App() {
     ...(turns.length && turns[turns.length - 1].sources && turns[turns.length - 1].sources.length >= 2
       ? [{ label: "View literature timeline", run: () => { setCmdOpen(false); setTimelineSources(turns[turns.length - 1].sources); } }]
       : []),
-    ...(turns.length && turns[turns.length - 1].answer
-      ? [{ label: "Illustrate this answer", run: () => { setCmdOpen(false); setIllustrateQuery(turns[turns.length - 1].q); } }]
-      : []),
+    /* Commit 92 removed concept illustrations; the palette entry below was
+       left behind referencing setIllustrateQuery, which no longer exists —
+       selecting it threw a ReferenceError. Removed with the feature. */
   ];
   const filteredCmds = commands.filter((c) => c.label.toLowerCase().includes(cmdQuery.toLowerCase()));
   const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
@@ -20583,7 +20587,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} />))}
+                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} />))}
                 {busy && (<div style={S.turn}>
                   {/* The Reading Room: the question as a specimen label, the
                       fifteen databases as a labelled constellation the query
