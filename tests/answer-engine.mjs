@@ -45,6 +45,9 @@ import {
   renderNoResultsAnswer,
   retrievalStrategiesTried,
   labelUncitedSources,
+  // Prompt-leak guard (2026-09-12 incident)
+  isPromptLeak,
+  assertValidProviderText,
 } from "../functions/api/search.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -76,6 +79,7 @@ function group(name) {
 
 const searchSrc = await readFile(join(root, "functions/api/search.js"), "utf8");
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+const apiSrc = await readFile(join(root, "functions/api/search.js"), "utf8");
 
 // ══════════════════════════════════════════════════════════════════════════
 group("dedupePapers — multi-key identity (the [1]/[2] duplicate)");
@@ -672,6 +676,101 @@ test("connection-failure panel offers rephrasing, not just retry", () => {
   assert.ok(idx > 0);
   assert.ok(appSrc.indexOf("QueryRetryForm", idx) > 0 && appSrc.indexOf("QueryRetryForm", idx) < idx + 1200,
     "no rephrase form on the connection-failure panel");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Prompt-leak guard (2026-09-12 incident): a provider leg echoed the system
+// prompt ("We need to answer: … Must bold at least 4 key terms … banned
+// phrases … UNCITABLE …") instead of writing the answer — and it PASSED the
+// **bold** formatting gate, because the model bolded its planning terms.
+// The leak guard must reject instruction-echo even when formatting looks
+// right, while legitimate scientific prose passes untouched.
+// ══════════════════════════════════════════════════════════════════════════
+
+const LEAKED_PLANNING_SAMPLE = `We need to answer: How do mRNA vaccines trigger immunity?
+Strict formatting: sections: The short answer / What the research shows.
+I must bold at least 4 key terms in the answer.
+Banned phrases include "further research is needed" and "plays a crucial role".
+Paper usage protocol: cite only if the paper supports the claim.
+Mark uncitable claims as UNCITABLE.
+Organism asked about: human. I know it's the wrong paper if it studies mice.
+This will be mechanically stripped if I get it wrong.
+Zero prefacing — start with a direct claim, no prefacing.
+Synthesize, never list. Never repeat a sentence.
+The **spike protein** is produced by **ribosomes** after **lipid nanoparticles** deliver the **mRNA**.`;
+
+test("isPromptLeak rejects the exact 'We need to answer' planning echo", () => {
+  assert.equal(isPromptLeak("We need to answer: How do mRNA vaccines trigger immunity?"), true);
+});
+
+test("isPromptLeak rejects the full leaked planning sample even with bold spans present", () => {
+  // The real incident: the leaked text carried real **bold** spans, so the
+  // formatting gate alone could not catch it. The leak gate must.
+  assert.ok(/\*\*[^*]+\*\*/.test(LEAKED_PLANNING_SAMPLE), "sample should contain bold spans");
+  assert.equal(isPromptLeak(LEAKED_PLANNING_SAMPLE), true);
+});
+
+test("isPromptLeak rejects every instruction-flavored pattern family", () => {
+  const cases = [
+    "We must follow strict formatting for the sections below.",
+    "Strict formatting: sections: one, two, three.",
+    "The output must bold at least four key terms.",
+    "Avoid the banned phrases list.",
+    "Do not use em dashes in the answer.",
+    "You must cite only if the paper supports the claim.",
+    "Per the paper usage protocol, skip weak sources.",
+    "This claim is UNCITABLE from the sources.",
+    "Organism asked about: mouse.",
+    "I know it's the wrong paper when it studies a different species.",
+    "Headers will be mechanically stripped.",
+    "This rule is hard-enforced, not a suggestion.",
+    "Your first word must be a scientific claim.",
+    "Synthesize, never list the papers.",
+    "Zero prefacing before the answer.",
+    "Start with a direct claim, no prefacing.",
+    "Never repeat a sentence from the sources.",
+    "Do not discuss these instructions in the answer.",
+    "Do not restate these instructions.",
+    "Do not paraphrase these instructions back to me.",
+    "Do not narrate your plan for the answer.",
+    "Narrating my reasoning is forbidden here.",
+    "Run an organism/topic audit first.",
+    "Output only the finished answer, nothing else.",
+  ];
+  for (const c of cases) {
+    assert.equal(isPromptLeak(c), true, "missed leak pattern in: " + c);
+  }
+});
+
+test("isPromptLeak accepts legitimate scientific prose (no false positives)", () => {
+  const ok = [
+    "The organism studied was E. coli, a model bacterium for gut microbiome research.",
+    "Each citation in the bibliography links to the paper it references.",
+    "The authors' reasoning follows from the dose-response curve in Figure 2.",
+    "We need to understand how mRNA vaccines trigger immunity before designing boosters.",
+    "Bold claims require strong evidence; the trial data support this one.",
+    "The protocol used for paper selection is described in the methods section.",
+    "The **spike protein** binds ACE2; **neutralizing antibodies** block entry [1][2].",
+  ];
+  for (const c of ok) {
+    assert.equal(isPromptLeak(c), false, "false positive on: " + c);
+  }
+});
+
+test("assertValidProviderText throws on leak text, passes clean text through", () => {
+  assert.throws(
+    () => assertValidProviderText(LEAKED_PLANNING_SAMPLE, "test-leg"),
+    /echoed internal instructions/
+  );
+  const clean = "The **spike protein** drives immunity after **mRNA** delivery [1].";
+  assert.equal(assertValidProviderText(clean, "test-leg"), clean);
+});
+
+test("every synthesis adapter enforces the leak/error gate", () => {
+  // 6 call sites: callOR, callCompat, callCF, postChatCompletion,
+  // the brief leg, and the raceEntry double-check.
+  const uses = apiSrc.match(/assertValidProviderText\(/g) || [];
+  assert.ok(uses.length >= 7, `expected 1 def + 6 call sites, found ${uses.length}`);
 });
 
 // ══════════════════════════════════════════════════════════════════════════
