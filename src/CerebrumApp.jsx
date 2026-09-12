@@ -4739,7 +4739,7 @@ function filmPoster(src) {
    call issued from a real click/touch handler. The old path ran play() in
    a React effect after setState, outside the gesture, so the opt-in button
    silently did nothing on exactly the phones that needed it most. */
-const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked, startAt = null }, ref) {
+const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked, onPlaybackChange, startAt = null, holdMs = FILM_HOLD_MS }, ref) {
   const aRef = useRef(null);
   const bRef = useRef(null);
   const curRef = useRef(0);
@@ -4788,6 +4788,14 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
   /* Fires at most once per mount — the parent shows a tap-to-play pill on
      the first rejection and clears it on success. */
   const autoplayNotifiedRef = useRef(false);
+  /* Playback truth, reported to the parent: read through a ref for the same
+     reason. Dwell time is static per mount, also read through a ref. */
+  const playbackCbRef = useRef(onPlaybackChange);
+  playbackCbRef.current = onPlaybackChange;
+  const holdMsRef = useRef(holdMs);
+  holdMsRef.current = holdMs;
+  /* Last reported playback state — the parent only re-renders on change. */
+  const playingNotifiedRef = useRef(null);
 
   /* Gesture-context playback for the parent's Play control (see the
      forwardRef note above). Returns true when a play was issued. */
@@ -4809,6 +4817,26 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
   useEffect(() => {
     const els = [aRef.current, bRef.current];
     if (!els[0] || !els[1]) return;
+
+    /* The single source of truth for "is footage actually moving": the
+       current element's own paused flag, sampled on every play-state event
+       and whenever the reel is deliberately stopped. The parent's labels
+       (footer toggle, tap-to-play pill) derive from this — never from
+       intent flags — so they cannot claim "paused" while the picture moves.
+       The outgoing element is paused 2.4s after every dissolve, but by
+       then curRef already points at the incoming element, so that pause
+       never flips this to false mid-transition. */
+    const reportPlaying = () => {
+      const f = playbackCbRef.current;
+      if (!f) return;
+      let playing = false;
+      try { playing = !els[curRef.current].paused; } catch {}
+      if (playingNotifiedRef.current !== playing) {
+        playingNotifiedRef.current = playing;
+        try { f(playing); } catch {}
+      }
+    };
+    const onPlayState = () => reportPlaying();
 
     /* Mobile Safari only honours autoplay when the muted IDL *property* is
        true. React's `muted` JSX attribute sets the content attribute, which
@@ -4839,8 +4867,11 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
 
     if (blocked) {
       stop();
-      /* The still IS a frame of a real clip, so the scene prompt above it
-         is still describing what is on screen. */
+      /* Deliberately stopped: report it, so a label that read "Pause
+         background" flips to "Play background" instead of lying. */
+      reportPlaying();
+      /* The still IS a frame of a real clip, so the centered title card
+         above it is still describing what is on screen. */
       report(FILM_POSTER_CLIP);
       /* The poster attribute alone paints nothing until a source is set,
          so a blocked reel used to fall through to the flat gradient. This
@@ -4994,7 +5025,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
            hitch on every transition. */
         preloadInto(outgoing, orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
       }, 2400);
-      timerRef.current = setTimeout(cycle, FILM_HOLD_MS);
+      timerRef.current = setTimeout(cycle, holdMsRef.current);
     };
 
     play(els[curRef.current], orderRef.current[idxRef.current]);
@@ -5002,12 +5033,19 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
     els[1 - curRef.current].style.zIndex = "1";
     els[curRef.current].style.opacity = "1";
     report(orderRef.current[idxRef.current]);
+    /* Playback truth lives on the elements from here on. */
+    for (const el of els) {
+      el.addEventListener("play", onPlayState);
+      el.addEventListener("playing", onPlayState);
+      el.addEventListener("pause", onPlayState);
+    }
+    reportPlaying();
     /* Warm the very first dissolve too: the hidden element buffers clip
        #2 during the opening hold instead of cold-fetching at cycle time. */
     preloadInto(els[1 - curRef.current], orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
-    timerRef.current = setTimeout(cycle, FILM_HOLD_MS);
+    timerRef.current = setTimeout(cycle, holdMsRef.current);
 
-    const onVis = () => { if (document.hidden) stop(); else { const p = els[curRef.current].play(); if (p && p.catch) p.catch(() => {}); timerRef.current = setTimeout(cycle, FILM_HOLD_MS); } };
+    const onVis = () => { if (document.hidden) stop(); else { const p = els[curRef.current].play(); if (p && p.catch) p.catch(() => {}); timerRef.current = setTimeout(cycle, holdMsRef.current); } };
     document.addEventListener("visibilitychange", onVis);
     /* Autoplay-policy recovery. iOS Low Power Mode rejects programmatic
        play() (NotAllowedError) while honouring the same call from a real
@@ -5036,6 +5074,11 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
       window.removeEventListener("pointerdown", tryResume);
       window.removeEventListener("touchend", tryResume);
       window.removeEventListener("keydown", tryResume);
+      for (const el of els) {
+        el.removeEventListener("play", onPlayState);
+        el.removeEventListener("playing", onPlayState);
+        el.removeEventListener("pause", onPlayState);
+      }
       stop();
     };
   }, [blocked]);
@@ -5295,34 +5338,30 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
      button writes both, because a person pressing "Play background" on a
      phone means the same thing as a person pressing it on a laptop, and
      having it work on one and silently do nothing on the other would be
-     the worse surprise. */
+     the worse surprise.
+
+     `filmPlaying` is the truth from the <video> element itself
+     (play/pause/playing events, reported by CinematicFilm) — the footer
+     label and the tap-to-play pill derive from this, never from intent
+     flags, so the control can never say "paused" while footage is moving.
+     `vetoed` records that an autoplay policy rejected a programmatic
+     play(); it clears the moment real playback starts. */
   const [filmOff, setFilmOff] = useState(false);
   const [forced, setForced] = useState(() => filmForcedOn());
   const filmRef = useRef(null);
-  /* True when a play() the reel wanted was vetoed by an autoplay policy
-     (iOS Low Power Mode). The footer "Play background" link exists, but it
-     is invisible to someone who never knew the film was supposed to move —
-     so the scene plate also offers a quiet tap-to-play pill until playback
-     is actually running. */
-  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [filmPlaying, setFilmPlaying] = useState(false);
+  const [vetoed, setVetoed] = useState(false);
+  useEffect(() => { if (filmPlaying) setVetoed(false); }, [filmPlaying]);
   const filmRunning = !filmBlocked(animationMode, filmOff);
   /* Issued synchronously from the tap: playNow() runs inside the gesture
-     window, which is the one place iOS Low Power Mode honours play(). */
+     window, which is the one place iOS Low Power Mode honours play().
+     No optimistic state clearing — the element's own playing event flips
+     the label. If the veto persists, the pill stays: honest. */
   const resumeFilm = () => {
     try { filmRef.current?.playNow(); } catch {}
-    setAutoplayBlocked(false);
   };
   const toggleFilm = () => {
-    /* Autoplay was vetoed (Low Power Mode): the label already reads
-       "Play background" and this press is the gesture that play() needs. */
-    if (autoplayBlocked) {
-      setFilmForcedOn(true);
-      setForced(true);
-      setFilmOff(false);
-      resumeFilm();
-      return;
-    }
-    if (filmRunning) { setFilmOff(true); setAutoplayBlocked(false); return; }
+    if (filmPlaying) { setFilmOff(true); return; }
     setFilmForcedOn(true);
     setForced(true);
     setFilmOff(false);
@@ -5334,38 +5373,20 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
 
   /* ── Which clip is on screen ──
      CinematicFilm owns the reel and reports the clip it has just faded in.
-     The prompt below reads from here, so the question can never describe a
-     clip that is no longer showing. */
+     The handoff into the workspace reads from here, so the same background
+     frame is retained across the door — the video is never restarted and
+     no blank screen flashes. */
   const [clip, setClip] = useState(null);
-  /* A swap that lands while someone is reading, hovering or tabbed into the
-     prompt is held, not applied. Changing the question out from under a
-     press is how a person ends up searching something they did not choose. */
-  const holdRef = useRef(false);
-  const pendingRef = useRef(null);
-  const onClip = useCallback((src) => {
-    if (holdRef.current) { pendingRef.current = src; return; }
-    setClip(src);
-  }, []);
-  const releaseHold = () => {
-    holdRef.current = false;
-    if (pendingRef.current) { setClip(pendingRef.current); pendingRef.current = null; }
-  };
-  const scene = clip ? FILM_SCENES[clip] : null;
-  /* Editorial plate number for the scene prompt ("04 / 32"): the clip's
-     stable position in the reel's catalogue, not its play order. */
-  const sceneKeys = Object.keys(FILM_SCENES);
-  const sceneNo = scene ? sceneKeys.indexOf(clip) + 1 : 0;
 
   /* ── The door rule ──
      This screen is a threshold, not a search screen: there is no composer
      here, deliberately. The composer's home is the workspace behind the
      door; a second box out here looks like the same control and is not.
-     The way through is "Step inside" (go("", false) — the workspace opens
-     with its cursor in the real composer) or the scene plate below, which
-     asks one real question and steps through with it. */
+     The way through is "Start researching" (go("", false) — the workspace
+     opens with its cursor in the real composer). */
 
   /* `submit` is the difference between prefilling the composer and actually
-     asking. The scene prompt and the worked example ask; every other route
+     asking. The worked example asks; every other route
      in opens the workspace and leaves the cursor in the box.
 
      Stepping through: the chrome fades (CSS, 320ms), the film frame stays
@@ -5402,49 +5423,6 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
      motion or with animation off, everything is simply present. */
   const animate = animationMode !== "off" && !reduced;
 
-  /* Pointer parallax on the type column, desktop only. A few pixels eased
-     toward the cursor, transform-only so the compositor does it alone.
-     The entrance choreography lives on the column's children, so the two
-     never fight over the same transform. */
-  const heroColRef = useRef(null);
-  useEffect(() => {
-    if (isMobile || reduced || animationMode === "off") return undefined;
-    const col = heroColRef.current;
-    const zone = document.getElementById("cb-intro-hero-zone");
-    if (!col || !zone) return undefined;
-    const target = { x: 0, y: 0 };
-    const cur = { x: 0, y: 0 };
-    let raf = 0;
-    const tick = () => {
-      cur.x += (target.x - cur.x) * 0.075;
-      cur.y += (target.y - cur.y) * 0.075;
-      col.style.transform = `translate3d(${cur.x.toFixed(2)}px, ${cur.y.toFixed(2)}px, 0)`;
-      if (Math.abs(target.x - cur.x) > 0.04 || Math.abs(target.y - cur.y) > 0.04) {
-        raf = requestAnimationFrame(tick);
-      } else {
-        raf = 0;
-        if (target.x === 0 && target.y === 0) col.style.transform = "";
-      }
-    };
-    const kick = () => { if (!raf) raf = requestAnimationFrame(tick); };
-    const onMove = (e) => {
-      const r = zone.getBoundingClientRect();
-      const nx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
-      const ny = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
-      target.x = Math.max(-1, Math.min(1, nx)) * 9;
-      target.y = Math.max(-1, Math.min(1, ny)) * 6;
-      kick();
-    };
-    const onLeave = () => { target.x = 0; target.y = 0; kick(); };
-    zone.addEventListener("mousemove", onMove);
-    zone.addEventListener("mouseleave", onLeave);
-    return () => {
-      cancelAnimationFrame(raf);
-      zone.removeEventListener("mousemove", onMove);
-      zone.removeEventListener("mouseleave", onLeave);
-    };
-  }, [isMobile, reduced, animationMode]);
-
   /* "A real answer" arrives on scroll, in the same language as the hero. */
   const realAnswerRef = useRef(null);
   useEffect(() => {
@@ -5479,28 +5457,26 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       {/* A dialog is a request to read something. The reel is paused while one
           is open and resumes on close with whatever the visitor had chosen —
           `filmOff` is untouched, so the pause is the dialog's, not theirs. */}
-      <CinematicFilm ref={filmRef} animationMode={animationMode} intensity={1} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={onClip} onAutoplayBlocked={() => setAutoplayBlocked(true)} />
+      <CinematicFilm ref={filmRef} animationMode={animationMode} intensity={1} holdMs={18000} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={setClip} onAutoplayBlocked={() => setVetoed(true)} onPlaybackChange={setFilmPlaying} />
 
-      {/* Contrast, spent where the words are rather than over the whole
-          picture. The hero sits in the left 45%, so a soft directional
-          gradient darkens the left reading zone and leaves the right of
-          the frame — where each clip's subject is cropped — brighter.
-          On a narrow screen the text stacks full width, so the gradient
-          runs top-to-bottom instead. Fixed: one composite, not a repaint
-          per scrolled pixel. */}
+      {/* Contrast for the title card: a soft centered hold over the frame,
+          plus top and bottom falls for the header and the footer. One fixed
+          composite, not a repaint per scrolled pixel. */}
       <div aria-hidden="true" style={{
         position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
-        background: isMobile
-          ? "linear-gradient(180deg, rgba(9,11,14,0.88) 0%, rgba(9,11,14,0.80) 30%, rgba(9,11,14,0.66) 58%, rgba(9,11,14,0.88) 100%)"
-          : "linear-gradient(100deg, rgba(9,11,14,0.93) 0%, rgba(9,11,14,0.89) 30%, rgba(9,11,14,0.58) 52%, rgba(9,11,14,0.10) 68%, transparent 82%)," +
-            "linear-gradient(180deg, rgba(9,11,14,0.55) 0%, transparent 18%, transparent 76%, rgba(9,11,14,0.62) 100%)",
+        background:
+          "radial-gradient(88% 64% at 50% 52%, rgba(8,10,13,0.60) 0%, rgba(8,10,13,0.36) 48%, rgba(8,10,13,0.08) 74%, transparent 88%)," +
+          "linear-gradient(180deg, rgba(8,10,13,0.44) 0%, transparent 26%, transparent 62%, rgba(8,10,13,0.62) 100%)",
       }} />
 
+      {/* The film opening: a beat of near-black that lifts to reveal the
+          footage, like a title sequence. Under reduced motion it is never
+          mounted — the graded still is simply there. */}
+      {animate && <div aria-hidden="true" className="cb-title-veil" />}
+
       {/* Fine grain over the film and the scrim, under the type — texture
-          with no motion cost. The light leak breathes slowly above the
-          reel; the drift that used to ride the video element stays gone. */}
-      <div aria-hidden="true" className="cb-intro-grain" />
-      {animate && <div aria-hidden="true" className="cb-intro-leak" />}
+          with no motion cost. */}
+      <div aria-hidden="true" className="cb-intro-grain" />}
 
       {/* ── Header ──
           Edge to edge, aligned to the same container as everything below,
@@ -5510,11 +5486,11 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           bar nobody looks at. A gradient costs one composite and reads the
           same over footage this dark. Readable logo and links — no
           miniature telemetry. */}
-      <header className={animate ? "cb-intro-chrome cb-intro-header cb-hero-enter" : "cb-intro-chrome cb-intro-header"} style={{
+      <header className={animate ? "cb-intro-chrome cb-intro-header cb-title-in" : "cb-intro-chrome cb-intro-header"} style={{
         position: "relative", zIndex: 20,
         paddingTop: "max(14px, env(safe-area-inset-top))",
         background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
-        ...(animate ? { animationDelay: "0s" } : null),
+        ...(animate ? { animationDelay: "0.55s", animationDuration: "1.6s" } : null),
       }}>
         <div style={{
           ...container,
@@ -5564,164 +5540,96 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 10, flex: 1,
         display: "flex", flexDirection: "column", justifyContent: "center",
-        paddingTop: isMobile ? 44 : 64,
-        paddingBottom: isMobile ? 36 : 56,
+        minHeight: isMobile ? "94svh" : "100svh",
+        textAlign: "center",
+        paddingTop: 48, paddingBottom: 64,
       }}>
-        <div id="cb-intro-hero-zone" style={{
-          ...container,
-          /* Desktop: the promise owns the left ~46%; the footage's subject
-             keeps the right. Phone: a straight stack — headline, action,
-             scene question — never a shrunk desktop. */
-          display: isMobile ? "block" : "grid",
-          gridTemplateColumns: "minmax(0, 46%) minmax(0, 1fr)",
-          gap: isMobile ? 0 : 48,
-          alignItems: "end",
+        {/* ── The title card ──
+            Documentary pacing: a beat of pure footage under the veil, then
+            the kicker, the title with weight, the slogan, and finally the
+            single way in. Long slow easings — nothing pops, everything
+            arrives. No pointer motion anywhere on this screen. */}
+        <div style={{
+          ...container, maxWidth: 1040,
+          display: "flex", flexDirection: "column", alignItems: "center",
         }}>
-          {/* The promise as an editorial column: kicker, masked headline
-              lines, supporting line, one action — choreographed in with
-              stagger, not faded as a block. Pointer parallax rides this
-              wrapper; the entrance lives on the children so the two never
-              fight over the same transform. */}
-          <div ref={heroColRef}>
-            <div className={animate ? "cb-hero-enter" : undefined} style={{
-              display: "flex", alignItems: "center", gap: 14, marginBottom: isMobile ? 16 : 22,
-              ...(animate ? { animationDelay: "0.06s" } : null),
+          <div className={animate ? "cb-title-in" : undefined}
+            style={animate ? { animationDelay: "1.05s", animationDuration: "1.8s" } : undefined}>
+            <span style={{
+              fontFamily: "var(--cb-body)", fontSize: 12, letterSpacing: "0.34em",
+              textIndent: "0.34em",
+              textTransform: "uppercase", color: withAlpha(introAccent, 0.9),
+              fontVariantNumeric: "tabular-nums",
             }}>
-              <span aria-hidden="true" style={{ width: isMobile ? 28 : 44, height: 1, background: withAlpha(introAccent, 0.6) }} />
-              <span style={{
-                fontFamily: "var(--cb-body)", fontSize: 11, letterSpacing: "0.26em",
-                textTransform: "uppercase", color: withAlpha(introAccent, 0.92),
-                fontVariantNumeric: "tabular-nums",
+              A research instrument
+            </span>
+          </div>
+          <h1 style={{
+            fontSize: isMobile ? "clamp(46px, 13.5vw, 78px)" : "clamp(58px, 8.6vw, 118px)",
+            fontWeight: 600, letterSpacing: "-0.028em", lineHeight: 1.02,
+            color: "#ffffff", margin: "30px 0 0",
+            textShadow: "0 4px 70px rgba(0,0,0,0.6)",
+            textWrap: "balance",
+          }}>
+            <span className={animate ? "cb-title-in" : undefined}
+              style={{ display: "block", ...(animate ? { animationDelay: "1.8s" } : null) }}>There&rsquo;s a world</span>
+            <span className={animate ? "cb-title-in" : undefined}
+              style={{ display: "block", ...(animate ? { animationDelay: "2.05s" } : null) }}>behind your question.</span>
+          </h1>
+          <p className={animate ? "cb-title-in" : undefined} style={{
+            margin: "34px 0 0", maxWidth: "54ch",
+            fontSize: isMobile ? 15.5 : 18.5, lineHeight: 1.65, fontWeight: 400,
+            color: "rgba(242,244,242,0.80)",
+            textShadow: "0 2px 30px rgba(0,0,0,0.5)",
+            ...(animate ? { animationDelay: "3.15s" } : null),
+          }}>
+            Ask a real research question. Every claim traces to a paper you can open.
+          </p>
+          <div className={animate ? "cb-title-in" : undefined} style={{
+            marginTop: 42,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            gap: isMobile ? 16 : 22, flexWrap: "wrap",
+            ...(animate ? { animationDelay: "4.1s" } : null),
+          }}>
+            <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
+              border: "none", cursor: "pointer",
+              borderRadius: 14,
+              padding: isMobile ? "16px 38px" : "17px 44px",
+              background: `linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 46%), ${introAccent}`,
+              color: "#11140f",
+              fontWeight: 600, fontSize: isMobile ? 15.5 : 16.5, fontFamily: "var(--cb-body)",
+              letterSpacing: "0.01em",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 14px 34px rgba(163,184,153,0.30)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
+            }}><span>Start researching</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
+            {/* "How it works" stays a whisper — never a second button
+                competing with the single way in. */}
+            <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
+              cursor: "pointer", border: "none", background: "none", padding: "14px 4px",
+              fontSize: isMobile ? 14 : 14.5, fontWeight: 500,
+              color: "rgba(242,244,242,0.6)", fontFamily: "var(--cb-body)",
+            }}>How it works</button>
+          </div>
+          {/* Autoplay-policy recovery. Rendered only when the reel wants to
+              run, a veto was observed, and the element is actually still
+              paused — the video's own playing event clears it the moment
+              footage moves, so the label can never lie. */}
+          {filmRunning && vetoed && !filmPlaying && (
+            <div className={animate ? "cb-title-in" : undefined}
+              style={{ marginTop: 26, ...(animate ? { animationDelay: "0.2s", animationDuration: "1.4s" } : null) }}>
+              <button type="button" onClick={resumeFilm} style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "10px 18px", borderRadius: 999,
+                border: "1px solid rgba(242,244,242,0.22)",
+                background: "rgba(10,12,14,0.5)", color: "#f2f4f2",
+                fontSize: 13.5, fontWeight: 500, fontFamily: "var(--cb-body)",
+                cursor: "pointer",
               }}>
-                A research instrument
-              </span>
+                <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                Background film paused — tap to play
+              </button>
             </div>
-            <h1 style={{
-              fontSize: isMobile ? "clamp(30px, 8.4vw, 38px)" : "clamp(44px, 4.6vw, 62px)",
-              fontWeight: 600, letterSpacing: "-0.032em", lineHeight: 1.06,
-              color: "#ffffff", margin: 0,
-              textShadow: "0 2px 40px rgba(0,0,0,0.5)",
-            }}>
-              <span className="cb-mask"><span className={animate ? "cb-mask-inner" : undefined} style={animate ? { animationDelay: "0.16s" } : undefined}>There&rsquo;s a world</span></span>
-              <span className="cb-mask"><span className={animate ? "cb-mask-inner" : undefined} style={animate ? { animationDelay: "0.28s" } : undefined}>behind your question.</span></span>
-            </h1>
-            <p className={animate ? "cb-hero-enter" : undefined} style={{
-              margin: (isMobile ? "18px 0 0" : "24px 0 0"),
-              fontSize: isMobile ? 16 : 17.5, lineHeight: 1.6, fontWeight: 400,
-              color: "rgba(242,244,242,0.80)",
-              textShadow: "0 1px 20px rgba(0,0,0,0.45)",
-              maxWidth: isMobile ? undefined : "42ch",
-              ...(animate ? { animationDelay: "0.46s" } : null),
-            }}>
-              Explore scientific papers. Follow the evidence. Find your next question.
-            </p>
-            <div className={animate ? "cb-hero-enter" : undefined} style={{
-              marginTop: isMobile ? 24 : 30,
-              display: "flex", alignItems: "center",
-              gap: isMobile ? 14 : 18, flexWrap: "wrap",
-              ...(animate ? { animationDelay: "0.6s" } : null),
-            }}>
-              <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
-                border: "none", cursor: "pointer",
-                borderRadius: 14,
-                padding: isMobile ? "16px 34px" : "17px 40px",
-                /* Restrained glass: the sage fill carries a quiet top
-                   highlight and a soft outer glow. */
-                background: `linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 46%), ${introAccent}`,
-                color: "#11140f",
-                fontWeight: 600, fontSize: isMobile ? 15.5 : 16.5, fontFamily: "var(--cb-body)",
-                letterSpacing: "0.01em",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 14px 34px rgba(163,184,153,0.30)",
-                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
-              }}><span>Start researching</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
-              {/* "How it works" stays a quiet text link — never a second
-                  button competing with the primary action. */}
-              <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
-                cursor: "pointer", border: "none", background: "none", padding: "14px 4px",
-                fontSize: isMobile ? 14 : 14.5, fontWeight: 500,
-                color: "rgba(242,244,242,0.6)", fontFamily: "var(--cb-body)",
-              }}>How it works</button>
-            </div>
-          </div>
-
-          {/* ── The scene prompt, near the subject ──
-              One understated question per clip, bottom-right where the
-              subject is cropped. Pressing it opens a real investigation
-              with the question already submitted. Rotation holds while the
-              prompt has hover or focus, so the target never moves away
-              mid-press. */}
-          <div className={animate ? "cb-hero-enter" : undefined} style={
-            isMobile
-              ? { marginTop: 36, animationDelay: "0.72s" }
-              : { justifySelf: "end", maxWidth: 360, paddingBottom: 6, animationDelay: "0.72s" }
-          }>
-            {scene ? (
-              /* Keyed by clip: the caption cross-dissolves in sync with the
-                 footage change instead of popping over the outgoing frame. */
-              <div key={clip} className={animate ? "cb-scene-swap" : undefined}
-                onMouseEnter={() => { holdRef.current = true; }}
-                onMouseLeave={releaseHold}
-                onFocus={() => { holdRef.current = true; }}
-                onBlur={releaseHold}
-              >
-                <div style={{
-                  display: "flex", alignItems: "baseline", justifyContent: "space-between",
-                  gap: 12, marginBottom: 10,
-                }}>
-                  <div style={{
-                    fontSize: 11, letterSpacing: "0.22em", textTransform: "uppercase",
-                    fontFamily: "var(--cb-body)", color: withAlpha(introAccent, 0.85),
-                    fontVariantNumeric: "tabular-nums",
-                  }}>{scene.subject}</div>
-                  <div aria-hidden="true" style={{
-                    fontSize: 11, letterSpacing: "0.18em", fontFamily: "var(--cb-body)",
-                    color: "rgba(242,244,242,0.40)", fontVariantNumeric: "tabular-nums",
-                    whiteSpace: "nowrap",
-                  }}>{String(sceneNo).padStart(2, "0")} / {String(sceneKeys.length).padStart(2, "0")}</div>
-                </div>
-                {/* Autoplay-policy recovery affordance. iOS Low Power Mode
-                    vetoes programmatic play(), leaving the still poster with
-                    no explanation — which reads as "the clips aren't playing".
-                    This pill only ever appears in that exact state, and the
-                    tap runs play() inside the gesture window, which the
-                    policy honours. */}
-                {autoplayBlocked && filmRunning && (
-                  <div>
-                    <button type="button" onClick={resumeFilm} style={{
-                      display: "inline-flex", alignItems: "center", gap: 8,
-                      margin: "2px 0 12px", padding: "8px 16px", borderRadius: 999,
-                      border: "1px solid rgba(242,244,242,0.28)",
-                      background: "rgba(10,12,14,0.55)", color: "#f2f4f2",
-                      fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-body)",
-                      cursor: "pointer",
-                      backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
-                    }}>
-                      <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                      Background film paused — tap to play
-                    </button>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => go(scene.question, true)}
-                  className="cb-intro-scene"
-                  style={{
-                    display: "block", textAlign: "left", width: "100%",
-                    background: "none", border: "none", padding: 0, cursor: "pointer",
-                    fontFamily: "var(--cb-body)", color: "#f2f4f2",
-                    fontSize: isMobile ? 17 : 18, lineHeight: 1.45, fontWeight: 500,
-                    textShadow: "0 1px 18px rgba(0,0,0,0.5)",
-                  }}>
-                  <span style={{ display: "block", marginBottom: 10 }}>{scene.question}</span>
-                  <span className="cb-intro-scene-cta" style={{
-                    fontSize: 14, fontWeight: 600, color: withAlpha(introAccent, 0.95),
-                  }}>Explore this question ↗</span>
-                </button>
-              </div>
-            ) : (
-              <div style={{ minHeight: 0 }} />
-            )}
-          </div>
+          )}
         </div>
       </main>
 
@@ -5802,13 +5710,14 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
 
       {/* ── Footer ──
           Credits and legal live here; the header stays clean. */}
-      <footer className="cb-intro-chrome" style={{
+      <footer className={animate ? "cb-intro-chrome cb-title-in" : "cb-intro-chrome"} style={{
         position: "relative", zIndex: 10,
         paddingBottom: "max(20px, env(safe-area-inset-bottom))",
-        /* The side gradient above deliberately fades to nothing on the right
-           so the footage keeps that part of the frame — which leaves the
-           footer links sitting on bare film. Measured against every graded
-           clip they came out at 1.5:1, i.e. invisible over the bright ones.
+        ...(animate ? { animationDelay: "4.9s", animationDuration: "1.6s" } : null),
+        /* The centered scrim above deliberately falls off toward the bottom
+           of the frame so the footage keeps it — which leaves the footer
+           links sitting on bare film. Measured against every graded clip
+           they came out at 1.5:1, i.e. invisible over the bright ones.
            The footer carries its own band instead of the whole picture being
            darkened for it: 6.8:1 at the worst frame in the set. */
         background: "linear-gradient(0deg, rgba(8,10,13,0.90) 0%, rgba(8,10,13,0.86) 62%, rgba(8,10,13,0.30) 100%)",
@@ -5856,13 +5765,13 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               )}
             <button type="button" onClick={() => setCreditsOpen(true)} style={footLink}>Film credits</button>
             {/* Sits with the credits because that is where the footage is
-                already being talked about. aria-pressed rather than a label
-                that lies: the control reports the state it is in. When
-                autoplay was vetoed the reel is not actually playing, so the
-                label offers Play even though the reel still wants to run —
-                matching the tap-to-play pill instead of contradicting it. */}
-            <button type="button" onClick={toggleFilm} aria-pressed={filmRunning && !autoplayBlocked} style={footLink}>
-              {filmRunning && !autoplayBlocked ? "Pause background" : "Play background"}
+                already being talked about. The label reads the video
+                element's actual playback state — never intent flags — so
+                it cannot say "paused" while footage is moving, and it
+                matches the tap-to-play pill above instead of
+                contradicting it. */}
+            <button type="button" onClick={toggleFilm} aria-pressed={filmPlaying} style={footLink}>
+              {filmPlaying ? "Pause background" : "Play background"}
             </button>
           </div>
         </div>
@@ -21242,13 +21151,13 @@ function App() {
               clearTimeout(enterClipTimer.current);
               enterClipTimer.current = setTimeout(() => setEnterClip(null), 1500);
             }
-            /* A scene prompt and the worked example are presses on a
-               specific question, so they run it rather than leaving it
-               sitting in the composer for a second press. Not while the
-               consent gate is up: that gate exists so nothing happens
-               before it is answered, and firing a search behind it would
-               make it decorative. The question stays in the box and the
-               visitor sends it themselves once they are through. */
+            /* The worked example is a press on a specific question, so it
+               runs it rather than leaving it sitting in the composer for
+               a second press. Not while the consent gate is up: that gate
+               exists so nothing happens before it is answered, and firing
+               a search behind it would make it decorative. The question
+               stays in the box and the visitor sends it themselves once
+               they are through. */
             if (submit && seed && legalOk) setTimeout(() => { ask(seed); }, 0);
           }} />
         {!legalOk && (
@@ -22691,18 +22600,32 @@ summary::-webkit-details-marker { display: none; }
 /* The outline-chip CTA gets the same keyboard ring as the primary. */
 .cb-intro-chip:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 999px; }
 
-/* ── Intro: cinematic science publication ──
-   The door is a magazine cover that opens into a research tool. No
-   control-room decoration: the composition is headline left (45%),
-   footage subject right, one supporting line, one action. The film
-   provides the continuous motion; the UI arrives in a single short
-   fade. */
-@keyframes cbHeroIn {
-  from { opacity: 0; transform: translateY(14px); }
+/* ── Intro: documentary title card ──
+   The door opens like a title sequence: a beat of near-black lifting off
+   the footage, then the kicker, the title with weight, the slogan, and
+   finally the single way in. One shared entrance animation — a long slow
+   fade-and-rise — staggered across the elements by inline delays; nothing
+   pops, everything arrives. No pointer parallax, no scene plates, no
+   information stack. The film provides the continuous motion. */
+@keyframes cbTitleIn {
+  from { opacity: 0; transform: translateY(26px); }
   to   { opacity: 1; transform: none; }
 }
-.cb-hero-enter {
-  animation: cbHeroIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
+.cb-title-in {
+  animation: cbTitleIn 2.1s cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+/* The opening beat: near-black holds, then lifts over five seconds to
+   reveal the footage underneath. Opacity only — the veil never touches
+   layout or the video elements. */
+@keyframes cbVeilLift {
+  0%   { opacity: 1; }
+  55%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.cb-title-veil {
+  position: fixed; inset: 0; z-index: 3; pointer-events: none;
+  background: #06080a;
+  animation: cbVeilLift 5s cubic-bezier(0.33, 1, 0.68, 1) 0.3s both;
 }
 /* Leaving: the chrome fades fast, the film frame stays behind for the
    handoff into the workspace (see .cb-enter-frame). */
@@ -22718,39 +22641,9 @@ summary::-webkit-details-marker { display: none; }
 .cb-intro-go:hover { filter: brightness(1.07); transform: translateY(-1px); }
 .cb-intro-go:active { transform: translateY(0); }
 .cb-intro-go:focus-visible { outline: 2px solid rgba(163,184,153,0.85); outline-offset: 3px; }
-/* ── Intro, premium pass ──
-   Depth, choreography, restraint. The film was already the motion; this
-   pass gives the type the same care: masked line reveals with stagger,
-   a cross-dissolving scene plate with an editorial index, pointer
-   parallax on the type column (desktop), a light sweep on the CTA, and
-   a scroll reveal for the section below. Transform/opacity only. */
-/* Masked line reveal: each headline line rises out of its own mask. */
-@keyframes cbLineRise {
-  from { opacity: 0; transform: translateY(108%); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.cb-mask { display: block; overflow: hidden; padding-bottom: 0.09em; margin-bottom: -0.09em; }
-.cb-mask-inner { display: block; animation: cbLineRise 1.15s cubic-bezier(0.19, 1, 0.22, 1) both; }
-/* The scene plate cross-dissolves with the footage: keyed by clip, so a
-   new question never pops in over the outgoing one. */
-@keyframes cbSceneIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: none; }
-}
-.cb-scene-swap { animation: cbSceneIn 0.85s cubic-bezier(0.22, 1, 0.36, 1) both; }
-/* Breathing light over the reel. The drift that used to live on the video
-   element is gone on purpose (it re-rasterised a ~2M-pixel surface every
-   frame); this is a plain gradient layer, so the compositor just moves a
-   cheap quad, and opacity does most of the work. */
-@keyframes cbLeakDrift {
-  from { opacity: 0.35; transform: translate3d(-1.5%, 1%, 0); }
-  to   { opacity: 0.85; transform: translate3d(1.5%, -1%, 0); }
-}
-.cb-intro-leak {
-  position: fixed; inset: 0; z-index: 1; pointer-events: none;
-  background: radial-gradient(55% 42% at 68% 30%, rgba(163,184,153,0.12), transparent 70%);
-  animation: cbLeakDrift 16s ease-in-out infinite alternate;
-}
+/* ── Intro, title-card pass ──
+   Restraint: the type choreography is opacity/transform only, on the one
+   shared cbTitleIn entrance; the button keeps its glass and light sweep. */
 /* Fine film grain over the film and the scrim, under the type. Static:
    animating it would cost a repaint per frame for texture nobody can see
    move. No blend mode — a plain low-opacity tile is the cheap version. */
@@ -23507,10 +23400,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
   /* Intro: the hero arrives without motion; the handoff bridge dissolves
      near-instantly so nothing animates at the people who asked for none. */
-  .cb-hero-enter { animation: none; }
+  .cb-title-in { animation: none; }
   .cb-enter-frame { animation-duration: 0.01s; }
   /* Premium pass: every new motion dies here too. */
-  .cb-mask-inner, .cb-scene-swap, .cb-intro-leak { animation: none !important; }
+  .cb-title-veil { display: none; }
   .cb-real-answer { opacity: 1 !important; transform: none !important; transition: none !important; }
   .cb-intro-go::after, .cb-intro-how::after { display: none; }
 }
@@ -23575,16 +23468,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .cb-intro-navlink { transition: background 220ms var(--cb-ease), color 220ms var(--cb-ease); }
 .cb-intro-navlink:hover { background: rgba(255,255,255,0.09); color: #f2f4f2 !important; }
 
-/* The scene prompt. A press target, not a card: the only affordance is the
-   line moving a couple of pixels and the arrow catching up, which is enough
-   to say "this does something" without adding another bordered box to a
-   screen that is trying to be mostly footage. */
-.cb-intro-scene { transition: transform 260ms var(--cb-ease); }
-.cb-intro-scene:hover { transform: translateX(3px); }
-.cb-intro-scene .cb-intro-scene-cta { transition: opacity 220ms var(--cb-ease); opacity: 0.86; }
-.cb-intro-scene:hover .cb-intro-scene-cta,
-.cb-intro-scene:focus-visible .cb-intro-scene-cta { opacity: 1; }
-.cb-intro-scene:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 6px; border-radius: 4px; }
 
 .cb-intro-sourcelink { transition: color 220ms var(--cb-ease); }
 .cb-intro-sourcelink:hover { color: #f2f4f2 !important; }
@@ -24261,7 +24144,7 @@ button, a {
 }
 @media (prefers-reduced-motion: reduce) {
   .cb-stagger > *, .cb-hero-ring, .cb-hero-glow { animation: none !important; opacity: 1; }
-  .cb-card, .cb-intro-go, .cb-intro-scene { transition: none; }
+  .cb-card, .cb-intro-go { transition: none; }
 }
 
 /* Shared glass: reflected edges at rest, accent light on interaction. */
