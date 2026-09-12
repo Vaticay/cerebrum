@@ -6449,13 +6449,13 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
         {(citeLabel || source.type || domain) && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--cb-body)", flexWrap: "wrap", paddingLeft: "1.2em" }}>
             {source.type && <span style={{ fontWeight: 600, color: P.ink2 }}>{source.type}</span>}
-            {source.type && (citeLabel || domain) && <span style={{ opacity: 0.4 }}>\u00b7</span>}
+            {source.type && (citeLabel || domain) && <span style={{ opacity: 0.4 }}>·</span>}
             {citeLabel && <span>{citeLabel}</span>}
-            {citeLabel && domain && <span style={{ opacity: 0.4 }}>\u00b7</span>}
+            {citeLabel && domain && <span style={{ opacity: 0.4 }}>·</span>}
             {domain && (
               <a href={safeHref(source.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
                 style={{ color: accent, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{domain}</span><span style={{ flexShrink: 0 }}>\u2197</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{domain}</span><span style={{ flexShrink: 0 }}>↗</span>
               </a>
             )}
             <button onClick={copyOne} title="Copy this citation" aria-label={`Copy citation ${index}`} className="cb-bibentry-copy"
@@ -7597,6 +7597,7 @@ function JumpRail({ items, P, accent, onJump }) {
             style={{
               display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 10px",
               background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap",
+              flexShrink: 0,
               fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.micro, fontWeight: 700,
               letterSpacing: "0.14em", textTransform: "uppercase",
               color: it.status === "empty" ? P.faint : P.ink2,
