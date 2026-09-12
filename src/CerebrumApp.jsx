@@ -2616,26 +2616,20 @@ function SignalComposer({
 }
 
 /* ── ReadingRoom: the search-waiting instrument ─────────────────────────────
-   Replaces the EchoField + AgentTrace pair. One full-width panel:
+   "TRANSMISSION" — the query as a signal going out to 15 databases.
 
-   1. The question as a specimen label ("QUERY / SPECIMEN" kicker, calm
-      display type for the question text).
-   2. A live constellation of the 15 databases as LABELED nodes with a
-      subtle drift. Honest framing only: these are the sources the query
-      is in flight to. No per-database completion, no percentages, no
-      "answered" states mid-request — the client genuinely cannot know;
-      the search is a single request that returns once, at the end.
-   3. The read-head motif: one hairline, one travelling marker, one mono
-      elapsed readout (200ms clock, same as the old trace).
-   4. One honest waiting line, driven only by elapsed time.
-   5. ONE real milestone: when /api/videos resolves with a non-empty array
-      while this search is still the current request, a "Related footage
-      located" line appears. That is an event the client actually saw.
-   6. After the response, the per-database breakdown from `sourcesQueried`
-      — computed by the backend from actual settled promises — restyled to
-      match. Databases that timed out show as not having answered.
+   A large instrument ring: the 15 databases as labeled points on the
+   circumference, a luminous pulse orbiting it (the query, in flight).
+   The center holds the one real number — elapsed time. Below, one honest
+   waiting line driven only by elapsed time.
 
-   Reduced motion: no drift, no travelling marker. */
+   Honest framing is load-bearing here: the search is a single request
+   that returns once, at the end, so no node ever claims a mid-request
+   state. The pulse is a sweep (light traveling), not progress. The
+   per-database breakdown appears only after the response, computed by
+   the backend from actual settled promises.
+
+   Reduced motion: the pulse parks, the ring is static. */
 function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contextual = false, videosLocated = false }) {
   const startRef = useRef(performance.now());
   const [elapsed, setElapsed] = useState(0);
@@ -2663,32 +2657,58 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
   const responded = Array.isArray(sourcesQueried) ? sourcesQueried.filter((s) => s.ok) : [];
   const total = Array.isArray(sourcesQueried) ? sourcesQueried.length : 0;
 
+  /* Labels ride the ring at fixed stations — upright and readable, never
+     rotating with the pulse. 15 stations, starting at the top. */
+  const N = SCHOLARLY_SOURCES.length;
+  const labelPos = (i) => {
+    const a = ((i / N) * 360 - 90) * (Math.PI / 180);
+    const r = 44; // percent of the wrap; ring itself sits at ~37%
+    return { left: `${50 + r * Math.cos(a)}%`, top: `${50 + r * Math.sin(a)}%` };
+  };
+
   return (
     <div className="cb-room" style={{ "--cb-acc": accent }} aria-live="polite" aria-atomic="true">
       {/* The question, catalogued as a specimen label. */}
       <div className="cb-room-kicker">Query / Specimen</div>
       <h2 className="cb-room-q">{q}</h2>
-      {/* The constellation: every source the query is in flight to, named.
-          Labels only — no node ever claims a mid-request state, because
-          the client cannot know one. Flex-wrap so fifteen long labels
-          stack gracefully on a phone instead of overflowing it. */}
-      <div className="cb-room-const" role="list" aria-label={`Query in flight to ${SCHOLARLY_SOURCES.length} databases`}>
+
+      {/* The transmission ring. */}
+      <div className="cb-tx-wrap" role="img" aria-label={`Query in flight to ${N} databases`}>
+        <svg viewBox="0 0 320 320" className="cb-tx-svg" aria-hidden="true">
+          <defs>
+            <linearGradient id="cbTxPulse" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor={accent} stopOpacity="0" />
+              <stop offset="70%" stopColor={accent} stopOpacity="0.55" />
+              <stop offset="100%" stopColor={accent} stopOpacity="1" />
+            </linearGradient>
+          </defs>
+          {/* faint full ring */}
+          <circle cx="160" cy="160" r="118" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="1" />
+          {/* the pulse: a bright arc in flight around the ring */}
+          {!reduced && !done && (
+            <circle cx="160" cy="160" r="118" fill="none" stroke="url(#cbTxPulse)" strokeWidth="2"
+              strokeDasharray="86 656" strokeLinecap="round" className="cb-tx-arc" />
+          )}
+          {/* parked arc for reduced motion / done: a quiet marker at the top */}
+          {(reduced || done) && (
+            <circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="2"
+              strokeDasharray="26 716" strokeLinecap="round" opacity="0.7"
+              transform="rotate(-90 160 160)" />
+          )}
+        </svg>
         {SCHOLARLY_SOURCES.map((s, i) => (
-          <span key={s.id} role="listitem" className="cb-room-node"
-            style={reduced ? undefined : { animationDelay: `${(i * 380) % 2600}ms` }}>
-            <span className="cb-room-dot" aria-hidden="true" />
+          <span key={s.id} className="cb-tx-node" style={labelPos(i)}>
+            <span className="cb-tx-dot" aria-hidden="true" />
             {s.name}
           </span>
         ))}
-      </div>
-      {/* The read head: one hairline, one marker travelling it slowly, one
-          elapsed readout. The instrument reads; it does not broadcast. */}
-      <div className="cb-room-readrow">
-        <div className="cb-echo-rule cb-room-rule" aria-hidden="true">
-          {!reduced && <span className="cb-echo-cursor" />}
+        <div className="cb-tx-center">
+          <div className="cb-tx-elabel">Elapsed</div>
+          <div className="cb-tx-clock">{String(seconds).padStart(2, "0")}<span className="cb-tx-s">s</span></div>
+          <div className="cb-tx-state">{done ? "Received" : "Listening"}</div>
         </div>
-        <span className="cb-room-clock">{String(seconds).padStart(2, "0")}s</span>
       </div>
+
       <div className="cb-room-line">
         {done && total ? `${responded.length} of ${total} databases answered` : waitingLine}
       </div>
@@ -21313,44 +21333,73 @@ summary::-webkit-details-marker { display: none; }
   color: #f2f4f2;
   max-width: 720px; margin: 0;
 }
-/* The constellation: fifteen labelled nodes, each the same — no node may
-   imply a mid-request state. Flex-wrap lets long database names stack
-   gracefully on a phone instead of overflowing it. */
-.cb-room-const {
-  display: flex; flex-wrap: wrap; gap: 7px 15px;
-  margin-top: 22px;
-  max-width: 100%;
+/* ── TRANSMISSION: the orbital instrument ──
+   The ring is an SVG (faint circle + traveling pulse arc). Database
+   labels sit at fixed stations around it — upright, readable, never
+   rotating. The center holds elapsed time, the one real number. */
+.cb-tx-wrap {
+  position: relative;
+  width: min(78vw, 340px);
+  aspect-ratio: 1;
+  margin: 26px auto 0;
 }
-.cb-room-node {
-  display: inline-flex; align-items: center; gap: 7px;
-  font-family: var(--cb-body); font-size: 10.5px; font-weight: 500;
-  letter-spacing: 0.06em; white-space: nowrap;
-  color: rgba(242,244,242,0.55);
-  animation: cbRoomDrift 4.8s ease-in-out infinite;
+.cb-tx-svg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  overflow: visible;
 }
-.cb-room-dot {
-  width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0;
-  background: color-mix(in srgb, var(--cb-acc) 70%, transparent);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--cb-acc) 60%, transparent);
+/* The pulse: one bright arc in slow flight around the ring. 14s per
+   revolution — majestic, not frantic. A sweep, not progress. */
+.cb-tx-arc {
+  transform-origin: 160px 160px;
+  animation: cbTxOrbit 14s linear infinite;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--cb-acc) 80%, transparent));
 }
-@keyframes cbRoomDrift {
-  0%, 100% { transform: translate(0, 0); }
-  50%      { transform: translate(1.5px, -3px); }
+@keyframes cbTxOrbit { to { transform: rotate(360deg); } }
+.cb-tx-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--cb-body); font-size: 8.5px; font-weight: 500;
+  letter-spacing: 0.04em; white-space: nowrap;
+  color: rgba(242,244,242,0.48);
 }
-/* The read head row: the existing echo hairline + cursor language, with a
-   mono elapsed readout at its end. */
-.cb-room-readrow {
-  display: flex; align-items: center; gap: 14px;
-  margin-top: 26px;
+.cb-tx-dot {
+  width: 3px; height: 3px; border-radius: 50%; flex-shrink: 0;
+  background: color-mix(in srgb, var(--cb-acc) 65%, transparent);
 }
-.cb-room-rule { flex: 1; width: auto; margin: 0; }
-.cb-room-clock {
-  font-family: var(--cb-body); font-size: 11px; color: rgba(242,244,242,0.6);
-  font-variant-numeric: tabular-nums; min-width: 44px; text-align: right;
-  flex-shrink: 0;
+.cb-tx-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center; pointer-events: none;
+}
+.cb-tx-elabel {
+  font-family: var(--cb-body); font-size: 8px; font-weight: 500;
+  letter-spacing: 0.34em; text-transform: uppercase;
+  color: rgba(242,244,242,0.38);
+  margin-bottom: 6px; padding-left: 0.34em; /* recenter tracked caps */
+}
+.cb-tx-clock {
+  font-family: var(--cb-body); font-weight: 600;
+  font-size: 40px; letter-spacing: -0.02em; line-height: 1;
+  color: #f5f7f5;
+  font-variant-numeric: tabular-nums;
+}
+.cb-tx-s {
+  font-size: 16px; font-weight: 500;
+  color: rgba(242,244,242,0.45);
+  margin-left: 2px;
+}
+.cb-tx-state {
+  margin-top: 8px;
+  font-family: var(--cb-body); font-size: 8.5px; font-weight: 600;
+  letter-spacing: 0.3em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--cb-acc) 85%, white);
+  padding-left: 0.3em;
 }
 .cb-room-line {
-  margin-top: 10px;
+  margin-top: 18px; text-align: center;
   font-family: var(--cb-body); font-size: 11px;
   letter-spacing: 0.02em;
   color: rgba(242,244,242,0.45);
@@ -21368,7 +21417,7 @@ summary::-webkit-details-marker { display: none; }
   gap: 6px 10px; margin-top: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-room, .cb-room-node, .cb-room-milestone { animation: none; }
+  .cb-room, .cb-tx-arc, .cb-room-milestone { animation: none; }
 }
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
