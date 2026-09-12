@@ -552,6 +552,19 @@ await test("search loader: 10s comet orbit, tick ring, honest clock", async () =
   assert.match(appSrc, /\.cb-tx-comet, \.cb-tx-ping, \.cb-tx-inner-orbit,\n\s+\.cb-tx-clock, \.cb-tx-dot, \.cb-tx-state \{ animation: none; \}/,
     "reduced-motion does not silence the new loader animations");
 });
+await test("search errors carry a diagnostic caption and the request is bounded", async () => {
+  const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
+  // Every failure path stamps a diagnostic: HTTP status or failure class,
+  // elapsed seconds, wall-clock time. The user-facing copy stays plain.
+  assert.match(appSrc, /setErrorDetail\(`HTTP \$\{res\.status\} ·/, "non-2xx path lacks a diagnostic caption");
+  assert.match(appSrc, /setErrorDetail\(`unparseable body/, "bad-body path lacks a diagnostic caption");
+  assert.match(appSrc, /setErrorDetail\(`network ·/, "network-failure path lacks a diagnostic caption");
+  assert.match(appSrc, /setErrorDetail\(`timeout ·/, "timeout path lacks a diagnostic caption");
+  assert.match(appSrc, /\{errorDetail &&/, "error card does not render the diagnostic caption");
+  // The request can never spin forever on a stalled connection.
+  assert.match(appSrc, /askCtrl\.abort\("timeout"\)/, "no client-side search timeout");
+  assert.match(appSrc, /clearTimeout\(askTimeout\)/, "search timeout is not cleared on completion");
+});
 await test("vote/report UI is honest about the auth requirement", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
   // Votes: a 401 must not be thanked for.

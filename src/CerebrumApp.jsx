@@ -19051,6 +19051,11 @@ function App() {
      videosPromise.then guard in ask). Reset at the start of every ask. */
   const [videosLocated, setVideosLocated] = useState(false);
   const [error, setError] = useState("");
+  /* Diagnostic caption under the user-facing error (HTTP status, elapsed,
+     timestamp). Plainspoken up top, precise underneath — the next "it keeps
+     saying something broke" report can quote this verbatim instead of a
+     paraphrase, which is the difference between guessing and diagnosing. */
+  const [errorDetail, setErrorDetail] = useState("");
   const [allSources, setAllSources] = useState([]);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
 
@@ -19391,9 +19396,18 @@ function App() {
     setAskedThisSession(true);
     setContextBusy(!imageToSend && !!contextAction(question));
     if (!mutedRef.current) Sfx.click();
-    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setVideosLocated(false); setError(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setVideosLocated(false); setError(""); setErrorDetail(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
+    /* The search has no client-side timeout today: on a stalled mobile
+       connection the loader spins until the browser itself gives up, which
+       can look like a hang rather than a failure. Bound it — a slow
+       network then gets an honest error with a Try again button instead
+       of an endless transmission. 120s is generous: p99 latency is ~40s. */
+    const askStarted = performance.now();
+    const askTimeout = setTimeout(() => { try { askCtrl.abort("timeout"); } catch {} }, 120000);
+    const elapsedS = () => ((performance.now() - askStarted) / 1000).toFixed(1);
+    const stamp = () => new Date().toLocaleTimeString();
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
@@ -19410,7 +19424,9 @@ function App() {
         let errData = {};
         try { errData = await res.json(); } catch {}
         if (requestVersion !== investigationRequest.current) return;
-        setError(errData.error || "Something went sideways. Try that again?"); setBusy(false); return;
+        setError(errData.error || "Something went sideways. Try that again?");
+        setErrorDetail(`HTTP ${res.status} · ${elapsedS()}s · ${stamp()}`);
+        setBusy(false); return;
       }
       // Stream response body via ReadableStream — reads chunks as they arrive.
       // Currently the backend sends a single JSON payload; when it's upgraded
@@ -19426,8 +19442,8 @@ function App() {
       }
       let data;
       try { data = JSON.parse(buf); }
-      catch { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
-      if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
+      catch { setError("Got an unexpected response from the server. Try that again?"); setErrorDetail(`unparseable body · ${elapsedS()}s · ${stamp()}`); setBusy(false); return; }
+      if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setErrorDetail(`empty body · ${elapsedS()}s · ${stamp()}`); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
       const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
@@ -19448,8 +19464,22 @@ function App() {
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Sfx.pop();
       videosPromise.then(({ videos }) => { /* The video index has answered for this turn — with footage or without. Marking the turn settled keeps the Videos tab on an honest "reading" state instead of flashing a false empty verdict when synthesis wins the race. */ setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videosSettled: true } : t)); if (requestVersion === investigationRequest.current && data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); /* ReadingRoom's one real milestone: /api/videos resolved with footage while this search is still the current request. */ setVideosLocated(true); } });
-    } catch (e) { if (e && e.name === "AbortError") return; if (requestVersion === investigationRequest.current) setError("Couldn't reach the research service. Please try again."); }
-    finally { if (requestVersion === investigationRequest.current) setBusy(false); }
+    } catch (e) {
+      /* A superseded request (user asked again mid-flight) dies silently.
+         Our own 120s timeout gets an honest message instead of silence. */
+      if (e && e.name === "AbortError") {
+        if (requestVersion === investigationRequest.current && askCtrl.signal.reason === "timeout") {
+          setError("The search took too long and timed out. Try that again?");
+          setErrorDetail(`timeout · 120.0s · ${stamp()}`);
+        }
+        return;
+      }
+      if (requestVersion === investigationRequest.current) {
+        setError("Couldn't reach the research service. Please try again.");
+        setErrorDetail(`network · ${elapsedS()}s · ${stamp()}`);
+      }
+    }
+    finally { clearTimeout(askTimeout); if (requestVersion === investigationRequest.current) setBusy(false); }
   }, [input, attachedImage, busy, turns, allSources, answerLength, factCheck, typewriter, isMobile, pinnedSources, corrections, evidenceFilter]);
   // Stable indirection for per-turn callbacks: ask changes on every
   // keystroke (it closes over `input`), so anything closing over ask
@@ -20551,7 +20581,7 @@ function App() {
                       progress the client cannot know. */}
                   <ReadingRoom P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} done={false} contextual={contextBusy} videosLocated={videosLocated} />
                 </div>)}
-                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div><button onClick={() => { setError(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Try again</button></div></div>}
+                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div>{errorDetail && <div style={{ marginTop: 6, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}<button onClick={() => { setError(""); setErrorDetail(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Try again</button></div></div>}
                 {turns.length > 0 && !busy && (<>
                   {attachedImage && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
