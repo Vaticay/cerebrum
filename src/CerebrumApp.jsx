@@ -20065,7 +20065,7 @@ function App() {
                    the deck; the swipe row keeps every example reachable in
                    the height of one. */
                 <div style={{ width: "100%", maxWidth: 820, marginTop: 10 }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px 4px" }}>Try</div>
+                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px 4px" }}>Try</div>
                   <div className="cb-scroll-x" style={{ display: "flex", gap: 8, flexWrap: "nowrap", overflowX: "auto", scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", padding: "2px 4px 6px" }}>
                     {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3).map((ex) => (
                       <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
