@@ -323,6 +323,31 @@ function toBibTeX(sources) {
   }).join("\n\n");
 }
 function download(fn, text) { const blob = new Blob([text], { type: "text/plain" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fn; a.click(); URL.revokeObjectURL(a.href); }
+
+/* The Cerebrum brain mark as a standalone SVG string, for raster export
+   targets (the .xlsx logo) that can't mount a React component. Mirrors
+   Mark()'s paths exactly; accent always comes from the app's own
+   palettes, never from user input. */
+function cerebrumLogoSvg(accent) {
+  const a = String(accent || "#8b8b93");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="${a}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/></svg>`;
+}
+
+/* Top-20 papers → branded .xlsx. exceljs is lazy-loaded so the main
+   bundle never pays for it; the workbook builder lives in
+   src/exportExcel.js and caps defensively at 20 rows. */
+async function exportTopPapersExcel(papers, { accent, title, subtitle, filename }) {
+  const list = (papers || []).slice(0, 20);
+  if (!list.length) return { count: 0 };
+  const mod = await import("./exportExcel.js");
+  return mod.exportPapersToExcel(list, {
+    title: title || "Cerebrum — Top papers",
+    subtitle: subtitle || `Exported from Cerebrum · ${new Date().toLocaleDateString()}`,
+    filename: filename || "cerebrum-papers.xlsx",
+    logoSvg: cerebrumLogoSvg(accent),
+    accent,
+  });
+}
 async function saveToZotero(sources, apiKey, userId) {
   const items = sources.map((s) => ({ itemType: "journalArticle", title: s.title || "", creators: (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean).map((name) => ({ creatorType: "author", name })), publicationTitle: s.journal || "", date: String(s.year || ""), url: s.url || "" }));
   const res = await fetch(`https://api.zotero.org/users/${userId}/items`, { method: "POST", headers: { "Zotero-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify(items) });
@@ -6472,6 +6497,13 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
     });
   };
   const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
+  const [excelBusy, setExcelBusy] = useState(false);
+  const exportExcel = async () => {
+    if (excelBusy || !sources || !sources.length) return;
+    setExcelBusy(true);
+    try { await exportTopPapersExcel(sources, { accent }); } catch {}
+    setExcelBusy(false);
+  };
   // Jump bar: first letters of the author field, for long lists.
   const jumpLetters = useMemo(() => {
     if (!sources || sources.length <= 12) return null;
@@ -6490,6 +6522,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
         options={styleOptions.map((o) => ({ id: o.key, label: o.label }))} />
       <button onClick={copyAll} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>{copied ? "\u2713 Copied" : "Copy all"}</button>
       <button onClick={downloadFile} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>Download</button>
+      <button onClick={exportExcel} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)} title="Export the top 20 papers to Excel">{excelBusy ? "Building…" : "Excel"}</button>
     </span>
   );
   const ledger = (
@@ -11717,6 +11750,791 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
           <span style={{ flex: 1 }} />
           <span style={{ fontFamily: "var(--cb-body)" }}>{hint}</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Diagram Studio — a mermaid.live-grade diagram instrument as its own
+   tab. A code editor with live preview, pan/zoom canvas, diagram-type
+   templates, .mmd import/export, SVG/PNG export, and a local diagram
+   library.
+
+   Mermaid is lazy-loaded (dynamic import) so the main bundle never pays
+   for it until the studio opens. Rendering runs at securityLevel
+   "strict": diagram source can never inject scripts into the page.
+
+   Imported .mmd files load VERBATIM — the studio never reformats,
+   tidies, or "fixes" your source. What you wrote is what renders.
+   ══════════════════════════════════════════════════════════════════ */
+
+const MM_STORE_KEY = "cb_mermaid_diagrams";
+const MM_DRAFT_KEY = "cb_mermaid_draft_v1";
+
+const MM_DEFAULT_CODE = `flowchart TD
+    A[Raw lignin] --> B{Enzyme attack}
+    B -->|Laccase| C[Phenolic radicals]
+    B -->|Peroxidase| D[Aryl fragments]
+    C --> E[Repolymerization]
+    D --> F[Ring cleavage]
+    E --> G[Humic-like polymers]
+    F --> H[Small organic acids]
+    G --> I[Mineralization]
+    H --> I
+`;
+
+const MERMAID_TEMPLATES = [
+  { key: "flowchart", name: "Flowchart", code: `flowchart TD
+    A[Start] --> B{Decide}
+    B -->|Yes| C[Do it]
+    B -->|No| D[Skip it]
+    C --> E[End]
+    D --> E` },
+  { key: "sequence", name: "Sequence diagram", code: `sequenceDiagram
+    participant U as User
+    participant S as Server
+    U->>S: Search request
+    S->>S: Rank papers
+    S-->>U: Results` },
+  { key: "class", name: "Class diagram", code: `classDiagram
+    class Paper {
+        +String title
+        +String authors
+        +Int year
+        +cite() String
+    }
+    class Preprint {
+        +String server
+    }
+    Paper <|-- Preprint` },
+  { key: "state", name: "State diagram", code: `stateDiagram-v2
+    [*] --> Draft
+    Draft --> Review : submit
+    Review --> Published : accept
+    Review --> Draft : revise
+    Published --> [*]` },
+  { key: "er", name: "Entity relationship", code: `erDiagram
+    PAPER ||--o{ AUTHOR : has
+    PAPER {
+        string title
+        int year
+        string doi
+    }
+    AUTHOR {
+        string name
+    }` },
+  { key: "gantt", name: "Gantt chart", code: `gantt
+    title Research plan
+    dateFormat YYYY-MM-DD
+    section Phase 1
+    Literature review :a1, 2026-09-01, 14d
+    Experiments       :a2, after a1, 21d
+    section Phase 2
+    Analysis          :a3, after a2, 14d` },
+  { key: "pie", name: "Pie chart", code: `pie title Funding split
+    "Grants" : 45
+    "Industry" : 30
+    "Internal" : 25` },
+  { key: "mindmap", name: "Mindmap", code: `mindmap
+  root((Research question))
+    Background
+      Prior work
+      Key papers
+    Methods
+    Evidence
+    Open gaps` },
+  { key: "timeline", name: "Timeline", code: `timeline
+    title Discovery arc
+    2024 : Hypothesis formed
+    2025 : First results
+    2026 : Independent replication` },
+  { key: "journey", name: "User journey", code: `journey
+    title Reading a paper
+    section Skim
+      Abstract: 5: Reader
+      Figures: 4: Reader
+    section Deep read
+      Methods: 2: Reader
+      References: 3: Reader` },
+];
+
+/* The studio's own mark: a node flowing into a decision diamond, set in
+   a rounded frame. Distinct from the Cerebrum brain mark on purpose —
+   the studio is its own instrument with its own identity. */
+function StudioMark({ size = 22, accent = "#fff" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" stroke={accent} strokeWidth="1.8" opacity="0.85" />
+      <circle cx="8.4" cy="8.4" r="2.3" fill={accent} />
+      <path d="M10.2 10.1l3.6 3.6" stroke={accent} strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M15.2 12.4l3.4 3.4-3.4 3.4-3.4-3.4z" stroke={accent} strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/* One-pass syntax highlighter: comments, strings, keywords, arrows.
+   Single pass so inserted spans are never re-scanned. */
+const MM_TOKEN_RE = /(%%[^\n]*)|("[^"\n]*")|\b(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|mindmap|timeline|journey|gitGraph|subgraph|end|participant|actor|title|section|dateFormat|classDef|click|style|linkStyle|direction|TB|TD|BT|RL|LR)\b|(-->|==>|---|-\.->|~~~|:::|<-->)/g;
+function mmEscapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function mmHighlight(code) {
+  let out = "";
+  let last = 0;
+  let m;
+  MM_TOKEN_RE.lastIndex = 0;
+  while ((m = MM_TOKEN_RE.exec(code))) {
+    out += mmEscapeHtml(code.slice(last, m.index));
+    const cls = m[1] ? "mm-cm" : m[2] ? "mm-st" : m[3] ? "mm-kw" : "mm-ar";
+    out += `<span class="${cls}">${mmEscapeHtml(m[0])}</span>`;
+    last = m.index + m[0].length;
+    if (m[0].length === 0) MM_TOKEN_RE.lastIndex += 1;
+  }
+  out += mmEscapeHtml(code.slice(last));
+  return out + "\n";
+}
+
+const MM_FONT = '13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+
+/* Line-numbered code editor: a transparent textarea over a highlighted
+   <pre>, metrics locked together so the highlight never drifts. */
+function MMCodeEditor({ P, accent, code, onChange }) {
+  const taRef = useRef(null);
+  const preRef = useRef(null);
+  const gutterRef = useRef(null);
+  const lineCount = code.split("\n").length;
+  const syncScroll = () => {
+    const ta = taRef.current;
+    if (!ta) return;
+    if (preRef.current) { preRef.current.scrollTop = ta.scrollTop; preRef.current.scrollLeft = ta.scrollLeft; }
+    if (gutterRef.current) gutterRef.current.scrollTop = ta.scrollTop;
+  };
+  const onKeyDown = (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const ta = taRef.current;
+      const s = ta.selectionStart;
+      const en = ta.selectionEnd;
+      const next = code.slice(0, s) + "  " + code.slice(en);
+      onChange(next);
+      requestAnimationFrame(() => { try { ta.selectionStart = ta.selectionEnd = s + 2; } catch {} });
+    }
+  };
+  const pad = "14px 16px";
+  return (
+    <div style={{ position: "relative", flex: 1, display: "flex", minHeight: 0, minWidth: 0 }}>
+      <div ref={gutterRef} aria-hidden="true" style={{
+        width: 46, flexShrink: 0, overflow: "hidden", padding: "14px 8px 14px 0",
+        font: MM_FONT, textAlign: "right", color: P.faint, userSelect: "none",
+        borderRight: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)",
+      }}>
+        {Array.from({ length: lineCount }, (_, i) => (
+          <div key={i} style={{ height: "21.45px" }}>{i + 1}</div>
+        ))}
+      </div>
+      <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+        <pre ref={preRef} aria-hidden="true" dangerouslySetInnerHTML={{ __html: mmHighlight(code) }} style={{
+          position: "absolute", inset: 0, margin: 0, padding: pad, overflow: "hidden",
+          font: MM_FONT, whiteSpace: "pre", color: P.ink2, pointerEvents: "none",
+        }} />
+        <textarea ref={taRef} value={code} wrap="off"
+          onChange={(e) => onChange(e.target.value)} onScroll={syncScroll} onKeyDown={onKeyDown}
+          spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off"
+          aria-label="Diagram source code" placeholder="flowchart TD&#10;    A --> B"
+          style={{
+            position: "absolute", inset: 0, width: "100%", height: "100%", padding: pad,
+            font: MM_FONT, whiteSpace: "pre", overflow: "auto", resize: "none",
+            background: "transparent", color: "transparent", caretColor: accent,
+            border: 0, outline: "none",
+          }} />
+      </div>
+    </div>
+  );
+}
+
+/* Dropdown menu with a click-away backdrop. The trigger wraps it in a
+   position:relative span. */
+function MMMenu({ P, open, onClose, children, width = 280, align = "left" }) {
+  if (!open) return null;
+  const side = align === "right" ? { right: 0 } : { left: 0 };
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60 }} aria-hidden="true" />
+      <div role="menu" style={{
+        position: "absolute", top: "calc(100% + 8px)", ...side, width, zIndex: 61,
+        background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 12,
+        boxShadow: P.dark ? "0 18px 50px rgba(0,0,0,0.55)" : "0 18px 50px rgba(20,24,20,0.18)",
+        padding: 6, maxHeight: 360, overflowY: "auto",
+      }}>
+        {children}
+      </div>
+    </>
+  );
+}
+
+function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
+  const [code, setCode] = useState(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || "null");
+      if (d && typeof d.code === "string" && d.code.trim()) return d.code;
+    } catch {}
+    return initialCode || MM_DEFAULT_CODE;
+  });
+  const [title, setTitle] = useState(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || "null");
+      if (d && typeof d.title === "string" && d.title) return d.title;
+    } catch {}
+    return "Untitled diagram";
+  });
+  const [activeId, setActiveId] = useState(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || "null");
+      return (d && d.activeId) || null;
+    } catch { return null; }
+  });
+  const [diagrams, setDiagrams] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(MM_STORE_KEY) || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch { return []; }
+  });
+  const [mm, setMm] = useState(null);
+  const [mmError, setMmError] = useState(null);
+  const [svg, setSvg] = useState("");
+  const [diagError, setDiagError] = useState(null);
+  const [rendering, setRendering] = useState(false);
+  const [pan, setPan] = useState({ x: 28, y: 28, k: 1 });
+  const [mobilePane, setMobilePane] = useState("code");
+  const [menu, setMenu] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [savedTick, setSavedTick] = useState(0);
+  const svgHostRef = useRef(null);
+  const previewRef = useRef(null);
+  const fileRef = useRef(null);
+  const renderSeq = useRef(0);
+  const dragRef = useRef(null);
+  const autoFitDone = useRef(false);
+  const dark = P.dark;
+
+  /* Lazy-load the diagram engine: the main bundle never pays for it. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import("mermaid");
+        if (cancelled) return;
+        const mermaid = mod.default;
+        mermaid.initialize({
+          startOnLoad: false,
+          /* strict: diagram source is untrusted text and is never allowed
+             to run scripts, no matter what a pasted .mmd contains. */
+          securityLevel: "strict",
+          theme: "base",
+          themeVariables: {
+            darkMode: dark,
+            background: "transparent",
+            primaryColor: dark ? "#1c1c21" : "#ffffff",
+            primaryBorderColor: accent,
+            primaryTextColor: P.ink,
+            secondaryColor: dark ? "#26262c" : "#f1f0ec",
+            tertiaryColor: dark ? "#131316" : "#e9e7e2",
+            lineColor: P.faint,
+            textColor: P.ink,
+            mainBkg: dark ? "#1c1c21" : "#ffffff",
+            nodeBkg: dark ? "#1c1c21" : "#ffffff",
+            nodeBorder: accent,
+            clusterBkg: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)",
+            clusterBorder: P.line2,
+            titleColor: P.ink,
+            edgeLabelBackground: dark ? "#131316" : "#f4f3ef",
+            actorBkg: dark ? "#1c1c21" : "#ffffff",
+            actorBorder: accent,
+            actorTextColor: P.ink,
+            signalColor: P.ink,
+            signalTextColor: P.ink,
+            labelBoxBkgColor: dark ? "#1c1c21" : "#ffffff",
+            labelBoxBorderColor: P.line2,
+            labelTextColor: P.ink,
+            pie1: accent,
+          },
+          flowchart: { htmlLabels: true, curve: "basis", padding: 12 },
+        });
+        setMm(mermaid);
+      } catch (e) {
+        if (!cancelled) setMmError("The diagram engine could not be loaded. Check your connection and reload.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dark, accent, P.ink, P.faint, P.line2]);
+
+  /* Debounced live render. */
+  useEffect(() => {
+    if (!mm) return;
+    setRendering(true);
+    const t = setTimeout(() => {
+      (async () => {
+        const id = `mmd-${Date.now().toString(36)}-${(renderSeq.current += 1)}`;
+        try {
+          const { svg: out } = await mm.render(id, code);
+          setSvg(out);
+          setDiagError(null);
+        } catch (e) {
+          const msg = e && e.message ? String(e.message) : "Could not render this diagram.";
+          setDiagError(msg.split("\n").slice(0, 5).join("\n"));
+        } finally {
+          setRendering(false);
+        }
+      })();
+    }, 450);
+    return () => clearTimeout(t);
+  }, [code, mm]);
+
+  /* Push rendered SVG into the canvas host (outside React's diffing so
+     mermaid's markup is never re-parsed), then auto-fit once. */
+  useEffect(() => {
+    if (svgHostRef.current) svgHostRef.current.innerHTML = svg;
+    if (svg && !autoFitDone.current) {
+      autoFitDone.current = true;
+      const host = svgHostRef.current;
+      const wrap = previewRef.current;
+      const svgEl = host && host.querySelector("svg");
+      if (svgEl && wrap) {
+        const vb = svgEl.viewBox && svgEl.viewBox.baseVal;
+        const w = (vb && vb.width) || 800;
+        const h = (vb && vb.height) || 600;
+        const pad = 56;
+        const k = Math.max(0.2, Math.min((wrap.clientWidth - pad) / w, (wrap.clientHeight - pad) / h, 2.5));
+        setPan({
+          k,
+          x: Math.max(20, (wrap.clientWidth - w * k) / 2),
+          y: Math.max(20, (wrap.clientHeight - h * k) / 2),
+        });
+      }
+    }
+  }, [svg]);
+
+  const fitToView = useCallback(() => {
+    const host = svgHostRef.current;
+    const wrap = previewRef.current;
+    const svgEl = host && host.querySelector("svg");
+    if (!svgEl || !wrap || !wrap.clientWidth) return;
+    autoFitDone.current = true;
+    const vb = svgEl.viewBox && svgEl.viewBox.baseVal;
+    const w = (vb && vb.width) || 800;
+    const h = (vb && vb.height) || 600;
+    const pad = 56;
+    const k = Math.max(0.2, Math.min((wrap.clientWidth - pad) / w, (wrap.clientHeight - pad) / h, 2.5));
+    setPan({
+      k,
+      x: Math.max(20, (wrap.clientWidth - w * k) / 2),
+      y: Math.max(20, (wrap.clientHeight - h * k) / 2),
+    });
+  }, []);
+
+  /* Wheel zoom needs a native non-passive listener to preventDefault. */
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      autoFitDone.current = true;
+      setPan((p) => ({ ...p, k: Math.min(3, Math.max(0.2, p.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12))) }));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const onPreviewDown = (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    dragRef.current = { sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+  const onPreviewMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    autoFitDone.current = true;
+    setPan((p) => ({ ...p, x: d.px + (e.clientX - d.sx), y: d.py + (e.clientY - d.sy) }));
+  };
+  const onPreviewUp = () => { dragRef.current = null; };
+
+  /* Draft autosave + library persistence. */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try { localStorage.setItem(MM_DRAFT_KEY, JSON.stringify({ code, title, activeId, updatedAt: Date.now() })); } catch {}
+    }, 800);
+    return () => clearTimeout(t);
+  }, [code, title, activeId]);
+  useEffect(() => {
+    try { localStorage.setItem(MM_STORE_KEY, JSON.stringify(diagrams)); } catch {}
+  }, [diagrams]);
+
+  const saveDiagram = useCallback(() => {
+    const id = activeId || `mmd-${Date.now().toString(36)}`;
+    const rec = { id, title: title.trim() || "Untitled diagram", code, updatedAt: Date.now() };
+    setDiagrams((ds) => [{ ...rec }, ...ds.filter((d) => d.id !== id)].slice(0, 60));
+    setActiveId(id);
+    setSavedTick((t) => t + 1);
+  }, [activeId, title, code]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveDiagram(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [saveDiagram]);
+
+  /* .mmd import: verbatim. The studio never reformats your source. */
+  const onImportFile = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      const text = String(r.result || "").replace(/^\uFEFF/, "");
+      setCode(text);
+      setTitle(f.name.replace(/\.(mmd|mermaid|txt)$/i, "") || "Imported diagram");
+      setActiveId(null);
+      autoFitDone.current = false;
+      if (isMobile) setMobilePane("preview");
+    };
+    r.readAsText(f);
+    e.target.value = "";
+  };
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch {}
+      ta.remove();
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+
+  const downloadBlob = (name, blob) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  };
+  const slug = fcSlug(title);
+  const exportSVG = () => {
+    const el = svgHostRef.current && svgHostRef.current.querySelector("svg");
+    if (!el) return;
+    const str = new XMLSerializer().serializeToString(el);
+    downloadBlob(`${slug}.svg`, new Blob([str], { type: "image/svg+xml;charset=utf-8" }));
+    setMenu(null);
+  };
+  const exportMMD = () => { download(`${slug}.mmd`, code); setMenu(null); };
+  const exportPNG = async () => {
+    const el = svgHostRef.current && svgHostRef.current.querySelector("svg");
+    if (!el) return;
+    try {
+      const clone = el.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      const str = new XMLSerializer().serializeToString(clone);
+      const url = URL.createObjectURL(new Blob([str], { type: "image/svg+xml;charset=utf-8" }));
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      const vb = el.viewBox && el.viewBox.baseVal;
+      const w = Math.max(1, Math.round((vb && vb.width) || img.naturalWidth || 800));
+      const h = Math.max(1, Math.round((vb && vb.height) || img.naturalHeight || 600));
+      const scale = 3;
+      const canvas = document.createElement("canvas");
+      canvas.width = w * scale;
+      canvas.height = h * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = dark ? "#101013" : "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+      if (blob) downloadBlob(`${slug}.png`, blob);
+    } catch {}
+    setMenu(null);
+  };
+
+  const diagramKind = useMemo(() => {
+    const line = (code.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("%%")) || "");
+    const head = line.split(/\s+/)[0] || "";
+    const known = {
+      flowchart: "Flowchart", graph: "Flowchart", sequenceDiagram: "Sequence",
+      classDiagram: "Class", "stateDiagram-v2": "State", stateDiagram: "State",
+      erDiagram: "ER", gantt: "Gantt", pie: "Pie", mindmap: "Mindmap",
+      timeline: "Timeline", journey: "Journey", gitGraph: "Git graph",
+    };
+    return known[head] || (head ? head : "Diagram");
+  }, [code]);
+
+  const loadTemplate = (t) => {
+    setCode(t.code);
+    setTitle(t.name);
+    setActiveId(null);
+    autoFitDone.current = false;
+    setMenu(null);
+    if (isMobile) setMobilePane("preview");
+  };
+  const openDiagram = (d) => {
+    setCode(d.code);
+    setTitle(d.title);
+    setActiveId(d.id);
+    autoFitDone.current = false;
+    setMenu(null);
+  };
+  const deleteDiagram = (id) => {
+    setDiagrams((ds) => ds.filter((d) => d.id !== id));
+    if (activeId === id) setActiveId(null);
+  };
+  const newDiagram = () => {
+    setCode(MM_DEFAULT_CODE);
+    setTitle("Untitled diagram");
+    setActiveId(null);
+    autoFitDone.current = false;
+    setMenu(null);
+  };
+
+  const toggleMenu = (name) => setMenu((m) => (m === name ? null : name));
+  const menuItem = {
+    display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px",
+    borderRadius: 8, background: "transparent", border: 0, color: P.ink, fontSize: FONT_SIZES.small,
+    cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-body)",
+  };
+  const paneLabel = {
+    fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+    color: P.faint, fontFamily: "var(--cb-body)", padding: "10px 14px",
+    borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
+  };
+  const dotGrid = dark
+    ? "radial-gradient(rgba(255,255,255,0.055) 1px, transparent 1px)"
+    : "radial-gradient(rgba(0,0,0,0.07) 1px, transparent 1px)";
+  const status = mmError
+    ? { dot: "#f87171", text: "Engine failed to load" }
+    : !mm ? { dot: P.faint, text: "Loading engine…" }
+    : rendering ? { dot: accent, text: "Rendering…" }
+    : diagError ? { dot: "#f87171", text: "Syntax error" }
+    : { dot: "#4ade80", text: "Rendered" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: isMobile ? "calc(100dvh - 150px)" : "calc(100dvh - 110px)", minWidth: 0 }}>
+      <style>{`
+        .mm-kw { color: ${accent}; font-weight: 600; }
+        .mm-st { color: ${dark ? "#a5d6a7" : "#2e7d32"}; }
+        .mm-cm { color: ${P.faint}; font-style: italic; }
+        .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 600; }
+        .mm-zoombtn { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 15px; }
+        .mm-zoombtn:hover { border-color: ${accent}; color: ${accent}; }
+      `}</style>
+
+      {/* ── Studio header: own mark, own wordmark ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: isMobile ? "14px 14px 10px" : "20px 24px 12px", flexShrink: 0, flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", padding: 8, borderRadius: 12, background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}` }}>
+          <StudioMark size={24} accent={accent} />
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: "var(--cb-display)", fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, letterSpacing: "-0.01em" }}>Diagram Studio</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>Mermaid, rendered live</div>
+        </div>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Diagram title" placeholder="Untitled diagram"
+          style={{
+            marginLeft: 8, flex: "1 1 180px", minWidth: 140, maxWidth: 340, background: "transparent",
+            border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 12px",
+            color: P.ink, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", outline: "none",
+          }} />
+      </div>
+
+      {/* ── Toolbar ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: isMobile ? "0 14px 10px" : "0 24px 14px", flexShrink: 0, overflowX: "auto", scrollbarWidth: "none" }}>
+        <span style={{ position: "relative", flexShrink: 0 }}>
+          <UIButton P={P} accent={accent} at={at} size="sm" variant="secondary" onClick={() => toggleMenu("library")} ariaLabel="Open saved diagrams" title="Your saved diagrams">
+            Diagrams{diagrams.length ? ` (${diagrams.length})` : ""} ▾
+          </UIButton>
+          <MMMenu P={P} open={menu === "library"} onClose={() => setMenu(null)} width={300}>
+            <button onClick={newDiagram} style={menuItem}><span style={{ color: accent }}>＋</span> New diagram</button>
+            <div style={{ height: 1, background: P.line, margin: "6px 4px" }} />
+            {diagrams.length === 0 && (
+              <div style={{ padding: "10px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>
+                Nothing saved yet. Press ⌘S / Ctrl+S any time.
+              </div>
+            )}
+            {diagrams.map((d) => (
+              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <button onClick={() => openDiagram(d)} style={{ ...menuItem, flex: 1, minWidth: 0 }} title={d.code.slice(0, 120)}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                    {d.title}
+                    <span style={{ display: "block", fontSize: FONT_SIZES.micro, color: P.faint }}>
+                      {new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {d.code.split("\n").length} lines
+                    </span>
+                  </span>
+                  {d.id === activeId && <span style={{ color: accent, fontSize: 12 }}>●</span>}
+                </button>
+                <button onClick={() => deleteDiagram(d.id)} aria-label={`Delete ${d.title}`} title="Delete"
+                  style={{ background: "transparent", border: 0, color: P.faint, cursor: "pointer", padding: 8, fontSize: 13 }}>✕</button>
+              </div>
+            ))}
+          </MMMenu>
+        </span>
+
+        <span style={{ position: "relative", flexShrink: 0 }}>
+          <UIButton P={P} accent={accent} at={at} size="sm" variant="secondary" onClick={() => toggleMenu("templates")} ariaLabel="Insert a diagram template" title="Start from a template">
+            Templates ▾
+          </UIButton>
+          <MMMenu P={P} open={menu === "templates"} onClose={() => setMenu(null)} width={260}>
+            {MERMAID_TEMPLATES.map((t) => (
+              <button key={t.key} onClick={() => loadTemplate(t)} style={menuItem}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+                {t.name}
+              </button>
+            ))}
+          </MMMenu>
+        </span>
+
+        <span style={{ flexShrink: 0 }}>
+          <UIButton P={P} accent={accent} at={at} size="sm" variant="secondary" onClick={() => fileRef.current && fileRef.current.click()} ariaLabel="Import a .mmd file" title="Import a .mmd file — loaded verbatim">
+            Import .mmd
+          </UIButton>
+        </span>
+
+        <span style={{ position: "relative", flexShrink: 0 }}>
+          <UIButton P={P} accent={accent} at={at} size="sm" variant="secondary" onClick={() => toggleMenu("export")} ariaLabel="Export diagram" title="Export">
+            Export ▾
+          </UIButton>
+          <MMMenu P={P} open={menu === "export"} onClose={() => setMenu(null)} width={230} align={isMobile ? "left" : "right"}>
+            <button onClick={exportSVG} style={menuItem} disabled={!svg}>SVG — vector, infinitely scalable</button>
+            <button onClick={exportPNG} style={menuItem} disabled={!svg}>PNG — 3× raster for slides</button>
+            <button onClick={exportMMD} style={menuItem}>.mmd — source, verbatim</button>
+          </MMMenu>
+        </span>
+
+        <span style={{ flexShrink: 0 }}>
+          <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={copyCode} ariaLabel="Copy diagram source" title="Copy source">
+            {copied ? "Copied ✓" : "Copy"}
+          </UIButton>
+        </span>
+        <span style={{ flexShrink: 0 }}>
+          <UIButton P={P} accent={accent} at={at} size="sm" variant="primary" onClick={saveDiagram} ariaLabel="Save diagram" title="Save (⌘S / Ctrl+S)">
+            Save
+          </UIButton>
+        </span>
+        <input ref={fileRef} type="file" accept=".mmd,.mermaid,.txt,text/plain" onChange={onImportFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
+      </div>
+
+      {/* ── Mobile pane switch ── */}
+      {isMobile && (
+        <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", flexShrink: 0 }}>
+          {[["code", "Code"], ["preview", "Preview"]].map(([key, label]) => (
+            <button key={key} onClick={() => setMobilePane(key)}
+              style={{
+                flex: 1, padding: "9px 0", borderRadius: 10, fontSize: FONT_SIZES.small, fontWeight: 600,
+                fontFamily: "var(--cb-body)", cursor: "pointer",
+                background: mobilePane === key ? withAlpha(accent, 0.14) : "transparent",
+                color: mobilePane === key ? accent : P.faint,
+                border: `1px solid ${mobilePane === key ? withAlpha(accent, 0.4) : P.line}`,
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Body: editor + preview ── */}
+      <div style={{
+        flex: 1, minHeight: isMobile ? 420 : 480, display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        margin: isMobile ? "0 14px" : "0 24px",
+        border: `1px solid ${P.line}`, borderRadius: 16, overflow: "hidden",
+        background: P.surface,
+      }}>
+        {/* Editor pane */}
+        <div style={{
+          display: isMobile ? (mobilePane === "code" ? "flex" : "none") : "flex",
+          flexDirection: "column", flex: isMobile ? 1 : "0 0 42%", minWidth: 0, minHeight: 0,
+          borderRight: isMobile ? "none" : `1px solid ${P.line}`,
+        }}>
+          <div style={paneLabel}><span>Source</span><span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: "0.02em", textTransform: "none" }}>{diagramKind} · {code.split("\n").length} lines</span></div>
+          <MMCodeEditor P={P} accent={accent} code={code} onChange={(v) => { setCode(v); }} />
+        </div>
+
+        {/* Preview pane */}
+        <div style={{
+          display: isMobile ? (mobilePane === "preview" ? "flex" : "none") : "flex",
+          flex: 1, flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative",
+        }}>
+          <div style={paneLabel}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: status.dot, boxShadow: `0 0 8px ${status.dot}` }} />
+            <span>{status.text}</span>
+          </div>
+          <div ref={previewRef}
+            onPointerDown={onPreviewDown} onPointerMove={onPreviewMove} onPointerUp={onPreviewUp} onPointerCancel={onPreviewUp}
+            style={{
+              flex: 1, minHeight: 0, overflow: "hidden", position: "relative", cursor: "grab",
+              touchAction: "none", backgroundImage: dotGrid, backgroundSize: "22px 22px",
+            }}>
+            <div ref={svgHostRef} style={{
+              position: "absolute", left: 0, top: 0,
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${pan.k})`, transformOrigin: "0 0",
+              pointerEvents: "none",
+            }} />
+            {mmError && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-body)", maxWidth: 320 }}>{mmError}</div>
+              </div>
+            )}
+            {!mmError && !svg && !diagError && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}>
+                  {mm ? "Rendering…" : "Loading diagram engine…"}
+                </div>
+              </div>
+            )}
+            {diagError && (
+              <div style={{
+                position: "absolute", top: 12, left: 12, right: 12, padding: "12px 14px", borderRadius: 12,
+                background: dark ? "rgba(60,16,16,0.92)" : "rgba(254,226,226,0.96)",
+                border: "1px solid rgba(248,113,113,0.5)", zIndex: 5,
+              }}>
+                <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-body)", marginBottom: 4 }}>
+                  Mermaid couldn't parse this
+                </div>
+                <pre style={{
+                  margin: 0, fontSize: FONT_SIZES.caption, fontFamily: MM_FONT, whiteSpace: "pre-wrap",
+                  color: dark ? "#fecaca" : "#7f1d1d",
+                }}>{diagError}</pre>
+              </div>
+            )}
+            {/* Zoom controls */}
+            <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 6, alignItems: "center", zIndex: 5 }}>
+              <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
+              <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="100%"
+                style={{ width: "auto", padding: "0 10px", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)" }}>{Math.round(pan.k * 100)}%</button>
+              <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in">＋</button>
+              <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 10px", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)" }}>Fit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Status bar ── */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 14, padding: "10px 24px", flexShrink: 0, flexWrap: "wrap",
+        fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)",
+      }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: status.dot }} />
+          {status.text}
+        </span>
+        {savedTick > 0 && <span style={{ color: accent }}>✓ Saved to your diagrams</span>}
+        <span style={{ flex: 1 }} />
+        <span>Drag to pan · scroll to zoom · ⌘S saves</span>
       </div>
     </div>
   );
@@ -18272,6 +19090,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     { label: "Explore", items: [
       ["document", "Document Mode", "bookOpen", null],
       ["trending", "Trending", "chart", null],
+      ["studio", "Diagram Studio", "flowchart", null],
     ] },
     { label: "Your work", items: [
       ["investigations", "Investigations", "history", history.length || null],
@@ -18994,6 +19813,7 @@ function App() {
   // per-item "Delete" had no confirmation at all. One pattern now: an
   // inline Cancel/Delete swap, same as Settings already had.
   const [confirmClearSaved, setConfirmClearSaved] = useState(false);
+  const [excelBusy, setExcelBusy] = useState(false);
   // Commit 88 — library page state. A modal that showed everything at once
   // never needed these; a page that can hold a few hundred papers does.
   const [historyConfirmId, setHistoryConfirmId] = useState(null);
@@ -19927,6 +20747,7 @@ function App() {
       case "search": setView("search"); break;
       case "document": setView("document"); break;
       case "trending": setView("trending"); break;
+      case "studio": setView("studio"); break;
       /* Commit 88 — these four were setHistoryOpen(true), setSavedOpen(true),
          setCollectionsOpen(true) and setNetworkSearchOpen(true): four modal
          dialogs opened from rows that sat in the same rail, at the same
@@ -19995,6 +20816,7 @@ function App() {
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
     { label: "New flowchart", run: () => { setCmdOpen(false); setFlowchartOpen({ title: "Untitled flowchart", chartId: null }); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
+    { label: "Open Diagram Studio", run: () => { setCmdOpen(false); setView("studio"); } },
     { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
     // Collections' header button is desktop-only (there's no room for it in
     // the mobile header), but this palette is available on every viewport —
@@ -20706,6 +21528,11 @@ function App() {
       )}
       {/* Commit 99 — Document Mode, as a destination. See NotebookMode's own
           comment for why it stopped being an overlay. */}
+      {view === "studio" && (
+        <Reveal style={S.pageView} deps={[view]}>
+          <MermaidStudio P={P} accent={accent} at={at} isMobile={isMobile} />
+        </Reveal>
+      )}
       {view === "document" && (
         <Reveal style={S.pageView} deps={[view]}>
           <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} />
@@ -20731,6 +21558,11 @@ function App() {
               <>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>RIS</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>BibTeX</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" disabled={excelBusy}
+                  title="Export your top 20 saved papers to a branded Excel workbook"
+                  onClick={async () => { sfx(); if (excelBusy) return; setExcelBusy(true); try { await exportTopPapersExcel(saved, { accent, title: "Cerebrum — Top saved papers", filename: "cerebrum-saved-papers.xlsx" }); } catch {} setExcelBusy(false); }}>
+                  {excelBusy ? "Building…" : "Excel"}
+                </UIButton>
                 {confirmClearSaved ? (
                   <>
                     <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setConfirmClearSaved(false)}>Cancel</UIButton>
