@@ -205,7 +205,8 @@ await test("error copy is plain — no sorry language", () => {
 
 await test("fact-check always renders a section with failed/empty shells", () => {
   assert.match(appSrc, /CHECK FAILED/, "fact-check failed shell missing");
-  assert.match(appSrc, /NOT CHECKED/, "fact-check empty shell missing");
+  assert.match(appSrc, /No scientific claims to verify\./, "fact-check honest empty state missing");
+  assert.ok(!/kicker=\{[^}]*"NOT CHECKED"/.test(appSrc) && !appSrc.includes('kicker="NOT CHECKED"'), "NOT CHECKED still present");
 });
 
 await test("venn section renders an honest shell when claims don't divide", () => {
