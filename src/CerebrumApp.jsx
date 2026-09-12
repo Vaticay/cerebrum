@@ -19252,13 +19252,22 @@ function App() {
      shade than the reel's ground. The result was a slab of flat grey below
      the footer that read as the page running out of content, and it is
      what "infinite scroll" looked like from the outside. Matching the two
-     removes the seam; overscroll-behavior tames the bounce itself. */
+     removes the seam; overscroll-behavior tames the bounce itself.
+     NOTE (mobile-declutter): the overscroll-behavior MUST be set on
+     documentElement (<html>), not just body. The document's scroll
+     container is <html> — body-only had no effect on page-level
+     rubber-banding in WebKit (iOS Chrome/Safari), which is why the void
+     survived on iPhones even with this effect in place. Both get it. */
   useEffect(() => {
     const ground = P.dark ? "#0b0d10" : P.bg;
     document.body.style.background = ground;
     document.documentElement.style.background = ground;
+    document.documentElement.style.overscrollBehaviorY = "none";
     document.body.style.overscrollBehaviorY = "none";
-    return () => { document.body.style.overscrollBehaviorY = ""; };
+    return () => {
+      document.documentElement.style.overscrollBehaviorY = "";
+      document.body.style.overscrollBehaviorY = "";
+    };
   }, [P]);
   // v6.4: the page now uses natural document scrolling (see makeStyles'
   // `page` note) instead of a fixed non-scrolling shell. The old fixed
