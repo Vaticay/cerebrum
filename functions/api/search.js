@@ -4868,6 +4868,49 @@ export function extractPaperClaims(paper, maxClaims = 3, briefTexts = null) {
 //   thin    — fewer than 3 sources: no divide surfaced, but that is thin
 //             evidence, not consensus. Computed, not a shrug.
 //   settled — 3+ sources, no opposing pairs: reads as consistent.
+//
+// The verdict is ALWAYS computed from the FINAL conflict list the
+// Flashpoints panel renders (source-level pairs + the text-mining recall
+// pass) — never from the source-level pass alone. A verdict computed from
+// a partial list is how "1 conflicting claim pair" once sat next to "No
+// opposing findings surfaced": both instruments must read the same list.
+export function buildDisagreementVerdict(conflicts, nSources) {
+  const list = Array.isArray(conflicts) ? conflicts : [];
+  const n = nSources || 0;
+  if (list.length > 0) {
+    const topic = list[0] && list[0].topic ? " (" + list[0].topic + ")" : "";
+    const sharpest = list[0] && list[0].topic ? list[0].topic : "the pair below";
+    return {
+      status: "divided",
+      conflictCount: list.length,
+      summary: list.length === 1
+        ? "The sources genuinely split on one point" + topic + " — both sides are cited below."
+        : "The sources genuinely split on " + list.length + " points — the sharpest is " + sharpest + ". Both sides are cited below.",
+    };
+  }
+  if (n < 3) {
+    return {
+      status: "thin",
+      conflictCount: 0,
+      summary: "No divide surfaced, but with only " + n + " source" + (n === 1 ? "" : "s") + " that is thin evidence — not a consensus.",
+    };
+  }
+  return {
+    status: "settled",
+    conflictCount: 0,
+    summary: "No opposing findings surfaced across the " + n + " sources — as cited, the literature reads as consistent on this question.",
+  };
+}
+
+// Merge the source-level pass with the text-mining recall pass and compute
+// the ONE verdict both the "Where researchers disagree" section and the
+// Flashpoints panel agree on. Exported so the reconciliation itself is
+// testable — verdict.status === "divided" iff the panel has pairs.
+export function reconcileDisagreementVerdict(detected, textMined) {
+  const conflicts = [...((detected && detected.conflicts) || []), ...(textMined || [])];
+  const verdict = buildDisagreementVerdict(conflicts, (detected && detected.sourceCount) || 0);
+  return { conflicts, verdict };
+}
 export function detectSourceConflicts(papers, briefClaims = null) {
   const briefByIdx = {};
   for (const bc of (briefClaims || [])) {
@@ -4906,20 +4949,8 @@ export function detectSourceConflicts(papers, briefClaims = null) {
     }
   }
   const n = items.length;
-  let status, summary;
-  if (conflicts.length > 0) {
-    status = "divided";
-    summary = conflicts.length === 1
-      ? "The sources genuinely split on one point (" + conflicts[0].topic + ") — both sides are cited below."
-      : "The sources genuinely split on " + conflicts.length + " points — the sharpest is " + conflicts[0].topic + ". Both sides are cited below.";
-  } else if (n < 3) {
-    status = "thin";
-    summary = "No divide surfaced, but with only " + n + " source" + (n === 1 ? "" : "s") + " that is thin evidence — not a consensus.";
-  } else {
-    status = "settled";
-    summary = "No opposing findings surfaced across the " + n + " sources — as cited, the literature reads as consistent on this question.";
-  }
-  return { conflicts, verdict: { status, conflictCount: conflicts.length, summary } };
+  const verdict = buildDisagreementVerdict(conflicts, n);
+  return { conflicts, verdict, sourceCount: n };
 }
 
 // ── Claim↔source alignment (extractive path) ─────────────────────
@@ -5570,7 +5601,22 @@ function postProcessAnswer(rawAnswer) {
 // opposing claims. Returns an array of { claimA, claimB, sourceA, sourceB }
 // objects. Lightweight regex heuristic — not an LLM call — so it runs in
 // under a millisecond and costs nothing.
-function extractLiteratureConflicts(answer, sources) {
+// Text-mined claims are sliced out of the raw answer markdown — the slice
+// can drag in block-level artifacts ("## What the research shows",
+// "### Crack · Soil · Moisture", list bullets). Those markers are never
+// meaningful inside a claim fragment, so they are stripped here at the
+// source; the frontend additionally renders claims through
+// renderFlashpointClaim, so no literal **, ## or ### can ever reach the
+// screen from either path.
+function cleanMinedClaimText(t) {
+  return String(t || "")
+    .replace(/#{1,6}(?=\s)/g, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+export function extractLiteratureConflicts(answer, sources) {
   const conflicts = [];
   if (!answer || !sources || sources.length < 2) return conflicts;
 
@@ -5589,8 +5635,8 @@ function extractLiteratureConflicts(answer, sources) {
       const halves = fullMatch.split(splitRe);
       if (halves.length >= 2) {
         conflicts.push({
-          claimA: halves[0].replace(/\[\d+\]/g, "").replace(/[,;]\s*$/, "").trim(),
-          claimB: halves[1].replace(/\[\d+\]/g, "").replace(/^\s*,?\s*/, "").replace(/\.\s*$/, "").trim(),
+          claimA: cleanMinedClaimText(halves[0].replace(/\[\d+\]/g, "").replace(/[,;]\s*$/, "")),
+          claimB: cleanMinedClaimText(halves[1].replace(/\[\d+\]/g, "").replace(/^\s*,?\s*/, "").replace(/\.\s*$/, "")),
           sourceA: sources[idxA].title || `Source ${idxA + 1}`,
           sourceB: sources[idxB].title || `Source ${idxB + 1}`,
           idxA: idxA + 1,
@@ -5611,7 +5657,7 @@ function extractLiteratureConflicts(answer, sources) {
       if (!alreadyFound) {
         const sentence = m[0].replace(/\[\d+\]/g, "").trim();
         conflicts.push({
-          claimA: sentence,
+          claimA: cleanMinedClaimText(sentence),
           claimB: "",
           sourceA: sources[idxA].title || `Source ${idxA + 1}`,
           sourceB: sources[idxB].title || `Source ${idxB + 1}`,
@@ -5637,7 +5683,13 @@ function extractLiteratureConflicts(answer, sources) {
       const si = citeSentences[i].toLowerCase();
       const sj = citeSentences[j].toLowerCase();
       for (const [a, b] of opposites) {
-        if ((si.includes(a) && sj.includes(b)) || (si.includes(b) && sj.includes(a))) {
+        if (!((si.includes(a) && sj.includes(b)) || (si.includes(b) && sj.includes(a)))) continue;
+        // Opposite adjectives alone are not a conflict: "higher crack
+        // density [1]" vs "stepped decrease with depth [2]" push in
+        // opposite directions about different things. Require the two
+        // sentences to be about the same topic (the same rule the
+        // source-level pass uses) before calling it a conflict pair.
+        if (!claimsShareTopic(citeSentences[i], citeSentences[j])) continue;
           const refI = citeSentences[i].match(/\[(\d+)\]/);
           const refJ = citeSentences[j].match(/\[(\d+)\]/);
           if (refI && refJ) {
@@ -5647,8 +5699,8 @@ function extractLiteratureConflicts(answer, sources) {
               const alreadyFound = conflicts.some((c) => (c.idxA === idxA + 1 && c.idxB === idxB + 1) || (c.idxA === idxB + 1 && c.idxB === idxA + 1));
               if (!alreadyFound) {
                 conflicts.push({
-                  claimA: citeSentences[i].replace(/\[\d+\]/g, "").trim(),
-                  claimB: citeSentences[j].replace(/\[\d+\]/g, "").trim(),
+                  claimA: cleanMinedClaimText(citeSentences[i].replace(/\[\d+\]/g, "")),
+                  claimB: cleanMinedClaimText(citeSentences[j].replace(/\[\d+\]/g, "")),
                   sourceA: sources[idxA].title || `Source ${idxA + 1}`,
                   sourceB: sources[idxB].title || `Source ${idxB + 1}`,
                   idxA: idxA + 1,
@@ -5657,7 +5709,6 @@ function extractLiteratureConflicts(answer, sources) {
               }
             }
           }
-        }
       }
     }
   }
@@ -11223,8 +11274,12 @@ export async function onRequest(context) {
     // nothing. The verdict (divided/settled/thin) is always computed.
     const detected = detectSourceConflicts(sourceList, briefClaims);
     const textMined = detected.conflicts.length === 0 ? extractLiteratureConflicts(answer, sourceList) : [];
-    const literatureConflicts = [...detected.conflicts, ...textMined];
-    const disagreementVerdict = detected.verdict;
+    // The verdict is computed from the FINAL list the Flashpoints panel
+    // renders (source-level pairs + the recall pass) — computing it from
+    // the source-level pass alone is how "1 conflicting claim pair" once
+    // sat next to "No opposing findings surfaced".
+    const { conflicts: literatureConflicts, verdict: disagreementVerdict } =
+      reconcileDisagreementVerdict(detected, textMined);
     stageHealth.push({ name: "disagreement", ok: true, ms: 0 });
 
     // NEXT-GEN computed answer instruments: gaps, confidence, coverage.
