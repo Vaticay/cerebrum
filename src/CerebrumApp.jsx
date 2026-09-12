@@ -6648,9 +6648,16 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
     <li id={alphaAnchor ? `ref-alpha-${alphaAnchor}` : `ref-${index}`}
       className="cb-fade"
       style={{
-        display: "flex", gap: 14, alignItems: "flex-start", padding: "10px 4px",
+        display: "flex", gap: 14, alignItems: "flex-start", padding: "10px 10px",
         borderBottom: last ? "none" : `1px solid ${P.line}`,
-        background: hover ? withAlpha(accent, 0.04) : "transparent",
+        borderRadius: 8,
+        /* Frosted rows: the bibliography sits over the film, so each entry
+           carries its own fog — readable at a glance, never muddy. */
+        background: hover
+          ? (P.dark ? "rgba(22, 27, 34, 0.62)" : "rgba(255, 255, 255, 0.72)")
+          : (P.dark ? "rgba(13, 15, 19, 0.45)" : "rgba(255, 255, 255, 0.55)"),
+        backdropFilter: "blur(16px) saturate(135%)",
+        WebkitBackdropFilter: "blur(16px) saturate(135%)",
         transition: "background 0.15s ease", cursor: "pointer", scrollMarginTop: 90,
       }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
@@ -7797,7 +7804,13 @@ function AnswerStateCard({ kicker, title, body, actions = [], tone = "neutral", 
     letterSpacing: "0.04em", transition: "border-color 0.15s ease, background 0.15s ease",
   };
   return (
-    <div style={{ border: `1px solid ${P.line}`, borderRadius: 12, padding: "20px 22px", background: P.dark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)" }} className="cb-fade">
+    <div style={{
+      border: `1px solid ${P.line}`, borderRadius: 12, padding: "20px 22px",
+      /* Frosted shell: state cards (fact-check, disagreements, compare
+         empty states) sit over the film — fog keeps them readable. */
+      background: P.dark ? "rgba(13, 15, 19, 0.5)" : "rgba(255, 255, 255, 0.55)",
+      backdropFilter: "blur(16px) saturate(135%)", WebkitBackdropFilter: "blur(16px) saturate(135%)",
+    }} className="cb-fade">
       <div style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: toneColor, marginBottom: 8 }}>
         {kicker}
       </div>
@@ -18931,23 +18944,17 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
 
     /* ── Answer card: DEFINED GLASS SURFACE ──
-       Sits above the WebGLTopographyGrid field with its own solid
-       P.surface fill and a hairline border, so the reading column stays
-       a stable, high-contrast surface regardless of what the background
-       canvas is doing underneath it. */
+       Sits above the WebGLTopographyGrid field with its own deep fill and a
+       hairline border, so the reading column stays a stable, high-contrast
+       surface regardless of what the background canvas is doing underneath
+       it. The fill stays nearly opaque (that is what keeps long reads from
+       feeling like eye strain); the fog lives in a stronger backdrop blur
+       felt at the card's edges and in the margins around it. */
     answerCard: {
       position: "relative",
-      /* Depth, with restraint: glass belongs on navigation and overlays —
-         things you pass through — not under a thousand words you are going
-         to read. At 0.75 with a 40px blur, a bright frame drifting behind
-         this card changed the paper colour under the text while you read
-         it, which is the kind of thing you feel as eye strain before you
-         notice it as a design. The card is now nearly opaque and barely
-         blurred: still the same material, still lit at the top edge, but
-         steady. The film keeps its presence in the margins around it. */
       background: P.dark ? "rgba(14, 16, 20, 0.94)" : "rgba(255, 255, 255, 0.96)",
-      backdropFilter: "blur(14px) saturate(120%)",
-      WebkitBackdropFilter: "blur(14px) saturate(120%)",
+      backdropFilter: "blur(22px) saturate(130%)",
+      WebkitBackdropFilter: "blur(22px) saturate(130%)",
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 8,
       padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
@@ -19031,7 +19038,17 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     zMsg: { fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-body)" },
     srcList: { display: "flex", flexDirection: "column", gap: 2 },
     empty: { fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
-    srcItem: { padding: isCompact ? "10px 14px" : "16px 14px", margin: "0 -14px", borderRadius: 8, transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}` },
+    srcItem: {
+      padding: isCompact ? "10px 14px" : "16px 14px", margin: "0 -14px", borderRadius: 8,
+      transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}`,
+      /* Frosted reading surface: the Sources panel sits over the background
+         film, so every source card carries its own fog — a deep translucent
+         scrim plus a real backdrop blur — keeping titles readable without
+         going muddy. Slightly gentler blur on phones for compositor cost. */
+      background: P.dark ? "rgba(13, 15, 19, 0.55)" : "rgba(255, 255, 255, 0.62)",
+      backdropFilter: isMobile ? "blur(16px) saturate(140%)" : "blur(20px) saturate(140%)",
+      WebkitBackdropFilter: isMobile ? "blur(16px) saturate(140%)" : "blur(20px) saturate(140%)",
+    },
     // v31: srcTitle was already inheriting the page's body font (`font`,
     // set on `page:` at the root) — never mono to begin with, so nothing to
     // change there. srcMeta was the one actually set to mono; switched to
@@ -21382,7 +21399,13 @@ function App() {
     <div key={i} className="cb-fade cb-spotlight" style={{
       ...S.srcItem,
       borderLeft: `2px solid ${withAlpha(relColor(s.relevance ?? 0), 0.5)}`,
-      background: hover === "src" + i ? withAlpha(accent, 0.06) : hoverCite === i + 1 ? withAlpha(accent, 0.07) : focusedSourceIdx === i ? withAlpha(accent, 0.04) : "transparent",
+      /* Hover/focus states keep the fog — they brighten the scrim rather
+         than replacing it with a near-clear tint, so the card never goes
+         back to raw film underneath the text. */
+      background: hover === "src" + i ? (P.dark ? "rgba(22, 27, 34, 0.72)" : "rgba(255, 255, 255, 0.8)")
+        : hoverCite === i + 1 ? (P.dark ? "rgba(22, 27, 34, 0.72)" : "rgba(255, 255, 255, 0.8)")
+        : focusedSourceIdx === i ? (P.dark ? "rgba(18, 22, 29, 0.64)" : "rgba(255, 255, 255, 0.7)")
+        : undefined,
       boxShadow: hover === "src" + i ? `0 6px 20px ${withAlpha(accent, 0.1)}` : focusedSourceIdx === i ? `inset 0 0 0 1px ${withAlpha(accent, 0.4)}` : "none",
       transform: hover === "src" + i ? "translate3d(2px, -1px, 0)" : "translate3d(0, 0, 0)",
       cursor: "pointer",

@@ -4334,16 +4334,91 @@ function usableAbstract(p) {
   return /^no abstract available\.?$/i.test(a) ? "" : a;
 }
 
+/* Provider/infrastructure error text must NEVER become a claim, a citation,
+ * or a summary sentence. The real incident: Pollinations answered HTTP 200
+ * with "The API key used for this request has reached its budget…" and the
+ * evidence-brief extractor parsed that error body into claims — one shipped
+ * as cited claim [3] inside a Wave-4 fallback summary. This is the structural
+ * backstop, consulted at four choke points: (a) the evidence-brief legs,
+ * (b) the brief-claim ingestion, (c) raceEntry for every AI wave, and
+ * (d) takeClaim inside the extractive synthesis. Strong signals match alone;
+ * weak signals need two partners so ordinary scientific prose ("budget
+ * impact analysis", "quota sampling") never trips it. */
+const PROVIDER_ERROR_STRONG = [
+  /pollinations/i,
+  /openrouter/i,
+  /raise the (?:api )?key budget/i,
+  /\bapi key\b.{0,60}\b(budget|quota|invalid|expired|revoked|reached its)\b/i,
+  /\b(budget|quota)\b.{0,60}\bapi key\b/i,
+  /rate[\s-]?limit/i,
+  /too many requests/i,
+  /\b429\b/,
+  /service unavailable/i,
+  /bad gateway/i,
+  /topping up/i,
+  /\bwallet\b/i,
+  /temporarily unavailable/i,
+  /insufficient (?:credits|funds|quota)/i,
+  /invalid api key/i,
+  /authentication failed/i,
+  /\bunauthorized\b/i,
+  /model (?:is )?(?:currently )?(?:unavailable|overloaded)|no endpoints/i,
+];
+const PROVIDER_ERROR_WEAK = [
+  /\btry again\b/i,
+  /\bbudget\b/i,
+  /\bquota\b/i,
+  /\bunavailable\b/i,
+  /\btemporarily\b/i,
+  /\bexceeded\b/i,
+  /\bcredits\b/i,
+  /\b50[0-3]\b/,
+  /\b40[0-9]\b/,
+];
+export function isProviderErrorText(text) {
+  const t = String(text || "");
+  if (!t) return false;
+  if (PROVIDER_ERROR_STRONG.some((re) => re.test(t))) return true;
+  let weak = 0;
+  for (const re of PROVIDER_ERROR_WEAK) if (re.test(t)) weak++;
+  return weak >= 3;
+}
+
+/* Strict success validation for provider completions. A 200 whose body is
+ * provider error text is a FAILURE, never content — this is the exact hole
+ * the Pollinations budget incident walked through (HTTP 200 + "API key …
+ * reached its budget" treated as a successful synthesis). Every provider
+ * call (callOR, callCF, callCompat, pollinationsCall), the evidence-brief
+ * legs, and the wave race entries all funnel through here, so no future
+ * call path can reintroduce the hole by forgetting the check. */
+export function assertValidProviderText(text, label) {
+  if (isProviderErrorText(text)) {
+    throw new Error((label || "provider") + ": provider returned error text, not an answer");
+  }
+  return text;
+}
+
+/* Extraction models tag claims with section labels ("[Results] Cracks in…",
+ * "[Methods] …") despite the "no extra text" instruction. Those tags are
+ * model scaffolding, not paper content — strip them before a claim can be
+ * cited or printed. Only LEADING non-numeric bracket tags are removed;
+ * numeric citations ([1], [1-2]) are never touched. */
+const CLAIM_TAG_RE = /^\s*(?:\[(?!\d+(?:-\d+)?\])[^\[\]]{1,24}\]\s*)+/;
+export function stripClaimTags(text) {
+  return String(text || "").replace(CLAIM_TAG_RE, "").trim();
+}
+
 /* Fingerprint for claim text: two sentences are "the same claim" when they
- * normalize identically — case, markdown bold, citation markers, and
- * punctuation stripped. Used by buildExtractiveSynthesis to guarantee each
- * claim is emitted exactly once across the whole summary. The real
- * incident: Wave-4 printed the same sentence twice with [1] and [2] because
- * the two records were the same paper (one with a DOI, one without) and
- * nothing compared the claim text itself. */
+ * normalize identically — case, markdown bold, citation markers, extraction
+ * tags, and punctuation stripped. Used by buildExtractiveSynthesis to
+ * guarantee each claim is emitted exactly once across the whole summary. The
+ * real incident: Wave-4 printed the same sentence twice with [1] and [2]
+ * because the two records were the same paper (one with a DOI, one without)
+ * and nothing compared the claim text itself. */
 export function fingerprintClaim(text) {
   return String(text || "")
     .toLowerCase()
+    .replace(CLAIM_TAG_RE, "")
     .replace(/\*\*/g, "")
     .replace(/\[\d+(?:-\d+)?\]/g, "")
     .replace(/[^a-z0-9\s]/g, " ")
@@ -4385,12 +4460,14 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         .filter(({ score }) => score > 0)
         .sort((a, b) => b.score - a.score);
       const top = ranked.slice(0, 2);
-      it.findings = top.map(({ s }) => boldExtractQuantities(tidyExtractSentence(s)));
+      // Extraction tags ("[Results] …") are stripped here so they can never
+      // reach a citation or the printed summary.
+      it.findings = top.map(({ s }) => stripClaimTags(boldExtractQuantities(tidyExtractSentence(s))));
       it.findingScores = top.map(({ score }) => score);
       // Prefer brief claims (LLM-extracted, atomic) over regex-picked sentences.
       const fromBrief = (briefByIdx[it.idx] || []).slice(0, 2);
       if (fromBrief.length) {
-        it.findings = fromBrief.map(boldExtractQuantities);
+        it.findings = fromBrief.map((t) => stripClaimTags(boldExtractQuantities(t)));
         it.findingScores = fromBrief.map((t) => scoreFindingSentence(t));
       }
       it.titleClaim = extractTitleClaim(it.p.title);
@@ -4410,6 +4487,9 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // their identical claim text can only ever print once.
     const emittedClaims = new Set();
     const takeClaim = (text) => {
+      // Structural backstop: provider error text can never become a cited
+      // claim, even if it survived every upstream filter.
+      if (isProviderErrorText(text)) return null;
       const k = fingerprintClaim(text);
       if (!k || emittedClaims.has(k)) return null;
       emittedClaims.add(k);
@@ -4428,11 +4508,13 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
 
     const unitWord = pool.length === 1 ? "source" : "sources";
     let md = "## The short answer\n\n";
-    // The lede is built from the top-ranked UNIQUE claims — never from glued
-    // keywords. The old lede concatenated the most frequent terms ("converge
-    // on crack and patterns and soil"): keyword soup, not an answer. Each
-    // lede claim comes from a different paper so the opening reads as a
-    // synthesis, not one paper's summary.
+    // The TLDR lede: 2–3 plain sentences, each carrying its own citation —
+    // no meta-framing ("Across the N sources below, the clearest reported
+    // findings are:"), no citation soup, no extraction tags. The old lede
+    // read as a robot narrating its own output; this reads as the answer.
+    // Each lede claim comes from a different paper so the opening reads as
+    // a synthesis, not one paper's summary. Capped at two: the theme
+    // sections below must keep each paper's remaining findings visible.
     const leads = [];
     const usedIdx = new Set();
     for (const c of candidates) {
@@ -4444,8 +4526,13 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       if (leads.length >= 2) break;
     }
     if (leads.length) {
-      md += "Across the " + pool.length + " " + unitWord + " below, the clearest reported findings are: " +
-        leads.map((c) => c.text + " [" + c.idx + "]").join(" ") + "\n";
+      const tldr = leads.map((c) => {
+        let s = stripClaimTags(c.text);
+        if (!/[.!?]$/.test(s)) s += ".";
+        s = s.replace(/^[a-z]/, (ch) => ch.toUpperCase());
+        return s + " [" + c.idx + "]";
+      });
+      md += tldr.join(" ") + "\n";
     } else {
       md += "The " + pool.length + " " + unitWord + " below address the question from different angles; their findings are grouped by theme.\n";
     }
@@ -9935,6 +10022,12 @@ export async function onRequest(context) {
     // D1 tracks which model wins per domain so we skip the race.
     let answer = "";
     let aiOK = false;
+    // Wave 3 is the last resort before the deterministic fallback: there the
+    // **bold**-formatting quality bar is relaxed. A real answer without bold
+    // spans beats the fallback — and during an outage the bar was converting
+    // working providers' good responses into failures. Set true just before
+    // the wave-3 legs are built; waves 1-2 keep the full bar.
+    let formattingRelaxed = false;
     // Wave 4 (below): set when the deterministic extractive synthesis tier
     // produces the answer after every AI provider failed. It is kept
     // separate from aiOK because the LLM-only downstream steps (quality
@@ -10018,8 +10111,9 @@ export async function onRequest(context) {
         const j = await r.json();
         const txt = j?.choices?.[0]?.message?.content || "";
         const cleaned = cleanAIResponse(txt);
+        assertValidProviderText(cleaned, model);
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short (" + cleaned.length + " chars)");
-        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
+        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
         return { answer: cleaned, model };
       } catch (e) {
         clearTimeout(t);
@@ -10097,8 +10191,9 @@ export async function onRequest(context) {
         const j = await r.json();
         const txt = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
         const cleaned = cleanAIResponse(txt);
+        assertValidProviderText(cleaned, tag);
         if (cleaned.length < minAnswerLen) throw new Error(tag + ": response too short (" + cleaned.length + " chars)");
-        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(tag + ": missing required **bold** formatting");
+        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(tag + ": missing required **bold** formatting");
         return { answer: cleaned, model: tag };
       } catch (e) {
         clearTimeout(t);
@@ -10145,8 +10240,9 @@ export async function onRequest(context) {
           new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), timeoutMs)),
         ]);
         const cleaned = cleanAIResponse((out && out.response) || "");
+        assertValidProviderText(cleaned, model);
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short");
-        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
+        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
         return { answer: cleaned, model };
       } catch (e) {
         throw new Error(model + ": " + (e && e.message ? e.message : String(e)));
@@ -10186,6 +10282,9 @@ export async function onRequest(context) {
           throw new Error(tag + ": HTTP " + pRes.status + (bodyText ? " — " + bodyText : ""));
         }
         const cleaned = cleanAIResponse(await pRes.text());
+        // The budget incident: Pollinations answers HTTP 200 with the error
+        // as the body. A 200 is not a success when the body is error text.
+        assertValidProviderText(cleaned, tag);
         if (!cleaned || cleaned.length < 30) throw new Error(tag + ": response too short");
         return { answer: cleaned, model: tag };
       } catch (e) {
@@ -10209,14 +10308,21 @@ export async function onRequest(context) {
       // Two legs max: the brief is best-effort pre-digestion, not worth
       // burning the shared rate-limit buckets that waves 1-3 need to
       // actually answer. (This used to fan out 4 legs per paper.)
+      // A leg that returns provider ERROR TEXT (e.g. Pollinations answering
+      // HTTP 200 with "API key … reached its budget") is a failure, not a
+      // result — reject it so Promise.any can try the other leg.
+      const cleanLeg = (p) => p.then((out) => {
+        assertValidProviderText(out, "brief leg");
+        return out;
+      });
       const legs = [];
       const pv = activeProviders[0];
       if (pv) {
         const pm = PROVIDER_MODELS[pv.id] || {};
         const m = (pm.w2 && pm.w2[pm.w2.length - 1]) || (pm.w1 && pm.w1[0]);
-        if (m) legs.push(postChatCompletion({ url: pv.url, key: pv.key, model: m, messages: msgs, maxTokens: 300, timeoutMs: 12000 }));
+        if (m) legs.push(cleanLeg(postChatCompletion({ url: pv.url, key: pv.key, model: m, messages: msgs, maxTokens: 300, timeoutMs: 12000 })));
       }
-      legs.push((async () => {
+      legs.push(cleanLeg((async () => {
         const c = new AbortController();
         const t = setTimeout(() => c.abort(), 12000);
         try {
@@ -10230,7 +10336,7 @@ export async function onRequest(context) {
           if (!out) throw new Error("empty");
           return out;
         } finally { clearTimeout(t); }
-      })());
+      })()));
       return Promise.any(legs);
     };
     // Capped at 3 papers: the brief is a head start for the small wave-2/3
@@ -10250,7 +10356,15 @@ export async function onRequest(context) {
                 // paper text, and the brief is embedded in the synthesis
                 // prompt — so every claim passes through the same
                 // nonce-fence cleaner as the abstracts themselves.
-                return parseClaimLines(raw).map((c) => fence.clean(c)).filter(Boolean);
+                // Provider-error text must never become brief claims: a 200
+                // with an error body (the Pollinations budget incident)
+                // parses into lines that look like claims. Reject the whole
+                // response, then filter per claim as a second net.
+                if (isProviderErrorText(raw)) return [];
+                return parseClaimLines(raw)
+                  .map((c) => fence.clean(c))
+                  .map(stripClaimTags)
+                  .filter((c) => c && !isProviderErrorText(c));
               })())
             );
             const aligned = evidencePapers.map((_, i) =>
@@ -10282,7 +10396,12 @@ export async function onRequest(context) {
 
     // Fast path: known best model for this domain
     if (preferredModel && token) {
-      try { const r = await callOR(preferredModel, messages, maxTokens); answer = r.answer; aiOK = true; } catch {}
+      try {
+        const r = await callOR(preferredModel, messages, maxTokens);
+        // Same structural rule as raceEntry: error text is never an answer.
+        if (isProviderErrorText(r.answer)) throw new Error(preferredModel + ": provider returned error text, not an answer");
+        answer = r.answer; aiOK = true;
+      } catch {}
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -10360,7 +10479,18 @@ export async function onRequest(context) {
     const raceEntry = (wave, label, p) => {
       const t0 = Date.now();
       return p.then(
-        (r) => { aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 }); return r; },
+        (r) => {
+          // Provider-error text must never WIN a race: a 200 whose body is
+          // "API key … reached its budget" is a failure, not an answer. It
+          // becomes a recorded failed attempt so the next wave still fires.
+          try {
+            if (r && r.answer) assertValidProviderText(r.answer, label);
+          } catch (err) {
+            aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: err.message });
+            throw err;
+          }
+          aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 }); return r;
+        },
         (e) => { aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: String((e && e.message) || e) }); throw e; }
       );
     };
@@ -10590,6 +10720,11 @@ export async function onRequest(context) {
       // provider, and having already proven itself in waves 1-2 above.
       // Racing all three together means the fastest surviving provider wins
       // instead of waiting out a provider that's already known to be down.
+      // Last resort: the bold-formatting bar is relaxed for this tier (see
+      // formattingRelaxed above) — a real answer without bold beats the
+      // deterministic fallback, and the section STRUCTURE the frontend
+      // needs is still enforced by the prompt.
+      formattingRelaxed = true;
       const bulletproofLegs = [
         // Commit 86 — waves 1 and 2 failing together used to mean the
         // OpenRouter bucket was throttled and this tier had almost nothing
