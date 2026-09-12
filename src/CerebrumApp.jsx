@@ -5516,7 +5516,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         position: "relative", zIndex: 20,
         paddingTop: "max(14px, env(safe-area-inset-top))",
         background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
-        ...(animate ? { animationDelay: "0.55s", animationDuration: "2.2s" } : null),
+        ...(animate ? { animationDelay: "0.45s", animationDuration: "1.8s" } : null),
       }}>
         <div style={{
           ...container,
@@ -5581,7 +5581,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           display: "flex", flexDirection: "column", alignItems: "center",
         }}>
           <div className={animate ? "cb-focus-in" : undefined}
-            style={animate ? { animationDelay: "1.4s" } : undefined}>
+            style={animate ? { animationDelay: "1.1s" } : undefined}>
             <span style={{
               fontFamily: "var(--cb-body)", fontSize: 10, letterSpacing: "0.42em",
               textIndent: "0.42em", fontWeight: 500,
@@ -5599,7 +5599,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             textWrap: "balance",
           }}>
             <span className={animate ? "cb-focus-in" : undefined}
-              style={{ display: "block", ...(animate ? { animationDelay: "2.2s" } : null) }}>There&rsquo;s a world behind your question.</span>
+              style={{ display: "block", ...(animate ? { animationDelay: "1.7s" } : null) }}>There&rsquo;s a world behind your question.</span>
           </h1>
           <p className={animate ? "cb-focus-in" : undefined} style={{
             margin: "26px 0 0", maxWidth: "52ch",
@@ -5607,7 +5607,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             letterSpacing: "0.02em",
             color: "rgba(242,244,242,0.62)",
             textShadow: "0 2px 30px rgba(0,0,0,0.5)",
-            ...(animate ? { animationDelay: "3.6s" } : null),
+            ...(animate ? { animationDelay: "2.8s" } : null),
           }}>
             Ask a real research question. Every claim traces to a paper you can open.
           </p>
@@ -5615,7 +5615,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             marginTop: 40,
             display: "flex", alignItems: "center", justifyContent: "center",
             gap: isMobile ? 16 : 22, flexWrap: "wrap",
-            ...(animate ? { animationDelay: "4.6s" } : null),
+            ...(animate ? { animationDelay: "3.6s" } : null),
           }}>
             <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
               cursor: "pointer",
@@ -5637,7 +5637,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               footage moves, so the label can never lie. */}
           {filmRunning && vetoed && !filmPlaying && (
             <div className={animate ? "cb-focus-in" : undefined}
-              style={{ marginTop: 26, ...(animate ? { animationDelay: "0.2s", animationDuration: "1.4s" } : null) }}>
+              style={{ marginTop: 26, ...(animate ? { animationDelay: "0.15s", animationDuration: "1.1s" } : null) }}>
               <button type="button" onClick={resumeFilm} style={{
                 display: "inline-flex", alignItems: "center", gap: 8,
                 padding: "10px 18px", borderRadius: 999,
@@ -5734,7 +5734,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       <footer className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
         position: "relative", zIndex: 10,
         paddingBottom: "max(20px, env(safe-area-inset-bottom))",
-        ...(animate ? { animationDelay: "5.2s", animationDuration: "2.2s" } : null),
+        ...(animate ? { animationDelay: "4.1s", animationDuration: "1.8s" } : null),
         /* The centered scrim above deliberately falls off toward the bottom
            of the frame so the footage keeps it — which leaves the footer
            links sitting on bare film. Measured against every graded clip
@@ -22828,9 +22828,9 @@ summary::-webkit-details-marker { display: none; }
   to   { opacity: 1; filter: blur(0); }
 }
 .cb-focus-in {
-  animation: cbFocusIn 2.6s cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation: cbFocusIn 2s cubic-bezier(0.33, 1, 0.68, 1) both;
 }
-/* The opening beat: near-black holds, then lifts over five seconds to
+/* The opening beat: near-black holds, then lifts over four seconds to
    reveal the footage underneath. Opacity only — the veil never touches
    layout or the video elements. */
 @keyframes cbVeilLift {
@@ -22841,7 +22841,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-title-veil {
   position: fixed; inset: 0; z-index: 3; pointer-events: none;
   background: #06080a;
-  animation: cbVeilLift 5s cubic-bezier(0.33, 1, 0.68, 1) 0.3s both;
+  animation: cbVeilLift 4s cubic-bezier(0.33, 1, 0.68, 1) 0.2s both;
 }
 /* Leaving: the chrome fades fast, the film frame stays behind for the
    handoff into the workspace (see .cb-enter-frame). */
