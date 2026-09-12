@@ -5251,6 +5251,12 @@ async function gatherPapers(rawQuery, opts) {
   // Wrap the entire function so ANY thrown error still returns a diagnostic
   // rather than being swallowed by the outer .catch and losing all context.
   const _outerDiag = { entered: true, phase: "start", rawQuery: (rawQuery || "").slice(0, 200) };
+  /* Retrieval funnel — honest, numbers-only counters describing what the
+   * retrieval pipeline did on this request. Attached to _diag (operator-only
+   * in raw form); the public response extracts just the six numbers as
+   * `_funnel`. No error text, no provider internals — see the comment at
+   * the response-construction site for why that matters. */
+  const funnel = { gathered: 0, duplicates: 0, nonLiterature: 0, deduped: 0, ranked: 0, nonEnglishInner: 0 };
   try {
   const openAlexKey = (opts && opts.openAlexKey) || "";
   const ncbiKey = (opts && opts.ncbiKey) || "";
@@ -5321,13 +5327,14 @@ async function gatherPapers(rawQuery, opts) {
         // works because we now capture the full author list.
         const hit = nameTokens.every((t) => authorHay.includes(t));
         if (!hit) continue;
+        funnel.gathered++;
         const titleKey = (p.title || "").toLowerCase().trim();
-        if (!titleKey || seenTitles.has(titleKey)) continue;
+        if (!titleKey || seenTitles.has(titleKey)) { if (titleKey) funnel.duplicates++; continue; }
         // Hard reject: a PDB deposit or Zenodo/Dryad/Figshare record isn't a
         // publication just because it happens to list the searched author —
         // see isNonLiterature() for why this can't be left to the per-source
         // fetchers' own upstream filters alone.
-        if (isNonLiterature(p)) continue;
+        if (isNonLiterature(p)) { funnel.nonLiterature++; continue; }
         seenTitles.add(titleKey);
         // Every per-source fetcher above already runs its abstract text
         // through stripTags(), but never its title — a gap invisible for the
@@ -5371,11 +5378,15 @@ async function gatherPapers(rawQuery, opts) {
       return by - ay;
     });
 
-    if (scored.length) return { papers: scored };
+    if (scored.length) {
+      funnel.deduped = merged.length;
+      funnel.ranked = scored.length;
+      return { papers: scored, _diag: { funnel } };
+    }
 
     // Truly no papers matched by author. Signal that so the endpoint can
     // respond with helpful suggestions (not a wall, not unrelated papers).
-    return { papers: [], noResults: true };
+    return { papers: [], noResults: true, _diag: { funnel } };
   }
 
   _outerDiag.phase = "before_ladder";
@@ -5903,13 +5914,14 @@ async function gatherPapers(rawQuery, opts) {
   for (const res of results) {
     if (res.status === "fulfilled" && Array.isArray(res.value)) {
       for (const p of res.value) {
+        funnel.gathered++;
         // Hard reject before this record ever gets a dedupe key, a relevance
         // score, or a shot at being cited — a dataset deposit that slips past
         // this line is a dataset deposit the model will happily write into
         // the answer as if it read it. See isNonLiterature() above for why
         // this single choke point exists independent of each fetcher's own
         // upstream type filter.
-        if (isNonLiterature(p)) continue;
+        if (isNonLiterature(p)) { funnel.nonLiterature++; continue; }
         const key = paperDedupeKey(p);
         if (key && !seen.has(key)) {
           seen.add(key);
@@ -5917,10 +5929,13 @@ async function gatherPapers(rawQuery, opts) {
           // see the comment there. Applied once here so every one of the
           // 15+ source fetchers is covered without touching each of them.
           merged.push({ ...p, title: stripTags(p.title || "") || "Untitled", journal: stripTags(p.journal || "") || p.journal || "" });
+        } else if (key) {
+          funnel.duplicates++;
         }
       }
     }
   }
+  funnel.deduped = merged.length;
 
   // ============ RELEVANCE SCORING ============
   // Rebuilt from scratch. The old version had five compounding bugs that were
@@ -6046,7 +6061,7 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
 
-  const scored = merged
+  const scoredMapped = merged
     .map((p) => {
       const title = p.title || "";
       const abstract = p.abstract || "";
@@ -6262,20 +6277,23 @@ async function gatherPapers(rawQuery, opts) {
         gateCoreTitleHits,
       };
     })
+    /* ── LANGUAGE FILTER, split out of the quality filter below so the
+       retrieval funnel can count non-English exclusions honestly. Same
+       checks, same order — only the counting is new. */
     .filter((p) => {
-      // ── LANGUAGE FILTER ──
-      // Reject papers that are clearly non-English based on title character analysis
       const title = (p.title || "").trim();
       if (title) {
         // Check for non-Latin scripts (Chinese, Japanese, Korean, Arabic, Cyrillic, etc.)
         const nonLatinRatio = (title.match(/[^\u0000-\u024F\u1E00-\u1EFF\s\d\-.,;:()[\]{}'"!?@#$%^&*+=/<>]/g) || []).length / title.length;
-        if (nonLatinRatio > 0.3) return false;
+        if (nonLatinRatio > 0.3) { funnel.nonEnglishInner++; return false; }
         // Check for French/German/Spanish academic markers (common false positives)
         const lowerTitle = title.toLowerCase();
-        if (/^(les |une |des |étude |analyse |recherche |l'|la |le |du |de la )/.test(lowerTitle)) return false;
-        if (/^(die |das |ein |eine |zur |über )/.test(lowerTitle)) return false;
+        if (/^(les |une |des |étude |analyse |recherche |l'|la |le |du |de la )/.test(lowerTitle)) { funnel.nonEnglishInner++; return false; }
+        if (/^(die |das |ein |eine |zur |über )/.test(lowerTitle)) { funnel.nonEnglishInner++; return false; }
       }
-
+      return true;
+    })
+    .filter((p) => {
       if (terms.length === 0) return true;
       // Binomial query: paper MUST contain the species epithet OR full binomial.
       // Just mentioning the genus is not enough — that's how we get wrong-species
@@ -6336,6 +6354,9 @@ async function gatherPapers(rawQuery, opts) {
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
+  // The ranked set the quality floor kept. Emergency relaxation below may add
+  // some back from `merged`; funnel.ranked is set after that, on finalScored.
+  const scored = scoredMapped;
 
   // EMERGENCY RELAXATION: the organism gate above is strict by design (never
   // show BSF papers for an E. coli query), but if it filters EVERY candidate
@@ -6402,6 +6423,7 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
   const scoredFinal = finalScored;
+  funnel.ranked = scoredFinal.length;
 
   for (const p of scoredFinal) {
     // ---- ABSOLUTE RELEVANCE ----
@@ -6418,6 +6440,7 @@ async function gatherPapers(rawQuery, opts) {
     else p.type = "Journal";
   }
 
+  diag.funnel = funnel;
   return { papers: scoredFinal, _diag: diag };
   } catch (e) {
     // Any throw in gatherPapers: log the full detail server-side (Cloudflare
@@ -6433,6 +6456,7 @@ async function gatherPapers(rawQuery, opts) {
         ..._outerDiag,
         threwAt: _outerDiag.phase,
         errorName: (e && e.name) || "Unknown",
+        funnel,
       },
     };
   }
@@ -7831,6 +7855,8 @@ export async function onRequest(context) {
 
     // `let`, not `const` — the English-language filter below reassigns it.
     let papers = gResult.papers || [];
+    // Counted for the public retrieval funnel (_funnel.excludedNonEnglish).
+    let excludedNonEnglishOuter = 0;
 
     /* ══════════════════════════════════════════════════════════════
        STRESS TEST — the same question, under different assumptions.
@@ -8007,6 +8033,7 @@ export async function onRequest(context) {
       const englishOnly = papers.filter((p) => !looksNonEnglish(p));
       // Only apply the filter when enough survives to still answer well.
       if (englishOnly.length >= 3 || englishOnly.length === papers.length) {
+        excludedNonEnglishOuter = papers.length - englishOnly.length;
         papers = englishOnly;
       }
     }
@@ -10143,6 +10170,32 @@ export async function onRequest(context) {
         sourcesQueried: gResult && gResult._diag && Array.isArray(gResult._diag.sourceOutcomes)
           ? gResult._diag.sourceOutcomes.map((o) => ({ source: o.source, ok: !!o.ok, count: o.count || 0 }))
           : null,
+        /* Retrieval funnel — NUMBERS ONLY. This is the one part of the
+         * pipeline diagnostics that ships to everyone: how many raw records
+         * the databases returned (gathered), how many survived dedup
+         * (deduped), how many the quality floor dropped (excludedWeak), how
+         * many the language filters dropped (excludedNonEnglish), and how
+         * many papers were finally cited (cited). Retractions are flagged on
+         * the paper for the reader, never silently dropped, so
+         * excludedRetracted is honestly zero. Nothing here carries error
+         * text or provider internals — the redaction posture above stays
+         * intact. Absent (null) on paths that never ran retrieval. */
+        _funnel: (() => {
+          const f = gResult && gResult._diag && gResult._diag.funnel;
+          if (!f || typeof f.gathered !== "number") return null;
+          const n = (v) => Math.max(0, Math.floor(Number(v) || 0));
+          const gathered = n(f.gathered);
+          const deduped = Math.min(n(f.deduped), gathered);
+          const ranked = Math.min(n(f.ranked), gathered);
+          return {
+            gathered,
+            deduped,
+            excludedWeak: Math.max(0, deduped - ranked),
+            excludedNonEnglish: n(f.nonEnglishInner) + n(excludedNonEnglishOuter),
+            excludedRetracted: 0,
+            cited: n(sourceList ? sourceList.length : 0),
+          };
+        })(),
         _resolver: resolverResult ? {
           intent: resolverResult.intent,
           topic: resolverResult.topic,

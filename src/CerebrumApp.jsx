@@ -29,6 +29,17 @@ import { staticFieldCss } from "./cerebrumField.js";
 /* The one list of databases, shared with the search handler. See the note
    where DATABASES is derived from it. */
 import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
+import {
+  sanitizeFunnel,
+  funnelStages,
+  funnelExclusions,
+  groupSourcesIntoEras,
+  disagreementCitedIndices,
+  annotateEras,
+  describeEra,
+  describeConvergence,
+  extractOpenQuestions,
+} from "./answerInsights.js";
 import { createPortal } from "react-dom";
 import gsap from "gsap";
 
@@ -783,6 +794,7 @@ function Icon({ name, size = 17, className, style }) {
     case "volumeOn": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" /></svg>;
     case "volumeOff": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M22 9l-6 6M16 9l6 6" /></svg>;
     case "search": return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.2-4.2" /></svg>;
+    case "question": return <svg {...common}><circle cx="12" cy="12" r="8.5" /><path d="M9.6 9.6a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1.1.9-1.1 1.8" /><circle cx="12" cy="16.9" r="0.7" fill="currentColor" stroke="none" /></svg>;
     case "close": return <svg {...common}><path d="M18 6L6 18M6 6l12 12" /></svg>;
     case "menu": return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
     case "arrowRight": return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
@@ -6747,9 +6759,343 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
   );
 }
 
-function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, onShowFlowchart = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {} }) {
+/* ══════════════════════════════════════════════════════════════════
+   QUERY AUTOPSY — "How this answer was built"
+
+   A drawer that opens the instrument up: what the pipeline read in the
+   question, what the retrieval funnel did, what it threw away and why,
+   and how the final text was produced. Four sections, every number
+   traceable to the turn data — nothing here is estimated or narrated.
+
+   Degrades honestly: when the backend didn't ship funnel counts (older
+   cached answers, paths that never ran retrieval) the funnel and
+   exclusion sections hide instead of inventing numbers; when the query
+   was never resolved or reasoned about, the reading section says so.
+   ══════════════════════════════════════════════════════════════════ */
+
+const AUTOPSY_ENTITY_LABELS = { doi: "DOI", phrase: "Exact phrase", organism: "Organism", gene: "Gene / entity", mode: "Comparison" };
+
+function AutopsySection({ P, accent, kicker, children }) {
+  return (
+    <section style={{ marginTop: 26 }}>
+      <div style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, letterSpacing: "0.22em", textTransform: "uppercase", color: accent, marginBottom: 12 }}>{kicker}</div>
+      {children}
+    </section>
+  );
+}
+
+function QueryAutopsy({ turn: t, P, accent, close }) {
+  useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
+  const trapRef = useFocusTrap();
+  const funnel = sanitizeFunnel(t._funnel);
+  const stages = funnel ? funnelStages(funnel) : null;
+  const exclusions = funnel ? funnelExclusions(funnel) : null;
+  const entities = useMemo(() => parseQueryEntities(t.q || ""), [t.q]);
+  const resolver = t._resolver || null;
+  const reasoning = t._selfReasoning || null;
+  const responded = Array.isArray(t.sourcesQueried) ? t.sourcesQueried.filter((s) => s.ok) : [];
+  const totalDb = Array.isArray(t.sourcesQueried) ? t.sourcesQueried.length : 0;
+
+  const monoLine = { fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-mono)", lineHeight: 1.7 };
+  const notRecorded = <span style={{ ...monoLine, color: P.faint, fontStyle: "italic" }}>not recorded for this answer</span>;
+
+  return (
+    <div onClick={close} role="dialog" aria-modal="true" aria-label="How this answer was built" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", justifyContent: "flex-end" }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, width: "min(470px, 94vw)", height: "100%", overflowY: "auto", borderLeft: `1px solid ${P.line}`, boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", outline: "none", padding: "22px 26px 48px" }} className="cb-modal">
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>How this answer was built</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5 }}>The pipeline's own record of this answer — read from the response, not reconstructed.</div>
+          </div>
+          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}><Icon name="close" size={18} /></button>
+        </div>
+
+        {/* ── 1 · Query reading ── */}
+        <AutopsySection P={P} accent={accent} kicker="01 · Query reading">
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em" }}>STRUCTURED ENTITIES</div>
+          {entities.length ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+              {entities.map((e, i) => (
+                <span key={i} style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: RADIUS.pill, padding: "3px 10px" }}>
+                  <span style={{ color: accent, fontWeight: 700, marginRight: 6 }}>{AUTOPSY_ENTITY_LABELS[e.kind] || e.kind}</span>{e.value}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div style={{ ...monoLine, marginBottom: 16, color: P.faint, fontStyle: "italic" }}>No structured entities detected — treated as a plain research question.</div>
+          )}
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em" }}>QUERY RESOLVER</div>
+          {resolver ? (
+            <div style={{ ...monoLine, marginBottom: 16 }}>
+              {resolver.intent && <div>intent · <span style={{ color: P.ink }}>{resolver.intent}</span></div>}
+              {resolver.topic && <div>topic · <span style={{ color: P.ink }}>{resolver.topic}</span></div>}
+              {resolver.resolvedQuery && <div>resolved query · <span style={{ color: P.ink }}>“{resolver.resolvedQuery}”</span></div>}
+              {!resolver.intent && !resolver.topic && !resolver.resolvedQuery && notRecorded}
+            </div>
+          ) : (
+            <div style={{ marginBottom: 16 }}>{notRecorded}</div>
+          )}
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em" }}>SELF-REASONING</div>
+          {reasoning ? (
+            <div style={{ ...monoLine }}>
+              {reasoning.complexity && <div>complexity · <span style={{ color: P.ink }}>{reasoning.complexity}</span></div>}
+              {Array.isArray(reasoning.keyTerms) && reasoning.keyTerms.length > 0 && (
+                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {reasoning.keyTerms.slice(0, 12).map((k, i) => (
+                    <span key={i} style={{ fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: RADIUS.pill, padding: "2px 9px" }}>{k}</span>
+                  ))}
+                </div>
+              )}
+              {Array.isArray(reasoning.subQuestions) && reasoning.subQuestions.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ color: P.faint, marginBottom: 6 }}>sub-questions considered</div>
+                  {reasoning.subQuestions.slice(0, 8).map((sq, i) => (
+                    <div key={i} style={{ color: P.ink2, paddingLeft: 14, textIndent: -14, marginBottom: 4 }}><span style={{ color: accent }}>{i + 1}.</span> {sq}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>{notRecorded}</div>
+          )}
+        </AutopsySection>
+
+        {/* ── 2 · Retrieval funnel ── */}
+        {stages && (
+          <AutopsySection P={P} accent={accent} kicker="02 · Retrieval funnel">
+            <div style={{ display: "flex", alignItems: "stretch", gap: 0, marginBottom: 6 }}>
+              {stages.map((s, i) => (
+                <React.Fragment key={s.key}>
+                  <div style={{ flex: 1, border: `1px solid ${P.line}`, borderRadius: 8, padding: "10px 8px", textAlign: "center", background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)" }}>
+                    <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: i === stages.length - 1 ? accent : P.ink, fontFamily: "var(--cb-mono)", fontVariantNumeric: "tabular-nums" }}>{s.count}</div>
+                    <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)", letterSpacing: "0.06em", marginTop: 3 }}>{s.label.toUpperCase()}</div>
+                  </div>
+                  {i < stages.length - 1 && (
+                    <div style={{ display: "flex", alignItems: "center", padding: "0 5px", color: P.faint }} aria-hidden="true"><Icon name="arrowRight" size={13} /></div>
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, marginBottom: 14 }}>
+              {stages.map((s) => `${s.label}: ${s.note.toLowerCase()}`).join(" → ")}.
+            </div>
+            {totalDb > 0 && (
+              <>
+                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em" }}>PER-DATABASE CONTRIBUTIONS · {responded.length}/{totalDb} ANSWERED</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px" }}>
+                  {t.sourcesQueried.map((s) => (
+                    <span key={s.source} style={{
+                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)",
+                      color: s.ok ? P.ink2 : P.faint,
+                      border: `1px solid ${s.ok ? withAlpha(accent, 0.35) : P.line}`,
+                      background: s.ok ? withAlpha(accent, 0.07) : "transparent",
+                      borderRadius: 9999, padding: "3px 10px",
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                    }}>
+                      <span style={{ width: 4, height: 4, borderRadius: "50%", background: s.ok ? accent : P.line }} />
+                      {s.source}{s.ok && s.count ? ` ${s.count}` : ""}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </AutopsySection>
+        )}
+
+        {/* ── 3 · Exclusions ── */}
+        {exclusions && (
+          <AutopsySection P={P} accent={accent} kicker="03 · Exclusions">
+            <div style={{ border: `1px solid ${P.line}`, borderRadius: 8, overflow: "hidden" }}>
+              {exclusions.map((r, i) => (
+                <div key={r.reason} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "10px 14px", borderTop: i ? `1px solid ${P.line}` : "none", background: i % 2 ? (P.dark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)") : "transparent" }}>
+                  <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, minWidth: 44, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.count}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, display: "block" }}>{r.reason}</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "block", lineHeight: 1.5 }}>{r.note}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </AutopsySection>
+        )}
+
+        {/* ── 4 · Synthesis ── */}
+        <AutopsySection P={P} accent={accent} kicker="04 · Synthesis">
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${withAlpha(accent, 0.4)}`, background: withAlpha(accent, 0.08), borderRadius: 9999, padding: "6px 14px", marginBottom: 10 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
+            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, fontFamily: "var(--cb-mono)" }}>
+              {t.synthesisMode === "extractive" ? "DRAFTED FROM SOURCES" : t.synthesisMode === "none" ? "NO SYNTHESIS" : "AI-SYNTHESIZED"}
+            </span>
+          </div>
+          <div style={{ ...monoLine, color: P.faint }}>
+            {t.synthesisMode === "extractive"
+              ? "Deterministic extraction — no model wrote this text. Every line traces to the numbered papers."
+              : t.synthesisMode === "none"
+                ? "No synthesis was produced for this answer."
+                : "A model composed this text from the evidence above. Every claim should trace to a numbered paper — open them to verify."}
+          </div>
+        </AutopsySection>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ANSWER ARC — the narrative arc of the cited literature
+
+   The timeline's "Plot" view shows where papers sit in time. The "Arc"
+   view reads the story those positions tell: which era laid the
+   foundations, which era built on them, where the current work clusters,
+   and whether the core claims still rest on old ground or have moved.
+
+   Every line is computed from the cited sources, the fact-check's cited
+   indices, and the disagreement section's citations — nothing else. Each
+   line carries its own hedge.
+   ══════════════════════════════════════════════════════════════════ */
+
+function AnswerArc({ turn, P, accent }) {
+  const model = useMemo(() => {
+    const eras = groupSourcesIntoEras(turn.sources);
+    if (!eras) return null;
+    return annotateEras(eras, {
+      factCheck: turn.factCheck,
+      disagreementIndices: disagreementCitedIndices(turn.answer, (turn.sources || []).length),
+      sources: turn.sources,
+    });
+  }, [turn]);
+  if (!model) return null;
+  const hasFactCheck = model.claimsTotal > 0;
+  const newest = model.eras[model.eras.length - 1];
+  const convergence = describeConvergence(model.convergence, newest);
+  return (
+    <div style={{ padding: "6px 22px 24px" }}>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {model.eras.map((era, i) => (
+          <div key={era.name} style={{ display: "flex", gap: 14, padding: "14px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, width: 22 }} aria-hidden="true">
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: i === model.eras.length - 1 ? accent : P.faint, marginTop: 4 }} />
+              {i < model.eras.length - 1 && <span style={{ width: 1, flex: 1, minHeight: 26, background: P.line, marginTop: 4 }} />}
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
+                <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink }}>{era.name}</span>
+                {era.disagreementCount > 0 && (
+                  <span style={{ fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 700, color: STATUS.warn, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, padding: "1px 8px", borderRadius: 9999 }}>CONTESTED</span>
+                )}
+              </div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, fontFamily: "var(--cb-mono)" }}>{describeEra(era, hasFactCheck)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {convergence && (
+        <div style={{ marginTop: 6, padding: "12px 14px", borderRadius: 8, border: `1px solid ${withAlpha(accent, 0.3)}`, background: withAlpha(accent, 0.06), fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
+          <span style={{ color: accent, fontWeight: 700, marginRight: 8, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, letterSpacing: "0.08em" }}>CONVERGENCE</span>
+          {convergence}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   OPEN QUESTIONS — the research gap finder
+
+   Reads the answer for what it admits it doesn't know: hedge-pattern
+   sentences in the disagreement/confidence sections, thin or unsupported
+   fact-check claims, and query-plan angles the answer never takes up.
+   Each card quotes its source sentence and names entry papers via the
+   citations on that sentence — so every gap is a doorway, not a wall.
+
+   Rendered only when at least one gap surfaces; the toolbar button that
+   opens it hides entirely otherwise. The empty state below is the honest
+   fallback for any path that renders the panel with nothing in it.
+   ══════════════════════════════════════════════════════════════════ */
+
+const OQ_KIND_LABEL = { gap: "Gap in the literature", fragile: "Fragile claim", angle: "Uncovered angle" };
+
+function OpenQuestions({ cards, P, accent }) {
+  const [open, setOpen] = useState(true);
+  if (!cards || cards.length === 0) {
+    return (
+      <div style={{ marginTop: 20, padding: "16px 20px", border: `1px solid ${P.line}`, borderRadius: 8, background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)" }}>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>No open questions surfaced in this literature.</div>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.6 }}>The answer, its fact-check, and the query plan gave the gap finder nothing to work with — which is itself a signal about how settled this ground is.</div>
+      </div>
+    );
+  }
+  return (
+    <UICard P={P} style={{ marginTop: SP.xl }}>
+      <UILabel P={P} accent={accent} right={
+        <button onClick={() => setOpen((v) => !v)} style={{
+          background: "none", border: "none", color: P.faint, cursor: "pointer",
+          fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-body)", fontWeight: 600, padding: 0,
+        }}>{open ? "Hide" : "Show"}</button>
+      }>Open questions · {cards.length}</UILabel>
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", gap: SP.lg }}>
+          {cards.map((c, i) => (
+            <div key={i} style={{ paddingTop: i ? SP.md : 0, borderTop: i ? `1px solid ${P.line}` : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{
+                  fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-mono)", fontWeight: 700, letterSpacing: "0.06em",
+                  color: c.kind === "fragile" ? STATUS.warn : accent,
+                  background: withAlpha(c.kind === "fragile" ? STATUS.warn : accent, 0.1),
+                  border: `1px solid ${withAlpha(c.kind === "fragile" ? STATUS.warn : accent, 0.3)}`,
+                  padding: "2px 9px", borderRadius: 9999,
+                }}>{(OQ_KIND_LABEL[c.kind] || "Open question").toUpperCase()}</span>
+                <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-mono)" }}>{c.sourceLabel}</span>
+              </div>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.5, marginBottom: 8 }}>“{c.question}”</div>
+              <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
+                  <span style={{ color: P.faint, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, letterSpacing: "0.06em", display: "block", marginBottom: 2 }}>WHY IT'S STILL OPEN</span>
+                  {c.whyOpen}
+                </div>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
+                  <span style={{ color: P.faint, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, letterSpacing: "0.06em", display: "block", marginBottom: 2 }}>WHAT WOULD CLOSE IT</span>
+                  {c.whatWouldCloseIt}
+                </div>
+              </div>
+              {c.startWith.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ color: P.faint, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, letterSpacing: "0.06em", marginBottom: 6 }}>START WITH</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {c.startWith.map((e) => (
+                      <div key={e.n} style={{ fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", gap: 8, alignItems: "baseline" }}>
+                        <span style={{ fontFamily: "var(--cb-mono)", fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: RADIUS.pill, padding: "1px 7px", flexShrink: 0 }}>[{e.n}]</span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}{e.year ? ` · ${e.year}` : ""}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <details style={{ marginTop: 4 }}>
+                <summary style={{ fontSize: FONT_SIZES.caption, color: P.faint, cursor: "pointer", fontFamily: "var(--cb-mono)" }}>Source sentence</summary>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, marginTop: 6, padding: "8px 12px", borderLeft: `2px solid ${P.line}`, fontStyle: "italic" }}>“{c.sourceSentence}”</div>
+              </details>
+            </div>
+          ))}
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6 }}>
+            Gaps are read from the answer's own hedging, its fact-check, and the query plan — never invented. An absence of gaps means the literature, as cited, looks settled.
+          </div>
+        </div>
+      )}
+    </UICard>
+  );
+}
+
+function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowNetwork = () => {}, onShowTimeline = () => {}, onEvidenceTable = () => {}, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {} }) {
   const shown = useTypewriter(t.answer, typewriter && t.fresh);
   const done = shown === t.answer;
+  // Open questions: computed once the answer has settled (not mid-stream),
+  // from the answer text, its fact-check, its sources, and the query plan.
+  // The toolbar button renders only when at least one gap surfaces.
+  const [showOQ, setShowOQ] = useState(false);
+  const openQuestions = useMemo(
+    () => (done ? extractOpenQuestions(t.answer, t.factCheck, t.sources, t._selfReasoning) : []),
+    [done, t.answer, t.factCheck, t.sources, t._selfReasoning]
+  );
   // Only fires once the text has stopped changing (see the comment at the
   // render site): `done` flips true when the typewriter has caught up, or
   // immediately when the typewriter is off.
@@ -6850,6 +7196,25 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     </span>
                   );
                 })()}
+                {/* Query autopsy: the pipeline's own record of this answer.
+                    A quiet mono link, not a button — it opens a drawer, it
+                    doesn't act on anything. */}
+                {interactive && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onShowAutopsy(t); }}
+                    title="How this answer was built"
+                    style={{
+                      background: "none", border: "none", padding: 0, cursor: "pointer",
+                      fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)",
+                      textDecoration: "underline", textUnderlineOffset: 3, textDecorationColor: withAlpha(P.faint, 0.5),
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = accent; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
+                  >
+                    How this was built
+                  </button>
+                )}
                 </div>
               </div>
             ) : <span />}
@@ -6931,7 +7296,27 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 <div style={{ display: "flex", alignItems: "center", gap: 1 }} role="group" aria-label="Explore visually">
                 {done && interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="The evidence, side by side" icon="table" accent={accent} P={P} onClick={() => onEvidenceTable(t.sources)} />}
                 {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Source network" icon="network" accent={accent} P={P} onClick={() => onShowNetwork(t.sources)} />}
-                {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t.sources)} />}
+                {interactive && t.sources && t.sources.length >= 2 && <ToolbarBtn title="Timeline" icon="timeline" accent={accent} P={P} onClick={() => onShowTimeline(t)} />}
+                {/* Open questions: rendered ONLY when the gap finder surfaced
+                    at least one — an empty button would be a broken promise. */}
+                {done && interactive && openQuestions.length > 0 && (
+                  <button type="button" title="Open questions in this literature" aria-label={`Open questions in this literature (${openQuestions.length})`}
+                    aria-expanded={showOQ}
+                    onClick={() => setShowOQ((v) => !v)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 13px", marginLeft: 3,
+                      borderRadius: 9999, border: `1px solid ${withAlpha(accent, 0.4)}`,
+                      background: showOQ ? withAlpha(accent, 0.2) : withAlpha(accent, 0.10), color: accent,
+                      fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)", cursor: "pointer",
+                      transition: "all 0.15s ease", whiteSpace: "nowrap",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.2); e.currentTarget.style.boxShadow = `0 2px 10px ${withAlpha(accent, 0.35)}`; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = showOQ ? withAlpha(accent, 0.2) : withAlpha(accent, 0.10); e.currentTarget.style.boxShadow = "none"; }}>
+                    <Icon name="question" size={14} />
+                    Open questions
+                    <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, background: withAlpha(accent, 0.16), borderRadius: 9999, padding: "1px 7px" }}>{openQuestions.length}</span>
+                  </button>
+                )}
                 {interactive && t.answer && t.answer.length > 40 && (
                   <button type="button" title="Flowchart — turn this answer into a diagram" aria-label="Open Flowchart Studio for this answer"
                     onClick={() => onShowFlowchart(t)}
@@ -7034,6 +7419,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {done && t.evidenceStructure && (
         <EvidenceStructure data={t.evidenceStructure} P={P} accent={accent}
           isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+      )}
+      {/* Open questions — the gap finder. The button above only exists when
+          gaps surfaced; the panel itself still renders its honest empty
+          state if opened with nothing, rather than a blank card. */}
+      {done && showOQ && (
+        <OpenQuestions cards={openQuestions} P={P} accent={accent} />
       )}
       {/* Points of Friction — conflicting claims detected across sources */}
       {done && t.literatureConflicts && t.literatureConflicts.length > 0 && (
@@ -8989,10 +9380,18 @@ function buildTimelineLayout(sources, width, margin) {
   return { points, minYear, maxYear };
 }
 
-function LiteratureTimeline({ P, accent, at, sources, close }) {
+function LiteratureTimeline({ P, accent, at, turn, close }) {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") close(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [close]);
   const trapRef = useFocusTrap();
   const [hoverIdx, setHoverIdx] = useState(null);
+  const sources = (turn && turn.sources) || [];
+  /* The Arc view reads the narrative across the cited years. It needs at
+     least two distinct years to say anything — groupSourcesIntoEras
+     returns null otherwise, and the toggle hides instead of drawing a
+     one-point "arc". Zero backend: everything comes from the turn. */
+  const [view, setView] = useState("plot");
+  const eras = useMemo(() => groupSourcesIntoEras(sources), [sources]);
+  const showArc = view === "arc" && eras;
   const WIDTH = 640, MARGIN = 36;
   const { points, minYear, maxYear } = useMemo(() => buildTimelineLayout(sources, WIDTH, MARGIN), [sources]);
   const relColor = (r) => (r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint);
@@ -9003,14 +9402,37 @@ function LiteratureTimeline({ P, accent, at, sources, close }) {
   return (
     <div onClick={close} role="dialog" aria-modal="true" aria-label="Literature timeline" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{ background: P.bg, borderRadius: 8, maxWidth: 700, width: "100%", boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }} className="cb-modal">
-        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Literature timeline</div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2 }}>Dot size and color = relevance. Where this literature actually sits in time.</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2 }}>
+              {showArc
+                ? "The story the cited years tell — foundations, building, current."
+                : "Dot size and color = relevance. Where this literature actually sits in time."}
+            </div>
           </div>
-          <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            {eras && (
+              <div role="tablist" aria-label="Timeline view" style={{ display: "flex", border: `1px solid ${P.line}`, borderRadius: 9999, overflow: "hidden" }}>
+                {[["plot", "Plot"], ["arc", "Arc"]].map(([key, label]) => (
+                  <button
+                    key={key} role="tab" aria-selected={view === key} onClick={() => setView(key)}
+                    style={{
+                      background: view === key ? withAlpha(accent, 0.14) : "transparent",
+                      border: "none", color: view === key ? accent : P.faint, cursor: "pointer",
+                      fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-mono)",
+                      padding: "6px 14px",
+                    }}
+                  >{label}</button>
+                ))}
+              </div>
+            )}
+            <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+          </div>
         </div>
-        {!points.length ? (
+        {showArc ? (
+          <AnswerArc turn={turn} P={P} accent={accent} />
+        ) : !points.length ? (
           <div style={{ padding: "40px 22px", textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small }}>None of these sources have a usable publication year to plot.</div>
         ) : (
           <>
@@ -16629,6 +17051,7 @@ function App() {
   const [threads, setThreads] = useState([]);
   const [networkGraphSources, setNetworkGraphSources] = useState(null);
   const [timelineSources, setTimelineSources] = useState(null);
+  const [autopsyTurn, setAutopsyTurn] = useState(null);
   // Commit 92 — holds the source list for the evidence table (was the
   // query string for the illustration generator).
   const [evidenceTableSources, setEvidenceTableSources] = useState(null);
@@ -17159,7 +17582,11 @@ function App() {
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter };
+      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], videos: data.videos || [], source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
+        /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
+           these. All three degrade honestly when absent — older cached
+           answers simply omit the instruments rather than inventing data. */
+        _resolver: data._resolver || null, _selfReasoning: data._selfReasoning || null, _funnel: data._funnel || null };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
       const nextTurns = [...turns, nt];
@@ -17356,7 +17783,7 @@ function App() {
   // position on close, rather than trusting the browser to remember it.
   useEffect(() => {
     const anyOverlayOpen = cmdOpen || howItWorksOpen || mobilePanel
-      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!evidenceTableSources || !!importPrompt || !!drawerSource;
+      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -18195,7 +18622,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onEvidenceTable={setEvidenceTableSources} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} />))}
+                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} busyNow={busy} typewriter={typewriter && ti === turns.length - 1} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowNetwork={setNetworkGraphSources} onShowTimeline={setTimelineSources} onShowAutopsy={setAutopsyTurn} onEvidenceTable={setEvidenceTableSources} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} />))}
                 {busy && (<div style={S.turn}>
                   {/* The loading state is the poised counterpart to the query
                       line: the question in calm display type, one hairline
@@ -18679,7 +19106,8 @@ function App() {
       )}
       {compareOpen && <CompareModal P={P} accent={accent} at={at} S={S} history={history} close={() => setCompareOpen(false)} />}
       {networkGraphSources && <SourceNetworkGraph P={P} accent={accent} at={at} sources={networkGraphSources} close={() => setNetworkGraphSources(null)} />}
-      {timelineSources && <LiteratureTimeline P={P} accent={accent} at={at} sources={timelineSources} close={() => setTimelineSources(null)} />}
+      {timelineSources && <LiteratureTimeline P={P} accent={accent} at={at} turn={timelineSources} close={() => setTimelineSources(null)} />}
+      {autopsyTurn && <QueryAutopsy turn={autopsyTurn} P={P} accent={accent} close={() => setAutopsyTurn(null)} />}
       {/* Commit 92 — Document Mode did nothing when clicked.
 
           Same failure as the what's-new modal above and found the same
