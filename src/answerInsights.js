@@ -408,3 +408,61 @@ export function extractOpenQuestions(answer, factCheck, sources, selfReasoning) 
 
   return cards;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   VENN CLASSIFICATION — where each cited paper stands
+
+   Deterministic, no invention: every paper lands in exactly one region
+   from signals already on the turn.
+
+     agree    — cited by a fact-check claim with status "supported"
+     disagree — cited inside the disagreement section, or by a claim
+                with status "contradicted", "thin", or "unsupported"
+     middle   — cited by a "partly"/mixed claim, or cited on BOTH sides
+                (a paper that backs a core claim and is also contested)
+     unclear  — no signal at all; shown honestly, never placed
+
+   Returns 1-based citation indices: { agree, disagree, middle, unclear }.
+   ══════════════════════════════════════════════════════════════════ */
+export function classifyVennPapers({ answer, sources, factCheck }) {
+  const srcArr = Array.isArray(sources) ? sources : [];
+  const n = srcArr.length;
+  if (n === 0) return { agree: [], disagree: [], middle: [], unclear: [] };
+
+  const agree = new Set();
+  const disagree = new Set();
+  const middle = new Set();
+
+  const claims = factCheck && Array.isArray(factCheck.claims) && factCheck.mode !== "terms"
+    ? factCheck.claims
+    : [];
+  for (const c of claims) {
+    const idx = extractCitedIndices(String(c.claim || "") + " " + String(c.note || ""), n);
+    const st = String(c.status || "").toLowerCase();
+    for (const i of idx) {
+      if (st === "supported") agree.add(i);
+      else if (st === "contradicted" || st === "thin" || st === "unsupported") disagree.add(i);
+      else if (st === "partly" || st === "mixed") middle.add(i);
+    }
+  }
+
+  for (const i of disagreementCitedIndices(answer, n)) disagree.add(i);
+
+  // Cited on both sides = nuanced, not contradictory data to hide.
+  for (const i of agree) {
+    if (disagree.has(i)) {
+      agree.delete(i);
+      disagree.delete(i);
+      middle.add(i);
+    }
+  }
+
+  const placed = new Set([...agree, ...disagree, ...middle]);
+  const unclear = [];
+  for (let i = 1; i <= n; i++) {
+    if (!placed.has(i)) unclear.push(i);
+  }
+
+  const sort = (s) => [...s].sort((a, b) => a - b);
+  return { agree: sort(agree), disagree: sort(disagree), middle: sort(middle), unclear };
+}

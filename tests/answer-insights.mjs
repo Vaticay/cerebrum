@@ -47,6 +47,7 @@ const {
   describeConvergence,
   extractOpenQuestions,
   isCoveredByAnswer,
+  classifyVennPapers,
 } = await import(join(root, "src/answerInsights.js"));
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -359,20 +360,27 @@ await test("turn carries the instrument payloads from the response", () => {
   assert.match(appSrc, /_funnel: data\._funnel \|\| null/, "_funnel not passed to the turn");
 });
 
-await test("query autopsy drawer exists with its four sections", () => {
+await test("query autopsy drawer is funnel-first with demoted sections", () => {
   assert.match(appSrc, /function QueryAutopsy/, "QueryAutopsy component missing");
   assert.match(appSrc, /How this was built/, "autopsy entry link missing");
   assert.match(appSrc, /onShowAutopsy=\{setAutopsyTurn\}/, "autopsy opener not wired to TurnRow");
-  for (const kicker of ["01 · Query reading", "02 · Retrieval funnel", "03 · Exclusions", "04 · Synthesis"]) {
+  for (const kicker of ["01 · Retrieval funnel", "02 · Query reading", "03 · Exclusions", "04 · Synthesis", "05 · Stress test", "06 · Evidence structure"]) {
     assert.ok(appSrc.includes(kicker), `autopsy section missing: ${kicker}`);
   }
   assert.match(appSrc, /not recorded for this answer/, "autopsy missing its honest degrade");
+  assert.match(appSrc, /<ModalChrome drawer/, "autopsy not on the shared drawer chrome");
+  // The funnel hero comes before query reading in the file.
+  assert.ok(appSrc.indexOf("01 · Retrieval funnel") < appSrc.indexOf("02 · Query reading"),
+    "funnel is not the first autopsy section");
 });
 
-await test("timeline modal carries the Arc | Plot toggle", () => {
-  assert.match(appSrc, /\["plot", "Plot"\], \["arc", "Arc"\]/, "Arc/Plot toggle missing");
-  assert.match(appSrc, /<AnswerArc turn=\{turn\} P=\{P\} accent=\{accent\} \/>/, "AnswerArc not rendered");
+await test("timeline modal is Arc-only with year-strips in era headers", () => {
+  assert.match(appSrc, /function LiteratureTimeline/, "LiteratureTimeline missing");
+  assert.ok(!/\["plot", "Plot"\]/.test(appSrc), "Plot|Arc toggle still present");
+  assert.match(appSrc, /<AnswerArc turn=\{turn\}/, "AnswerArc not rendered in the timeline modal");
+  assert.match(appSrc, /function EraYearStrip/, "EraYearStrip missing");
   assert.match(appSrc, /turn=\{timelineSources\}/, "timeline no longer receives the turn");
+  assert.match(appSrc, /<ModalChrome label="The arc of this literature"/, "timeline not on the shared modal chrome");
 });
 
 await test("open-questions button renders only when gaps surface", () => {
@@ -383,6 +391,86 @@ await test("open-questions button renders only when gaps surface", () => {
     "gap extraction not fed from the turn");
 });
 
-// ══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+group("Venn classification — where each cited paper stands");
+
+const VENN_SOURCES = [
+  { title: "Paper A" }, { title: "Paper B" }, { title: "Paper C" },
+  { title: "Paper D" }, { title: "Paper E" },
+];
+
+await test("supported claims land in agree", () => {
+  const r = classifyVennPapers({
+    answer: "", sources: VENN_SOURCES,
+    factCheck: { claims: [{ claim: "X works [1][2]", status: "supported" }] },
+  });
+  assert.deepEqual(r.agree, [1, 2]);
+  assert.deepEqual(r.disagree, []);
+  assert.deepEqual(r.middle, []);
+  assert.deepEqual(r.unclear, [3, 4, 5]);
+});
+
+await test("unsupported, thin, and contradicted claims land in disagree", () => {
+  const r = classifyVennPapers({
+    answer: "", sources: VENN_SOURCES,
+    factCheck: { claims: [
+      { claim: "X fails [1]", status: "unsupported" },
+      { claim: "Y unclear [2]", status: "thin" },
+      { claim: "Z refuted [3]", status: "contradicted" },
+    ] },
+  });
+  assert.deepEqual(r.disagree, [1, 2, 3]);
+  assert.deepEqual(r.agree, []);
+  assert.deepEqual(r.unclear, [4, 5]);
+});
+
+await test("partly and mixed claims land in the middle", () => {
+  const r = classifyVennPapers({
+    answer: "", sources: VENN_SOURCES,
+    factCheck: { claims: [
+      { claim: "X maybe [1]", status: "partly" },
+      { claim: "Y mixed [2]", status: "mixed" },
+    ] },
+  });
+  assert.deepEqual(r.middle, [1, 2]);
+  assert.deepEqual(r.unclear, [3, 4, 5]);
+});
+
+await test("a paper both supporting a claim and contested moves to the middle", () => {
+  const r = classifyVennPapers({
+    answer: "## Where researchers disagree\nHowever [1] found the opposite.",
+    sources: VENN_SOURCES,
+    factCheck: { claims: [{ claim: "X works [1]", status: "supported" }] },
+  });
+  assert.deepEqual(r.middle, [1]);
+  assert.deepEqual(r.agree, []);
+  assert.deepEqual(r.disagree, []);
+});
+
+await test("papers with no signal stay unclear, never placed", () => {
+  const r = classifyVennPapers({ answer: "Plain text.", sources: VENN_SOURCES, factCheck: null });
+  assert.deepEqual(r.agree, []);
+  assert.deepEqual(r.disagree, []);
+  assert.deepEqual(r.middle, []);
+  assert.deepEqual(r.unclear, [1, 2, 3, 4, 5]);
+});
+
+await test("citation indices are bounded and every paper lands exactly once", () => {
+  const r = classifyVennPapers({
+    answer: "Disagreement: [9] is contested, and [0] is not a citation.",
+    sources: VENN_SOURCES,
+    factCheck: { claims: [{ claim: "All of it [1][2][3][4][5][6]", status: "supported" }] },
+  });
+  const all = [...r.agree, ...r.disagree, ...r.middle, ...r.unclear].sort((a, b) => a - b);
+  assert.deepEqual(all, [1, 2, 3, 4, 5]);
+  for (const n of all) assert.ok(n >= 1 && n <= 5, `out-of-range index ${n}`);
+});
+
+await test("empty sources classify to empty regions", () => {
+  assert.deepEqual(classifyVennPapers({ answer: "", sources: [], factCheck: null }),
+    { agree: [], disagree: [], middle: [], unclear: [] });
+});
+
+// ══════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
