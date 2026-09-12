@@ -3734,6 +3734,21 @@ function renderInlineMdLite(text, P) {
     return <span key={si}>{seg}</span>;
   });
 }
+/* Flashpoint claims are sentence fragments mined from the answer text —
+   the miner can drag markdown along with them ("## What the research
+   shows", "**100%**"). Block-level markers are extraction artifacts, never
+   meaning, so they are stripped; inline bold, italic and code spans render
+   through renderInlineMdLite. Defense in depth with the backend's
+   cleanMinedClaimText: no literal **, ##, or ### may ever reach the
+   screen from this panel. */
+function renderFlashpointClaim(text, P) {
+  const stripped = String(text || "")
+    .replace(/#{1,6}(?=\s)/g, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  return renderInlineMdLite(stripped, P);
+}
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite) {
   let clean = stripDanglingAsterisks(normalizeSectionHeaders(text || ""))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
@@ -8703,13 +8718,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               <div key={ci} style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 12, alignItems: "stretch" }}>
                 <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.05), borderRadius: 8, border: `1px solid ${withAlpha(STATUS.warn, 0.14)}` }}>
                   <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-body)", marginBottom: 6 }}>[{c.idxA}]</div>
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{c.claimA}</div>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{renderFlashpointClaim(c.claimA, P)}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceA ? renderCleanTitle(c.sourceA) : ""}</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: withAlpha(STATUS.warn, 0.5), fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", fontWeight: 700 }}>vs</div>
                 <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.05), borderRadius: 8, border: `1px solid ${withAlpha(STATUS.warn, 0.14)}` }}>
                   <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-body)", marginBottom: 6 }}>[{c.idxB}]</div>
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{c.claimB || "—"}</div>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{renderFlashpointClaim(c.claimB || "—", P)}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceB ? renderCleanTitle(c.sourceB) : ""}</div>
                 </div>
               </div>
