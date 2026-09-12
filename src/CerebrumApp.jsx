@@ -36,7 +36,7 @@ function saveInvestigation(history, turns, allSources, now = Date.now()) {
  * build-time prerenderer).
  */
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalContent.js";
 import { staticFieldCss } from "./cerebrumField.js";
 /* The one list of databases, shared with the search handler. See the note
@@ -4635,7 +4635,14 @@ function filmPoster(src) {
   return base ? "/assets/cinematic/posters/" + base + ".jpg" : FILM_POSTER;
 }
 
-function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip }) {
+/* forwardRef: the parent's "Play background" control must be able to call
+   play() synchronously inside the tap's own gesture window. iOS Low Power
+   Mode (and some Android data-saver modes) reject programmatic play() —
+   the promise rejects with NotAllowedError — while honouring the identical
+   call issued from a real click/touch handler. The old path ran play() in
+   a React effect after setState, outside the gesture, so the opt-in button
+   silently did nothing on exactly the phones that needed it most. */
+const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked }, ref) {
   const aRef = useRef(null);
   const bRef = useRef(null);
   const curRef = useRef(0);
@@ -4668,6 +4675,30 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
   const clipCbRef = useRef(onClip);
   clipCbRef.current = onClip;
   const report = (src) => { const f = clipCbRef.current; if (f) f(src); };
+  /* Same treatment for the autoplay-blocked callback: read through a ref so
+     a fresh callback identity never restarts the reel. */
+  const autoplayCbRef = useRef(onAutoplayBlocked);
+  autoplayCbRef.current = onAutoplayBlocked;
+  /* Fires at most once per mount — the parent shows a tap-to-play pill on
+     the first rejection and clears it on success. */
+  const autoplayNotifiedRef = useRef(false);
+
+  /* Gesture-context playback for the parent's Play control (see the
+     forwardRef note above). Returns true when a play was issued. */
+  useImperativeHandle(ref, () => ({
+    playNow: () => {
+      const els = [aRef.current, bRef.current];
+      const el = els[curRef.current];
+      if (!el) return false;
+      try {
+        el.muted = true; el.defaultMuted = true;
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+        autoplayNotifiedRef.current = false;
+        return true;
+      } catch { return false; }
+    },
+  }), []);
 
   useEffect(() => {
     const els = [aRef.current, bRef.current];
@@ -4790,7 +4821,18 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
       if (el.getAttribute("src") !== file) { el.src = file; el.load(); }
       if (preloadingEl === el) preloadingEl = null;
       const p = el.play();
-      if (p && p.catch) p.catch(() => {});
+      if (p && p.catch) p.catch((err) => {
+        /* A rejected play while the reel is supposed to be running is the
+           signature of an autoplay policy (Low Power Mode on iOS): the file
+           and decoder are fine, the phone just vetoed a programmatic start.
+           Tell the parent once so it can offer a tap-to-play affordance —
+           a still poster with no explanation reads as "clips aren't
+           playing". A later successful play clears the flag via playNow. */
+        if (!autoplayNotifiedRef.current && autoplayCbRef.current) {
+          autoplayNotifiedRef.current = true;
+          try { autoplayCbRef.current(err); } catch {}
+        }
+      });
     };
 
     /* Buffer src into el without playing it. Called once the outgoing
@@ -4861,7 +4903,35 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
 
     const onVis = () => { if (document.hidden) stop(); else { const p = els[curRef.current].play(); if (p && p.catch) p.catch(() => {}); timerRef.current = setTimeout(cycle, FILM_HOLD_MS); } };
     document.addEventListener("visibilitychange", onVis);
-    return () => { document.removeEventListener("visibilitychange", onVis); stop(); };
+    /* Autoplay-policy recovery. iOS Low Power Mode rejects programmatic
+       play() (NotAllowedError) while honouring the same call from a real
+       user gesture — so the first tap, touch-end or keypress anywhere
+       retries the current clip. A visitor whose phone silently vetoed
+       autoplay gets footage on their first interaction instead of a still
+       poster for the whole visit. One paused-check per gesture, so this is
+       a no-op while the reel is running, and it only exists while the reel
+       wants to play: the effect re-runs and removes these listeners the
+       moment `blocked` flips true. */
+    const tryResume = () => {
+      if (document.hidden) return;
+      const el = els[curRef.current];
+      if (el && el.paused) {
+        try {
+          const p = el.play();
+          if (p && p.catch) p.catch(() => {});
+        } catch {}
+      }
+    };
+    window.addEventListener("pointerdown", tryResume);
+    window.addEventListener("touchend", tryResume);
+    window.addEventListener("keydown", tryResume);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pointerdown", tryResume);
+      window.removeEventListener("touchend", tryResume);
+      window.removeEventListener("keydown", tryResume);
+      stop();
+    };
   }, [blocked]);
 
   /* There is no CSS filter here any more, and that is the whole fix for
@@ -4916,7 +4986,7 @@ function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, o
       }} />
     </div>
   );
-}
+});
 
 
 /* A modal shell shared by the two dialogs this screen opens. Escape closes,
@@ -5125,12 +5195,26 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
      the worse surprise. */
   const [filmOff, setFilmOff] = useState(false);
   const [forced, setForced] = useState(() => filmForcedOn());
+  const filmRef = useRef(null);
+  /* True when a play() the reel wanted was vetoed by an autoplay policy
+     (iOS Low Power Mode). The footer "Play background" link exists, but it
+     is invisible to someone who never knew the film was supposed to move —
+     so the scene plate also offers a quiet tap-to-play pill until playback
+     is actually running. */
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const filmRunning = !filmBlocked(animationMode, filmOff);
+  /* Issued synchronously from the tap: playNow() runs inside the gesture
+     window, which is the one place iOS Low Power Mode honours play(). */
+  const resumeFilm = () => {
+    try { filmRef.current?.playNow(); } catch {}
+    setAutoplayBlocked(false);
+  };
   const toggleFilm = () => {
-    if (filmRunning) { setFilmOff(true); return; }
+    if (filmRunning) { setFilmOff(true); setAutoplayBlocked(false); return; }
     setFilmForcedOn(true);
     setForced(true);
     setFilmOff(false);
+    resumeFilm();
   };
   /* `forced` is read by filmBlocked through localStorage, not through this
      variable — it is state purely so pressing the button re-renders. */
@@ -5282,7 +5366,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       {/* A dialog is a request to read something. The reel is paused while one
           is open and resumes on close with whatever the visitor had chosen —
           `filmOff` is untouched, so the pause is the dialog's, not theirs. */}
-      <CinematicFilm animationMode={animationMode} intensity={1} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={onClip} />
+      <CinematicFilm ref={filmRef} animationMode={animationMode} intensity={1} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={onClip} onAutoplayBlocked={() => setAutoplayBlocked(true)} />
 
       {/* Innovation refinement — the door, reimagined. The iris opens on
           first paint so the film is revealed rather than faded in; the
@@ -5503,6 +5587,28 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 fontSize: 12, letterSpacing: "0.08em",
                 fontFamily: "var(--cb-body)", color: "rgba(242,244,242,0.55)", marginBottom: 10,
               }}>{scene.subject}</div>
+              {/* Autoplay-policy recovery affordance. iOS Low Power Mode
+                  vetoes programmatic play(), leaving the still poster with
+                  no explanation — which reads as "the clips aren't playing".
+                  This pill only ever appears in that exact state, and the
+                  tap runs play() inside the gesture window, which the
+                  policy honours. */}
+              {autoplayBlocked && filmRunning && (
+                <div>
+                  <button type="button" onClick={resumeFilm} style={{
+                    display: "inline-flex", alignItems: "center", gap: 8,
+                    margin: "2px 0 12px", padding: "8px 16px", borderRadius: 999,
+                    border: "1px solid rgba(242,244,242,0.28)",
+                    background: "rgba(10,12,14,0.55)", color: "#f2f4f2",
+                    fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-body)",
+                    cursor: "pointer",
+                    backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+                  }}>
+                    <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                    Background film paused — tap to play
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={(e) => go(scene.question, true, e)}
@@ -18549,6 +18655,9 @@ function App() {
      person last chose after that. The control says what it will do, not
      what it currently is. */
   const [filmMotion, setFilmMotion] = useState(() => true);
+  /* Gesture-context playback for the footer Play control — see the
+     forwardRef note on CinematicFilm. */
+  const filmRef = useRef(null);
   // V5 "what's new" announcement — shows once per browser, the first time
   // someone lands on the main app after this ships. Keyed off its own
   // localStorage flag rather than the entry cookie above, since a returning
@@ -20073,6 +20182,7 @@ function App() {
         />
       ) : (
         <CinematicFilm
+          ref={filmRef}
           animationMode={animationMode}
           paused={!filmMotion}
           /* Brightest on the search screen, dimmer once you are reading an
@@ -20473,6 +20583,10 @@ function App() {
                   <button key="motion" type="button" style={st} onClick={() => {
                     const next = !filmMotion;
                     setFilmMotion(next); setFilmForcedOn(next);
+                    /* Synchronous, in the tap's gesture window: the only
+                       play() iOS Low Power Mode honours. The effect-driven
+                       path alone silently fails there. */
+                    if (next) { try { filmRef.current?.playNow(); } catch {} }
                   }}>{label}</button>
                 );
                 return <a key={label} href={href} style={st}>{label}</a>;
