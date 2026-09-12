@@ -5351,6 +5351,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
     if (pendingRef.current) { setClip(pendingRef.current); pendingRef.current = null; }
   };
   const scene = clip ? FILM_SCENES[clip] : null;
+  /* Editorial plate number for the scene prompt ("04 / 32"): the clip's
+     stable position in the reel's catalogue, not its play order. */
+  const sceneKeys = Object.keys(FILM_SCENES);
+  const sceneNo = scene ? sceneKeys.indexOf(clip) + 1 : 0;
 
   /* ── The door rule ──
      This screen is a threshold, not a search screen: there is no composer
@@ -5398,6 +5402,65 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
      motion or with animation off, everything is simply present. */
   const animate = animationMode !== "off" && !reduced;
 
+  /* Pointer parallax on the type column, desktop only. A few pixels eased
+     toward the cursor, transform-only so the compositor does it alone.
+     The entrance choreography lives on the column's children, so the two
+     never fight over the same transform. */
+  const heroColRef = useRef(null);
+  useEffect(() => {
+    if (isMobile || reduced || animationMode === "off") return undefined;
+    const col = heroColRef.current;
+    const zone = document.getElementById("cb-intro-hero-zone");
+    if (!col || !zone) return undefined;
+    const target = { x: 0, y: 0 };
+    const cur = { x: 0, y: 0 };
+    let raf = 0;
+    const tick = () => {
+      cur.x += (target.x - cur.x) * 0.075;
+      cur.y += (target.y - cur.y) * 0.075;
+      col.style.transform = `translate3d(${cur.x.toFixed(2)}px, ${cur.y.toFixed(2)}px, 0)`;
+      if (Math.abs(target.x - cur.x) > 0.04 || Math.abs(target.y - cur.y) > 0.04) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        raf = 0;
+        if (target.x === 0 && target.y === 0) col.style.transform = "";
+      }
+    };
+    const kick = () => { if (!raf) raf = requestAnimationFrame(tick); };
+    const onMove = (e) => {
+      const r = zone.getBoundingClientRect();
+      const nx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+      const ny = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+      target.x = Math.max(-1, Math.min(1, nx)) * 9;
+      target.y = Math.max(-1, Math.min(1, ny)) * 6;
+      kick();
+    };
+    const onLeave = () => { target.x = 0; target.y = 0; kick(); };
+    zone.addEventListener("mousemove", onMove);
+    zone.addEventListener("mouseleave", onLeave);
+    return () => {
+      cancelAnimationFrame(raf);
+      zone.removeEventListener("mousemove", onMove);
+      zone.removeEventListener("mouseleave", onLeave);
+    };
+  }, [isMobile, reduced, animationMode]);
+
+  /* "A real answer" arrives on scroll, in the same language as the hero. */
+  const realAnswerRef = useRef(null);
+  useEffect(() => {
+    if (!animate) return undefined;
+    const el = realAnswerRef.current;
+    if (!el) return undefined;
+    if (typeof IntersectionObserver === "undefined") { el.classList.add("cb-inview"); return undefined; }
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) { el.classList.add("cb-inview"); io.disconnect(); }
+      }
+    }, { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [animate]);
+
   return (
     <div id="cb-intro-wrap" className={leaving ? "cb-intro-leaving" : undefined} style={{
       minHeight: "100dvh", position: "relative",
@@ -5433,6 +5496,12 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             "linear-gradient(180deg, rgba(9,11,14,0.55) 0%, transparent 18%, transparent 76%, rgba(9,11,14,0.62) 100%)",
       }} />
 
+      {/* Fine grain over the film and the scrim, under the type — texture
+          with no motion cost. The light leak breathes slowly above the
+          reel; the drift that used to ride the video element stays gone. */}
+      <div aria-hidden="true" className="cb-intro-grain" />
+      {animate && <div aria-hidden="true" className="cb-intro-leak" />}
+
       {/* ── Header ──
           Edge to edge, aligned to the same container as everything below,
           and deliberately not a frosted capsule. backdrop-filter over a
@@ -5441,10 +5510,11 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           bar nobody looks at. A gradient costs one composite and reads the
           same over footage this dark. Readable logo and links — no
           miniature telemetry. */}
-      <header className="cb-intro-chrome cb-intro-header" style={{
+      <header className={animate ? "cb-intro-chrome cb-intro-header cb-hero-enter" : "cb-intro-chrome cb-intro-header"} style={{
         position: "relative", zIndex: 20,
         paddingTop: "max(14px, env(safe-area-inset-top))",
         background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
+        ...(animate ? { animationDelay: "0s" } : null),
       }}>
         <div style={{
           ...container,
@@ -5497,7 +5567,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         paddingTop: isMobile ? 44 : 64,
         paddingBottom: isMobile ? 36 : 56,
       }}>
-        <div style={{
+        <div id="cb-intro-hero-zone" style={{
           ...container,
           /* Desktop: the promise owns the left ~46%; the footage's subject
              keeps the right. Phone: a straight stack — headline, action,
@@ -5507,11 +5577,16 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           gap: isMobile ? 0 : 48,
           alignItems: "end",
         }}>
-          {/* The promise. One supporting line, one action. The headline is
-              the dominant element; on arrival the block fades in once, as
-              one — no stagger, no letter-by-letter. */}
-          <div className={animate ? "cb-hero-enter" : undefined}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: isMobile ? 16 : 22 }}>
+          {/* The promise as an editorial column: kicker, masked headline
+              lines, supporting line, one action — choreographed in with
+              stagger, not faded as a block. Pointer parallax rides this
+              wrapper; the entrance lives on the children so the two never
+              fight over the same transform. */}
+          <div ref={heroColRef}>
+            <div className={animate ? "cb-hero-enter" : undefined} style={{
+              display: "flex", alignItems: "center", gap: 14, marginBottom: isMobile ? 16 : 22,
+              ...(animate ? { animationDelay: "0.06s" } : null),
+            }}>
               <span aria-hidden="true" style={{ width: isMobile ? 28 : 44, height: 1, background: withAlpha(introAccent, 0.6) }} />
               <span style={{
                 fontFamily: "var(--cb-body)", fontSize: 11, letterSpacing: "0.26em",
@@ -5522,26 +5597,29 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               </span>
             </div>
             <h1 style={{
-              fontSize: isMobile ? "clamp(38px, 9.6vw, 46px)" : "clamp(64px, 6vw, 88px)",
-              fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.04,
+              fontSize: isMobile ? "clamp(30px, 8.4vw, 38px)" : "clamp(44px, 4.6vw, 62px)",
+              fontWeight: 600, letterSpacing: "-0.032em", lineHeight: 1.06,
               color: "#ffffff", margin: 0,
               textShadow: "0 2px 40px rgba(0,0,0,0.5)",
             }}>
-              <div>There&rsquo;s a world</div>
-              <div>behind your question.</div>
+              <span className="cb-mask"><span className={animate ? "cb-mask-inner" : undefined} style={animate ? { animationDelay: "0.16s" } : undefined}>There&rsquo;s a world</span></span>
+              <span className="cb-mask"><span className={animate ? "cb-mask-inner" : undefined} style={animate ? { animationDelay: "0.28s" } : undefined}>behind your question.</span></span>
             </h1>
-            <p style={{
+            <p className={animate ? "cb-hero-enter" : undefined} style={{
               margin: (isMobile ? "18px 0 0" : "24px 0 0"),
-              fontSize: isMobile ? 16.5 : 18.5, lineHeight: 1.55, fontWeight: 400,
+              fontSize: isMobile ? 16 : 17.5, lineHeight: 1.6, fontWeight: 400,
               color: "rgba(242,244,242,0.80)",
               textShadow: "0 1px 20px rgba(0,0,0,0.45)",
+              maxWidth: isMobile ? undefined : "42ch",
+              ...(animate ? { animationDelay: "0.46s" } : null),
             }}>
               Explore scientific papers. Follow the evidence. Find your next question.
             </p>
-            <div style={{
+            <div className={animate ? "cb-hero-enter" : undefined} style={{
               marginTop: isMobile ? 24 : 30,
               display: "flex", alignItems: "center",
               gap: isMobile ? 14 : 18, flexWrap: "wrap",
+              ...(animate ? { animationDelay: "0.6s" } : null),
             }}>
               <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
                 border: "none", cursor: "pointer",
@@ -5558,12 +5636,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               }}><span>Start researching</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
               {/* "How it works" stays a quiet text link — never a second
                   button competing with the primary action. */}
-              <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip" style={{
+              <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
                 cursor: "pointer", border: "none", background: "none", padding: "14px 4px",
                 fontSize: isMobile ? 14 : 14.5, fontWeight: 500,
                 color: "rgba(242,244,242,0.6)", fontFamily: "var(--cb-body)",
-                textDecoration: "underline", textUnderlineOffset: 3,
-                textDecorationColor: "rgba(242,244,242,0.3)",
               }}>How it works</button>
             </div>
           </div>
@@ -5576,21 +5652,33 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               mid-press. */}
           <div className={animate ? "cb-hero-enter" : undefined} style={
             isMobile
-              ? { marginTop: 36, animationDelay: "0.28s" }
-              : { justifySelf: "end", maxWidth: 360, paddingBottom: 6, animationDelay: "0.28s" }
+              ? { marginTop: 36, animationDelay: "0.72s" }
+              : { justifySelf: "end", maxWidth: 360, paddingBottom: 6, animationDelay: "0.72s" }
           }>
             {scene ? (
-              <div
+              /* Keyed by clip: the caption cross-dissolves in sync with the
+                 footage change instead of popping over the outgoing frame. */
+              <div key={clip} className={animate ? "cb-scene-swap" : undefined}
                 onMouseEnter={() => { holdRef.current = true; }}
                 onMouseLeave={releaseHold}
                 onFocus={() => { holdRef.current = true; }}
                 onBlur={releaseHold}
               >
                 <div style={{
-                  fontSize: 11, letterSpacing: "0.22em", textTransform: "uppercase",
-                  fontFamily: "var(--cb-body)", color: withAlpha(introAccent, 0.85),
-                  marginBottom: 10, fontVariantNumeric: "tabular-nums",
-                }}>{scene.subject}</div>
+                  display: "flex", alignItems: "baseline", justifyContent: "space-between",
+                  gap: 12, marginBottom: 10,
+                }}>
+                  <div style={{
+                    fontSize: 11, letterSpacing: "0.22em", textTransform: "uppercase",
+                    fontFamily: "var(--cb-body)", color: withAlpha(introAccent, 0.85),
+                    fontVariantNumeric: "tabular-nums",
+                  }}>{scene.subject}</div>
+                  <div aria-hidden="true" style={{
+                    fontSize: 11, letterSpacing: "0.18em", fontFamily: "var(--cb-body)",
+                    color: "rgba(242,244,242,0.40)", fontVariantNumeric: "tabular-nums",
+                    whiteSpace: "nowrap",
+                  }}>{String(sceneNo).padStart(2, "0")} / {String(sceneKeys.length).padStart(2, "0")}</div>
+                </div>
                 {/* Autoplay-policy recovery affordance. iOS Low Power Mode
                     vetoes programmatic play(), leaving the still poster with
                     no explanation — which reads as "the clips aren't playing".
@@ -5641,7 +5729,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           Below the opening, before any feature list: a compact Question →
           cited explanation → original paper. A visitor should understand
           why Cerebrum is useful before meeting the product. */}
-      <section className="cb-intro-chrome" style={{
+      <section ref={realAnswerRef} className={animate ? "cb-intro-chrome cb-real-answer" : "cb-intro-chrome"} style={{
         position: "relative", zIndex: 10,
         borderTop: "1px solid rgba(255,255,255,0.08)",
         background: "linear-gradient(180deg, rgba(8,10,13,0.55) 0%, rgba(8,10,13,0.80) 100%)",
@@ -22630,6 +22718,73 @@ summary::-webkit-details-marker { display: none; }
 .cb-intro-go:hover { filter: brightness(1.07); transform: translateY(-1px); }
 .cb-intro-go:active { transform: translateY(0); }
 .cb-intro-go:focus-visible { outline: 2px solid rgba(163,184,153,0.85); outline-offset: 3px; }
+/* ── Intro, premium pass ──
+   Depth, choreography, restraint. The film was already the motion; this
+   pass gives the type the same care: masked line reveals with stagger,
+   a cross-dissolving scene plate with an editorial index, pointer
+   parallax on the type column (desktop), a light sweep on the CTA, and
+   a scroll reveal for the section below. Transform/opacity only. */
+/* Masked line reveal: each headline line rises out of its own mask. */
+@keyframes cbLineRise {
+  from { opacity: 0; transform: translateY(108%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cb-mask { display: block; overflow: hidden; padding-bottom: 0.09em; margin-bottom: -0.09em; }
+.cb-mask-inner { display: block; animation: cbLineRise 1.15s cubic-bezier(0.19, 1, 0.22, 1) both; }
+/* The scene plate cross-dissolves with the footage: keyed by clip, so a
+   new question never pops in over the outgoing one. */
+@keyframes cbSceneIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.cb-scene-swap { animation: cbSceneIn 0.85s cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* Breathing light over the reel. The drift that used to live on the video
+   element is gone on purpose (it re-rasterised a ~2M-pixel surface every
+   frame); this is a plain gradient layer, so the compositor just moves a
+   cheap quad, and opacity does most of the work. */
+@keyframes cbLeakDrift {
+  from { opacity: 0.35; transform: translate3d(-1.5%, 1%, 0); }
+  to   { opacity: 0.85; transform: translate3d(1.5%, -1%, 0); }
+}
+.cb-intro-leak {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(55% 42% at 68% 30%, rgba(163,184,153,0.12), transparent 70%);
+  animation: cbLeakDrift 16s ease-in-out infinite alternate;
+}
+/* Fine film grain over the film and the scrim, under the type. Static:
+   animating it would cost a repaint per frame for texture nobody can see
+   move. No blend mode — a plain low-opacity tile is the cheap version. */
+.cb-intro-grain {
+  position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+/* CTA light sweep. Overflow is hidden on the button for the sweep; the
+   focus ring is an outline and is not clipped by it. */
+.cb-intro-go { position: relative; overflow: hidden; }
+.cb-intro-go::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,0.38) 50%, transparent 58%);
+  transform: translateX(-130%);
+}
+.cb-intro-go:hover::after {
+  transform: translateX(130%);
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* The ghost link draws its underline on hover instead of wearing one. */
+.cb-intro-how { position: relative; text-decoration: none !important; }
+.cb-intro-how::after {
+  content: ""; position: absolute; left: 4px; right: calc(100% - 4px); bottom: 11px; height: 1px;
+  background: rgba(242,244,242,0.6);
+  transition: right 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.cb-intro-how:hover::after, .cb-intro-how:focus-visible::after { right: 4px; }
+.cb-intro-how:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 4px; }
+/* "A real answer" arrives on scroll, in the same language as the hero. */
+.cb-real-answer {
+  opacity: 0; transform: translateY(24px);
+  transition: opacity 1s cubic-bezier(0.22, 1, 0.36, 1), transform 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.cb-real-answer.cb-inview { opacity: 1; transform: none; }
 /* The handoff bridge: the current clip's graded still, full-viewport,
    dissolving over the workspace so the film frame is retained and no
    blank screen or video restart ever flashes. Removed after the fade. */
@@ -23354,6 +23509,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
      near-instantly so nothing animates at the people who asked for none. */
   .cb-hero-enter { animation: none; }
   .cb-enter-frame { animation-duration: 0.01s; }
+  /* Premium pass: every new motion dies here too. */
+  .cb-mask-inner, .cb-scene-swap, .cb-intro-leak { animation: none !important; }
+  .cb-real-answer { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .cb-intro-go::after, .cb-intro-how::after { display: none; }
 }
 
 /* Glass panel depth — multi-layer shadows for 3D float effect */
