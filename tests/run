@@ -313,8 +313,11 @@ await test("retrieved source text is fenced with a per-request nonce", () => {
   assert.match(searchSrc, /fence\.clean\(fullAbstract|fence\.clean\(cappedAbstract/, "abstracts are not sanitised");
 });
 await test("the question is stated outside the source fence", () => {
-  assert.match(searchSrc, /fence\.open \+ "\\n" \+ evidence \+ "\\n" \+ fence\.close/,
+  assert.match(searchSrc, /fence\.open \+ "\\n" \+ evidence \+ \(briefSection \? "\\n\\n" \+ briefSection : ""\) \+ "\\n" \+ fence\.close/,
     "evidence and question are still concatenated into one blob");
+  // The brief is untrusted model output: it must live INSIDE the fence (data),
+  // never outside it where it could speak as instruction.
+  assert.match(searchSrc, /buildUserContent\(\s*"EVIDENCE BRIEF/, "brief section is not built through the fenced content builder");
 });
 await test("our own annotation markers cannot be forged by a source", () => {
   assert.match(searchSrc, /RETRACTED\|WRONG SPECIES/, "reserved markers are not stripped from source text");
@@ -408,9 +411,80 @@ await test("citation indices stay 1-based and aligned to input order", () => {
 });
 
 await test("wave 4 is wired into the search handler before the honest fallback", () => {
-  assert.match(searchSrc, /buildExtractiveSynthesis\(extPool\)/, "wave 4 is not attempted on total AI failure");
+  assert.match(searchSrc, /buildExtractiveSynthesis\(extPool, briefClaims\)/, "wave 4 is not attempted on total AI failure");
   assert.match(searchSrc, /if \(!aiOK && !extractiveOK\)/, "TIER 4 fallback still runs when extractive synthesis exists");
   assert.match(searchSrc, /synthesisMode: extractiveOK/, "synthesisMode is not reported to the frontend");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Evidence brief — speculative claim extraction");
+
+const { parseClaimLines, buildEvidenceBrief } = await import(join(root, "functions/api/search.js"));
+
+await test("parseClaimLines extracts dash-led claims and skips junk", () => {
+  const raw = "Here are the key findings:\n- Inbreeding depression reduced fitness by 34% in the study population.\n- Prairie dogs avoided mating with close kin in 92% of observed pairings.\n1. Kin recognition was mediated by odor cues in the trials.\nToo short.\n- " + "x".repeat(500);
+  const claims = parseClaimLines(raw);
+  assert.equal(claims.length, 3);
+  assert.ok(claims[0].includes("34%"), "first claim mangled");
+  assert.ok(claims[2].includes("odor cues"), "numbered claim not parsed");
+});
+
+await test("parseClaimLines never throws on garbage", () => {
+  assert.doesNotThrow(() => parseClaimLines(null));
+  assert.doesNotThrow(() => parseClaimLines(42));
+  assert.deepEqual(parseClaimLines(""), []);
+});
+
+await test("buildEvidenceBrief clusters claims into themes with citations", () => {
+  const papers = [
+    { title: "Inbreeding avoidance in wild insects", abstract: "abc" },
+    { title: "Kin recognition in prairie dogs", abstract: "def" },
+    { title: "Quantum tunneling in photosynthesis", abstract: "ghi" },
+  ];
+  const claimLists = [
+    ["Inbreeding depression reduced fitness by 34% in the wild insect population studied."],
+    ["Prairie dogs avoided mating with close kin in 92% of observed pairings in the field study."],
+    ["Quantum coherence was observed at room temperature with 97% transfer efficiency in the experiment."],
+  ];
+  const { text, claims } = buildEvidenceBrief(papers, claimLists);
+  assert.ok(text.length > 100, "brief text too short");
+  assert.ok(text.includes("[1]") && text.includes("[2]") && text.includes("[3]"), "citations missing");
+  assert.ok(text.includes("34%"), "claim content missing");
+  assert.ok(/^EVIDENCE BRIEF/.test(text), "brief header missing");
+  assert.equal(claims.length, 3);
+  assert.ok(claims.every((c) => c.idx >= 1 && c.idx <= 3), "claim citation out of range");
+});
+
+await test("buildEvidenceBrief merges near-duplicate claims across papers", () => {
+  const papers = [{ title: "A", abstract: "x" }, { title: "B", abstract: "y" }];
+  const claimLists = [
+    ["High-protein diets increased Bacteroidetes abundance 3-fold in the larval gut."],
+    ["A high-protein diet increased Bacteroidetes abundance threefold in larval guts."],
+  ];
+  const { text } = buildEvidenceBrief(papers, claimLists);
+  // Merged: one line carrying both citations.
+  assert.ok(/\[1\]\[2\]/.test(text), "duplicate claims were not merged with combined citations");
+});
+
+await test("buildEvidenceBrief returns empty when too few claims", () => {
+  assert.deepEqual(buildEvidenceBrief([], []), { text: "", claims: [] });
+  assert.deepEqual(buildEvidenceBrief([{ title: "A" }], [[]]), { text: "", claims: [] });
+  assert.deepEqual(buildEvidenceBrief(null, null), { text: "", claims: [] });
+});
+
+await test("wave 4 prefers brief claims over regex sentences", () => {
+  const out = buildExtractiveSynthesis(ABSTRACT_PAPERS, [
+    { text: "Brief-extracted claim about microbiome shifts with 62% Proteobacteria dominance.", idx: 1 },
+  ]);
+  assert.ok(out.includes("Brief-extracted claim"), "brief claim not preferred in fallback");
+  assert.ok(out.includes("[1]"), "brief claim citation missing");
+});
+
+await test("evidence brief is launched before wave 1 and consumed by waves 2+", () => {
+  assert.match(searchSrc, /briefPromise/, "speculative brief launch missing");
+  assert.match(searchSrc, /buildBriefMessages\(briefText\)/, "wave 2 does not consume the brief");
+  assert.match(searchSrc, /EVIDENCE BRIEF \(pre-extracted claims — lead with these/, "wave 3 does not consume the brief");
+  assert.match(searchSrc, /Promise\.any\(legs\)/, "extraction has no provider race");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
