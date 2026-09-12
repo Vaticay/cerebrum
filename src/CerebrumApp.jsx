@@ -4462,7 +4462,7 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-20.mp4", // Earth night lights — NASA SVS
   "/assets/cinematic/science-21.mp4", // Forest mushroom — Andrei Ignia
   "/assets/cinematic/science-22.mp4", // Droplets on a leaf — K
-  "/assets/cinematic/science-23.mp4", // Octopus swimming — Adrien JACTA
+  "/assets/cinematic/science-23.mp4", // Squid gliding in deep blue water — JUN HO LEE
   "/assets/cinematic/science-27.mp4", // Waterfall and river rapids — Ryan Klaus
   "/assets/cinematic/science-29.mp4", // Ant colony entrance — Eclipse Chasers
   "/assets/cinematic/science-30.mp4", // Flowing freshwater — Pexels contributor; see source page
@@ -4542,7 +4542,7 @@ const FILM_CREDITS = [
   { n: "20", title: "Earth night lights rotating globe", credit: "NASA Scientific Visualization Studio; NASA Earth Observatory / NASA-NOAA Suomi NPP data", license: "NASA media-use guidelines", licenseUrl: "https://www.nasa.gov/nasa-brand-center/images-and-media/", source: "https://svs.gsfc.nasa.gov/30878/" },
   { n: "21", title: "Forest mushroom", credit: "Andrei Ignia", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-of-a-mushroom-4938893/" },
   { n: "22", title: "Droplets on a leaf", credit: "K", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-shot-of-water-droplets-from-a-leaf-5210325/" },
-  { n: "23", title: "Octopus swimming", credit: "Adrien JACTA", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/octopus-swimming-underwater-17841948/" },
+  { n: "23", title: "Squid gliding in deep blue water", credit: "JUN HO LEE", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/mesmerizing-underwater-scene-with-squid-35035392/" },
   { n: "24", title: "Coral reef close-up", credit: "JUN HO LEE", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-of-coral-reefs-underwater-34127729/" },
   { n: "25", title: "Yellowstone geyser", credit: "Rec Everywhere", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/spectacular-yellowstone-geyser-eruption-32608305/" },
   { n: "27", title: "Waterfall and river rapids", credit: "Ryan Klaus", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-river-with-a-waterfall-and-a-boat-24837086/" },
@@ -4702,7 +4702,7 @@ const FILM_SCENES = {
   "/assets/cinematic/science-20.mp4": { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
   "/assets/cinematic/science-21.mp4": { subject: "Mycology", question: "How do fungi move nutrients through a forest?" },
   "/assets/cinematic/science-22.mp4": { subject: "Plant science", question: "Why does water bead up on some leaves and not others?" },
-  "/assets/cinematic/science-23.mp4": { subject: "Marine biology", question: "How much of an octopus's nervous system is in its arms?" },
+  "/assets/cinematic/science-23.mp4": { subject: "Marine biology", question: "How does a squid jet through the water?" },
   "/assets/cinematic/science-24.mp4": { subject: "Marine biology", question: "What lives on a coral reef besides the coral?" },
   "/assets/cinematic/science-25.mp4": { subject: "Geothermal science", question: "What makes a geyser erupt on a schedule?" },
   "/assets/cinematic/science-27.mp4": { subject: "Hydrology", question: "How does flowing water reshape the rock beneath it?" },
