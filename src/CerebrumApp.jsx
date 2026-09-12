@@ -2782,7 +2782,9 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
               className="cb-modeplate"
               style={{
                 display: "inline-flex", alignItems: "baseline", gap: 8, flexShrink: 0,
-                padding: "9px 14px", borderRadius: 10, cursor: "pointer",
+                /* 44px touch target on a phone (was ~36px). Desktop keeps
+                   the tighter plate. */
+                padding: isMobile ? "13px 16px" : "9px 14px", borderRadius: 10, cursor: "pointer",
                 fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
                 fontFamily: "var(--cb-body)", letterSpacing: "-0.005em",
                 background: on ? withAlpha(accent, 0.14) : "transparent",
@@ -5435,10 +5437,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         </div>
 
         {/* ── Now showing ──
-            The scene prompt as a specimen plate: a mono "NOW SHOWING"
-            kicker, the clip's subject, and the question as the press
-            target. The hold/release contract is untouched — a swap that
-            lands while someone is reading or pressing is held, never
+            The scene prompt as a specimen plate: a tracked-out "NOW
+            SHOWING" kicker, the clip's subject, and the question as the
+            press target. The hold/release contract is untouched — a swap
+            that lands while someone is reading or pressing is held, never
             applied under them. In normal flow at the bottom of the hero,
             so it can never land on the headline or the buttons however
             short the window gets. */}
@@ -14060,28 +14062,7 @@ function FieldRidge({ history, accent, P }) {
   );
 }
 
-// One ledger section: a hairline, a small mono eyebrow with an optional
-// count, then the entries. Shared by every section of the dossier.
-function LedgerSection({ P, eyebrow, count, children }) {
-  return (
-    <section style={{ marginTop: 38 }} aria-label={eyebrow}>
-      <div style={{
-        display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12,
-        paddingTop: 12, borderTop: `1px solid ${P.line}`, marginBottom: 2,
-      }}>
-        <span style={{
-          fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.16em",
-          textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-body)",
-        }}>{eyebrow}</span>
-        {count != null && count !== "" && (
-          <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>{count}</span>
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
-
+// ProfileEmpty is shared by the profile tabs' honest empty states.
 function ProfileEmpty({ P, accent, icon, title, body }) {
   return (
     <div style={{
@@ -14102,6 +14083,89 @@ function ProfileEmpty({ P, accent, icon, title, body }) {
   );
 }
 
+/* ── Profile covers ──
+   The eight named designs the backend's update-profile accepts
+   (ALLOWED_COVERS in functions/api/data.js), rendered as layered CSS
+   gradients — no images to fetch, no third parties, identical on every
+   device. coverDesign is a pure function of (name, accent) so the banner
+   and the cover picker can never disagree about what a cover looks like;
+   a null or unknown value falls back to "graphite", the honest default
+   rather than a guess at taste. All eight stay deep and quiet so the
+   avatar ring and the name read over any of them. */
+const COVER_ORDER = ["aurora", "graphite", "ember", "abyss", "moss", "violet", "sandstone", "signal"];
+const COVER_LABELS = {
+  aurora: "Aurora", graphite: "Graphite", ember: "Ember", abyss: "Abyss",
+  moss: "Moss", violet: "Violet", sandstone: "Sandstone", signal: "Signal",
+};
+function coverDesign(name, accent) {
+  switch (name) {
+    case "aurora":
+      return "radial-gradient(120% 90% at 15% 20%, rgba(64,145,140,0.5), transparent 60%), radial-gradient(100% 80% at 85% 30%, rgba(46,110,150,0.38), transparent 55%), linear-gradient(160deg, #0d1b1a, #0a1214 72%)";
+    case "ember":
+      return "radial-gradient(110% 90% at 80% 15%, rgba(200,110,60,0.48), transparent 60%), radial-gradient(90% 80% at 20% 80%, rgba(150,60,40,0.32), transparent 55%), linear-gradient(160deg, #1d1310, #0f0b09 72%)";
+    case "abyss":
+      return "radial-gradient(120% 90% at 70% 20%, rgba(47,110,160,0.42), transparent 60%), linear-gradient(165deg, #0b1220, #070a10 75%)";
+    case "moss":
+      return "radial-gradient(110% 90% at 25% 25%, rgba(110,150,90,0.42), transparent 60%), linear-gradient(160deg, #141a12, #0b0e0a 75%)";
+    case "violet":
+      return "radial-gradient(110% 90% at 75% 25%, rgba(130,100,180,0.42), transparent 60%), linear-gradient(160deg, #17121f, #0d0a12 75%)";
+    case "sandstone":
+      return "radial-gradient(120% 90% at 30% 20%, rgba(200,170,120,0.38), transparent 60%), linear-gradient(160deg, #221c14, #12100b 75%)";
+    case "signal":
+      return `radial-gradient(120% 100% at 50% 0%, ${withAlpha(accent, 0.38)}, transparent 62%), linear-gradient(165deg, #141619, #0c0d10 78%)`;
+    case "graphite":
+      return "radial-gradient(120% 100% at 50% 0%, rgba(255,255,255,0.07), transparent 55%), linear-gradient(165deg, #23262b, #121316 75%)";
+    default:
+      return coverDesign("graphite", accent);
+  }
+}
+/* The banner itself. Pure function of (cover, accent): the ui-render test
+   extracts this by AST and renders it in a bare vm. */
+function ProfileCover({ P, cover, accent, height }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        height: height || 150,
+        borderRadius: RADIUS.lg,
+        background: coverDesign(cover, accent),
+        border: `1px solid ${P.line}`,
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* A faint floor shadow so the overlapping avatar never floats on a
+          hard edge, however light the chosen design runs. */}
+      <div style={{
+        position: "absolute", left: 0, right: 0, bottom: 0, height: 44,
+        background: "linear-gradient(to bottom, transparent, rgba(0,0,0,0.28))",
+        pointerEvents: "none",
+      }} />
+    </div>
+  );
+}
+/* The stats row both profiles share: one line, tabular numerals, every
+   number a real count. Zero is a legitimate reading for a new account,
+   not an accusation — social profiles show their zeros. */
+function ProfileStats({ P, stats }) {
+  return (
+    <div style={{ display: "flex", gap: 26, flexWrap: "wrap" }} role="list" aria-label="Profile statistics">
+      {stats.map((s) => (
+        <div key={s.label} role="listitem" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <span style={{
+            fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink,
+            fontFamily: "var(--cb-body)", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em",
+          }}>{s.value}</span>
+          <span style={{
+            fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em",
+            textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-body)",
+          }}>{s.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, collections, onOpenHistory, onManageAccount }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
@@ -14117,10 +14181,30 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const fileInputRef = useRef(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState("");
+  const [coverSaving, setCoverSaving] = useState(false);
+  async function pickCover(c) {
+    const prev = profile.cover || "";
+    if (coverSaving || prev === c) return;
+    setCoverSaving(true);
+    try {
+      setProfile((p) => ({ ...p, cover: c }));
+      // Immediate, like the avatar — and the backend only accepts the
+      // eight named designs, so a bad value fails here, not silently.
+      await apiDataAction("update-profile", { cover: c });
+    } catch (err) {
+      setProfile((p) => ({ ...p, cover: prev }));
+      toast(err.message || "Couldn't update your cover.", { tone: "error" });
+    } finally {
+      setCoverSaving(false);
+    }
+  }
   // A profile is a thing you LOOK at; editing it is a mode you enter.
   // "Annotate" rather than "Edit profile": you are annotating the record
   // of your work, not filling in a social form.
   const [editing, setEditing] = useState(false);
+  // Content tabs: investigations, shelf, shelves — the social-profile
+  // order instead of a stacked ledger.
+  const [tab, setTab] = useState("investigations");
 
   // Center-crops whatever aspect ratio was uploaded to a square, then
   // downsamples it onto a fixed 256x256 canvas and re-encodes as JPEG —
@@ -14173,7 +14257,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     }
   }
 
-  const followers = profileMeta?.followers || 0;
   const rawBadges = profileMeta?.badges || [];
   const isFounder = rawBadges.includes("founder");
   const isVerified = rawBadges.includes("verified");
@@ -14209,13 +14292,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const collectionCounts = (collections || []).map((c) => ({ ...c, count: (saved || []).filter((s) => s.collectionId === c.id).length }));
   const shelfName = (sv) => (collections || []).find((c) => c.id === sv.collectionId)?.name || "";
 
-  const readout = [
-    `${(history || []).length} investigation${(history || []).length === 1 ? "" : "s"}`,
-    `${(saved || []).length} paper${(saved || []).length === 1 ? "" : "s"} saved`,
-    ...((collections || []).length > 0 ? [`${collections.length} shelf${collections.length === 1 ? "" : "s"}`] : []),
-    ...(followers > 0 ? [`${followers} follower${followers === 1 ? "" : "s"}`] : []),
-  ].join("  ·  ");
-
   const fmtDate = (ts) => {
     if (!ts) return "";
     const d = new Date(ts);
@@ -14230,20 +14306,25 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     <div role="region" aria-label="Your profile" style={{ flex: 1, minHeight: 0 }}>
       <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "10px 18px 72px" : "18px 28px 96px" }}>
 
-        {/* The field signature — the shape of the work, drawn from the
-            work. This is the page's "cover": it cannot be picked, posed,
-            or faked, only earned. */}
-        <FieldRidge history={history} accent={accent} P={P} />
+        {/* ── Cover + identity ───────────────────────────────────
+            A social profile opens with a banner, not a ledger. The cover
+            is the stored value (update-profile's `cover`, one of the
+            eight named designs, picked in the Annotate panel below); the
+            avatar overlaps its lower edge the way every profile people
+            already use lays out. */}
+        <ProfileCover P={P} cover={profile.cover} accent={accent} height={isMobile ? 118 : 150} />
 
-        {/* ── Identity plate ─────────────────────────────────────── */}
-        <div style={{ display: "flex", gap: isMobile ? 14 : 20, alignItems: "flex-start", marginTop: 26 }}>
-          <div style={{ position: "relative", width: isMobile ? 60 : 72, height: isMobile ? 60 : 72, flexShrink: 0 }}>
+        <div style={{
+          display: "flex", gap: isMobile ? 14 : 18, alignItems: "flex-end",
+          marginTop: isMobile ? -30 : -36, padding: isMobile ? "0 6px" : "0 10px",
+        }}>
+          <div style={{ position: "relative", width: isMobile ? 76 : 88, height: isMobile ? 76 : 88, flexShrink: 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
                 ...avatarSkin(displayName || user?.id), display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: isMobile ? 22 : 26, fontWeight: 700, fontFamily: "var(--cb-body)",
-                boxShadow: `0 0 0 2px ${withAlpha(accent, 0.35)}`,
+                fontSize: isMobile ? 28 : 32, fontWeight: 700, fontFamily: "var(--cb-body)",
+                boxShadow: `0 0 0 3px ${P.surface}, 0 0 0 4px ${withAlpha(accent, 0.35)}`,
               }}>{displayInitial}</div>
             ) : (
               <img
@@ -14253,7 +14334,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 style={{
                   width: "100%", height: "100%", borderRadius: "50%", display: "block",
                   objectFit: "cover", background: P.surface,
-                  boxShadow: `0 0 0 2px ${withAlpha(accent, 0.35)}`,
+                  boxShadow: `0 0 0 3px ${P.surface}, 0 0 0 4px ${withAlpha(accent, 0.35)}`,
                 }}
               />
             )}
@@ -14275,13 +14356,12 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
           </div>
 
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ ...eyebrow, marginBottom: 8 }}>Research dossier</div>
+          <div style={{ flex: 1, minWidth: 0, paddingBottom: 4 }}>
             {!editing ? (
               <div style={{
-                fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700,
-                color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.08,
-                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                fontSize: isMobile ? 22 : 26, fontWeight: 700,
+                color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
+                display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap",
                 ...(isFounder ? {
                   background: "linear-gradient(105deg, #f7e8b0 0%, #c9a227 40%, #ffe9a8 62%, #a8842a 100%)",
                   WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
@@ -14289,7 +14369,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 } : {}),
               }}>
                 {displayName}
-                {isVerified && <VerifiedCheck size={isMobile ? 20 : 24} />}
+                {isVerified && <VerifiedCheck size={isMobile ? 18 : 21} />}
               </div>
             ) : (
               <input
@@ -14297,11 +14377,11 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
                 placeholder={displayName}
                 aria-label="Your name"
-                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: isMobile ? FONT_SIZES.heading : FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", outline: "none" }}
+                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: isMobile ? 22 : 26, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", outline: "none" }}
               />
             )}
 
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 7, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 5, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}>
               <span>{displayUsername}</span>
               {isFounder && (
                 <span style={{ color: "#c9a227", fontWeight: 700, fontSize: FONT_SIZES.micro, letterSpacing: "0.08em", textTransform: "uppercase" }}>
@@ -14309,55 +14389,84 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 </span>
               )}
             </div>
-
-            {/* The pursuing line — a research statement written by the work
-                itself. Updates as the investigations do. */}
-            {!editing && pursuits.length > 0 && (
-              <div style={{ marginTop: 12, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-                <span style={{ ...eyebrow, letterSpacing: "0.1em", marginRight: 10 }}>Pursuing</span>
-                {pursuits.join(" · ")}
-              </div>
-            )}
-
-            {!editing && contextLine && (
-              <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
-            )}
-            {!editing && !contextLine && (
-              <button
-                type="button" onClick={() => setEditing(true)}
-                style={{ marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "inline-flex", alignItems: "center", gap: 6 }}
-              >
-                <Icon name="sparkle" size={12} /> Add your degree and institution
-              </button>
-            )}
-
-            {!editing && profile.bio && (
-              <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
-            )}
-            {!editing && (profile.link_site || profile.link_orcid || profile.link_scholar) && (
-              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
-                {[["link", "Website", profile.link_site], ["check", "ORCID", profile.link_orcid], ["bookOpen", "Scholar", profile.link_scholar]]
-                  .filter(([, , href]) => !!href)
-                  .map(([icon, label, href]) => (
-                    <a key={label} href={safeHref(href)} target="_blank" rel="noopener noreferrer nofollow" style={{
-                      display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
-                      color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
-                      borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
-                    }}><Icon name={icon} size={12} /> {label}</a>
-                  ))}
+            {/* Badges live with the identity now, not in a ledger section
+                at the bottom of the page — they are about who this is. */}
+            {!editing && realBadges.length > 0 && (
+              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
+                {realBadges.map((b) => (
+                  <span key={b.label} style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600,
+                    padding: "4px 10px", borderRadius: RADIUS.pill,
+                    color: b.real ? accent : (b.tint || P.ink2),
+                    background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
+                    border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
+                  }}>
+                    <Icon name={b.icon} size={12} />
+                    {b.label}
+                  </span>
+                ))}
               </div>
             )}
           </div>
         </div>
 
-        {/* The readouts — one quiet ledger line, not stat cards. A count
-            that reads 0 is an accusation, so social counts appear only once
-            there is something to count; the work always shows. */}
+        {/* Bio, context and links read full-width under the identity row —
+            the social-profile order: who, then what they're about. */}
+        <div style={{ padding: isMobile ? "0 6px" : "0 10px", marginTop: 14 }}>
+          {/* The pursuing line — a research statement written by the work
+              itself. Updates as the investigations do. */}
+          {!editing && pursuits.length > 0 && (
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
+              <span style={{ ...eyebrow, letterSpacing: "0.1em", marginRight: 10 }}>Pursuing</span>
+              {pursuits.join(" · ")}
+            </div>
+          )}
+
+          {!editing && contextLine && (
+            <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
+          )}
+          {!editing && !contextLine && (
+            <button
+              type="button" onClick={() => setEditing(true)}
+              style={{ marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <Icon name="sparkle" size={12} /> Add your degree and institution
+            </button>
+          )}
+
+          {!editing && profile.bio && (
+            <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
+          )}
+          {!editing && (profile.link_site || profile.link_orcid || profile.link_scholar) && (
+            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
+              {[["link", "Website", profile.link_site], ["check", "ORCID", profile.link_orcid], ["bookOpen", "Scholar", profile.link_scholar]]
+                .filter(([, , href]) => !!href)
+                .map(([icon, label, href]) => (
+                  <a key={label} href={safeHref(href)} target="_blank" rel="noopener noreferrer nofollow" style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+                    color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
+                    borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
+                  }}><Icon name={icon} size={12} /> {label}</a>
+                ))}
+            </div>
+          )}
+        </div>
+
+        {/* The stats row — every number a real count: investigations and
+            papers from local state, followers and following from the
+            account's own profile endpoint. Zero is a legitimate reading
+            for a new account, not an accusation — social profiles show
+            their zeros. */}
         <div style={{
-          marginTop: 22, paddingTop: 14, borderTop: `1px solid ${P.line}`,
-          fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.02em",
+          marginTop: 20, padding: isMobile ? "16px 6px 0" : "18px 10px 0",
+          borderTop: `1px solid ${P.line}`,
         }}>
-          {readout}
+          <ProfileStats P={P} stats={[
+            { label: "Questions", value: (history || []).length },
+            { label: "Papers", value: (saved || []).length },
+            { label: "Followers", value: profileMeta?.followers || 0 },
+            { label: "Following", value: profileMeta?.followingCount || 0 },
+          ]} />
         </div>
 
         <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16 }}>
@@ -14383,6 +14492,41 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
         {editing && (
           <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px dashed ${P.line2}`, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
+            {/* The cover picker: the eight named designs update-profile
+                accepts. Saved immediately like the avatar — a banner you
+                just picked shouldn't be one closed tab away from being
+                lost. The backend rejects anything outside ALLOWED_COVERS,
+                so a hand-edited value can never be stored. */}
+            <div>
+              <div style={{ ...eyebrow, marginBottom: 8 }}>Cover</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }} role="radiogroup" aria-label="Profile cover">
+                {COVER_ORDER.map((c) => {
+                  const on = (profile.cover || "graphite") === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      title={COVER_LABELS[c]}
+                      aria-label={`Cover: ${COVER_LABELS[c]}`}
+                      disabled={coverSaving}
+                      onClick={() => pickCover(c)}
+                      style={{
+                        width: 56, height: 36, borderRadius: 8, cursor: coverSaving ? "default" : "pointer",
+                        background: coverDesign(c, accent),
+                        border: on ? `2px solid ${accent}` : `1px solid ${P.line2}`,
+                        opacity: coverSaving && !on ? 0.5 : 1,
+                        padding: 0,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", marginTop: 6 }}>
+                {coverSaving ? "Saving…" : `Now showing: ${COVER_LABELS[profile.cover] || "Graphite"}`}
+              </div>
+            </div>
             <div>
               <div style={{ ...eyebrow, marginBottom: 8 }}>About you</div>
               <textarea
@@ -14493,9 +14637,51 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </div>
         )}
 
-        {/* ── The ledger ─────────────────────────────────────────── */}
-        <LedgerSection P={P} eyebrow="Investigations" count={ledger.length > 0 ? `${ledger.length} entr${ledger.length === 1 ? "y" : "ies"}` : ""}>
-          {ledger.length === 0 ? (
+        {/* ── Field signature ──────────────────────────────────────
+            The shape of the work, drawn from the work: it cannot be
+            picked, posed, or faked, only earned. Cerebrum's answer to the
+            contribution graph — one tick per investigation over the last
+            120 days, taller where the paper haul was bigger. */}
+        <div style={{ marginTop: 30 }}>
+          <div style={{ ...eyebrow, marginBottom: 4 }}>Field signature · last 120 days</div>
+          <FieldRidge history={history} accent={accent} P={P} />
+        </div>
+
+        {/* ── Content tabs ─────────────────────────────────────────
+            Investigations, the shelf, and shelves are tabs now, not a
+            stacked ledger — the social-profile order. Badges moved up
+            with the identity and affiliation stays in the context line,
+            so the old Marks section has nothing left to hold. */}
+        <div style={{ marginTop: 26 }}>
+          <div role="tablist" aria-label="Profile content" style={{ display: "flex", gap: 2, borderBottom: `1px solid ${P.line}` }}>
+            {[
+              { key: "investigations", label: "Investigations", count: ledger.length },
+              { key: "shelf", label: "Shelf", count: (saved || []).length },
+              { key: "shelves", label: "Shelves", count: collectionCounts.length },
+            ].map((t) => {
+              const on = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => setTab(t.key)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    padding: "10px 14px", marginBottom: -1,
+                    fontSize: FONT_SIZES.small, fontWeight: on ? 700 : 500,
+                    fontFamily: "var(--cb-body)", color: on ? P.ink : P.faint,
+                    borderBottom: on ? `2px solid ${accent}` : "2px solid transparent",
+                  }}
+                >
+                  {t.label}
+                  <span style={{ marginLeft: 7, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", fontVariantNumeric: "tabular-nums" }}>{t.count}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div role="tabpanel" style={{ paddingTop: 8, minHeight: 120 }}>
+            {tab === "investigations" && (ledger.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="history"
               title="No investigations yet"
               body="Every question you ask is kept as an investigation: the thread, the papers it found, and what you saved from it." />
@@ -14521,11 +14707,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 </button>
               ))}
             </div>
-          )}
-        </LedgerSection>
-
-        <LedgerSection P={P} eyebrow="Shelf" count={saved.length > 0 ? `${saved.length} kept` : ""}>
-          {saved.length === 0 ? (
+          ))}
+            )}
+            {tab === "shelf" && (saved.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="bookmark"
               title="Nothing on the shelf yet"
               body="Save a paper from any answer and it lands here, with the investigation that found it." />
@@ -14541,11 +14725,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 </div>
               ))}
             </div>
-          )}
-        </LedgerSection>
-
-        <LedgerSection P={P} eyebrow="Shelves" count={collectionCounts.length > 0 ? `${collectionCounts.length}` : ""}>
-          {collectionCounts.length === 0 ? (
+          ))}
+            )}
+            {tab === "shelves" && (collectionCounts.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="folder"
               title="No shelves yet"
               body="Shelves group saved papers by question rather than by date. Make one from any paper you have saved." />
@@ -14562,34 +14744,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 </div>
               ))}
             </div>
-          )}
-        </LedgerSection>
-
-        {(realBadges.length > 0 || profile.affiliation) && (
-          <LedgerSection P={P} eyebrow="Marks">
-            {realBadges.length > 0 && (
-              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, padding: "4px 0 2px" }}>
-                {realBadges.map((b) => (
-                  <span key={b.label} style={{
-                    display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 600,
-                    padding: "5px 12px", borderRadius: RADIUS.pill,
-                    color: b.real ? accent : (b.tint || P.ink2),
-                    background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
-                    border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
-                  }}>
-                    <Icon name={b.icon} size={13} />
-                    {b.label}
-                  </span>
-                ))}
-              </div>
+          ))}
             )}
-            {profile.affiliation && (
-              <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: realBadges.length > 0 ? 10 : 2 }}>
-                {profile.affiliation}
-              </div>
-            )}
-          </LedgerSection>
-        )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -14811,11 +14969,11 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               </div>
               <div style={{ alignItems: "center", display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={() => messageResearcher(founder)} disabled={messageBusy.has(founder.id)} className="cb-press" style={{
-                  padding: "8px 16px", borderRadius: 100, border: "none", cursor: "pointer",
+                  padding: "10px 18px", minHeight: 44, borderRadius: 100, border: "none", cursor: "pointer",
                   background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
                 }}>{messageBusy.has(founder.id) ? "Opening…" : "Ask a question"}</button>
                 <button onClick={() => toggleFollow(founder)} disabled={followBusy.has(founder.id)} className="cb-press" style={{
-                  padding: "8px 16px", borderRadius: 100, cursor: "pointer",
+                  padding: "10px 18px", minHeight: 44, borderRadius: 100, cursor: "pointer",
                   background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
                   fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
                 }}>{founder.following ? "Following" : "Follow"}</button>
@@ -14826,7 +14984,9 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
             const isFollowing = !!r.following;
             const isFollowBusy = followBusy.has(r.id);
             const isMessageBusy = messageBusy.has(r.id);
-            const subtitle = [r.affiliation, r.followers ? `${r.followers} follower${r.followers === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
+            // Degree reads before affiliation: "Ph.D. · University of
+            // Tennessee" is how a researcher introduces themselves.
+            const subtitle = [r.degree, r.affiliation, r.followers ? `${r.followers} follower${r.followers === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
             return (
               /* Commit 100 — the row is the way into a profile. Before this
                  a search result was terminal: a name, an institution, and two
@@ -14857,13 +15017,14 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                 }}>{(r.name || r.username || "?").trim().charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
-                  {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>@{r.username}</div>
+                  {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{subtitle}</div>}
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleFollow(r); }}
                   disabled={isFollowBusy}
                   style={{
-                    fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "6px 12px", borderRadius: 100, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
+                    fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "10px 16px", minHeight: 44, borderRadius: 100, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
                     opacity: isFollowBusy ? 0.6 : 1,
                     color: isFollowing ? P.ink2 : accent,
                     background: isFollowing ? (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)") : withAlpha(accent, 0.1),
@@ -14875,8 +15036,8 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   disabled={isMessageBusy}
                   aria-label={`Message ${r.name}`}
                   title={`Message ${r.name}`}
-                  style={{ width: 32, height: 32, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: isMessageBusy ? "default" : "pointer", opacity: isMessageBusy ? 0.6 : 1 }}
-                ><Icon name="mail" size={14} /></button>
+                  style={{ width: 44, height: 44, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: isMessageBusy ? "default" : "pointer", opacity: isMessageBusy ? 0.6 : 1 }}
+                ><Icon name="mail" size={15} /></button>
               </div>
             );
           })}
@@ -15121,33 +15282,33 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
           )}
           {!loading && !error && u && (
             <>
-              {/* Dossier header — no cover banner. A stranger's profile gets
-                  the same archival plate as your own: a hairline, the name,
-                  and the facts. Nothing to pose with. */}
-              <div style={{ padding: isMobile ? "20px 18px 22px" : "24px 26px 26px" }}>
-                <div style={{ height: 1, background: P.line, marginBottom: 18 }} />
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                  <div style={{ width: isMobile ? 64 : 76, height: isMobile ? 64 : 76, flexShrink: 0 }}>
+              {/* The cover is the account's own stored value (public-profile
+                  returns it), rendered with the same component as your own
+                  profile — one banner design language everywhere. */}
+              <div style={{ padding: isMobile ? "12px 12px 22px" : "16px 16px 26px" }}>
+                <ProfileCover P={P} cover={u.cover} accent={accent} height={isMobile ? 96 : 120} />
+                <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: isMobile ? -26 : -30, padding: isMobile ? "0 8px" : "0 10px" }}>
+                  <div style={{ width: isMobile ? 64 : 72, height: isMobile ? 64 : 72, flexShrink: 0 }}>
                     {u.avatar_base64 ? (
                       <img
                         src={u.avatar_base64}
                         alt={`${displayName}'s avatar`}
-                        style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface, boxShadow: `0 0 0 2px ${withAlpha(accent, 0.35)}` }}
+                        style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface, boxShadow: `0 0 0 3px ${P.surface}, 0 0 0 4px ${withAlpha(accent, 0.35)}` }}
                       />
                     ) : (
                       <div style={{
                         width: "100%", height: "100%", borderRadius: "50%",
                         ...avatarSkin(displayName || u.id),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: isMobile ? 26 : 30, fontWeight: 700, fontFamily: "var(--cb-body)",
-                        boxShadow: `0 0 0 2px ${withAlpha(accent, 0.35)}`,
+                        fontSize: isMobile ? 26 : 28, fontWeight: 700, fontFamily: "var(--cb-body)",
+                        boxShadow: `0 0 0 3px ${P.surface}, 0 0 0 4px ${withAlpha(accent, 0.35)}`,
                       }}>{initial}</div>
                     )}
                   </div>
 
                   {/* Relationship buttons sit on the avatar's line, the way
                       every profile people already use puts them. */}
-                  <div style={{ alignItems: "center", display: "flex", gap: 8, paddingBottom: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <div style={{ alignItems: "center", display: "flex", gap: 8, paddingBottom: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button
                       onClick={toggleFollow}
                       disabled={busy}
@@ -15177,6 +15338,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                   </div>
                 </div>
 
+                <div style={{ padding: isMobile ? "0 8px" : "0 10px" }}>
                 <div style={{ marginTop: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                     <h2 style={{ fontSize: isMobile ? 21 : 24, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>{displayName}</h2>
@@ -15228,9 +15390,11 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                   </div>
                 )}
 
-                <div style={{ display: "flex", gap: 18, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>
-                  <span><strong style={{ color: P.ink, fontWeight: 700 }}>{data.followers}</strong> {data.followers === 1 ? "follower" : "followers"}</span>
-                  <span><strong style={{ color: P.ink, fontWeight: 700 }}>{data.followingCount}</strong> following</span>
+                <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${P.line}` }}>
+                  <ProfileStats P={P} stats={[
+                    { label: "Followers", value: data.followers || 0 },
+                    { label: "Following", value: data.followingCount || 0 },
+                  ]} />
                 </div>
 
                 {(data.badges || []).length > 0 && (
@@ -15251,6 +15415,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                     think other people can see. */}
                 <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, marginTop: 18, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
                   Cerebrum profiles never show what someone searched for, saved, or read. Follower counts don't open into lists.
+                </div>
                 </div>
               </div>
             </>
@@ -17417,10 +17582,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // sidebar its own fixed column turns "tap to see your sources" into
     // "they're just there," which is the whole point of a research tool.
     workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 44, maxWidth: 1320 },
-    thread: { minWidth: 0, flex: 1 },
     sidebarCol: { width: 340, flexShrink: 0 },
 
     /* ── Turn: clean editorial brief ── */
+    /* Mobile: the hamburger is fixed at top:14 and 38px tall, so it owns
+       the first ~52px of the viewport. The thread used to start at the
+       workspace's 32px top padding, which put the first turn's "Inquiry"
+       label directly underneath the button. 36px here + 32px there = 68px
+       of clearance, mirroring pageViewInner's treatment. */
+    thread: { minWidth: 0, flex: 1, paddingTop: isMobile ? 36 : 0 },
     turn: { marginBottom: isMobile ? 40 : 56 },
     qLabel: {
       fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em",
@@ -17580,8 +17750,24 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     foot: { marginTop: "auto", padding: "32px 0 36px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
     footDbs: { fontSize: FONT_SIZES.micro, letterSpacing: "0.01em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-body)" },
 
-    /* ── Mobile sources FAB ── */
-    mobSrcBtn: { position: "fixed", bottom: "calc(18px + env(safe-area-inset-bottom, 0px))", right: 18, background: accent, color: at, border: "none", borderRadius: 8, padding: "14px 20px", fontSize: FONT_SIZES.small, fontWeight: 600, cursor: "pointer", boxShadow: `0 6px 24px ${withAlpha(accent, 0.4)}, 0 2px 8px rgba(0,0,0,0.2)`, zIndex: 20, fontFamily: "var(--cb-body)", display: "inline-flex", alignItems: "center", gap: 8, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" },
+    /* ── Mobile sources FAB ──
+       Was a wide "Sources 12" pill docked bottom-right: it sat directly on
+       top of answer headings and body text while reading. Now a compact
+       52px circle in the thumb zone — and it gets out of the way on its
+       own: the App's scroll listener hides it (transform/opacity only, no
+       layout) while scrolling down through an answer and brings it back on
+       scroll-up or near the top, so it never occludes content mid-read.
+       Solid background, no backdrop blur: a 52px blur over playing video
+       is per-frame compositor work for zero legibility gain at this size. */
+    mobSrcBtn: {
+      position: "fixed", bottom: "calc(20px + env(safe-area-inset-bottom, 0px))", right: 16,
+      width: 52, height: 52, borderRadius: "50%",
+      background: accent, color: at, border: "none", cursor: "pointer",
+      boxShadow: `0 8px 28px ${withAlpha(accent, 0.45)}, 0 2px 8px rgba(0,0,0,0.25)`,
+      zIndex: 20, fontFamily: "var(--cb-body)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      transition: "transform 260ms cubic-bezier(0.22,1,0.36,1), opacity 200ms ease",
+    },
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", zIndex: 25 },
 
     /* ── Command palette ── */
@@ -18306,7 +18492,7 @@ function App() {
   // this modal directly — following happens from someone else's account,
   // badges are granted server-side), so they live separately from the
   // editable `profile` fields above instead of being folded into it.
-  const [profileMeta, setProfileMeta] = useState({ followers: 0, badges: [] });
+  const [profileMeta, setProfileMeta] = useState({ followers: 0, followingCount: 0, badges: [] });
   // Inbox threads — real rows from get-inbox once signed in; stays empty
   // for guests and for any signed-in account with no conversations yet
   // (there's currently no "start a new conversation" flow anywhere in the
@@ -18359,7 +18545,7 @@ function App() {
         link_orcid: profileRes.user.link_orcid || "",
         link_scholar: profileRes.user.link_scholar || "",
       }));
-      setProfileMeta({ followers: profileRes.followers || 0, badges: profileRes.badges || [] });
+      setProfileMeta({ followers: profileRes.followers || 0, followingCount: profileRes.followingCount || 0, badges: profileRes.badges || [] });
       // Accepted on another device? Don't ask again here — write the
       // cookie so this browser matches the account's real state. The
       // reverse (cookie accepted, account not) is handled when the gate
@@ -18443,7 +18629,7 @@ function App() {
     setBusy(false); setTurns([]); setAllSources([]);
     try { await apiAuth("logout", {}); } catch {}
     setUser(null); setSyncReady(false); setCollections([]);
-    setProfile({}); setProfileMeta({ followers: 0, badges: [] }); setThreads([]);
+    setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
     sfx();
   }
 
@@ -18456,7 +18642,7 @@ function App() {
     investigationRequest.current += 1;
     setBusy(false); setTurns([]); setAllSources([]);
     setUser(null); setSyncReady(false); setCollections([]); setSaved([]); setHistory([]);
-    setProfile({}); setProfileMeta({ followers: 0, badges: [] }); setThreads([]);
+    setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
   }
 
   const [input, setInput] = useState("");
@@ -18806,6 +18992,11 @@ function App() {
   // scroll div — see the `page`/`scroll` style notes in makeStyles() for why.
   const [scrollProg, setScrollProg] = useState(0);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  /* Sources FAB visibility: shown near the top and while scrolling up,
+     hidden while scrolling down through an answer so it never sits on the
+     text being read. transform/opacity-only show/hide (see S.mobSrcBtn). */
+  const [fabVisible, setFabVisible] = useState(true);
+  const lastScrollY = useRef(0);
   useEffect(() => {
     const onScroll = () => {
       const doc = document.documentElement;
@@ -18813,6 +19004,9 @@ function App() {
       const top = window.scrollY || doc.scrollTop || 0;
       setScrollProg(max > 0 ? top / max : 0);
       setShowScrollTop(top > 400);
+      const showFab = top < 140 || top <= lastScrollY.current;
+      lastScrollY.current = top;
+      setFabVisible((v) => (v === showFab ? v : showFab));
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
@@ -19672,7 +19866,7 @@ function App() {
           edge of a card is its quiet side. Opaque, shadowed, and on the
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
-      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? 80 : 24) /* clears the Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? 16 : 24, width: 38, height: 38, borderRadius: "50%", background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95), border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
+      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? 88 : 24) /* clears the 52px Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? 16 : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -19708,15 +19902,19 @@ function App() {
           title="Menu"
           style={{
             position: "fixed", top: 14, left: 14, zIndex: 21,
-            width: 38, height: 38, borderRadius: "50%",
+            /* 44px touch target. Was 38px with a 16px backdrop blur — the
+               blur re-composited every frame over playing video for a
+               button nobody looks at, and 38px is under the touch rule.
+               Solid background now; the border keeps it legible over
+               footage. */
+            width: 44, height: 44, borderRadius: "50%",
             display: "flex", alignItems: "center", justifyContent: "center",
             // Was 0.75/0.85 — translucent enough that the Home Deck's first
             // stat read straight through the button as it scrolled under.
             // A control that content shows through isn't glass, it's a
             // smudge.
-            background: P.dark ? withAlpha(P.bg, 0.93) : withAlpha(P.bg, 0.95),
+            background: P.dark ? "#101317" : "#ffffff",
             border: `1px solid ${P.line}`,
-            backdropFilter: "blur(16px) saturate(1.3)", WebkitBackdropFilter: "blur(16px) saturate(1.3)",
             boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)",
             color: P.ink, cursor: "pointer",
           }}
@@ -20352,7 +20550,33 @@ function App() {
         </Reveal>
       )}
       </main>
-      {started && isMobile && (<button style={{ ...S.mobSrcBtn, "--fab-glow": withAlpha(accent, 0.35) }} className="cb-fab-pulse" onClick={() => setMobilePanel(true)} aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}><Icon name="sparkle" size={14} /><span>Sources</span>{allSources.length > 0 && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(at, 0.22), padding: "2px 6px", borderRadius: 8, lineHeight: 1.3 }}>{allSources.length}</span>}</button>)}
+      {started && isMobile && (
+        <button
+          style={{
+            ...S.mobSrcBtn,
+            opacity: fabVisible ? 1 : 0,
+            transform: fabVisible ? "translateY(0)" : "translateY(72px)",
+            pointerEvents: fabVisible ? "auto" : "none",
+          }}
+          onClick={() => setMobilePanel(true)}
+          aria-label={`Sources${allSources.length ? `, ${allSources.length}` : ""}`}
+          aria-hidden={!fabVisible}
+          tabIndex={fabVisible ? 0 : -1}
+        >
+          <Icon name="sparkle" size={19} />
+          {allSources.length > 0 && (
+            <span style={{
+              position: "absolute", top: -5, right: -5, minWidth: 24, height: 24,
+              padding: "0 6px", borderRadius: 9999,
+              background: P.dark ? "#f2f4f2" : "#14171a", color: P.dark ? "#14171a" : "#f2f4f2",
+              fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-body)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontVariantNumeric: "tabular-nums",
+              border: `2px solid ${P.dark ? "#0b0d10" : "#ffffff"}`,
+            }}>{allSources.length}</span>
+          )}
+        </button>
+      )}
       {started && isMobile && mobilePanel && (<><div style={S.scrim} onClick={() => setMobilePanel(false)} className="cb-backdrop" /><aside role="dialog" aria-modal="true" aria-label="Sources" style={{ ...S.panel, ...S.panelMobile }} className="cb-modal"><button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}</aside></>)}
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} P={P} accent={accent}
         query={cmdQuery} setQuery={setCmdQuery} suggestions={cmdSuggest} commands={filteredCmds}
@@ -20952,6 +21176,22 @@ summary::-webkit-details-marker { display: none; }
   margin-right: 8px;
 }
 .cb-modepreview-text { animation: cbReadingIn 0.3s ease both; display: inline-block; }
+
+/* ── 375px audit: touch targets + keyboard-open composer ──
+   The composer's ghost tools and the ask button were 40px — under the
+   44px touch rule — and the mode plates measured ~38px tall. On a phone
+   the dropdown could also run under the iOS keyboard with no way to
+   reach the lower items. All three are phone-only adjustments; desktop
+   keeps its tighter metrics. */
+@media (max-width: 480px) {
+  .cb-qline-tool, .cb-qline-mic { width: 44px; height: 44px; }
+  .cb-qline-ask { width: 48px; height: 48px; }
+  .cb-qline-recent {
+    max-height: min(44vh, 320px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
 
 /* ── EchoField: the loading screen as a signal in flight ──
    The transmitted pulse propagates outward through the fifteen database

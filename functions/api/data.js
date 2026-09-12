@@ -464,6 +464,11 @@ export async function onRequest(context) {
         const followerCount = await env.DB.prepare(
           "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
         ).bind(user.id).first();
+        // The profile's stats row shows followers AND following; both are
+        // the same follows table read in the two directions.
+        const followingCount = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM follows WHERE follower_id = ?"
+        ).bind(user.id).first();
         // Commit 74 — grant before reading, so the founder's badges exist
         // the first time they open their own profile rather than needing a
         // separate migration step.
@@ -475,6 +480,7 @@ export async function onRequest(context) {
           ok: true,
           user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, degree: row.degree || null, grad_year: row.grad_year || null, avatar_base64: row.avatar_base64 || null, bio: row.bio || null, cover: row.cover || null, link_site: row.link_site || null, link_orcid: row.link_orcid || null, link_scholar: row.link_scholar || null },
           followers: followerCount?.n || 0,
+          followingCount: followingCount?.n || 0,
           badges: (badgeRows.results || []).map((b) => b.badge_type),
           // Commit 69 — lets the consent gate ask the ACCOUNT, not just
           // this browser. Someone who accepted on their laptop shouldn't be
