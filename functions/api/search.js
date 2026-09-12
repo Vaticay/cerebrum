@@ -4228,7 +4228,7 @@ function detectWrongOrganismCitations(text) {
 // ══════════════════════════════════════════════════════════════════════════
 // WAVE 4 — DETERMINISTIC EXTRACTIVE SYNTHESIS (no network, no AI)
 //
-// The last line of defense before the honest "Unable To Synthesize"
+// The last line of defense before the honest no-results answer.
 // fallback. Every tier above this point depends on an external AI
 // provider, and providers can all be down at once (a throttled shared
 // free-tier bucket, a keyless-pool outage, an unbound Workers AI). This
@@ -4334,16 +4334,91 @@ function usableAbstract(p) {
   return /^no abstract available\.?$/i.test(a) ? "" : a;
 }
 
+/* Provider/infrastructure error text must NEVER become a claim, a citation,
+ * or a summary sentence. The real incident: Pollinations answered HTTP 200
+ * with "The API key used for this request has reached its budget…" and the
+ * evidence-brief extractor parsed that error body into claims — one shipped
+ * as cited claim [3] inside a Wave-4 fallback summary. This is the structural
+ * backstop, consulted at four choke points: (a) the evidence-brief legs,
+ * (b) the brief-claim ingestion, (c) raceEntry for every AI wave, and
+ * (d) takeClaim inside the extractive synthesis. Strong signals match alone;
+ * weak signals need two partners so ordinary scientific prose ("budget
+ * impact analysis", "quota sampling") never trips it. */
+const PROVIDER_ERROR_STRONG = [
+  /pollinations/i,
+  /openrouter/i,
+  /raise the (?:api )?key budget/i,
+  /\bapi key\b.{0,60}\b(budget|quota|invalid|expired|revoked|reached its)\b/i,
+  /\b(budget|quota)\b.{0,60}\bapi key\b/i,
+  /rate[\s-]?limit/i,
+  /too many requests/i,
+  /\b429\b/,
+  /service unavailable/i,
+  /bad gateway/i,
+  /topping up/i,
+  /\bwallet\b/i,
+  /temporarily unavailable/i,
+  /insufficient (?:credits|funds|quota)/i,
+  /invalid api key/i,
+  /authentication failed/i,
+  /\bunauthorized\b/i,
+  /model (?:is )?(?:currently )?(?:unavailable|overloaded)|no endpoints/i,
+];
+const PROVIDER_ERROR_WEAK = [
+  /\btry again\b/i,
+  /\bbudget\b/i,
+  /\bquota\b/i,
+  /\bunavailable\b/i,
+  /\btemporarily\b/i,
+  /\bexceeded\b/i,
+  /\bcredits\b/i,
+  /\b50[0-3]\b/,
+  /\b40[0-9]\b/,
+];
+export function isProviderErrorText(text) {
+  const t = String(text || "");
+  if (!t) return false;
+  if (PROVIDER_ERROR_STRONG.some((re) => re.test(t))) return true;
+  let weak = 0;
+  for (const re of PROVIDER_ERROR_WEAK) if (re.test(t)) weak++;
+  return weak >= 3;
+}
+
+/* Strict success validation for provider completions. A 200 whose body is
+ * provider error text is a FAILURE, never content — this is the exact hole
+ * the Pollinations budget incident walked through (HTTP 200 + "API key …
+ * reached its budget" treated as a successful synthesis). Every provider
+ * call (callOR, callCF, callCompat, pollinationsCall), the evidence-brief
+ * legs, and the wave race entries all funnel through here, so no future
+ * call path can reintroduce the hole by forgetting the check. */
+export function assertValidProviderText(text, label) {
+  if (isProviderErrorText(text)) {
+    throw new Error((label || "provider") + ": provider returned error text, not an answer");
+  }
+  return text;
+}
+
+/* Extraction models tag claims with section labels ("[Results] Cracks in…",
+ * "[Methods] …") despite the "no extra text" instruction. Those tags are
+ * model scaffolding, not paper content — strip them before a claim can be
+ * cited or printed. Only LEADING non-numeric bracket tags are removed;
+ * numeric citations ([1], [1-2]) are never touched. */
+const CLAIM_TAG_RE = /^\s*(?:\[(?!\d+(?:-\d+)?\])[^\[\]]{1,24}\]\s*)+/;
+export function stripClaimTags(text) {
+  return String(text || "").replace(CLAIM_TAG_RE, "").trim();
+}
+
 /* Fingerprint for claim text: two sentences are "the same claim" when they
- * normalize identically — case, markdown bold, citation markers, and
- * punctuation stripped. Used by buildExtractiveSynthesis to guarantee each
- * claim is emitted exactly once across the whole summary. The real
- * incident: Wave-4 printed the same sentence twice with [1] and [2] because
- * the two records were the same paper (one with a DOI, one without) and
- * nothing compared the claim text itself. */
+ * normalize identically — case, markdown bold, citation markers, extraction
+ * tags, and punctuation stripped. Used by buildExtractiveSynthesis to
+ * guarantee each claim is emitted exactly once across the whole summary. The
+ * real incident: Wave-4 printed the same sentence twice with [1] and [2]
+ * because the two records were the same paper (one with a DOI, one without)
+ * and nothing compared the claim text itself. */
 export function fingerprintClaim(text) {
   return String(text || "")
     .toLowerCase()
+    .replace(CLAIM_TAG_RE, "")
     .replace(/\*\*/g, "")
     .replace(/\[\d+(?:-\d+)?\]/g, "")
     .replace(/[^a-z0-9\s]/g, " ")
@@ -4351,7 +4426,13 @@ export function fingerprintClaim(text) {
     .trim();
 }
 
-export function buildExtractiveSynthesis(papers, briefClaims) {
+export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
+  // ctx (optional): { sourcesQueried, relevanceGatedOut, ambiguity } —
+  // feeds the computed "How solid is this?" section and the ambiguity note.
+  // The five H2 sections mirror the AI path's REQUIRED OUTPUT STRUCTURE
+  // ("The short answer" / "What the research shows" / "Where researchers
+  // disagree" / "How solid is this?" / "What would change this") so a
+  // degraded answer reads as the same product, not a different one.
   try {
     // When the speculative evidence-brief extraction succeeded before the
     // providers failed, its LLM-extracted atomic claims outrank regex-picked
@@ -4379,12 +4460,14 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
         .filter(({ score }) => score > 0)
         .sort((a, b) => b.score - a.score);
       const top = ranked.slice(0, 2);
-      it.findings = top.map(({ s }) => boldExtractQuantities(tidyExtractSentence(s)));
+      // Extraction tags ("[Results] …") are stripped here so they can never
+      // reach a citation or the printed summary.
+      it.findings = top.map(({ s }) => stripClaimTags(boldExtractQuantities(tidyExtractSentence(s))));
       it.findingScores = top.map(({ score }) => score);
       // Prefer brief claims (LLM-extracted, atomic) over regex-picked sentences.
       const fromBrief = (briefByIdx[it.idx] || []).slice(0, 2);
       if (fromBrief.length) {
-        it.findings = fromBrief.map(boldExtractQuantities);
+        it.findings = fromBrief.map((t) => stripClaimTags(boldExtractQuantities(t)));
         it.findingScores = fromBrief.map((t) => scoreFindingSentence(t));
       }
       it.titleClaim = extractTitleClaim(it.p.title);
@@ -4404,6 +4487,9 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
     // their identical claim text can only ever print once.
     const emittedClaims = new Set();
     const takeClaim = (text) => {
+      // Structural backstop: provider error text can never become a cited
+      // claim, even if it survived every upstream filter.
+      if (isProviderErrorText(text)) return null;
       const k = fingerprintClaim(text);
       if (!k || emittedClaims.has(k)) return null;
       emittedClaims.add(k);
@@ -4421,12 +4507,14 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
     candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
 
     const unitWord = pool.length === 1 ? "source" : "sources";
-    let md = "## What the sources indicate\n\n";
-    // The lede is built from the top-ranked UNIQUE claims — never from glued
-    // keywords. The old lede concatenated the most frequent terms ("converge
-    // on crack and patterns and soil"): keyword soup, not an answer. Each
-    // lede claim comes from a different paper so the opening reads as a
-    // synthesis, not one paper's summary.
+    let md = "## The short answer\n\n";
+    // The TLDR lede: 2–3 plain sentences, each carrying its own citation —
+    // no meta-framing ("Across the N sources below, the clearest reported
+    // findings are:"), no citation soup, no extraction tags. The old lede
+    // read as a robot narrating its own output; this reads as the answer.
+    // Each lede claim comes from a different paper so the opening reads as
+    // a synthesis, not one paper's summary. Capped at two: the theme
+    // sections below must keep each paper's remaining findings visible.
     const leads = [];
     const usedIdx = new Set();
     for (const c of candidates) {
@@ -4438,12 +4526,29 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
       if (leads.length >= 2) break;
     }
     if (leads.length) {
-      md += "Across the " + pool.length + " " + unitWord + " below, the clearest reported findings are: " +
-        leads.map((c) => c.text + " [" + c.idx + "]").join(" ") + "\n";
+      const tldr = leads.map((c) => {
+        let s = stripClaimTags(c.text);
+        if (!/[.!?]$/.test(s)) s += ".";
+        s = s.replace(/^[a-z]/, (ch) => ch.toUpperCase());
+        return s + " [" + c.idx + "]";
+      });
+      md += tldr.join(" ") + "\n";
     } else {
       md += "The " + pool.length + " " + unitWord + " below address the question from different angles; their findings are grouped by theme.\n";
     }
+    // Ambiguity is never silently resolved: one honest line naming the
+    // interpretations the question could carry. The one-tap alternatives
+    // ship in the response's `ambiguity` field for the UI.
+    if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
+      const interps = (ctx.ambiguity.interpretations || []).map((x) => x.label).filter(Boolean);
+      if (interps.length >= 2) {
+        md += "\n*Note: \"" + ctx.ambiguity.term + "\" is ambiguous — it can mean " +
+          interps.slice(0, 3).join(", ") +
+          ". The sources below were retrieved for the question as asked.*\n";
+      }
+    }
 
+    md += "\n## What the research shows\n";
     if (anyAbstractFindings) {
       // Shared-vocabulary clustering: each paper joins the cluster it shares
       // the most significant terms with (minimum 2), else starts a new one.
@@ -4520,6 +4625,57 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
       }
     }
 
+    // ── The three computed sections: disagreements, confidence/gaps,
+    // falsification. Same five-section contract as the AI path; every line
+    // below is derived from the evidence state, never generated prose.
+    // Conflicts are detected over the cited pool with indices remapped to
+    // the original array ordering (the brief claims arrive keyed by
+    // original index, so they are remapped too).
+    const conflictPapers = items.map((it) => it.p);
+    const indexMap = items.map((it) => it.idx);
+    const poolBrief = [];
+    for (const bc of (briefClaims || [])) {
+      if (!bc || !bc.text || !bc.idx) continue;
+      const pos = indexMap.indexOf(bc.idx);
+      if (pos >= 0) poolBrief.push({ text: bc.text, idx: pos + 1 });
+    }
+    const detected = detectSourceConflicts(conflictPapers, poolBrief);
+    const conflicts = detected.conflicts.map((c) => ({
+      ...c,
+      idxA: indexMap[c.idxA - 1],
+      idxB: indexMap[c.idxB - 1],
+    }));
+    const dVerdict = detected.verdict;
+
+    md += "\n## Where researchers disagree\n\n";
+    if (conflicts.length > 0) {
+      for (const c of conflicts.slice(0, 3)) {
+        md += "- [" + c.idxA + "] reports: " + c.claimA.replace(/\*\*/g, "") + "\n";
+        md += "  [" + c.idxB + "] reports the opposite: " + c.claimB.replace(/\*\*/g, "") + "\n";
+      }
+    } else {
+      md += dVerdict.summary + "\n";
+    }
+
+    const gaps = buildEvidenceGaps({
+      papers,
+      sourcesQueried: ctx.sourcesQueried || null,
+      relevanceGatedOut: ctx.relevanceGatedOut || 0,
+    });
+    const conf = buildConfidenceLine(papers, dVerdict);
+    md += "\n## How solid is this?\n\n" + conf.line + "\n";
+    if (gaps.length > 0) md += "\n" + gaps.map((g) => "- " + g).join("\n") + "\n";
+
+    const years = (papers || [])
+      .map((p) => Number(p.year))
+      .filter((y) => y > 1900 && y <= new Date().getFullYear() + 1);
+    const fals = buildFalsificationBullets({
+      papers,
+      verdict: { ...dVerdict, conflicts },
+      newestYear: years.length ? Math.max(...years) : null,
+    });
+    md += "\n## What would change this\n\n" + fals.map((f) => "- " + f).join("\n") + "\n";
+
     md += "\n*Drafted directly from the sources below — Cerebrum's AI providers were " +
       "temporarily unavailable, so this summary was assembled without AI. " +
       "Verify each claim against its cited source.*";
@@ -4527,6 +4683,691 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
   } catch {
     return null;
   }
+}
+
+// ════════════════════════════════════════════════════════════════
+// NEXT-GEN RESILIENCE PIPELINE (v7.0)
+//
+// "Make it never fail" — the engine's contract, restated as machinery:
+//
+//   1. UNBREAKABLE PIPELINE. Every fallible stage runs inside runStage():
+//      a hard timeout, a typed fallback, and a health record. No stage can
+//      hang the request, and no stage failure can blank the answer. The
+//      terminal path is always deterministic: Wave-4 extractive synthesis
+//      when papers exist, an intelligent no-results answer when none do.
+//      The old dead-end states are unreachable by
+//      construction — there is no branch left that emits them.
+//   2. CLAIM-LEVEL INTEGRITY. Every extractive claim is mechanically
+//      aligned to the paper it cites (verifyExtractiveAlignment); AI
+//      answers get a conservative post-check (postCheckAIAlignment) that
+//      flags claims with no supporting source. Citation indices can never
+//      exceed the bibliography, and bibliography entries the answer never
+//      cites are labeled as further reading, not implied support.
+//   3. REAL DISAGREEMENT INTELLIGENCE. detectSourceConflicts() compares
+//      the papers' own claims against each other (opposite findings on a
+//      shared topic), independent of what any generated prose says. The
+//      verdict — divided / settled / thin — is computed from the evidence,
+//      never a default string.
+//   4. QUERY INTELLIGENCE. deriveReformulations() builds concrete
+//      alternative queries out of the user's own question (broaden,
+//      rephrase with the literature's terms, split multi-part questions);
+//      detectAmbiguity() catches materially ambiguous questions and offers
+//      the interpretations instead of silently picking one.
+//   5. ONE STRUCTURE, BOTH PATHS. buildExtractiveSynthesis() now emits
+//      the same five sections the AI prompt requires ("The short answer"
+//      / "What the research shows" / "Where researchers disagree" /
+//      "How solid is this?" / "What would change this"), so a degraded
+//      answer reads as the same product, not a different one.
+//
+// Everything in this section is pure and exported for tests: no network,
+// no env, no Date.now() except where noted (confidence recency uses the
+// calendar year only).
+// ════════════════════════════════════════════════════════════════
+
+// ── Stage runner ────────────────────────────────────────────────
+// Runs fn with a hard timeout. Never throws: on timeout or error it
+// returns { ok: false, value: fallback }. Appends { name, ok, ms } to
+// `health` when an array is supplied — the request handler ships a
+// trimmed copy as stageHealth so the UI can say which stage degraded.
+export async function runStage(name, fn, opts = {}) {
+  const { timeoutMs = 10000, fallback = null, health = null } = opts;
+  const started = Date.now();
+  const rec = { name: String(name), ok: false, ms: 0 };
+  if (Array.isArray(health)) health.push(rec);
+  let timer = null;
+  try {
+    const value = await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("stage-timeout:" + name)), timeoutMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    rec.ok = true;
+    rec.ms = Date.now() - started;
+    return { ok: true, value, ms: rec.ms };
+  } catch (e) {
+    if (timer) clearTimeout(timer);
+    rec.ok = false;
+    rec.ms = Date.now() - started;
+    return { ok: false, value: fallback, ms: rec.ms, error: e };
+  }
+}
+
+// ── Claim text utilities ────────────────────────────────────────
+// Content words for overlap math: lowercase alphanumeric tokens, stopwords
+// and pure numbers dropped. Reuses the extractive pipeline's own stopword
+// table so "overlap" means the same thing everywhere.
+function claimContentWords(text) {
+  const out = [];
+  for (const w of String(text || "").toLowerCase().split(/[^a-z0-9]+/)) {
+    if (w.length > 3 && !EXTRACT_STOPWORDS.has(w) && !/^\d+$/.test(w)) out.push(w);
+  }
+  return out;
+}
+
+function claimWordSet(text) {
+  return new Set(claimContentWords(text));
+}
+
+// Two claims are "about the same thing" when they share at least two
+// content words with a modest Jaccard overlap — strict enough to avoid
+// matching on "study" and "results", loose enough to catch paraphrase.
+function claimsShareTopic(ca, cb) {
+  const a = claimWordSet(ca);
+  const b = claimWordSet(cb);
+  if (a.size === 0 || b.size === 0) return false;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  if (shared < 2) return false;
+  return shared / (a.size + b.size - shared) >= 0.16;
+}
+
+// The most specific shared words, for naming what a conflict is about.
+function sharedTopicLabel(ca, cb, maxWords = 3) {
+  const bSet = claimWordSet(cb);
+  const seen = new Set();
+  const shared = [];
+  for (const w of claimContentWords(ca)) {
+    if (bSet.has(w) && !seen.has(w)) { seen.add(w); shared.push(w); }
+  }
+  shared.sort((x, y) => y.length - x.length);
+  return shared.slice(0, maxWords).join(" ");
+}
+
+// Direction opposites, shared with extractLiteratureConflicts' Pattern 3
+// (which keeps its own copy for now — see the note there).
+const DIRECTION_OPPOSITES = [
+  ["increas", "decreas"], ["improv", "worsen"], ["positive", "negative"],
+  ["effective", "ineffective"], ["beneficial", "detrimental"], ["higher", "lower"],
+  ["upregulat", "downregulat"], ["promot", "inhibit"], ["enhanc", "reduc"],
+  ["support", "refut"], ["confirm", "challeng"], ["accelerat", "slow"],
+  ["greater", "lesser"], ["more", "fewer"], ["gain", "loss"],
+];
+
+const NEGATION_RE = /\b(no|not|n't|never|failed to|did not|does not|do not|lack of|lacks|absence of|no significant|no measurable)\b/;
+
+// True when two same-topic claims push in opposite directions: an
+// opposite-direction word pair, or an explicit negation on one side only
+// ("no significant effect" vs "improved outcomes").
+function claimsOppose(ca, cb) {
+  const la = " " + String(ca || "").toLowerCase() + " ";
+  const lb = " " + String(cb || "").toLowerCase() + " ";
+  for (const [x, y] of DIRECTION_OPPOSITES) {
+    if ((la.includes(x) && lb.includes(y)) || (la.includes(y) && lb.includes(x))) return true;
+  }
+  return NEGATION_RE.test(la) !== NEGATION_RE.test(lb);
+}
+
+// ── Per-paper claim extraction (deterministic) ────────────────────
+// The same finding-sentence machinery buildExtractiveSynthesis uses,
+// factored out so disagreement detection and alignment checking read the
+// same claims the summary was built from. briefTexts (LLM-extracted atomic
+// claims, when the speculative brief succeeded) outrank regex sentences.
+export function extractPaperClaims(paper, maxClaims = 3, briefTexts = null) {
+  const out = [];
+  const seen = new Set();
+  const push = (t) => {
+    const text = String(t || "").trim();
+    if (!text || text.length < 20) return;
+    const k = fingerprintClaim(text);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    out.push(text);
+  };
+  if (Array.isArray(briefTexts)) {
+    for (const t of briefTexts.slice(0, maxClaims)) push(t);
+  }
+  if (out.length < maxClaims && paper) {
+    const ranked = extractSentences(usableAbstract(paper))
+      .map((s) => s.trim())
+      .filter((s) => s.length > 20)
+      .map((s) => ({ s: tidyExtractSentence(s), score: scoreFindingSentence(s) }))
+      .filter((c) => c.score > 0 && c.s)
+      .sort((a, b) => b.score - a.score);
+    for (const c of ranked) {
+      push(c.s);
+      if (out.length >= maxClaims) break;
+    }
+  }
+  if (out.length === 0 && paper) {
+    const tc = extractTitleClaim(paper.title);
+    if (tc) push(tc);
+  }
+  return out.slice(0, maxClaims);
+}
+
+// ── Source-level disagreement detection ─────────────────────────
+// Compares the papers' own claims against each other — NOT the generated
+// prose. A conflict is two claims about the same topic pushing in opposite
+// directions, each traceable to its paper. Output matches the Flashpoints
+// shape the frontend already renders ({ claimA, claimB, sourceA, sourceB,
+// idxA, idxB }) plus a computed verdict that replaces the old default text:
+//
+//   divided — at least one genuine opposing pair surfaced.
+//   thin    — fewer than 3 sources: no divide surfaced, but that is thin
+//             evidence, not consensus. Computed, not a shrug.
+//   settled — 3+ sources, no opposing pairs: reads as consistent.
+export function detectSourceConflicts(papers, briefClaims = null) {
+  const briefByIdx = {};
+  for (const bc of (briefClaims || [])) {
+    if (!bc || !bc.text || !bc.idx) continue;
+    (briefByIdx[bc.idx] = briefByIdx[bc.idx] || []).push(bc.text);
+  }
+  const items = (papers || [])
+    .map((p, i) => ({ p, idx: i + 1, claims: extractPaperClaims(p, 3, briefByIdx[i + 1] || null) }))
+    .filter((it) => it.claims.length > 0);
+  const conflicts = [];
+  const seenPairs = new Set();
+  for (let a = 0; a < items.length; a++) {
+    for (let b = a + 1; b < items.length; b++) {
+      const ia = items[a], ib = items[b];
+      for (const ca of ia.claims) {
+        for (const cb of ib.claims) {
+          if (!claimsShareTopic(ca, cb) || !claimsOppose(ca, cb)) continue;
+          const topic = sharedTopicLabel(ca, cb) || "this finding";
+          const key = ia.idx + ":" + ib.idx + ":" + topic;
+          if (seenPairs.has(key)) continue;
+          seenPairs.add(key);
+          conflicts.push({
+            claimA: ca,
+            claimB: cb,
+            sourceA: ia.p.title || ("Source " + ia.idx),
+            sourceB: ib.p.title || ("Source " + ib.idx),
+            idxA: ia.idx,
+            idxB: ib.idx,
+            topic,
+          });
+          // One conflict per paper pair keeps the panel readable.
+          break;
+        }
+        if (seenPairs.size > 0 && conflicts.length > 0 && conflicts[conflicts.length - 1].idxA === ia.idx && conflicts[conflicts.length - 1].idxB === ib.idx) break;
+      }
+    }
+  }
+  const n = items.length;
+  let status, summary;
+  if (conflicts.length > 0) {
+    status = "divided";
+    summary = conflicts.length === 1
+      ? "The sources genuinely split on one point (" + conflicts[0].topic + ") — both sides are cited below."
+      : "The sources genuinely split on " + conflicts.length + " points — the sharpest is " + conflicts[0].topic + ". Both sides are cited below.";
+  } else if (n < 3) {
+    status = "thin";
+    summary = "No divide surfaced, but with only " + n + " source" + (n === 1 ? "" : "s") + " that is thin evidence — not a consensus.";
+  } else {
+    status = "settled";
+    summary = "No opposing findings surfaced across the " + n + " sources — as cited, the literature reads as consistent on this question.";
+  }
+  return { conflicts, verdict: { status, conflictCount: conflicts.length, summary } };
+}
+
+// ── Claim↔source alignment (extractive path) ─────────────────────
+// The mechanical integrity check for deterministic answers: every cited
+// claim in "The short answer" / "What the research shows" (plus the cited
+// conflict pairs) must share real vocabulary with the paper it cites.
+// Meta sections ("How solid is this?", "What would change this?") are
+// pipeline commentary, not scientific claims, and are skipped by section.
+// Returns the factCheck shape so it feeds the existing panel directly.
+export function verifyExtractiveAlignment(answer, papers) {
+  const text = String(answer || "");
+  const n = (papers || []).length;
+  const CHECKED_SECTIONS = new Set(["the short answer", "what the research shows", "where researchers disagree"]);
+  let section = "";
+  const claims = [];
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    const h2 = line.match(/^##\s+(.+?)\s*$/);
+    if (h2) { section = h2[1].toLowerCase(); continue; }
+    if (!CHECKED_SECTIONS.has(section)) continue;
+    const s = line.replace(/^[-*]\s+/, "").replace(/\*\*/g, "").trim();
+    if (s.length < 40) continue;
+    const cites = [...s.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]));
+    if (!cites.length) continue;
+    const clean = s.replace(/\[(\d+)\]/g, "").trim();
+    const words = claimWordSet(clean);
+    if (!words.size) continue;
+    let best = null;
+    for (const c of cites) {
+      if (c < 1 || c > n) {
+        best = { status: "unsupported", note: "Cites source [" + c + "], but only " + n + " source" + (n === 1 ? "" : "s") + " are listed." };
+        break;
+      }
+      const p = papers[c - 1] || {};
+      const srcWords = claimWordSet((p.title || "") + " " + usableAbstract(p));
+      let shared = 0;
+      for (const w of words) if (srcWords.has(w)) shared++;
+      const ratio = shared / words.size;
+      const status = ratio >= 0.3 ? "supported" : ratio >= 0.12 ? "thin" : "unsupported";
+      if (!best || status === "supported" || (best.status === "unsupported" && status === "thin")) {
+        best = { status, ratio };
+      }
+      if (status === "supported") break;
+    }
+    let note;
+    if (best.status === "supported") note = "The claim's wording traces to the cited paper's title/abstract.";
+    else if (best.status === "thin") note = "Only weakly overlaps the cited paper's title/abstract — open the source before relying on it.";
+    else note = best.note || "Doesn't match the title or abstract of the paper it cites — open the source before relying on it.";
+    claims.push({ claim: clean.slice(0, 240), status: best.status, note });
+  }
+  const nSup = claims.filter((c) => c.status === "supported").length;
+  const nThin = claims.filter((c) => c.status === "thin").length;
+  const nUns = claims.filter((c) => c.status === "unsupported").length;
+  const overall = nUns === 0 ? "supported" : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
+  const summary = claims.length === 0
+    ? "No cited claims were found to check."
+    : "Checked " + claims.length + " cited claim" + (claims.length === 1 ? "" : "s") + " against the papers they cite: " +
+      nSup + " supported, " + nThin + " thin, " + nUns + " unsupported.";
+  return { overall, summary, claims, mode: "extractive", checked: claims.length > 0 };
+}
+
+// ── Post-check for AI answers ───────────────────────────────────
+// Conservative by design: the AI paraphrases, so only claims with NEAR-ZERO
+// vocabulary overlap with the paper they cite are flagged — those are the
+// ones no honest paraphrase can explain. Out-of-bounds citations are
+// already stripped by stripFabricatedCitations; this catches the subtler
+// failure: a real-looking [3] on a claim paper 3 never makes.
+export function postCheckAIAlignment(answer, papers) {
+  const text = String(answer || "");
+  const n = (papers || []).length;
+  const issues = [];
+  if (!n) return { issues };
+  const sentences = text.split(/(?<=\.)\s+/);
+  for (let raw of sentences) {
+    const s = raw.trim().replace(/^#+\s*/, "").replace(/^[-*]\s+/, "").trim();
+    if (s.length < 50) continue;
+    const cites = [...s.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])).filter((c) => c >= 1 && c <= n);
+    if (!cites.length) continue;
+    const clean = s.replace(/\[(\d+)\]/g, "").replace(/\*\*/g, "").trim();
+    const words = claimWordSet(clean);
+    if (words.size < 6) continue;
+    let bestRatio = 0;
+    let bestShared = 0;
+    let bestIdx = cites[0];
+    for (const c of cites) {
+      const p = papers[c - 1] || {};
+      const srcWords = claimWordSet((p.title || "") + " " + usableAbstract(p));
+      let shared = 0;
+      for (const w of words) if (srcWords.has(w)) shared++;
+      const ratio = shared / words.size;
+      if (ratio > bestRatio) { bestRatio = ratio; bestShared = shared; bestIdx = c; }
+    }
+    // Deliberately strict: a legitimate paraphrase of a paper's own finding
+    // keeps far more shared vocabulary than this. A single shared topic
+    // word ("wheat") is not a trace — flag it too, via the shared < 2 arm.
+    if (bestShared < 2 || bestRatio < 0.10) {
+      issues.push({
+        claim: clean.slice(0, 240),
+        idx: bestIdx,
+        reason: "Shares almost no vocabulary with the title/abstract of the paper it cites [" + bestIdx + "].",
+      });
+    }
+  }
+  return { issues };
+}
+
+// ── Evidence gaps (computed, not generated) ─────────────────────
+export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut }) {
+  const gaps = [];
+  const list = papers || [];
+  const n = list.length;
+  if (n === 0) return gaps;
+  if (n <= 2) {
+    gaps.push("Only " + n + " source" + (n === 1 ? "" : "s") + " cleared the relevance bar — treat this as a starting point, not a settled answer.");
+  }
+  if (relevanceGatedOut > 0) {
+    gaps.push(relevanceGatedOut + " more paper" + (relevanceGatedOut === 1 ? " was" : "s were") +
+      " found but withheld: they didn't clear the relevance bar for this question.");
+  }
+  if (Array.isArray(sourcesQueried)) {
+    const failed = sourcesQueried.filter((s) => !s.ok);
+    if (failed.length > 0) {
+      gaps.push(failed.length + " of " + sourcesQueried.length + " databases didn't respond — coverage is partial.");
+    }
+  }
+  const years = list.map((p) => Number(p.year)).filter((y) => y > 1900 && y <= new Date().getFullYear() + 1);
+  if (years.length > 0) {
+    const newest = Math.max(...years);
+    if (new Date().getFullYear() - newest >= 6) {
+      gaps.push("The newest cited source is from " + newest + " — newer work may exist that isn't reflected here.");
+    }
+  }
+  const noAbs = list.filter((p) => !usableAbstract(p)).length;
+  if (noAbs >= Math.max(2, Math.ceil(n / 2))) {
+    gaps.push("Several cited sources had no accessible abstract, so parts of this answer rest on titles alone.");
+  }
+  return gaps.slice(0, 4);
+}
+
+// ── Confidence line (computed, not generated) ───────────────────
+export function buildConfidenceLine(papers, verdict) {
+  const n = (papers || []).length;
+  if (n === 0) return { level: "thin", line: "No evidence to assess — confidence can't be computed." };
+  const status = verdict && verdict.status;
+  if (status === "divided") {
+    return {
+      level: "moderate",
+      line: "Contested evidence: the sources disagree" +
+        (verdict.conflictCount ? " on " + verdict.conflictCount + " point" + (verdict.conflictCount === 1 ? "" : "s") : "") +
+        " — treat conclusions as provisional until the split is resolved.",
+    };
+  }
+  if (n >= 5) {
+    return { level: "strong", line: "Strong consensus: " + n + " sources point the same way and none report opposing findings." };
+  }
+  if (n >= 3) {
+    return { level: "moderate", line: "Moderate confidence: " + n + " sources agree, but the evidence base is narrow." };
+  }
+  return { level: "thin", line: "Thin evidence: only " + n + " source" + (n === 1 ? "" : "s") + " — treat this answer as provisional." };
+}
+
+// ── Coverage note (computed from the retrieval record) ──────────
+export function buildCoverageNote(sourcesQueried) {
+  if (!Array.isArray(sourcesQueried) || sourcesQueried.length === 0) return null;
+  const failed = sourcesQueried.filter((s) => !s.ok);
+  if (failed.length === 0) return null;
+  const total = sourcesQueried.length;
+  const names = failed.map((s) => s.source).filter(Boolean).slice(0, 5).join(", ");
+  return failed.length + " of " + total + " databases didn't respond" +
+    (names ? " (" + names + ")" : "") +
+    "; this answer was built from the " + (total - failed.length) + " that did.";
+}
+
+// ── Retrieval strategy record (for the no-results "what was tried") ─
+// Names the strategies that actually ran, from the retrieval diag —
+// never a fixed list, never a guess.
+export function retrievalStrategiesTried(diag) {
+  const out = [];
+  if (!diag) return out;
+  if (Array.isArray(diag.rungs) && diag.rungs.length > 0) {
+    out.push("exact-term matching (" + diag.rungs.length + " narrowing rungs)");
+  }
+  if (diag.rawFallback) out.push("unfiltered raw retrieval");
+  if (Array.isArray(diag.conceptExpanded) && diag.conceptExpanded.length > 0) {
+    out.push("synonym + MeSH expansion (" + diag.conceptExpanded.length + " queries)");
+  }
+  if (diag.topicMemoryRecall) out.push("topic-memory recall");
+  if (diag.nlFallback) out.push("natural-language fallback");
+  if (diag.relaxedBoolean) out.push("relaxed boolean retrieval");
+  return out;
+}
+
+// ── Query intelligence ──────────────────────────────────────────
+// deriveReformulations: concrete alternative queries built OUT OF the
+// user's own question — never canned. Three genuine strategies:
+//   1. Broaden: drop the longest (most specific) content word.
+//   2. Rephrase: swap a term for the literature's synonym (CONCEPT_LOOKUP).
+//   3. Split: a multi-part question becomes its first self-contained part.
+// MeSH/plain-language synonyms fill any remaining slots.
+export function deriveReformulations(query) {
+  const out = [];
+  const seen = new Set();
+  const q = String(query || "").trim();
+  if (!q) return out;
+  const push = (label, text) => {
+    text = String(text || "").trim().replace(/\s+/g, " ");
+    if (!text || text.length < 4 || text.length > 140) return;
+    const k = text.toLowerCase();
+    if (k === q.toLowerCase() || seen.has(k)) return;
+    seen.add(k);
+    out.push({ label, query: text });
+  };
+  let words = [];
+  try { words = cleanQuery(q).split(/\s+/).filter(Boolean); } catch { words = q.split(/\s+/).filter(Boolean); }
+  const content = words.filter((w) => w.length > 3 && !EXTRACT_STOPWORDS.has(w.toLowerCase()));
+  if (content.length >= 3) {
+    const drop = [...content].sort((a, b) => b.length - a.length)[0];
+    push(
+      "Broaden it — drop the most specific term",
+      words.filter((w) => w.toLowerCase() !== drop.toLowerCase()).join(" ")
+    );
+  }
+  for (const w of content.slice(0, 4)) {
+    const group = CONCEPT_LOOKUP.get(w.toLowerCase());
+    if (group) {
+      const alt = [...group].find((g) => g.toLowerCase() !== w.toLowerCase() && g.length > 3);
+      if (alt) {
+        push("Try the literature's wording", words.map((x) => (x.toLowerCase() === w.toLowerCase() ? alt : x)).join(" "));
+        break;
+      }
+    }
+  }
+  const parts = q.split(/\s+and\s+|\s+vs\.?\s+|[?;]/i).map((s) => s.trim()).filter((s) => s.length > 10);
+  if (parts.length >= 2) push("Ask one thing at a time", parts[0]);
+  if (out.length < 2) {
+    try {
+      for (const m of expandViaMesh(q).slice(0, 2)) push("Use the indexed term", m);
+    } catch {}
+  }
+  return out.slice(0, 3);
+}
+
+// ── Ambiguity detection ─────────────────────────────────────────
+// A small curated table of terms that mean materially different things in
+// different fields. A term only counts as ambiguous when the query carries
+// NO sense-specific context words — "depression SSRI" already resolved
+// itself; bare "depression" did not. Each sense ships a concrete
+// disambiguated query so the UI can offer one-tap re-searches.
+const AMBIGUOUS_QUERY_TERMS = [
+  { term: "depression", re: /\bdepression\b/i, senses: [
+    { label: "Depressive disorders (psychiatry)", context: ["mood", "antidepressant", "ssri", "serotonin", "psychiatr", "mental health", "mdd", "therapy"], query: "major depressive disorder mechanisms treatment" },
+    { label: "Economic depression", context: ["econom", "recession", "gdp", "market", "financial", "unemploy"], query: "economic depression causes recovery" },
+    { label: "Geological depression", context: ["geolog", "terrain", "basin", "landform", "topograph"], query: "geological depression formation landform" } ] },
+  { term: "cell", re: /\bcell\b/i, senses: [
+    { label: "Biological cells", context: ["biolog", "tissue", "stem", "cancer", "neuron", "blood", "culture"], query: "cell biology structure function" },
+    { label: "Fuel cells", context: ["fuel", "hydrogen", "energy", "electrochem"], query: "fuel cell efficiency catalyst" },
+    { label: "Solar cells", context: ["solar", "photovoltaic", "panel", "perovskite"], query: "solar cell photovoltaic efficiency" } ] },
+  { term: "culture", re: /\bculture\b/i, senses: [
+    { label: "Cell / microbial culture", context: ["cell", "bacteria", "microb", "medium", "agar", "strain", "tissue"], query: "cell culture methods media" },
+    { label: "Human culture (anthropology)", context: ["societ", "anthropolog", "ritual", "tradition", "human"], query: "cultural anthropology human societies" } ] },
+  { term: "media", re: /\bmedia\b/i, senses: [
+    { label: "Culture media (microbiology)", context: ["agar", "broth", "bacteria", "microb", "culture", "plate"], query: "microbiological culture media composition" },
+    { label: "Mass / social media", context: ["social", "news", "journalism", "audience", "platform"], query: "social media effects society" } ] },
+  { term: "resistance", re: /\bresistance\b/i, senses: [
+    { label: "Antibiotic resistance", context: ["antibiotic", "bacteria", "antimicrob", "mrsa", "pathogen"], query: "antibiotic resistance mechanisms bacteria" },
+    { label: "Drug resistance in cancer", context: ["cancer", "tumor", "chemotherap", "oncolog"], query: "cancer drug resistance mechanisms" },
+    { label: "Electrical resistance", context: ["electric", "circuit", "ohm", "conduct"], query: "electrical resistance materials" } ] },
+  { term: "model", re: /\bmodels?\b/i, senses: [
+    { label: "Animal / disease models", context: ["mouse", "animal", "disease", "knockout", "in vivo"], query: "animal disease model mouse" },
+    { label: "Statistical / ML models", context: ["statistic", "regression", "machine learning", "predict", "neural"], query: "statistical model regression prediction" },
+    { label: "Climate models", context: ["climat", "weather", "atmospher", "warming"], query: "climate model projections warming" } ] },
+  { term: "strain", re: /\bstrain\b/i, senses: [
+    { label: "Microbial strain", context: ["bacteria", "virus", "strain", "isolate", "culture", "e. coli"], query: "bacterial strain characterization" },
+    { label: "Mechanical strain", context: ["mechanic", "stress", "material", "deform", "load"], query: "mechanical strain stress materials" } ] },
+  { term: "screen", re: /\bscreen(?:ing)?\b/i, senses: [
+    { label: "Drug / genetic screening", context: ["drug", "compound", "genetic", "crispr", "assay", "high-throughput"], query: "high-throughput drug screening assay" },
+    { label: "Cancer screening", context: ["cancer", "mammograph", "colonoscopy", "early detection"], query: "cancer screening early detection methods" } ] },
+  { term: "virus", re: /\bvirus\b/i, senses: [
+    { label: "Biological virus", context: ["infect", "viral", "pathogen", "vaccine", "disease", "host"], query: "virus infection pathogenesis" },
+    { label: "Computer virus / malware", context: ["computer", "cyber", "malware", "software", "network"], query: "computer virus malware detection" } ] },
+  { term: "python", re: /\bpython\b/i, senses: [
+    { label: "Python programming", context: ["code", "program", "software", "data", "script", "library", "bioinformatic"], query: "python programming data analysis" },
+    { label: "Python (snake)", context: ["snake", "reptile", "constrictor", "herpetolog"], query: "python snake biology behavior" } ] },
+  { term: "memory", re: /\bmemory\b/i, senses: [
+    { label: "Human memory", context: ["brain", "cognit", "recall", "hippocampus", "alzheimer", "learn"], query: "human memory formation hippocampus" },
+    { label: "Computer memory", context: ["computer", "ram", "storage", "cache", "hardware"], query: "computer memory ram architecture" } ] },
+  { term: "expression", re: /\bexpression\b/i, senses: [
+    { label: "Gene expression", context: ["gene", "rna", "transcript", "protein", "mrna"], query: "gene expression regulation transcription" },
+    { label: "Facial / emotional expression", context: ["facial", "emotion", "face", "affect"], query: "facial expression emotion recognition" } ] },
+  { term: "network", re: /\bnetworks?\b/i, senses: [
+    { label: "Neural networks (ML)", context: ["neural", "deep learning", "machine learning", "ai", "artificial"], query: "neural network deep learning architecture" },
+    { label: "Biological networks", context: ["gene", "protein", "metabol", "pathway", "interactome"], query: "gene regulatory network biology" },
+    { label: "Social networks", context: ["social", "friend", "community", "influence"], query: "social network analysis community" } ] },
+  { term: "bias", re: /\bbias\b/i, senses: [
+    { label: "Statistical bias", context: ["statistic", "sampling", "estimator", "study design"], query: "statistical bias sampling study design" },
+    { label: "Cognitive bias", context: ["cognit", "psycholog", "decision", "heurist"], query: "cognitive bias decision making psychology" },
+    { label: "ML model bias / fairness", context: ["machine learning", "fairness", "algorithm", "ai"], query: "machine learning bias fairness" } ] },
+  { term: "concentration", re: /\bconcentration\b/i, senses: [
+    { label: "Chemical concentration", context: ["chemical", "molar", "solution", "dose", "compound"], query: "chemical concentration molarity solution" },
+    { label: "Attention / focus", context: ["attention", "focus", "adhd", "cognit"], query: "attention concentration cognitive psychology" } ] },
+  { term: "plate", re: /\bplates?\b/i, senses: [
+    { label: "Tectonic plates", context: ["tectonic", "earthquake", "geolog", "seismic", "lithosphere"], query: "tectonic plate movement geology" },
+    { label: "Lab plates (microplates)", context: ["well", "assay", "culture", "96-well", "microplate", "petri"], query: "microplate assay 96-well" } ] },
+];
+
+export function detectAmbiguity(query) {
+  const q = String(query || "");
+  const lc = q.toLowerCase();
+  for (const entry of AMBIGUOUS_QUERY_TERMS) {
+    if (!entry.re.test(q)) continue;
+    const matched = entry.senses.filter((s) => s.context.some((c) => lc.includes(c)));
+    if (matched.length === 1) {
+      return { ambiguous: false, term: entry.term, resolvedAs: matched[0].label, interpretations: [] };
+    }
+    if (matched.length === 0) {
+      return {
+        ambiguous: true,
+        term: entry.term,
+        resolvedAs: null,
+        interpretations: entry.senses.map((s) => ({ label: s.label, query: s.query })),
+      };
+    }
+    return { ambiguous: false, term: entry.term, resolvedAs: null, interpretations: [] };
+  }
+  return { ambiguous: false, term: null, resolvedAs: null, interpretations: [] };
+}
+
+// ── Intelligent no-results answer ───────────────────────────────
+// The terminal state when retrieval ran and nothing citable survived.
+// This is a REAL answer, not an error: what was tried (from the actual
+// retrieval record), the most likely reasons (ranked by signal), and
+// concrete reformulations derived from the question itself. It never
+// guesses at the science — only reports the search.
+export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gatedOut, gatedExamples, errored }) {
+  const q = String(query || "").trim();
+  const list = Array.isArray(sourcesQueried) ? sourcesQueried : [];
+  const failedCount = list.filter((s) => !s.ok).length;
+  const whatWasTried = [];
+  if (list.length > 0) {
+    whatWasTried.push(
+      "Searched " + list.length + " scientific databases" +
+      (failedCount > 0
+        ? " — " + (list.length - failedCount) + " answered, " + failedCount + " didn't respond."
+        : " — every one answered.")
+    );
+  } else {
+    whatWasTried.push("Ran the full literature search across Cerebrum's scientific databases.");
+  }
+  const rungN = Array.isArray(rungsTried) ? rungsTried.length : 0;
+  if (rungN > 1) {
+    whatWasTried.push("Tried " + rungN + " retrieval strategies, from exact-term matching through synonym-expanded and broadened queries.");
+  } else if (rungN === 1 && rungsTried[0]) {
+    whatWasTried.push("Tried: " + String(rungsTried[0]).slice(0, 120) + ".");
+  }
+  whatWasTried.push("Expanded the question with scientific synonyms and indexed (MeSH) terms before concluding.");
+  if (gatedOut > 0) {
+    let line = "Found " + gatedOut + " candidate paper" + (gatedOut === 1 ? "" : "s") + " but cited none: " +
+      (gatedOut === 1 ? "it didn't" : "none did") + " clear the relevance bar for this question, and citing " +
+      (gatedOut === 1 ? "it" : "them") + " would have been misleading.";
+    if (Array.isArray(gatedExamples) && gatedExamples.length > 0) {
+      line += " The closest " + (gatedExamples.length === 1 ? "was" : "were") + " " +
+        gatedExamples.slice(0, 2).map((t) => "\"" + String(t).slice(0, 80) + "\"").join("; ") + ".";
+    }
+    whatWasTried.push(line);
+  }
+
+  const likelyReasons = [];
+  if (gatedOut > 0) {
+    likelyReasons.push("Papers exist nearby, but none were on-topic enough to cite — the question may use terms the literature doesn't.");
+  }
+  if (failedCount > 0) {
+    likelyReasons.push("Some databases didn't respond, so coverage was incomplete — the paper may sit in one that was missed.");
+  }
+  if (q.split(/\s+/).filter(Boolean).length >= 10) {
+    likelyReasons.push("The question is very specific — a broader phrasing may match how papers are actually indexed.");
+  }
+  if (errored) {
+    likelyReasons.push("Part of the pipeline itself failed on this run — retrying may succeed where this attempt didn't.");
+  }
+  likelyReasons.push("The finding may be too new to be indexed yet, or reported only in preprints and theses.");
+  likelyReasons.push("A terminology mismatch — the field may call this something else (see the rephrasings below).");
+
+  return {
+    whatWasTried: whatWasTried.slice(0, 4),
+    likelyReasons: likelyReasons.slice(0, 3),
+    reformulations: deriveReformulations(q),
+    errored: !!errored,
+  };
+}
+
+export function renderNoResultsAnswer(query, payload) {
+  const q = String(query || "").trim().slice(0, 160);
+  let md = "## No citable literature surfaced\n\n";
+  md += "Cerebrum searched the scientific literature for \"" + q + "\" and found nothing it could responsibly cite — " +
+    "so instead of guessing, here's exactly what happened and the fastest ways forward.\n";
+  md += "\n### What was tried\n\n" + payload.whatWasTried.map((w) => "- " + w).join("\n") + "\n";
+  md += "\n### Most likely reasons\n\n" + payload.likelyReasons.map((r) => "- " + r).join("\n") + "\n";
+  if (payload.reformulations && payload.reformulations.length > 0) {
+    md += "\n### Try asking it this way\n\n" +
+      payload.reformulations.map((r, i) => (i + 1) + ". **" + r.label + ":** \"" + r.query + "\"").join("\n") + "\n";
+  }
+  md += "\n*Nothing above is a guess about the science — it's a record of the search. " +
+    "Use \"Watch this topic\" below and Cerebrum will track new literature on this question.*";
+  return md;
+}
+
+// ── Uncited bibliography labeling ───────────────────────────────
+// A bibliography entry the answer never cites must not read as support.
+// Label it plainly as further reading instead of silently implying it
+// backs a claim.
+export function labelUncitedSources(sources, answer) {
+  const cited = new Set();
+  const re = /\[(\d+)\]/g;
+  let m;
+  // The "Related papers found" append is explicitly labeled further reading,
+  // not citations — its [N] markers must not count as citing.
+  let text = String(answer || "");
+  const relIdx = text.indexOf("Related papers found");
+  if (relIdx >= 0) text = text.slice(0, relIdx);
+  while ((m = re.exec(text)) !== null) cited.add(Number(m[1]));
+  return (sources || []).map((s, i) => {
+    if (cited.has(i + 1)) return s;
+    return {
+      ...s,
+      uncited: true,
+      uncitedReason: "Not cited in the answer — listed for further reading.",
+    };
+  });
+}
+
+// ── "What would change this" (computed falsification) ───────────
+// Concrete, state-derived conditions that would force revision — the
+// same job the AI's section does, built from the actual evidence state.
+export function buildFalsificationBullets({ papers, verdict, newestYear }) {
+  const bullets = [];
+  const n = (papers || []).length;
+  if (verdict && verdict.status === "divided" && verdict.conflicts && verdict.conflicts.length > 0) {
+    const c = verdict.conflicts[0];
+    bullets.push("A direct replication pitting [" + c.idxA + "] against [" + c.idxB + "] under matched conditions, resolving the " + (c.topic || "split") + " disagreement.");
+  }
+  if (n <= 2) {
+    bullets.push("More sources clearing the relevance bar — this answer rests on only " + n + ".");
+  }
+  if (newestYear && new Date().getFullYear() - newestYear >= 6) {
+    bullets.push("A recent study (post-" + newestYear + ") confirming or overturning the pattern — the newest cited source is aging.");
+  }
+  bullets.push("A large, well-powered replication that fails to reproduce the headline finding would overturn the core conclusion.");
+  return bullets.slice(0, 4);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -7038,6 +7879,10 @@ export async function onRequest(context) {
     );
   }
 
+  // NEXT-GEN: the top-level catch converts failures into a valid degraded
+  // research response (never a 5xx dead end), so it needs the query even
+  // when the throw happened before/around parsing.
+  let catchQuery = "";
   try {
     // Bounded body: the search payload carries history, settings, and an
     // optional attached image — cap it well above any legitimate request
@@ -7058,6 +7903,7 @@ export async function onRequest(context) {
       });
     }
     if (!query && hasImage) query = "Identify and explain what this image shows, scientifically.";
+    catchQuery = query;
     // Reject oversized input (cost control + abuse).
     if (query.length > MAX_QUERY_LEN) {
       query = query.slice(0, MAX_QUERY_LEN);
@@ -7699,6 +8545,26 @@ export async function onRequest(context) {
     }
 
     let gResult;
+    // NEXT-GEN pipeline state (declared early: retrieval uses stageHealth
+    // and ambiguity well before the synthesis section below).
+    // responseKind "no-results" marks the intelligent terminal state when
+    // retrieval ran and nothing citable survived — a real answer, never a
+    // dead end. stageHealth records every fallible stage (timeout →
+    // fallback, never a throw) for the honest per-stage record the UI
+    // renders.
+    let responseKind = "research";
+    let noResultsPayload = null;
+    const stageHealth = [];
+    // NEXT-GEN query intelligence: assigned once the final searchQuery is
+    // known (see below); defaults to "not ambiguous".
+    let ambiguity = { ambiguous: false, term: null, resolvedAs: null, interpretations: [] };
+    // The public per-database record, computed once from the retrieval diag
+    // and reused by the Wave-4 context, the coverage note, and the response.
+    const publicSourcesQueried = () => (
+      gResult && gResult._diag && Array.isArray(gResult._diag.sourceOutcomes)
+        ? gResult._diag.sourceOutcomes.map((o) => ({ source: o.source, ok: !!o.ok, count: o.count || 0 }))
+        : null
+    );
     if (isFollowupMode) {
       // ════════════════════════════════════════════════════════════════
       // DEEP FOLLOW-UP SEARCH v4
@@ -7854,8 +8720,18 @@ export async function onRequest(context) {
       // Zero extra latency — if mechanical search finds enough papers, we
       // discard the LLM queries. If it doesn't, they're already ready.
       const llmQueriesPromise = llmGenerateSearchQueries(searchQuery, env.OPENROUTER_KEY).catch(() => []);
+      // NEXT-GEN query intelligence: detect a materially ambiguous question
+      // BEFORE retrieval, so the answer never silently picks one meaning.
+      // The interpretations ship in the response for one-tap re-searches;
+      // the extractive path also names them in the answer text.
+      ambiguity = detectAmbiguity(searchQuery);
 
-      gResult = await gatherPapers(searchQuery, {
+      // NEXT-GEN: retrieval runs inside the stage runner — hard timeout,
+      // typed fallback, health record. gatherPapers has its own internal
+      // budget; this is the backstop so a hung retrieval can never hang
+      // the request. The fallback keeps the pipeline moving: the answer
+      // degrades to the no-results terminal state, never a dead end.
+      const retrievalStage = await runStage("retrieval", () => gatherPapers(searchQuery, {
         openAlexKey: env.OPENALEX_KEY || "",
         ncbiKey: env.NCBI_API_KEY || "",
         limit: wantsMorePapers ? 40 : 25,
@@ -7873,7 +8749,12 @@ export async function onRequest(context) {
             errorType: (e && e.name) || "Unknown",
           },
         };
+      }), {
+        timeoutMs: GATHER_PAPERS_BUDGET_MS + 10000,
+        fallback: { papers: [], _diag: { fatalError: "retrieval stage timed out", errorType: "StageTimeout" } },
+        health: stageHealth,
       });
+      gResult = retrievalStage.value || { papers: [], _diag: {} };
 
       // ═══════════════════════════════════════════════════════════════
       // LLM RESCUE: if mechanical search found too few papers, use the
@@ -8197,6 +9078,18 @@ export async function onRequest(context) {
     let relevanceGatedOut = (isNameSearch || isFollowupMode)
       ? 0
       : Math.max(0, papers.length - applyRelevanceGate(papers).length);
+    // NEXT-GEN: keep the closest withheld titles — the no-results answer
+    // names them so "nothing citable" is checkable, not a black box.
+    let gatedOutTitles = [];
+    if (!isNameSearch && !isFollowupMode && relevanceGatedOut > 0) {
+      try {
+        const keptTitles = new Set(applyRelevanceGate(papers).map((p) => String(p.title || "").toLowerCase().trim()));
+        gatedOutTitles = papers
+          .map((p) => p.title)
+          .filter((t) => t && !keptTitles.has(String(t).toLowerCase().trim()))
+          .slice(0, 3);
+      } catch {}
+    }
     // Whether what survived is actually good enough to answer FROM. "Thin"
     // now means fewer than two STRONG (>=65) papers cleared the floor —
     // everything below 60 never reaches the model at all, so the old
@@ -8219,10 +9112,15 @@ export async function onRequest(context) {
     // The programmatic pre-filter inside llmValidatePapers is free and instant,
     // so even without an API key, organism filtering still works.
     if (!isNameSearch && evidencePapers.length > 0) {
-      try {
-        const validated = await llmValidatePapers(query, evidencePapers, env.OPENROUTER_KEY);
-        evidencePapers = validated;
-      } catch {}
+      // NEXT-GEN: validation is a named stage — hard timeout, fallback to
+      // the unvalidated list, health record. llmValidatePapers already has
+      // a 7s internal abort; this is the outer backstop.
+      const validationStage = await runStage(
+        "validation",
+        () => llmValidatePapers(query, evidencePapers, env.OPENROUTER_KEY),
+        { timeoutMs: 12000, fallback: evidencePapers, health: stageHealth }
+      );
+      evidencePapers = validationStage.value || evidencePapers;
     }
 
     // RETRACTION CHECK: flag any of the final evidence papers that have been
@@ -8474,7 +9372,8 @@ export async function onRequest(context) {
       "answering the general question the user didn't ask.\n\n" +
 
       "═══ RULE 7: RELEVANCE HONESTY ═══\n" +
-      "If papers are tangential, say so in ONE sentence, then answer from your knowledge.\n" +
+      "If papers are tangential, say so in ONE sentence and answer ONLY from what the papers support — " +
+      "never present uncited general knowledge as a finding. Mark any background context as such.\n" +
       "Don't pretend irrelevant papers answer the question.\n\n" +
 
       "═══ BANNED PHRASES (mechanical detection — using ANY = failed response) ═══\n" +
@@ -9123,6 +10022,12 @@ export async function onRequest(context) {
     // D1 tracks which model wins per domain so we skip the race.
     let answer = "";
     let aiOK = false;
+    // Wave 3 is the last resort before the deterministic fallback: there the
+    // **bold**-formatting quality bar is relaxed. A real answer without bold
+    // spans beats the fallback — and during an outage the bar was converting
+    // working providers' good responses into failures. Set true just before
+    // the wave-3 legs are built; waves 1-2 keep the full bar.
+    let formattingRelaxed = false;
     // Wave 4 (below): set when the deterministic extractive synthesis tier
     // produces the answer after every AI provider failed. It is kept
     // separate from aiOK because the LLM-only downstream steps (quality
@@ -9206,8 +10111,9 @@ export async function onRequest(context) {
         const j = await r.json();
         const txt = j?.choices?.[0]?.message?.content || "";
         const cleaned = cleanAIResponse(txt);
+        assertValidProviderText(cleaned, model);
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short (" + cleaned.length + " chars)");
-        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
+        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
         return { answer: cleaned, model };
       } catch (e) {
         clearTimeout(t);
@@ -9285,8 +10191,9 @@ export async function onRequest(context) {
         const j = await r.json();
         const txt = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
         const cleaned = cleanAIResponse(txt);
+        assertValidProviderText(cleaned, tag);
         if (cleaned.length < minAnswerLen) throw new Error(tag + ": response too short (" + cleaned.length + " chars)");
-        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(tag + ": missing required **bold** formatting");
+        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(tag + ": missing required **bold** formatting");
         return { answer: cleaned, model: tag };
       } catch (e) {
         clearTimeout(t);
@@ -9333,8 +10240,9 @@ export async function onRequest(context) {
           new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), timeoutMs)),
         ]);
         const cleaned = cleanAIResponse((out && out.response) || "");
+        assertValidProviderText(cleaned, model);
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short");
-        if (useEvidence && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
+        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
         return { answer: cleaned, model };
       } catch (e) {
         throw new Error(model + ": " + (e && e.message ? e.message : String(e)));
@@ -9374,6 +10282,9 @@ export async function onRequest(context) {
           throw new Error(tag + ": HTTP " + pRes.status + (bodyText ? " — " + bodyText : ""));
         }
         const cleaned = cleanAIResponse(await pRes.text());
+        // The budget incident: Pollinations answers HTTP 200 with the error
+        // as the body. A 200 is not a success when the body is error text.
+        assertValidProviderText(cleaned, tag);
         if (!cleaned || cleaned.length < 30) throw new Error(tag + ": response too short");
         return { answer: cleaned, model: tag };
       } catch (e) {
@@ -9397,14 +10308,21 @@ export async function onRequest(context) {
       // Two legs max: the brief is best-effort pre-digestion, not worth
       // burning the shared rate-limit buckets that waves 1-3 need to
       // actually answer. (This used to fan out 4 legs per paper.)
+      // A leg that returns provider ERROR TEXT (e.g. Pollinations answering
+      // HTTP 200 with "API key … reached its budget") is a failure, not a
+      // result — reject it so Promise.any can try the other leg.
+      const cleanLeg = (p) => p.then((out) => {
+        assertValidProviderText(out, "brief leg");
+        return out;
+      });
       const legs = [];
       const pv = activeProviders[0];
       if (pv) {
         const pm = PROVIDER_MODELS[pv.id] || {};
         const m = (pm.w2 && pm.w2[pm.w2.length - 1]) || (pm.w1 && pm.w1[0]);
-        if (m) legs.push(postChatCompletion({ url: pv.url, key: pv.key, model: m, messages: msgs, maxTokens: 300, timeoutMs: 12000 }));
+        if (m) legs.push(cleanLeg(postChatCompletion({ url: pv.url, key: pv.key, model: m, messages: msgs, maxTokens: 300, timeoutMs: 12000 })));
       }
-      legs.push((async () => {
+      legs.push(cleanLeg((async () => {
         const c = new AbortController();
         const t = setTimeout(() => c.abort(), 12000);
         try {
@@ -9418,7 +10336,7 @@ export async function onRequest(context) {
           if (!out) throw new Error("empty");
           return out;
         } finally { clearTimeout(t); }
-      })());
+      })()));
       return Promise.any(legs);
     };
     // Capped at 3 papers: the brief is a head start for the small wave-2/3
@@ -9438,7 +10356,15 @@ export async function onRequest(context) {
                 // paper text, and the brief is embedded in the synthesis
                 // prompt — so every claim passes through the same
                 // nonce-fence cleaner as the abstracts themselves.
-                return parseClaimLines(raw).map((c) => fence.clean(c)).filter(Boolean);
+                // Provider-error text must never become brief claims: a 200
+                // with an error body (the Pollinations budget incident)
+                // parses into lines that look like claims. Reject the whole
+                // response, then filter per claim as a second net.
+                if (isProviderErrorText(raw)) return [];
+                return parseClaimLines(raw)
+                  .map((c) => fence.clean(c))
+                  .map(stripClaimTags)
+                  .filter((c) => c && !isProviderErrorText(c));
               })())
             );
             const aligned = evidencePapers.map((_, i) =>
@@ -9470,7 +10396,12 @@ export async function onRequest(context) {
 
     // Fast path: known best model for this domain
     if (preferredModel && token) {
-      try { const r = await callOR(preferredModel, messages, maxTokens); answer = r.answer; aiOK = true; } catch {}
+      try {
+        const r = await callOR(preferredModel, messages, maxTokens);
+        // Same structural rule as raceEntry: error text is never an answer.
+        if (isProviderErrorText(r.answer)) throw new Error(preferredModel + ": provider returned error text, not an answer");
+        answer = r.answer; aiOK = true;
+      } catch {}
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -9548,7 +10479,18 @@ export async function onRequest(context) {
     const raceEntry = (wave, label, p) => {
       const t0 = Date.now();
       return p.then(
-        (r) => { aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 }); return r; },
+        (r) => {
+          // Provider-error text must never WIN a race: a 200 whose body is
+          // "API key … reached its budget" is a failure, not an answer. It
+          // becomes a recorded failed attempt so the next wave still fires.
+          try {
+            if (r && r.answer) assertValidProviderText(r.answer, label);
+          } catch (err) {
+            aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: err.message });
+            throw err;
+          }
+          aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 }); return r;
+        },
         (e) => { aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: String((e && e.message) || e) }); throw e; }
       );
     };
@@ -9631,6 +10573,15 @@ export async function onRequest(context) {
       console.warn("Cerebrum search: Workers AI binding (env.AI) is NOT bound — Cloudflare models are absent from all synthesis waves. Bind it in the Pages project's dashboard settings.");
     }
 
+    // NEXT-GEN: the synthesis stage gets one overall deadline. Each wave's
+    // calls already race with per-model timeouts, but a pathological run
+    // could stack waves past any reasonable budget. When the deadline
+    // passes, waves 2+ are skipped and the pipeline falls through to the
+    // deterministic Wave 4 — the timeout's typed fallback. Recorded in
+    // stageHealth as the "synthesis" stage.
+    const synthesisDeadline = Date.now() + 90000;
+    const synthesisStageT0 = Date.now();
+
     // WAVE 1: small, fast, historically-reliable set from EVERY provider,
     // raced together. This is what actually fixes "OpenRouter-only outage
     // blocks everything" — Workers AI and Pollinations are in flight from
@@ -9655,8 +10606,9 @@ export async function onRequest(context) {
     }
 
     // WAVE 2: broader set from every provider, raced together. Only fires if
-    // wave 1 fully failed across ALL providers simultaneously.
-    if (!aiOK) {
+    // wave 1 fully failed across ALL providers simultaneously — and only
+    // inside the synthesis deadline (past it, Wave 4 takes over).
+    if (!aiOK && Date.now() < synthesisDeadline) {
       // Bounded wait for the speculative brief: a fast-failing wave 1 can
       // outrun the extraction, and the small wave-2 models do far better
       // composing from pre-digested claims than from raw abstracts. 4s max —
@@ -9713,7 +10665,8 @@ export async function onRequest(context) {
     //      AI isn't bound or also comes back empty — in case the throttle
     //      from waves 1-2 has had a few seconds to clear by now.
     // ════════════════════════════════════════════════════════════════
-    if (!aiOK) {
+    // Wave 3 also respects the synthesis deadline (see above).
+    if (!aiOK && Date.now() < synthesisDeadline) {
       const bulletproofSystem =
         ID +
         "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass — be direct and skip elaboration.\n\n" +
@@ -9767,6 +10720,11 @@ export async function onRequest(context) {
       // provider, and having already proven itself in waves 1-2 above.
       // Racing all three together means the fastest surviving provider wins
       // instead of waiting out a provider that's already known to be down.
+      // Last resort: the bold-formatting bar is relaxed for this tier (see
+      // formattingRelaxed above) — a real answer without bold beats the
+      // deterministic fallback, and the section STRUCTURE the frontend
+      // needs is still enforced by the prompt.
+      formattingRelaxed = true;
       const bulletproofLegs = [
         // Commit 86 — waves 1 and 2 failing together used to mean the
         // OpenRouter bucket was throttled and this tier had almost nothing
@@ -9791,6 +10749,15 @@ export async function onRequest(context) {
     // from Cloudflare's dashboard logs instead of requiring another live
     // repro from the user. This will show the ACTUAL reason — rate limit,
     // missing binding, provider outage — not a guess.
+    // NEXT-GEN: the synthesis stage closes here — record which outcome the
+    // waves reached before the deterministic fallback runs. aiAttempts
+    // already holds per-model detail for operators; the public stageHealth
+    // carries only the stage outcome.
+    stageHealth.push({
+      name: "synthesis",
+      ok: aiOK,
+      ms: Date.now() - synthesisStageT0,
+    });
     if (!aiOK) {
       aiAttempts.push({ diagnostics: {
         hasOpenRouterKey: !!token,
@@ -9808,29 +10775,41 @@ export async function onRequest(context) {
       // code over the already-retrieved papers: no network calls, so it
       // cannot be rate-limited or time out. When it succeeds, the user
       // gets a real synthesized answer (clearly labeled as assembled
-      // without AI) instead of the "Unable To Synthesize" dead end. It
+      // without AI) instead of a dead-end error state. It
       // only returns null when there is nothing to synthesize from at
       // all, in which case the honest fallback below still runs.
       // ════════════════════════════════════════════════════════════════
       try {
         const extPool = useEvidence ? evidencePapers : useWeb ? webRefs : [];
-        const ext = buildExtractiveSynthesis(extPool, briefClaims);
+        // NEXT-GEN: the extractive path emits the same five-section
+        // structure as the AI path, with computed disagreement /
+        // confidence / falsification sections. ctx carries what those
+        // sections need; ambiguity names the interpretations instead of
+        // silently picking one.
+        const ext = buildExtractiveSynthesis(extPool, briefClaims, {
+          sourcesQueried: publicSourcesQueried(),
+          relevanceGatedOut,
+          ambiguity,
+        });
         if (ext) { answer = ext; extractiveOK = true; }
       } catch {}
       if (!extractiveOK) {
-        // Every wave above (including the "bulletproof" wave 3) failed, and
-      // nothing downstream ever sets `answer` in that case — it was left as
-      // the empty string it started as, so the response shipped a real
-      // bibliography with a blank space where the synthesis should be. The
-      // retrieval pipeline already did its job by this point (sourceList is
-      // populated independent of AI generation succeeding), so there's
-      // something real to hand back — just say so plainly instead of
-      // silently omitting the section entirely.
-      answer = sourceList.length > 0
-        ? "Cerebrum's AI synthesis didn't complete for this question, but the sources below were found and are ready to read directly."
-        : relevanceGatedOut > 0
-          ? "Cerebrum's AI synthesis didn't complete for this question, and the papers the search returned didn't clear the relevance bar for this query — none were cited rather than risk misleading citations. Try more specific search terms."
-          : "Cerebrum's AI synthesis didn't complete for this question, and no sources were found either. Please try again in a moment.";
+        // INTELLIGENT NO-RESULTS — the terminal state when every provider
+        // failed AND nothing citable survived retrieval. A real answer
+        // built from the retrieval record itself: what was tried, the most
+        // likely reasons, and concrete reformulations derived from the
+        // question. This branch is what makes dead-end error states
+        // unreachable: every path below sets a
+        // complete, honest answer.
+        noResultsPayload = buildNoResultsPayload({
+          query: searchQuery,
+          sourcesQueried: publicSourcesQueried(),
+          rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
+          gatedOut: useEvidence ? relevanceGatedOut : 0,
+          gatedExamples: useEvidence ? gatedOutTitles : [],
+        });
+        answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
+        responseKind = "no-results";
       }
     }
 
@@ -9902,8 +10881,8 @@ export async function onRequest(context) {
           const retryMsgs2 = [
             { role: "system", content: "You are a scientific expert. Write a thorough, accurate answer. " +
               "Cite papers ONLY if they directly address the question's specific topic and organism. " +
-              "If none of the papers are relevant, say so briefly and answer from your knowledge. " +
-              "An accurate uncited answer is better than wrong citations. SYNTHESIZE — do not list sources." },
+              "If none of the papers are relevant, say so briefly and do not invent findings — summarize only what the papers actually report, and mark any general background as such. " +
+              "An honest short answer is better than wrong citations. SYNTHESIZE — do not list sources." },
             { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query },
           ];
           const retryModels2 = ["deepseek/deepseek-chat-v3-0324:free", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free"];
@@ -9992,56 +10971,13 @@ export async function onRequest(context) {
       }
     }
 
-    // ============ TIER 4: HONEST, STRUCTURED FALLBACK ============
-    // Only reachable when Wave 4 (deterministic extractive synthesis)
-    // also failed — i.e. there were no usable papers or references to
-    // synthesize from at all. With any sources present, Wave 4 always
-    // produces a labeled synthesis instead of this dead end.
-    if (!aiOK && !extractiveOK) {
-      if (useEvidence && papers.length) {
-        const paperBlocks = papers
-          .slice(0, 6)
-          .map(
-            (p, i) =>
-              "### [" + (i + 1) + "] " + p.title + "\n\n" +
-              "- **Journal:** " + (p.journal || "Unknown") + (p.year ? " (" + p.year + ")" : "") + "\n" +
-              "- **Summary:** " +
-                ((p.abstract || "No abstract available.").slice(0, 300) +
-                  (p.abstract && p.abstract.length > 300 ? "..." : ""))
-          )
-          .join("\n\n");
-        answer =
-          "## Unable To Synthesize — Showing Source Papers Directly\n\n" +
-          "Every model Cerebrum tried was rate-limited or unavailable for this one request. Rather than guess, here are the " +
-          Math.min(papers.length, 6) +
-          " most relevant papers found — the same sources a synthesized answer would have cited.\n\n" +
-          paperBlocks +
-          "\n\n## What To Do Next\n\n" +
-          "- Try your question again in a few seconds — free-tier model capacity recovers quickly.\n" +
-          "- The papers above are fully listed in the sources panel and can be opened or exported directly.";
-      } else if (useWeb && webRefs.length) {
-        const refBlocks = webRefs
-          .map(
-            (r, i) =>
-              "### [" + (i + 1) + "] " + r.title + "\n\n" +
-              "- **Summary:** " + ((r.abstract || "No summary available.").slice(0, 300) + "...")
-          )
-          .join("\n\n");
-        answer =
-          "## Unable To Synthesize — Showing Reference Sources Directly\n\n" +
-          "Every model Cerebrum tried was rate-limited or unavailable for this one request. Here are the reference sources found instead.\n\n" +
-          refBlocks +
-          "\n\n## What To Do Next\n\n" +
-          "- Try your question again in a few seconds — free-tier model capacity recovers quickly.";
-      } else {
-        answer =
-          "## Momentarily At Capacity\n\n" +
-          "Every model Cerebrum tried, across three independent providers, was rate-limited or unavailable for this one request. This isn't an error with your question.\n\n" +
-          "## What To Do Next\n\n" +
-          "- Please try again in a few seconds — free-tier capacity recovers quickly.\n" +
-          "- If this keeps happening, it's almost certainly a shared rate limit rather than anything specific to this query.";
-      }
-    }
+    // ============ TIER 4: RETIRED (v7.0) ============
+    // The old dead-end error states are gone: every failure path now ends
+    // in the intelligent no-results answer (or the extractive synthesis),
+    // lived here. They are unreachable by construction now: the Wave-4
+    // block above ALWAYS sets a complete answer — extractive synthesis when
+    // papers exist, the intelligent no-results answer otherwise. There is
+    // no branch left in this pipeline that emits a dead end.
 
     const dbUsed = useEvidence
       ? "Scientific databases"
@@ -10227,7 +11163,78 @@ export async function onRequest(context) {
       }
     }
 
-    const literatureConflicts = extractLiteratureConflicts(answer, sourceList);
+    // NEXT-GEN claim-level integrity.
+    //
+    // (a) EXTRACTIVE PATH — the deterministic answer gets a deterministic
+    // check: every cited claim must share real vocabulary with the paper it
+    // cites. This runs regardless of the factCheck toggle (it's free and
+    // it's the whole point of the degraded path) and is what permanently
+    // replaces the "Fact-check: NOT CHECKED" state.
+    if (!factCheckResult && extractiveOK && useEvidence && evidencePapers.length > 0) {
+      const aligned = verifyExtractiveAlignment(answer, evidencePapers);
+      if (aligned.checked) factCheckResult = aligned;
+      stageHealth.push({ name: "fact-check", ok: !!factCheckResult, ms: 0 });
+    }
+    // (b) AI PATH — conservative mechanical post-check: flag claims with
+    // near-zero vocabulary overlap with the paper they cite. Flagged claims
+    // are appended to the fact-check panel as unsupported (flag, don't
+    // drop — removing sentences would mangle the prose).
+    let aiAlignmentIssues = [];
+    if (aiOK && useEvidence && evidencePapers.length > 0) {
+      try {
+        aiAlignmentIssues = postCheckAIAlignment(answer, evidencePapers).issues;
+      } catch { aiAlignmentIssues = []; }
+      if (aiAlignmentIssues.length > 0 && factCheckResult && Array.isArray(factCheckResult.claims)) {
+        const have = new Set(factCheckResult.claims.map((c) => String(c.claim || "").slice(0, 80)));
+        for (const iss of aiAlignmentIssues) {
+          if (have.has(String(iss.claim).slice(0, 80))) continue;
+          factCheckResult.claims.push({
+            claim: iss.claim,
+            status: "unsupported",
+            note: iss.reason + " Worth opening the source to check where it came from.",
+          });
+        }
+        const nUns = factCheckResult.claims.filter((c) => c.status === "unsupported").length;
+        if (nUns > 0 && factCheckResult.overall === "supported") factCheckResult.overall = "partly";
+      }
+      if (!factCheckResult) {
+        // No fact-check ran at all (toggle off) but the post-check found
+        // unsupported claims — surface them rather than staying silent.
+        if (aiAlignmentIssues.length > 0) {
+          factCheckResult = {
+            overall: "partly",
+            summary: "Checked cited claims against their papers: " + aiAlignmentIssues.length + " claim" +
+              (aiAlignmentIssues.length === 1 ? "" : "s") + " share almost no vocabulary with the paper cited.",
+            claims: aiAlignmentIssues.map((iss) => ({
+              claim: iss.claim, status: "unsupported",
+              note: iss.reason + " Worth opening the source to check where it came from.",
+            })),
+            mode: "claims",
+          };
+        }
+      }
+      stageHealth.push({ name: "fact-check", ok: true, ms: 0 });
+    }
+
+    // NEXT-GEN disagreement intelligence: source-level conflict detection
+    // (the papers' own claims compared against each other) FIRST — it is
+    // independent of the generated prose. The old answer-text mining runs
+    // only as a secondary recall pass when the source-level pass finds
+    // nothing. The verdict (divided/settled/thin) is always computed.
+    const detected = detectSourceConflicts(sourceList, briefClaims);
+    const textMined = detected.conflicts.length === 0 ? extractLiteratureConflicts(answer, sourceList) : [];
+    const literatureConflicts = [...detected.conflicts, ...textMined];
+    const disagreementVerdict = detected.verdict;
+    stageHealth.push({ name: "disagreement", ok: true, ms: 0 });
+
+    // NEXT-GEN computed answer instruments: gaps, confidence, coverage.
+    const evidenceGaps = (useEvidence && evidencePapers.length > 0)
+      ? buildEvidenceGaps({ papers: evidencePapers, sourcesQueried: publicSourcesQueried(), relevanceGatedOut })
+      : [];
+    const confidence = (useEvidence && evidencePapers.length > 0)
+      ? buildConfidenceLine(evidencePapers, disagreementVerdict)
+      : null;
+    const coverageNote = buildCoverageNote(publicSourcesQueried());
 
     /* Computed, not generated. Runs only when there is enough to compare and
        never blocks the answer for more than its own deadline. */
@@ -10243,7 +11250,9 @@ export async function onRequest(context) {
     return new Response(
       JSON.stringify({
         answer,
-        sources: sourceList,
+        // NEXT-GEN: bibliography entries the answer never cites are labeled
+        // as further reading rather than silently implying support.
+        sources: labelUncitedSources(sourceList, answer),
         /* Papers the relevance gate withheld from citations/counts (see
            RELEVANCE_FLOOR). The UI can state this honestly instead of
            silently dropping them. */
@@ -10251,6 +11260,18 @@ export async function onRequest(context) {
         videos,
         factCheck: factCheckResult,
         literature_conflicts: literatureConflicts.length > 0 ? literatureConflicts : null,
+        // NEXT-GEN answer instruments — computed, shipped on every evidence
+        // path so the UI renders one consistent product on both AI and
+        // deterministic answers.
+        responseKind,            // "research" | "no-results"
+        noResults: noResultsPayload, // structured no-results payload (null otherwise)
+        disagreementVerdict,     // { status: divided|settled|thin, conflictCount, summary }
+        evidenceGaps,            // [string]
+        confidence,              // { level: strong|moderate|thin, line } | null
+        coverageNote,            // honest note when databases failed | null
+        ambiguity,               // { ambiguous, term, resolvedAs, interpretations }
+        degraded: stageHealth.some((s) => !s.ok) || responseKind === "no-results",
+        stageHealth: stageHealth.map((s) => ({ name: s.name, ok: s.ok, ms: s.ms })),
         evidenceStructure: evidenceMap,
         /* The result of a stress test, or null. `changed` is computed from
            the fact-check's own extracted claims rather than from the prose,
@@ -10319,9 +11340,7 @@ export async function onRequest(context) {
          * happened, not a fixed list — a source that timed out reports
          * ok:false, and the UI is expected to say so rather than implying
          * everything was searched. */
-        sourcesQueried: gResult && gResult._diag && Array.isArray(gResult._diag.sourceOutcomes)
-          ? gResult._diag.sourceOutcomes.map((o) => ({ source: o.source, ok: !!o.ok, count: o.count || 0 }))
-          : null,
+        sourcesQueried: publicSourcesQueried(),
         /* Retrieval funnel — NUMBERS ONLY. This is the one part of the
          * pipeline diagnostics that ships to everyone: how many raw records
          * the databases returned (gathered), how many survived dedup
@@ -10385,25 +11404,51 @@ export async function onRequest(context) {
     // paths, whatever the exception happened to say) for zero benefit to a
     // legitimate caller who just needs a clear, generic explanation.
     console.error("Cerebrum /api/search top-level error:", e && e.stack ? e.stack : e);
-    // Classify the error for a more helpful user-facing message
-    const msg = (e.message || String(e)).toLowerCase();
-    let userMessage = "Something went wrong on our end. Please try again in a moment.";
-    let status = 500;
-    if (msg.includes("rate") || msg.includes("429") || msg.includes("quota")) {
-      userMessage = "Our AI providers are temporarily rate-limited. Try again in 30 seconds.";
-      status = 503;
-    } else if (msg.includes("timeout") || msg.includes("abort") || msg.includes("timed out")) {
-      userMessage = "The search took too long. Try a simpler query or try again shortly.";
-      status = 504;
-    } else if (msg.includes("network") || msg.includes("fetch")) {
-      userMessage = "Couldn't reach one of our data sources. Give it a moment and retry.";
-      status = 502;
+    // NEXT-GEN: the top-level failure is not a dead end either. Return a
+    // valid 200 research response in the no-results shape — what happened,
+    // why, reformulations derived from the question, and the watch-topic
+    // action — instead of a 5xx JSON error the UI can only render as a
+    // failure box. `degraded: true` and the stage record say plainly that
+    // the pipeline itself failed on this run.
+    let nrPayload;
+    try {
+      nrPayload = buildNoResultsPayload({
+        query: catchQuery,
+        sourcesQueried: null,
+        rungsTried: [],
+        gatedOut: 0,
+        gatedExamples: [],
+        errored: true,
+      });
+    } catch {
+      nrPayload = { whatWasTried: [], likelyReasons: [], reformulations: [], errored: true };
+    }
+    let nrAnswer;
+    try {
+      nrAnswer = renderNoResultsAnswer(catchQuery || "your question", nrPayload);
+    } catch {
+      nrAnswer = "## No citable literature surfaced\n\nCerebrum hit an internal error on this run before it could finish searching. Nothing was fabricated — please try again in a moment.";
     }
     return new Response(
       JSON.stringify({
-        error: userMessage,
+        answer: nrAnswer,
+        sources: [],
+        relevanceGatedOut: 0,
+        videos: [],
+        factCheck: null,
+        literature_conflicts: null,
+        responseKind: "no-results",
+        noResults: nrPayload,
+        disagreementVerdict: null,
+        evidenceGaps: [],
+        confidence: null,
+        coverageNote: null,
+        ambiguity: { ambiguous: false, term: null, resolvedAs: null, interpretations: [] },
+        degraded: true,
+        stageHealth: [{ name: "request", ok: false, ms: 0 }],
+        synthesisMode: "none",
       }),
-      { status, headers: secureCors }
+      { status: 200, headers: secureCors }
     );
   }
 }

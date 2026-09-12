@@ -436,17 +436,31 @@ export function classifyVennPapers({ answer, sources, factCheck }) {
   const claims = factCheck && Array.isArray(factCheck.claims) && factCheck.mode !== "terms"
     ? factCheck.claims
     : [];
+  const fcPlaced = new Set();
   for (const c of claims) {
     const idx = extractCitedIndices(String(c.claim || "") + " " + String(c.note || ""), n);
     const st = String(c.status || "").toLowerCase();
     for (const i of idx) {
-      if (st === "supported") agree.add(i);
-      else if (st === "contradicted" || st === "thin" || st === "unsupported") disagree.add(i);
-      else if (st === "partly" || st === "mixed") middle.add(i);
+      if (st === "supported") { agree.add(i); fcPlaced.add(i); }
+      else if (st === "contradicted" || st === "thin" || st === "unsupported") { disagree.add(i); fcPlaced.add(i); }
+      else if (st === "partly" || st === "mixed") { middle.add(i); fcPlaced.add(i); }
     }
   }
 
-  for (const i of disagreementCitedIndices(answer, n)) disagree.add(i);
+  // Papers cited in the answer body were used to build it — they stand behind
+  // it unless a stronger signal places them elsewhere. Without this default
+  // the Venn only renders when fact-check produced claims, so most answers
+  // (fact-check skipped, disagreement section uncited) show no diagram at all.
+  // Cited on both sides (body + disagreement section) = nuanced, not hidden.
+  const disagSet = new Set(disagreementCitedIndices(answer, n));
+  const bodySet = new Set(extractCitedIndices(String(answer || ""), n));
+  for (const i of bodySet) {
+    if (disagSet.has(i)) { agree.delete(i); disagree.delete(i); middle.add(i); }
+    else if (!fcPlaced.has(i)) agree.add(i);
+  }
+  for (const i of disagSet) {
+    if (!bodySet.has(i)) disagree.add(i);
+  }
 
   // Cited on both sides = nuanced, not contradictory data to hide.
   for (const i of agree) {
