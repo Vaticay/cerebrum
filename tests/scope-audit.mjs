@@ -86,6 +86,75 @@ function unboundReferences(src, filename) {
   return [...new Set(problems)];
 }
 
+/* 2026-09-12 production outage: `useDynamicFavicon({ accent, ... })` was
+   called in App() ~270 lines BEFORE `const accent = ...` was declared.
+   The unbound-reference audit above cannot see it — `accent` IS bound,
+   just later. At render time this throws "Cannot access 'X' before
+   initialization" and the error boundary takes down the whole page.
+   This check flags any const/let/class referenced textually before its
+   declaration within the same function body. References inside nested
+   closures are excluded (they run later, after initialization). */
+function tdzReferences(src, filename) {
+  const ast = parser.parse(src, {
+    sourceType: "module",
+    plugins: ["jsx", "classProperties", "optionalChaining",
+      "nullishCoalescingOperator", "objectRestSpread", "dynamicImport"],
+  });
+  const problems = [];
+  traverse(ast, {
+    Function(path) {
+      // Pass 1: const/let/class declarations owned directly by this function.
+      // (A single pass cannot work: a use-before-declaration reference is
+      // visited before the later declaration that must already be known.)
+      const declStart = new Map(); // name -> source offset of declaration
+      const collectIds = (node, ids) => {
+        if (!node) return;
+        if (node.type === "Identifier") ids.push(node);
+        else if (node.type === "ObjectPattern") node.properties.forEach((pr) => collectIds(pr.value || pr.argument, ids));
+        else if (node.type === "ArrayPattern") node.elements.forEach((el) => collectIds(el, ids));
+        else if (node.type === "RestElement") collectIds(node.argument, ids);
+        else if (node.type === "AssignmentPattern") collectIds(node.left, ids);
+      };
+      path.traverse({
+        VariableDeclaration(p) {
+          if (p.node.kind !== "const" && p.node.kind !== "let") return;
+          if (p.getFunctionParent() !== path) return;
+          for (const d of p.node.declarations) {
+            const ids = [];
+            collectIds(d.id, ids);
+            for (const id of ids) {
+              if (!declStart.has(id.name)) declStart.set(id.name, d.start);
+            }
+          }
+        },
+        ClassDeclaration(p) {
+          if (p.getFunctionParent() !== path) return;
+          if (p.node.id && !declStart.has(p.node.id.name)) declStart.set(p.node.id.name, p.node.start);
+        },
+      });
+      // Pass 2: references in this function body (not nested closures,
+      // which run later) that land before their declaration.
+      path.traverse({
+        ReferencedIdentifier(p) {
+          if (p.getFunctionParent() !== path) return; // nested closure: runs later
+          const name = p.node.name;
+          if (!declStart.has(name)) return;
+          const binding = p.scope.getBinding(name);
+          if (!binding) return;
+          if (binding.kind !== "const" && binding.kind !== "let" && binding.kind !== "class") return;
+          if (p.node.start < declStart.get(name)) {
+            const fnName = path.node.id ? path.node.id.name
+              : (path.parentPath.isVariableDeclarator() ? path.parentPath.node.id.name : "(anonymous)");
+            const { line, column } = p.node.loc.start;
+            problems.push(`${filename}: "${name}" used before its ${binding.kind} declaration at line ${line}:${column} (in ${fnName})`);
+          }
+        },
+      });
+    },
+  });
+  return [...new Set(problems)];
+}
+
 let passed = 0;
 const failures = [];
 
@@ -106,6 +175,15 @@ for (const f of ["src/CerebrumApp.jsx", "src/main.jsx", "src/legalContent.js"]) 
     const problems = unboundReferences(src, f);
     assert.equal(problems.length, 0,
       `would-be ReferenceError(s):\n      - ` + problems.join("\n      - "));
+  });
+}
+
+for (const f of ["src/CerebrumApp.jsx", "src/main.jsx", "src/legalContent.js"]) {
+  await test(`no use-before-declaration (TDZ) in ${f}`, () => {
+    const src = readFileSync(join(root, f), "utf8");
+    const problems = tdzReferences(src, f);
+    assert.equal(problems.length, 0,
+      `would-be "Cannot access before initialization" crash(es):\n      - ` + problems.join("\n      - "));
   });
 }
 

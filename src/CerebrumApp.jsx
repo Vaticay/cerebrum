@@ -20023,9 +20023,6 @@ function App() {
   const [pinnedSources, setPinnedSources] = useState([]);
   const [corrections, setCorrections] = useState([]);
   const [busy, setBusy] = useState(false);
-  /* Live tab icon: sweeping activity arc while a search is in flight,
-     inbox badge for unread threads, mark tinted with the user's accent. */
-  useDynamicFavicon({ accent, busy, unread: threads.filter((t) => t.unread).length });
   /* ReadingRoom milestone: set when /api/videos resolves with a non-empty
      videos array while the current request is still current (see the
      videosPromise.then guard in ask). Reset at the start of every ask. */
@@ -20305,6 +20302,12 @@ function App() {
       ? (P.dark ? "#ffffff" : "#000000")
       : (ACCENTS[accentName] || (P.dark ? "#ffffff" : "#000000"));
   const at = accentText(accent);
+  /* Live tab icon: sweeping activity arc while a search is in flight,
+     inbox badge for unread threads, mark tinted with the user's accent.
+     Placed after `accent` is initialized — calling it earlier threw
+     "Cannot access before initialization" on every render (production
+     outage, 2026-09-12). */
+  useDynamicFavicon({ accent, busy, unread: threads.filter((t) => t.unread).length });
   // v6.4 perf: makeStyles() builds a large tree of inline-style objects —
   // previously rebuilt from scratch on every single render (every keystroke
   // in the search box, every hover-state change, every busy tick during a
