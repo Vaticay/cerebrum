@@ -4605,9 +4605,9 @@ function FilmCreditsDialog({ onClose, accent }) {
    the 4:3 and 1.9:1 clips, where the crop is real and the subject can end
    up behind the headline. */
 const FILM_SCENES = {
-  "/assets/cinematic/science-01.mp4": { subject: "Microbiology", question: "What can scientists learn by watching microorganisms move?", pos: "62% 50%" },
+  "/assets/cinematic/science-01.mp4": { subject: "Microbiology", question: "What can scientists learn by watching microorganisms move?", pos: "55% 50%" },
   "/assets/cinematic/science-02.mp4": { subject: "Cell biology", question: "How do single cells move without muscles?" },
-  "/assets/cinematic/science-03.mp4": { subject: "Plant science", question: "How does a seedling know which way is up?" },
+  "/assets/cinematic/science-03.mp4": { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "58% 55%", posMobile: "50% 62%" },
   "/assets/cinematic/science-04.mp4": { subject: "Plant science", question: "How efficient is photosynthesis compared with a solar panel?" },
   "/assets/cinematic/science-07.mp4": { subject: "Chemistry", question: "What makes a chemical reaction speed up or stall?", pos: "50% 42%" },
   "/assets/cinematic/science-08.mp4": { subject: "Fluid dynamics", question: "Why does a drop of dye spread through water the way it does?", pos: "50% 45%" },
@@ -4616,7 +4616,7 @@ const FILM_SCENES = {
   "/assets/cinematic/science-11.mp4": { subject: "Glaciology", question: "How fast is the Greenland ice sheet losing mass?" },
   "/assets/cinematic/science-12.mp4": { subject: "Marine biology", question: "How do jellyfish move without a brain?" },
   "/assets/cinematic/science-13.mp4": { subject: "Marine biology", question: "What makes coral bleach, and can it recover?", pos: "50% 45%" },
-  "/assets/cinematic/science-14.mp4": { subject: "Neuroscience", question: "How do researchers trace a single neuron across a whole brain?" },
+  "/assets/cinematic/science-14.mp4": { subject: "Neuroscience", question: "How do researchers trace a single neuron across a whole brain?", pos: "55% 45%" },
   "/assets/cinematic/science-15.mp4": { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
   "/assets/cinematic/science-16.mp4": { subject: "Physics", question: "What is plasma, and where does it occur naturally?" },
   "/assets/cinematic/science-20.mp4": { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
@@ -4708,7 +4708,7 @@ function filmPoster(src) {
    call issued from a real click/touch handler. The old path ran play() in
    a React effect after setState, outside the gesture, so the opt-in button
    silently did nothing on exactly the phones that needed it most. */
-const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked }, ref) {
+const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked, startAt = null }, ref) {
   const aRef = useRef(null);
   const bRef = useRef(null);
   const curRef = useRef(0);
@@ -4724,6 +4724,15 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
       const t = o[i]; o[i] = o[j]; o[j] = t;
     }
     orderRef.current = o;
+  }
+  /* `startAt` keeps the same background frame across a handoff: a fresh
+     reel (the workspace mounts its own instance) opens on the given clip
+     instead of its own shuffled head, so stepping through the door never
+     visibly restarts the video. The poster's graded still covers the
+     buffering gap (see .cb-enter-frame). */
+  if (startAt) {
+    const si = orderRef.current.indexOf(startAt);
+    if (si >= 0) idxRef.current = si;
   }
 
   /* One honest test for "should this be playing at all", consulted by the
@@ -5036,7 +5045,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
           decoder has not produced a frame yet, this is what shows — a
           graded still, never black. */}
       <div className="cb-film-poster" style={{
-        backgroundImage: `url(${filmPoster(orderRef.current[0])})`,
+        backgroundImage: `url(${filmPoster(orderRef.current[idxRef.current])})`,
       }} />
       <video ref={aRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={filmPoster(FILM_POSTER_CLIP)} />
       <video ref={bRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={filmPoster(FILM_POSTER_CLIP)} />
@@ -5226,34 +5235,14 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const [howOpen, setHowOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  /* HUD clock: one interval, unmounted with the screen. Text updates are
-     not motion, so it keeps ticking under reduced motion. */
-  const [nowUtc, setNowUtc] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNowUtc(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const utcStr = nowUtc.toISOString().slice(11, 19) + " UTC";
-  /* Tracked micro-label voice for HUD readouts: uppercase Inter with wide
-     tracking — the instrument feel without a second typeface. */
-  const hudReadout = {
-    fontSize: 11, letterSpacing: "0.22em", fontWeight: 600,
-    color: "rgba(242,244,242,0.62)", fontFamily: "var(--cb-body)",
-    display: "inline-flex", alignItems: "center", gap: 8,
-    fontVariantNumeric: "tabular-nums",
-  };
-  const hudRule = { width: 1, height: 14, background: "rgba(255,255,255,0.14)", flexShrink: 0 };
-  /* Innovation refinement — the door, reimagined:
-     `iris` is the opening reveal on first paint (a black disc that opens
-     from the optical centre, so the first thing seen is the film, not UI
-     fading in). `veil` is the threshold bloom on exit: a glow that opens
-     from the pressed point to full coverage, and onEnter fires while the
-     screen is covered so the swap into the app is invisible. Both are
-     skipped entirely when animation is off or reduced motion is set. */
-  const [iris, setIris] = useState(true);
-  const [veil, setVeil] = useState(null);
-  const veilRef = useRef(null);
-  const heroParRef = useRef(null);
+  /* Stepping through: the chrome fades quickly, the film frame stays
+     behind, and the App dissolves the clip's graded still over the
+     workspace — the same background frame is retained, so the video is
+     never restarted and no blank screen flashes. The no-motion path is
+     untouched: animation off or reduced motion goes straight through. */
+  const [leaving, setLeaving] = useState(false);
+  const leaveTimer = useRef(null);
+  useEffect(() => () => clearTimeout(leaveTimer.current), []);
 
   /* The intro uses Cerebrum's sage, not the visitor's chosen accent.
      The default accent is Mono — pure white — so on a fresh phone every
@@ -5331,90 +5320,24 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
      with its cursor in the real composer) or the scene plate below, which
      asks one real question and steps through with it. */
 
-  /* The hero's own elements. Everything else on this screen is static:
-     choreographing a landing page means running tweens over a playing
-     video, which is exactly the work that made this screen stutter. */
-  const navRef = useRef(null);
-  const kickerRef = useRef(null);
-  const head1Ref = useRef(null);
-  const head2Ref = useRef(null);
-  const descRef = useRef(null);
-  const btnsRef = useRef(null);
-  const sceneRef = useRef(null);
-  const EASE = "power3.inOut";
-
-  useEffect(() => {
-    if (animationMode === "off") return;
-    const tl = gsap.timeline();
-    tl.fromTo(navRef.current, { y: -12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0)
-      .fromTo(kickerRef.current, { y: 10, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.06)
-      .fromTo(head1Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.12)
-      .fromTo(head2Ref.current, { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.20)
-      .fromTo(descRef.current, { y: 14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.1, ease: EASE }, 0.30)
-      .fromTo(btnsRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.40)
-      .fromTo(sceneRef.current, { y: 12, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.9, ease: EASE }, 0.54);
-    return () => tl.kill();
-  }, [animationMode]);
-
   /* `submit` is the difference between prefilling the composer and actually
      asking. The scene prompt and the worked example ask; every other route
      in opens the workspace and leaves the cursor in the box.
 
-     Innovation refinement: leaving is no longer a fade-out of the furniture.
-     A threshold veil blooms from the pressed point to full coverage, and
-     onEnter fires while the screen is covered — stepping through a door of
-     light rather than watching text dissolve. The no-motion path is
-     untouched: animation off or reduced motion goes straight through. */
-  const go = (q, submit, e) => {
+     Stepping through: the chrome fades (CSS, 320ms), the film frame stays
+     behind, and the handoff fires with the current clip so the App can
+     dissolve the clip's graded still over the workspace — the same
+     background frame is retained, no restart, no blank. The no-motion
+     path is untouched: animation off or reduced motion goes straight
+     through. A second press while leaving is ignored. */
+  const go = (q, submit) => {
     const payload = typeof q === "string" ? q : "";
-    if (animationMode === "off" || reduced) { onEnter(payload, !!submit); return; }
-    const r = e && e.currentTarget && e.currentTarget.getBoundingClientRect
-      ? e.currentTarget.getBoundingClientRect() : null;
-    setVeil({
-      payload, submit,
-      x: r ? r.left + r.width / 2 : window.innerWidth / 2,
-      y: r ? r.top + r.height / 2 : window.innerHeight * 0.62,
-    });
+    if (leaving) return;
+    if (animationMode === "off" || reduced) { onEnter(payload, !!submit, clip); return; }
+    setLeaving(true);
+    clearTimeout(leaveTimer.current);
+    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, clip), 380);
   };
-
-  /* Drives the threshold veil: 0px circle at the pressed point expanding
-     past the farthest corner, then the handoff. Killed on unmount so a
-     fast double-press can never stack timelines. */
-  useEffect(() => {
-    if (!veil || !veilRef.current) return undefined;
-    const R = Math.hypot(
-      Math.max(veil.x, window.innerWidth - veil.x),
-      Math.max(veil.y, window.innerHeight - veil.y)
-    ) + 48;
-    const tl = gsap.timeline({ onComplete: () => onEnter(veil.payload, veil.submit) });
-    tl.fromTo(veilRef.current,
-      { clipPath: `circle(0px at ${veil.x}px ${veil.y}px)`, opacity: 1 },
-      { clipPath: `circle(${R}px at ${veil.x}px ${veil.y}px)`, duration: 0.9, ease: "power3.inOut" });
-    return () => tl.kill();
-  }, [veil, onEnter]);
-
-  /* The hero breathes with the pointer — a few pixels of parallax on the
-     headline block, rAF-throttled, desktop and full-motion only. Subtle on
-     purpose: the film is already moving; this just makes the words feel
-     like they float over it rather than being printed on it. */
-  useEffect(() => {
-    if (animationMode === "off" || reduced || isMobile) return undefined;
-    const el = heroParRef.current;
-    if (!el) return undefined;
-    let raf = 0;
-    const onMove = (ev) => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const dx = ev.clientX / window.innerWidth - 0.5;
-        const dy = ev.clientY / window.innerHeight - 0.5;
-        el.style.transform = `translate3d(${(dx * 12).toFixed(2)}px, ${(dy * 9).toFixed(2)}px, 0)`;
-      });
-    };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    return () => { window.removeEventListener("pointermove", onMove); cancelAnimationFrame(raf); };
-  }, [animationMode, reduced, isMobile]);
-
-  const hidden = animationMode === "off" ? 1 : 0;
 
   /* One container, used by the header, the hero and the footer, so the
      three read as one composition instead of three screens stacked. */
@@ -5431,8 +5354,12 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
     textDecoration: "none",
   };
 
+  /* The single short fade on arrival (CSS class below). Under reduced
+     motion or with animation off, everything is simply present. */
+  const animate = animationMode !== "off" && !reduced;
+
   return (
-    <div id="cb-intro-wrap" style={{
+    <div id="cb-intro-wrap" className={leaving ? "cb-intro-leaving" : undefined} style={{
       minHeight: "100dvh", position: "relative",
       /* overflow-x only. `overflow: hidden` here was clipping the page to
          one viewport, so on a short window — a laptop with the browser
@@ -5451,62 +5378,20 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           `filmOff` is untouched, so the pause is the dialog's, not theirs. */}
       <CinematicFilm ref={filmRef} animationMode={animationMode} intensity={1} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={onClip} onAutoplayBlocked={() => setAutoplayBlocked(true)} />
 
-      {/* Innovation refinement — the door, reimagined. The iris opens on
-          first paint so the film is revealed rather than faded in; the
-          threshold veil blooms from the pressed point on exit and the
-          handoff into the app fires while the screen is covered. */}
-      {iris && animationMode !== "off" && !reduced && (
-        <div className="cb-iris-veil" aria-hidden="true" onAnimationEnd={() => setIris(false)} />
-      )}
-      {veil && (
-        <div ref={veilRef} className="cb-threshold-veil" aria-hidden="true"
-          style={{ "--cb-tx": `${veil.x}px`, "--cb-ty": `${veil.y}px` }} />
-      )}
-
       {/* Contrast, spent where the words are rather than over the whole
-          picture. The old scrim dropped a radial vignette plus a bottom
-          wash across the entire viewport, which is the "make the film
-          darker until the text works" approach: it costs the footage its
-          highlights everywhere to fix legibility in one place.
-
-          On a wide screen the hero is centred, so the gradient runs
-          left-to-right across the reading zone rather than along it; the
-          right of the frame is left open for the footage. On a narrow
-          screen the text is full width, so it runs top-to-bottom instead.
-          Fixed, so it is one composite rather than a repaint per scrolled
-          pixel.
-
-          The stops below were measured against every graded clip at the
-          headline's coordinates in the previous left-aligned layout
-          (worst frame: the sunlit leaves, 8.2:1 headline / 7.6:1
-          paragraph). If a stop is moved, re-measure rather than trusting
-          these numbers. */}
+          picture. The hero sits in the left 45%, so a soft directional
+          gradient darkens the left reading zone and leaves the right of
+          the frame — where each clip's subject is cropped — brighter.
+          On a narrow screen the text stacks full width, so the gradient
+          runs top-to-bottom instead. Fixed: one composite, not a repaint
+          per scrolled pixel. */}
       <div aria-hidden="true" style={{
         position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
         background: isMobile
-          ? "linear-gradient(180deg, rgba(9,11,14,0.86) 0%, rgba(9,11,14,0.78) 22%, rgba(9,11,14,0.72) 62%, rgba(9,11,14,0.90) 100%)"
-          : "linear-gradient(100deg, rgba(9,11,14,0.94) 0%, rgba(9,11,14,0.90) 34%, rgba(9,11,14,0.66) 56%, rgba(9,11,14,0.10) 74%, transparent 88%)," +
+          ? "linear-gradient(180deg, rgba(9,11,14,0.88) 0%, rgba(9,11,14,0.80) 30%, rgba(9,11,14,0.66) 58%, rgba(9,11,14,0.88) 100%)"
+          : "linear-gradient(100deg, rgba(9,11,14,0.93) 0%, rgba(9,11,14,0.89) 30%, rgba(9,11,14,0.58) 52%, rgba(9,11,14,0.10) 68%, transparent 82%)," +
             "linear-gradient(180deg, rgba(9,11,14,0.55) 0%, transparent 18%, transparent 76%, rgba(9,11,14,0.62) 100%)",
       }} />
-
-      {/* ── HUD layer ──
-          The techy instrument frame over the cinematic film: four viewport
-          corner brackets, a faint blueprint grid, and a slow scan sweep.
-          All pointer-events:none, all below the content (z 2–15). */}
-      <div aria-hidden="true" className="cb-hud-scan" />
-      <div aria-hidden="true" style={{
-        position: "fixed", inset: 0, zIndex: 2, pointerEvents: "none", opacity: 0.5,
-        backgroundImage:
-          "linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px)," +
-          "linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px)",
-        backgroundSize: "56px 56px",
-        maskImage: "radial-gradient(120% 100% at 50% 40%, black 30%, transparent 78%)",
-        WebkitMaskImage: "radial-gradient(120% 100% at 50% 40%, black 30%, transparent 78%)",
-      }} />
-      <div aria-hidden="true" className="cb-hud-corner" style={{ top: "max(12px, env(safe-area-inset-top))", left: "max(12px, env(safe-area-inset-left))", borderTop: "1px solid rgba(255,255,255,0.28)", borderLeft: "1px solid rgba(255,255,255,0.28)" }} />
-      <div aria-hidden="true" className="cb-hud-corner" style={{ top: "max(12px, env(safe-area-inset-top))", right: "max(12px, env(safe-area-inset-right))", borderTop: "1px solid rgba(255,255,255,0.28)", borderRight: "1px solid rgba(255,255,255,0.28)" }} />
-      <div aria-hidden="true" className="cb-hud-corner" style={{ bottom: "max(12px, env(safe-area-inset-bottom))", left: "max(12px, env(safe-area-inset-left))", borderBottom: "1px solid rgba(255,255,255,0.28)", borderLeft: "1px solid rgba(255,255,255,0.28)" }} />
-      <div aria-hidden="true" className="cb-hud-corner" style={{ bottom: "max(12px, env(safe-area-inset-bottom))", right: "max(12px, env(safe-area-inset-right))", borderBottom: "1px solid rgba(255,255,255,0.28)", borderRight: "1px solid rgba(255,255,255,0.28)" }} />
 
       {/* ── Header ──
           Edge to edge, aligned to the same container as everything below,
@@ -5514,9 +5399,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           playing video is charged per frame: the browser re-blurs the
           moving picture behind the bar twenty-four times a second, for a
           bar nobody looks at. A gradient costs one composite and reads the
-          same over footage this dark. */}
-      <header ref={navRef} className="cb-intro-header" style={{
-        position: "relative", zIndex: 20, opacity: hidden,
+          same over footage this dark. Readable logo and links — no
+          miniature telemetry. */}
+      <header className="cb-intro-chrome cb-intro-header" style={{
+        position: "relative", zIndex: 20,
         paddingTop: "max(14px, env(safe-area-inset-top))",
         background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
       }}>
@@ -5531,17 +5417,6 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 4 }}>
-            {/* HUD status cluster: live instrument readouts. Desktop only —
-                a phone header has room for the brand and the More button. */}
-            {!isMobile && (
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginRight: 14 }} aria-label="System status">
-                <span style={hudReadout}><span className="cb-hud-dot" aria-hidden="true" />LIVE</span>
-                <span style={hudRule} aria-hidden="true" />
-                <span style={hudReadout}>15 DATABASES</span>
-                <span style={hudRule} aria-hidden="true" />
-                <span style={hudReadout}>{utcStr}</span>
-              </div>
-            )}
             {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
             ))}
@@ -5576,205 +5451,230 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         )}
       </header>
 
-      <main style={{
+      <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 10, flex: 1,
         display: "flex", flexDirection: "column", justifyContent: "center",
-        paddingTop: isMobile ? 38 : 56,
-        paddingBottom: isMobile ? 30 : 44,
+        paddingTop: isMobile ? 44 : 64,
+        paddingBottom: isMobile ? 36 : 56,
       }}>
-        <div style={container}>
-          {/* The Threshold: a door, not a search screen. The headline is the
-              promise, the tagline is the instrument's own rule, and the
-              buttons are the ways through — centred so the film breathes
-              on both sides. */}
-          <div ref={heroParRef} className="cb-hero-parallax" style={{
-            maxWidth: 820, margin: "0 auto", textAlign: "center",
-          }}>
-            <div>
-              <div ref={kickerRef} style={{
-                opacity: hidden,
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 16,
-                marginBottom: isMobile ? 14 : 18,
-              }}>
-                <span aria-hidden="true" style={{ width: isMobile ? 34 : 56, height: 1, background: `linear-gradient(90deg, transparent, ${withAlpha(introAccent, 0.55)})` }} />
-                <span style={{
-                  fontFamily: "var(--cb-body)", fontSize: 11, letterSpacing: "0.26em",
-                  textTransform: "uppercase", color: withAlpha(introAccent, 0.92),
-                  fontVariantNumeric: "tabular-nums",
-                }}>
-                  A research instrument
-                </span>
-                <span aria-hidden="true" style={{ width: isMobile ? 34 : 56, height: 1, background: `linear-gradient(90deg, ${withAlpha(introAccent, 0.55)}, transparent)` }} />
-              </div>
-              <h1 style={{
-                /* 44–72 on a desktop, 34–44 on a phone. Two lines, both the
-                   headline, both full strength. */
-                fontSize: isMobile ? "clamp(34px, 8.8vw, 44px)" : "clamp(44px, 4.6vw, 64px)",
-                fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.06,
-                color: "#ffffff", margin: 0,
-                textShadow: "0 2px 40px rgba(0,0,0,0.5)",
-              }}>
-                <div ref={head1Ref} style={{ opacity: hidden }}>There&rsquo;s a world</div>
-                <div ref={head2Ref} style={{ opacity: hidden }}>behind your question.</div>
-              </h1>
-
-              {/* The slogan, labeled like an instrument spec: two rows, ASK and
-                  TRACE, divided by hairlines. Same words Dusty wrote —
-                  the techy read comes from the labeling, not new copy. */}
-              <div ref={descRef} style={{
-                opacity: hidden,
-                margin: (isMobile ? "20px auto 0" : "26px auto 0"),
-                maxWidth: 600, textAlign: "left",
-              }}>
-                {[
-                  ["01", "ASK", "Ask a real research question."],
-                  ["02", "TRACE", "Every claim traces to a paper you can open."],
-                ].map(([n, label, text], i, arr) => (
-                  <div key={n} style={{
-                    display: "flex", alignItems: "baseline", gap: isMobile ? 12 : 18,
-                    padding: isMobile ? "11px 2px" : "13px 4px",
-                    borderTop: "1px solid rgba(255,255,255,0.10)",
-                    ...(i === arr.length - 1 ? { borderBottom: "1px solid rgba(255,255,255,0.10)" } : {}),
-                  }}>
-                    <span style={{
-                      fontSize: 11, letterSpacing: "0.18em", fontWeight: 600,
-                      color: withAlpha(introAccent, 0.9), fontFamily: "var(--cb-body)",
-                      fontVariantNumeric: "tabular-nums", flexShrink: 0,
-                    }}>{n}</span>
-                    <span style={{
-                      fontSize: 10.5, letterSpacing: "0.26em", fontWeight: 600,
-                      color: "rgba(242,244,242,0.52)", fontFamily: "var(--cb-body)",
-                      width: isMobile ? 46 : 58, flexShrink: 0,
-                    }}>{label}</span>
-                    <span style={{
-                      fontSize: isMobile ? 15.5 : 17, lineHeight: 1.5, fontWeight: 500,
-                      color: "rgba(244,246,244,0.92)", fontFamily: "var(--cb-body)",
-                      textShadow: "0 1px 20px rgba(0,0,0,0.45)",
-                    }}>{text}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Two ways through the door. "Step inside" opens the
-                  workspace with the real composer's cursor waiting;
-                  "How it works" plays the walkthrough dialog. One
-                  decision each, never two buttons doing the same thing. */}
-              <div ref={btnsRef} style={{
-                opacity: hidden,
-                marginTop: isMobile ? 22 : 26,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                gap: isMobile ? 10 : 12, flexWrap: "wrap",
-              }}>
-                <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go" style={{
-                  border: "none", cursor: "pointer",
-                  /* Chamfered instrument corners instead of a pill: the tech
-                     read comes from the cut, not a radius. clip-path eats
-                     box-shadow, so the glow is a drop-shadow filter. */
-                  clipPath: "polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)",
-                  padding: isMobile ? "15px 32px" : "16px 38px",
-                  background: introAccent, color: "#11140f",
-                  fontWeight: 600, fontSize: isMobile ? 15.5 : 16, fontFamily: "var(--cb-body)",
-                  letterSpacing: "0.02em",
-                  filter: "drop-shadow(0 12px 28px rgba(163,184,153,0.28))",
-                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
-                }}><span>Start researching</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
-                {/* "How it works" is quieter now — a text link, not a second
-                    button competing with the primary action. */}
-                <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip" style={{
-                  cursor: "pointer", border: "none", background: "none", padding: "14px 8px",
-                  fontSize: isMobile ? 14 : 14.5, fontWeight: 500,
-                  color: "rgba(242,244,242,0.6)", fontFamily: "var(--cb-body)",
-                  textDecoration: "underline", textUnderlineOffset: 3,
-                  textDecorationColor: "rgba(242,244,242,0.3)",
-                }}>How it works</button>
-              </div>
-
-              {/* Instrument status line: the techy readout under the door's
-                  buttons. One tracked micro-label row — systems, reach,
-                  price — instead of a sentence. */}
-              <div style={{
-                marginTop: 18, display: "flex", alignItems: "center", justifyContent: "center",
-                gap: isMobile ? 10 : 14, flexWrap: "wrap",
-                fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase",
-                color: "rgba(242,244,242,0.58)", fontFamily: "var(--cb-body)",
+        <div style={{
+          ...container,
+          /* Desktop: the promise owns the left ~46%; the footage's subject
+             keeps the right. Phone: a straight stack — headline, action,
+             scene question — never a shrunk desktop. */
+          display: isMobile ? "block" : "grid",
+          gridTemplateColumns: "minmax(0, 46%) minmax(0, 1fr)",
+          gap: isMobile ? 0 : 48,
+          alignItems: "end",
+        }}>
+          {/* The promise. One supporting line, one action. The headline is
+              the dominant element; on arrival the block fades in once, as
+              one — no stagger, no letter-by-letter. */}
+          <div className={animate ? "cb-hero-enter" : undefined}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: isMobile ? 16 : 22 }}>
+              <span aria-hidden="true" style={{ width: isMobile ? 28 : 44, height: 1, background: withAlpha(introAccent, 0.6) }} />
+              <span style={{
+                fontFamily: "var(--cb-body)", fontSize: 11, letterSpacing: "0.26em",
+                textTransform: "uppercase", color: withAlpha(introAccent, 0.92),
                 fontVariantNumeric: "tabular-nums",
               }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <span className="cb-hud-dot" aria-hidden="true" />Systems nominal
-                </span>
-                <span aria-hidden="true" style={{ width: 1, height: 12, background: "rgba(255,255,255,0.16)" }} />
-                <span>15 databases</span>
-                <span aria-hidden="true" style={{ width: 1, height: 12, background: "rgba(255,255,255,0.16)" }} />
-                <span>Free · No account</span>
-              </div>
+                A research instrument
+              </span>
+            </div>
+            <h1 style={{
+              fontSize: isMobile ? "clamp(38px, 9.6vw, 46px)" : "clamp(64px, 6vw, 88px)",
+              fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.04,
+              color: "#ffffff", margin: 0,
+              textShadow: "0 2px 40px rgba(0,0,0,0.5)",
+            }}>
+              <div>There&rsquo;s a world</div>
+              <div>behind your question.</div>
+            </h1>
+            <p style={{
+              margin: (isMobile ? "18px 0 0" : "24px 0 0"),
+              fontSize: isMobile ? 16.5 : 18.5, lineHeight: 1.55, fontWeight: 400,
+              color: "rgba(242,244,242,0.80)",
+              textShadow: "0 1px 20px rgba(0,0,0,0.45)",
+            }}>
+              Explore scientific papers. Follow the evidence. Find your next question.
+            </p>
+            <div style={{
+              marginTop: isMobile ? 24 : 30,
+              display: "flex", alignItems: "center",
+              gap: isMobile ? 14 : 18, flexWrap: "wrap",
+            }}>
+              <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
+                border: "none", cursor: "pointer",
+                borderRadius: 14,
+                padding: isMobile ? "16px 34px" : "17px 40px",
+                /* Restrained glass: the sage fill carries a quiet top
+                   highlight and a soft outer glow. */
+                background: `linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 46%), ${introAccent}`,
+                color: "#11140f",
+                fontWeight: 600, fontSize: isMobile ? 15.5 : 16.5, fontFamily: "var(--cb-body)",
+                letterSpacing: "0.01em",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 14px 34px rgba(163,184,153,0.30)",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 10,
+              }}><span>Start researching</span><span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>→</span></button>
+              {/* "How it works" stays a quiet text link — never a second
+                  button competing with the primary action. */}
+              <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip" style={{
+                cursor: "pointer", border: "none", background: "none", padding: "14px 4px",
+                fontSize: isMobile ? 14 : 14.5, fontWeight: 500,
+                color: "rgba(242,244,242,0.6)", fontFamily: "var(--cb-body)",
+                textDecoration: "underline", textUnderlineOffset: 3,
+                textDecorationColor: "rgba(242,244,242,0.3)",
+              }}>How it works</button>
             </div>
           </div>
-        </div>
 
-        {/* ── Now showing ──
-            Compact: a scene caption and one example question. No decorative
-            corner brackets — the footage speaks for itself. */}
-        <div ref={sceneRef} style={{ ...container, opacity: hidden, marginTop: isMobile ? 30 : 40 }}>
-          {scene ? (
-            <div
-              onMouseEnter={() => { holdRef.current = true; }}
-              onMouseLeave={releaseHold}
-              onFocus={() => { holdRef.current = true; }}
-              onBlur={releaseHold}
-              style={{
-                maxWidth: 520, marginLeft: "auto", marginRight: "auto",
-                textAlign: "center",
-              }}>
-              <div style={{
-                fontSize: 12, letterSpacing: "0.08em",
-                fontFamily: "var(--cb-body)", color: "rgba(242,244,242,0.55)", marginBottom: 10,
-              }}>{scene.subject}</div>
-              {/* Autoplay-policy recovery affordance. iOS Low Power Mode
-                  vetoes programmatic play(), leaving the still poster with
-                  no explanation — which reads as "the clips aren't playing".
-                  This pill only ever appears in that exact state, and the
-                  tap runs play() inside the gesture window, which the
-                  policy honours. */}
-              {autoplayBlocked && filmRunning && (
-                <div>
-                  <button type="button" onClick={resumeFilm} style={{
-                    display: "inline-flex", alignItems: "center", gap: 8,
-                    margin: "2px 0 12px", padding: "8px 16px", borderRadius: 999,
-                    border: "1px solid rgba(242,244,242,0.28)",
-                    background: "rgba(10,12,14,0.55)", color: "#f2f4f2",
-                    fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-body)",
-                    cursor: "pointer",
-                    backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+          {/* ── The scene prompt, near the subject ──
+              One understated question per clip, bottom-right where the
+              subject is cropped. Pressing it opens a real investigation
+              with the question already submitted. Rotation holds while the
+              prompt has hover or focus, so the target never moves away
+              mid-press. */}
+          <div className={animate ? "cb-hero-enter" : undefined} style={
+            isMobile
+              ? { marginTop: 36, animationDelay: "0.28s" }
+              : { justifySelf: "end", maxWidth: 360, paddingBottom: 6, animationDelay: "0.28s" }
+          }>
+            {scene ? (
+              <div
+                onMouseEnter={() => { holdRef.current = true; }}
+                onMouseLeave={releaseHold}
+                onFocus={() => { holdRef.current = true; }}
+                onBlur={releaseHold}
+              >
+                <div style={{
+                  fontSize: 11, letterSpacing: "0.22em", textTransform: "uppercase",
+                  fontFamily: "var(--cb-body)", color: withAlpha(introAccent, 0.85),
+                  marginBottom: 10, fontVariantNumeric: "tabular-nums",
+                }}>{scene.subject}</div>
+                {/* Autoplay-policy recovery affordance. iOS Low Power Mode
+                    vetoes programmatic play(), leaving the still poster with
+                    no explanation — which reads as "the clips aren't playing".
+                    This pill only ever appears in that exact state, and the
+                    tap runs play() inside the gesture window, which the
+                    policy honours. */}
+                {autoplayBlocked && filmRunning && (
+                  <div>
+                    <button type="button" onClick={resumeFilm} style={{
+                      display: "inline-flex", alignItems: "center", gap: 8,
+                      margin: "2px 0 12px", padding: "8px 16px", borderRadius: 999,
+                      border: "1px solid rgba(242,244,242,0.28)",
+                      background: "rgba(10,12,14,0.55)", color: "#f2f4f2",
+                      fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-body)",
+                      cursor: "pointer",
+                      backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+                    }}>
+                      <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                      Background film paused — tap to play
+                    </button>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => go(scene.question, true)}
+                  className="cb-intro-scene"
+                  style={{
+                    display: "block", textAlign: "left", width: "100%",
+                    background: "none", border: "none", padding: 0, cursor: "pointer",
+                    fontFamily: "var(--cb-body)", color: "#f2f4f2",
+                    fontSize: isMobile ? 17 : 18, lineHeight: 1.45, fontWeight: 500,
+                    textShadow: "0 1px 18px rgba(0,0,0,0.5)",
                   }}>
-                    <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                    Background film paused — tap to play
-                  </button>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={(e) => go(scene.question, true, e)}
-                className="cb-intro-scene"
-                style={{
-                  display: "block", textAlign: "center", width: "100%",
-                  background: "none", border: "none", padding: 0, cursor: "pointer",
-                  fontFamily: "var(--cb-body)", color: "#f2f4f2",
-                  fontSize: isMobile ? 16 : 18, lineHeight: 1.45, fontWeight: 500,
-                }}>
-                <span style={{ display: "block", marginBottom: 8 }}>{scene.question}</span>
-                <span className="cb-intro-scene-cta" style={{
-                  fontSize: 13.5, fontWeight: 500, color: withAlpha(introAccent, 0.95),
-                }}>Ask this question ↗</span>
-              </button>
-            </div>
-          ) : (
-            <div style={{ minHeight: isMobile ? 0 : 96 }} />
-          )}
+                  <span style={{ display: "block", marginBottom: 10 }}>{scene.question}</span>
+                  <span className="cb-intro-scene-cta" style={{
+                    fontSize: 14, fontWeight: 600, color: withAlpha(introAccent, 0.95),
+                  }}>Explore this question ↗</span>
+                </button>
+              </div>
+            ) : (
+              <div style={{ minHeight: 0 }} />
+            )}
+          </div>
         </div>
       </main>
 
-      {/* ── Footer ── */}
-      <footer style={{
+      {/* ── One real answer ──
+          Below the opening, before any feature list: a compact Question →
+          cited explanation → original paper. A visitor should understand
+          why Cerebrum is useful before meeting the product. */}
+      <section className="cb-intro-chrome" style={{
+        position: "relative", zIndex: 10,
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+        background: "linear-gradient(180deg, rgba(8,10,13,0.55) 0%, rgba(8,10,13,0.80) 100%)",
+      }}>
+        <div style={{
+          ...container, maxWidth: 760,
+          paddingTop: isMobile ? 44 : 60, paddingBottom: isMobile ? 48 : 68,
+        }}>
+          <div style={{
+            fontSize: 11, letterSpacing: "0.26em", textTransform: "uppercase",
+            color: withAlpha(introAccent, 0.85), marginBottom: 18,
+            fontVariantNumeric: "tabular-nums",
+          }}>
+            A real answer
+          </div>
+          <h2 style={{
+            fontSize: isMobile ? 24 : 30, fontWeight: 600, letterSpacing: "-0.02em",
+            lineHeight: 1.25, color: "#ffffff", margin: "0 0 16px",
+            textShadow: "0 2px 30px rgba(0,0,0,0.5)",
+          }}>
+            Do we have direct evidence of gravitational waves?
+          </h2>
+          <p style={{
+            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65,
+            color: "rgba(242,244,242,0.82)", margin: "0 0 22px",
+          }}>
+            Yes. In September 2015 the LIGO detectors recorded a split-second &ldquo;chirp&rdquo; as
+            two black holes merged 1.3&nbsp;billion light-years away &mdash; a signal matching
+            Einstein&rsquo;s predictions to remarkable precision, and the first direct detection
+            of ripples in spacetime itself.
+            <sup style={{ color: withAlpha(introAccent, 0.95), fontSize: "0.72em", marginLeft: 3 }}>[1]</sup>
+          </p>
+          <div style={{
+            border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
+            padding: isMobile ? "16px" : "18px 20px",
+            background: "rgba(255,255,255,0.03)",
+            marginBottom: 20,
+          }}>
+            <div style={{
+              fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase",
+              color: "rgba(242,244,242,0.5)", marginBottom: 8,
+            }}>[1] Original paper</div>
+            <div style={{ fontSize: 15, lineHeight: 1.55, color: "rgba(242,244,242,0.9)" }}>
+              B.&nbsp;P.&nbsp;Abbott <em>et&nbsp;al.</em> (LIGO Scientific Collaboration and Virgo Collaboration),
+              &ldquo;Observation of Gravitational Waves from a Binary Black Hole Merger,&rdquo; <em>Physical Review Letters</em> 116, 061102 (2016).
+            </div>
+            <a href="https://doi.org/10.1103/PhysRevLett.116.061102" target="_blank" rel="noopener noreferrer"
+              className="cb-intro-sourcelink"
+              style={{
+                display: "inline-block", marginTop: 10, fontSize: 14, fontWeight: 600,
+                color: withAlpha(introAccent, 0.95), textDecoration: "none",
+              }}>
+              Open the paper ↗
+            </a>
+          </div>
+          <button type="button" onClick={() => go("Do we have direct evidence of gravitational waves?", true)}
+            className="cb-intro-chip"
+            style={{
+              cursor: "pointer", border: "none", background: "none", padding: "6px 0",
+              fontSize: 14.5, fontWeight: 600, color: "#f2f4f2", fontFamily: "var(--cb-body)",
+            }}>
+            <span style={{
+              textDecoration: "underline", textUnderlineOffset: 4,
+              textDecorationColor: withAlpha(introAccent, 0.6),
+            }}>Run this investigation</span>
+            <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span>
+          </button>
+        </div>
+      </section>
+
+      {/* ── Footer ──
+          Credits and legal live here; the header stays clean. */}
+      <footer className="cb-intro-chrome" style={{
         position: "relative", zIndex: 10,
         paddingBottom: "max(20px, env(safe-area-inset-bottom))",
         /* The side gradient above deliberately fades to nothing on the right
@@ -19738,6 +19638,14 @@ function useDynamicFavicon({ accent, busy, unread }) {
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
+  /* The handoff bridge: the clip that was on screen when the visitor
+     stepped through the door. The workspace's film opens on it (startAt)
+     and its graded still dissolves over the workspace while the new reel
+     buffers — the same background frame is retained, no restart, no
+     blank. Cleared once the fade is done. */
+  const [enterClip, setEnterClip] = useState(null);
+  const enterClipTimer = useRef(null);
+  useEffect(() => () => clearTimeout(enterClipTimer.current), []);
   const [filmCreditsOpen, setFilmCreditsOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   /* Attention, as a piece of state. The backdrop is at its most present
@@ -21158,10 +21066,18 @@ function App() {
     return (
       <>
         <Intro accent={accent} P={P} animationMode={animationMode}
-          onEnter={(seed, submit) => {
+          onEnter={(seed, submit, clipSrc) => {
             sfx();
             if (seed) setInput(seed);
             setEntered(true);
+            /* Keep the background frame across the handoff: the workspace
+               reel opens on this clip and the graded still bridges the
+               buffering gap (see enterClip). */
+            if (clipSrc && FILM_SCENES[clipSrc]) {
+              setEnterClip(clipSrc);
+              clearTimeout(enterClipTimer.current);
+              enterClipTimer.current = setTimeout(() => setEnterClip(null), 1500);
+            }
             /* A scene prompt and the worked example are presses on a
                specific question, so they run it rather than leaving it
                sitting in the composer for a second press. Not while the
@@ -21285,6 +21201,14 @@ function App() {
   return (
     <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
+      {/* The handoff bridge: the door's clip as a graded still, dissolving
+          over the workspace while the new reel buffers on the same clip.
+          pointer-events:none, gone after the fade. */}
+      {enterClip && (
+        <div className="cb-enter-frame" aria-hidden="true" style={{
+          backgroundImage: `url("${filmPoster(enterClip)}")`,
+        }} />
+      )}
       {updateReady && <VersionBanner P={P} accent={accent} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
       {/* ── The field, at application level ──────────────────────────────
@@ -21334,6 +21258,9 @@ function App() {
           ref={filmRef}
           animationMode={animationMode}
           paused={!filmMotion}
+          /* Opens on the door's clip when the visitor just stepped through,
+             so the background frame is retained across the handoff. */
+          startAt={enterClip}
           /* Brightest on the search screen, dimmer once you are reading an
              answer, dimmest on a working view like Inbox or Find people —
              those are dense text on a wide column, and footage at full
@@ -22600,44 +22527,45 @@ summary::-webkit-details-marker { display: none; }
 /* The outline-chip CTA gets the same keyboard ring as the primary. */
 .cb-intro-chip:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 999px; }
 
-/* ── Intro HUD layer: modern/techy instrument treatment ──
-   The film stays cinematic; the tech reads in the chrome around it.
-   Everything here is 1px lines, tracked uppercase Inter (the one-typeface
-   rule stands — no terminal mono), and tabular numerals. All motion is
-   CSS-only and dies under prefers-reduced-motion. */
-@keyframes cbHudScan {
-  0%   { transform: translateY(-30vh); opacity: 0; }
-  12%  { opacity: 1; }
-  88%  { opacity: 1; }
-  100% { transform: translateY(130vh); opacity: 0; }
+/* ── Intro: cinematic science publication ──
+   The door is a magazine cover that opens into a research tool. No
+   control-room decoration: the composition is headline left (45%),
+   footage subject right, one supporting line, one action. The film
+   provides the continuous motion; the UI arrives in a single short
+   fade. */
+@keyframes cbHeroIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
 }
-.cb-hud-scan {
-  position: fixed; left: 0; right: 0; top: 0; height: 22vh; z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(180deg, transparent 0%, rgba(163,184,153,0.055) 48%, rgba(163,184,153,0.10) 50%, rgba(163,184,153,0.055) 52%, transparent 100%);
-  animation: cbHudScan 9s cubic-bezier(0.4, 0, 0.2, 1) 2.2s infinite;
+.cb-hero-enter {
+  animation: cbHeroIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
 }
-@keyframes cbHudPulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(163,184,153,0.45); }
-  50%      { opacity: 0.72; box-shadow: 0 0 0 5px rgba(163,184,153,0); }
+/* Leaving: the chrome fades fast, the film frame stays behind for the
+   handoff into the workspace (see .cb-enter-frame). */
+.cb-intro-leaving .cb-intro-chrome {
+  opacity: 0 !important;
+  transition: opacity 0.32s ease;
 }
-.cb-hud-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: #a3b899; flex-shrink: 0;
-  animation: cbHudPulse 2.6s ease-in-out infinite;
-}
-.cb-hud-corner {
-  position: fixed; width: 22px; height: 22px; z-index: 15;
-  pointer-events: none; opacity: 0.55;
-}
-/* Primary CTA: chamfered instrument corners + hover lift. clip-path clips
-   box-shadow, so the glow is a drop-shadow filter instead. */
+/* Primary CTA: restrained glass — sage fill, a quiet top highlight,
+   soft radius. One clearly visible action, no chamfers, no pills. */
 .cb-intro-go {
-  transition: filter 240ms var(--cb-ease), transform 240ms var(--cb-ease);
+  transition: filter 240ms var(--cb-ease), transform 240ms var(--cb-ease), box-shadow 240ms var(--cb-ease);
 }
-.cb-intro-go:hover { filter: brightness(1.08); }
-.cb-intro-go:active { transform: translateY(1px); }
+.cb-intro-go:hover { filter: brightness(1.07); transform: translateY(-1px); }
+.cb-intro-go:active { transform: translateY(0); }
 .cb-intro-go:focus-visible { outline: 2px solid rgba(163,184,153,0.85); outline-offset: 3px; }
+/* The handoff bridge: the current clip's graded still, full-viewport,
+   dissolving over the workspace so the film frame is retained and no
+   blank screen or video restart ever flashes. Removed after the fade. */
+.cb-enter-frame {
+  position: fixed; inset: 0; z-index: 240; pointer-events: none;
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  animation: cbEnterFrameOut 1s ease 0.15s both;
+}
+@keyframes cbEnterFrameOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
 
 /* ── Composer states ──
    (The old pill's scan/dots styles were removed with the query-line
@@ -23346,9 +23274,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-qline-scope, .cb-modepreview-text { animation: none; }
   .cb-echo-cursor { animation: none; display: none; }
   .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
-  /* Intro HUD: no scan sweep, no pulsing dot under reduced motion. */
-  .cb-hud-scan { display: none; }
-  .cb-hud-dot { animation: none; }
+  /* Intro: the hero arrives without motion; the handoff bridge dissolves
+     near-instantly so nothing animates at the people who asked for none. */
+  .cb-hero-enter { animation: none; }
+  .cb-enter-frame { animation-duration: 0.01s; }
 }
 
 /* Glass panel depth — multi-layer shadows for 3D float effect */
@@ -23424,9 +23353,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .cb-intro-sourcelink { transition: color 220ms var(--cb-ease); }
 .cb-intro-sourcelink:hover { color: #f2f4f2 !important; }
-.cb-intro-go { transition: transform 260ms var(--cb-ease), box-shadow 260ms var(--cb-ease), filter 260ms var(--cb-ease); }
-.cb-intro-go:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 10px 28px rgba(163,184,153,0.40); }
-.cb-intro-go:active { transform: translateY(0); }
+/* (.cb-intro-go is defined once, beside the other intro rules above.) */
 .cb-intro-chip { transition: background 260ms var(--cb-ease), color 260ms var(--cb-ease), transform 260ms var(--cb-ease), border-color 260ms var(--cb-ease); }
 .cb-intro-chip:hover {
   background: rgba(255,255,255,0.12) !important;
