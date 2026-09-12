@@ -33,6 +33,34 @@ function openRouterKey(env) {
   return env.OPENROUTER_KEY || env.OPENROUTER_API_KEY || "";
 }
 
+/* Canonical OpenRouter free-model list — VERIFIED 2026-09-12 against
+ * OpenRouter's live /api/v1/models catalog. The previously hardcoded :free
+ * IDs (deepseek-chat-v3-0324, gemini-2.0-flash-exp, llama-3.3-70b-instruct,
+ * qwen-2.5-72b-instruct, the r1 family, hermes-3-405b, phi-3, zephyr, ...)
+ * have ALL been retired and now return 404, which was the single biggest
+ * cause of the total synthesis outage: 27 of ~45 wave legs were guaranteed
+ * failures. Every OpenRouter call site references this list so the next
+ * catalog turnover is a one-spot edit. Ordered strongest-first. */
+const OR_FREE_MODELS = [
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "google/gemma-4-31b-it:free",
+  "thinkingmachines/inkling:free",
+  "google/gemma-4-26b-a4b-it:free",
+  "thinkingmachines/inkling-small:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "nex-agi/nex-n2.5-pro:free",
+  "nex-agi/nex-n2.5-mini:free",
+  "liquid/lfm-2.5-2.6b:free",
+  "cohere/north-mini-code:free",
+  "dots-studio/dots-3-note-preview:free",
+];
+const OR_PRIMARY = OR_FREE_MODELS[0];
+/* Free vision-language model on OpenRouter (verified 2026-09-12). The old
+ * vision list (gemini-2.0-flash-exp, llama-3.2-11b-vision, qwen2.5-vl) is
+ * retired; image description falls back to null when this is unavailable. */
+const OR_VISION_MODELS = ["inclusionai/ling-3.0-flash-vl:free"];
+
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 }
@@ -3370,7 +3398,7 @@ async function llmGenerateSearchQueries(rawQuery, token) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
       body: JSON.stringify({
-        model: "deepseek/deepseek-chat-v3-0324:free",
+        model: OR_PRIMARY,
         temperature: 0.1,
         max_tokens: 300,
         messages: [{
@@ -3729,7 +3757,7 @@ async function llmValidatePapers(rawQuery, papers, token) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
       body: JSON.stringify({
-        model: "deepseek/deepseek-chat-v3-0324:free",
+        model: OR_PRIMARY,
         temperature: 0,
         max_tokens: 400,
         messages: [{
@@ -3820,7 +3848,7 @@ async function llmValidatePapers(rawQuery, papers, token) {
 //   1. Workers AI (env.AI, same binding/models the answer-generation
 //      fallback ladder already trusts) — no per-request network egress cost,
 //      usually fast, tried first with a short timeout.
-//   2. OpenRouter (deepseek/deepseek-chat-v3-0324:free) — tried only if tier
+//   2. OpenRouter (OR_PRIMARY) — tried only if tier
 //      1 didn't produce usable JSON, with a slightly longer timeout since
 //      it's now the only remaining shot before giving up.
 // If both fail (missing binding/key, timeout, or a response that doesn't
@@ -3949,7 +3977,7 @@ async function deepFactCheck(answer, papers, env) {
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + openRouterKey(env), "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
-        body: JSON.stringify({ model: "deepseek/deepseek-chat-v3-0324:free", temperature: 0, max_tokens: 1900, messages }),
+        body: JSON.stringify({ model: OR_PRIMARY, temperature: 0, max_tokens: 1900, messages }),
         signal: c.signal,
       });
       clearTimeout(t);
@@ -5876,7 +5904,7 @@ async function llmResolveQuery(query, history, prevSources, token) {
         "X-Title": "Cerebrum",
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-chat-v3-0324:free",
+        model: OR_PRIMARY,
         temperature: 0,
         max_tokens: 250,
         messages: [
@@ -6001,7 +6029,7 @@ async function selfReason(query, history, token) {
         "X-Title": "Cerebrum",
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-chat-v3-0324:free",
+        model: OR_PRIMARY,
         temperature: 0.1,
         max_tokens: 420,
         messages: [
@@ -6074,11 +6102,7 @@ async function selfReason(query, history, token) {
 // it's concerned, it's still just looking at text.
 async function describeImage(dataUrl, question, token) {
   if (!token || !dataUrl) return null;
-  const visionModels = [
-    "google/gemini-2.0-flash-exp:free",
-    "meta-llama/llama-3.2-11b-vision-instruct:free",
-    "qwen/qwen2.5-vl-32b-instruct:free",
-  ];
+  const visionModels = OR_VISION_MODELS;
   for (const model of visionModels) {
     try {
       const c = new AbortController();
@@ -7595,8 +7619,8 @@ async function answerConversationally(query, history, env) {
   const apiKey = openRouterKey(env);
   if (!apiKey) return null;
   const models = [
-    { url: "https://openrouter.ai/api/v1/chat/completions", model: "deepseek/deepseek-chat-v3-0324:free" },
-    { url: "https://openrouter.ai/api/v1/chat/completions", model: "google/gemini-2.0-flash-exp:free" },
+    { url: "https://openrouter.ai/api/v1/chat/completions", model: OR_PRIMARY },
+    { url: "https://openrouter.ai/api/v1/chat/completions", model: OR_FREE_MODELS[1] },
   ];
   const messages = [{ role: "system", content: CEREBRUM_PERSONA }];
   // Real conversation memory: without the recent turns this answers every
@@ -10220,7 +10244,7 @@ export async function onRequest(context) {
       { id: "cerebras", key: env.CEREBRAS_KEY,      url: "https://api.cerebras.ai/v1/chat/completions" },
       { id: "gemini",   key: env.GEMINI_KEY,        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
       { id: "mistral",  key: env.MISTRAL_KEY,       url: "https://api.mistral.ai/v1/chat/completions" },
-      { id: "github",   key: env.GITHUB_MODELS_KEY, url: "https://models.inference.ai.azure.com/chat/completions" },
+      { id: "github",   key: env.GITHUB_MODELS_KEY, url: "https://models.github.ai/inference/chat/completions" },
       { id: "nvidia",   key: env.NVIDIA_KEY,        url: "https://integrate.api.nvidia.com/v1/chat/completions" },
     ];
     const activeProviders = PROVIDERS.filter((p) => typeof p.key === "string" && p.key.trim().length > 8);
@@ -10266,10 +10290,13 @@ export async function onRequest(context) {
     // a single provider is the exact mistake described at the top.
     const PROVIDER_MODELS = {
       groq:     { w1: ["llama-3.3-70b-versatile"], w2: ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.1-8b-instant"] },
-      cerebras: { w1: ["llama-3.3-70b"],           w2: ["qwen-3-32b", "llama3.1-8b"] },
-      gemini:   { w1: ["gemini-2.0-flash"],        w2: ["gemini-2.0-flash-lite", "gemini-1.5-flash"] },
+      // 2026-09-12: llama-3.3-70b, qwen-3-32b and llama3.1-8b were all
+      // retired by Cerebras (404 model_not_found). gpt-oss-120b and
+      // zai-glm-4.7 are the live free-tier models.
+      cerebras: { w1: ["gpt-oss-120b"],             w2: ["zai-glm-4.7"] },
+      gemini:   { w1: ["gemini-2.5-flash"],        w2: ["gemini-2.0-flash"] },
       mistral:  { w1: ["mistral-small-latest"],    w2: ["open-mistral-nemo"] },
-      github:   { w1: ["gpt-4o-mini"],             w2: ["Llama-3.3-70B-Instruct"] },
+      github:   { w1: ["openai/gpt-4o-mini"],      w2: ["meta/Llama-3.3-70B-Instruct"] },
       nvidia:   { w1: ["meta/llama-3.3-70b-instruct"], w2: ["qwen/qwen2.5-7b-instruct"] },
     };
     const compatLegs = (waveNo, which, msgs, maxTok, timeoutMs) =>
@@ -10553,35 +10580,10 @@ export async function onRequest(context) {
       );
     };
 
-    const OR_WAVE1 = [
-      "deepseek/deepseek-chat-v3-0324:free",
-      "google/gemini-2.0-flash-exp:free",
-      "meta-llama/llama-3.3-70b-instruct:free",
-      "qwen/qwen-2.5-72b-instruct:free",
-    ];
-    const OR_WAVE2 = [
-      "mistralai/mistral-small-3.1-24b-instruct:free",
-      "deepseek/deepseek-r1:free",
-      "deepseek/deepseek-r1-distill-llama-70b:free",
-      "deepseek/deepseek-r1-distill-qwen-32b:free",
-      "nousresearch/hermes-3-llama-3.1-405b:free",
-      "meta-llama/llama-3.1-8b-instruct:free",
-      "meta-llama/llama-3.2-11b-vision-instruct:free",
-      "meta-llama/llama-3.2-3b-instruct:free",
-      "meta-llama/llama-4-scout:free",
-      "meta-llama/llama-4-maverick:free",
-      "google/gemma-3-27b-it:free",
-      "google/gemma-2-9b-it:free",
-      "qwen/qwq-32b:free",
-      "qwen/qwen-2.5-coder-32b-instruct:free",
-      "mistralai/mistral-7b-instruct:free",
-      "microsoft/phi-3-medium-128k-instruct:free",
-      "microsoft/phi-3-mini-128k-instruct:free",
-      "openchat/openchat-7b:free",
-      "huggingfaceh4/zephyr-7b-beta:free",
-      "gryphe/mythomax-l2-13b:free",
-      "cognitivecomputations/dolphin3.0-mistral-24b:free",
-    ];
+    // 2026-09-12: all model IDs now come from the verified OR_FREE_MODELS
+    // catalog (module top). The old hardcoded :free IDs are retired (404).
+    const OR_WAVE1 = OR_FREE_MODELS.slice(0, 4);
+    const OR_WAVE2 = OR_FREE_MODELS.slice(4);
     /* Commit 86 — four of the seven Workers AI models listed here were
        dead weight. Cloudflare has since marked llama-3.1-8b-instruct,
        mistral-7b-instruct-v0.2 and phi-2 DEPRECATED, and
@@ -10617,10 +10619,11 @@ export async function onRequest(context) {
     // (unconfirmed — see the `workersAIBound` flag Wave 3 logs below), a wave
     // that looks like "3 independent providers" can collapse to "OpenRouter
     // (throttled) + one flaky public model" far more often than its size
-    // suggests. A second, independent Pollinations model costs nothing and
-    // gives wave 1 a real second chance outside the OpenRouter bucket.
-    const POLLINATIONS_WAVE1 = ["openai", "mistral"];
-    const POLLINATIONS_WAVE2 = ["mistral", "llama", "qwen-coder"];
+    // 2026-09-12: Pollinations removed from all waves. The keyless tier is
+    // dead: the "openai" model returns HTTP 200 with a budget-exhaustion
+    // error body, and the legacy mistral/llama/qwen-coder endpoints are
+    // deprecated (404). Every leg was a guaranteed failure wasting race
+    // slots. pollinationsCall remains defined but unused.
 
     const cfBound = !!(env.AI && typeof env.AI.run === "function");
     // Loud when unbound: the "structurally immune" provider silently drops
@@ -10652,7 +10655,6 @@ export async function onRequest(context) {
         // 429 away from being no wave at all.
         ...compatLegs(1, "w1", messages, maxTokens),
         ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, messages, maxTokens))) : []),
-        ...POLLINATIONS_WAVE1.map((m) => raceEntry(1, "pollinations:" + m, pollinationsCall(m, messages, maxTokens))),
       ];
       try {
         const winner = await Promise.any(wave1Calls);
@@ -10687,7 +10689,6 @@ export async function onRequest(context) {
         ...(token ? OR_WAVE2.map((m) => raceEntry(2, m, callOR(m, wave2Messages, maxTokens))) : []),
         ...compatLegs(2, "w2", wave2Messages, maxTokens),
         ...(cfBound ? CF_WAVE2.map((m) => raceEntry(2, m, callCF(m, wave2Messages, maxTokens))) : []),
-        ...POLLINATIONS_WAVE2.map((m) => raceEntry(2, "pollinations:" + m, pollinationsCall(m, wave2Messages, maxTokens))),
       ];
       if (wave2Calls.length > 0) {
         try {
@@ -10791,8 +10792,7 @@ export async function onRequest(context) {
         // do with whatever just failed, given the longer 24s runway.
         ...compatLegs(3, "w1", bulletproofMessages, bulletproofMaxTok, 24000),
         ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, 24000))) : []),
-        ...["openai", "mistral"].map((m) => raceEntry(3, "pollinations:" + m, pollinationsCall(m, bulletproofMessages, bulletproofMaxTok))),
-        ...(token ? ["meta-llama/llama-3.2-3b-instruct:free", "google/gemma-2-9b-it:free"].map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, 18000))) : []),
+        ...(token ? [OR_FREE_MODELS[4], OR_FREE_MODELS[5]].map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, 18000))) : []),
       ];
       try {
         const winner = await Promise.any(bulletproofLegs);
@@ -10908,9 +10908,9 @@ export async function onRequest(context) {
             "\n\n[Your answer will be quality-scored. Previous attempt scored " + qualityScore + "/100. Beat it.]" },
         ];
         const retryModels = [
-          "google/gemini-2.0-flash-exp:free",
-          "deepseek/deepseek-chat-v3-0324:free",
-          "meta-llama/llama-3.3-70b-instruct:free",
+          OR_PRIMARY,
+          OR_FREE_MODELS[1],
+          OR_FREE_MODELS[2],
         ];
         for (const m of retryModels) {
           try {
@@ -10943,7 +10943,7 @@ export async function onRequest(context) {
               "An honest short answer is better than wrong citations. SYNTHESIZE — do not list sources." },
             { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query },
           ];
-          const retryModels2 = ["deepseek/deepseek-chat-v3-0324:free", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free"];
+          const retryModels2 = [OR_PRIMARY, OR_FREE_MODELS[1], OR_FREE_MODELS[2]];
           for (const m of retryModels2) {
             try {
               const r = await callOR(m, retryMsgs2, maxTokens);
