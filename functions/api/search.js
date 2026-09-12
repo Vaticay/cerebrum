@@ -39,16 +39,43 @@ function decodeInverted(inv) {
   return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
-// Canonical dedup key for a paper. Prefer the DOI — extracted from `url`,
-// which every source stores as "https://doi.org/<doi>" — because DOI is
-// authoritative: two different source APIs (e.g. Crossref and OpenAlex) can
-// return the EXACT same work with slightly different title strings (a
-// trailing period, a subtitle, whitespace or HTML-entity differences), and a
-// plain normalized-title dedup misses that, letting the same paper appear
-// twice in the final bibliography under two different citation numbers.
-// Falls back to a normalized title (lowercased, whitespace-collapsed,
-// trailing punctuation stripped) only when no DOI is present.
-function paperDedupeKey(p) {
+// Paper identity for dedupe. Two source APIs (e.g. Crossref and OpenAlex)
+// can return the EXACT same work with slightly different title strings (a
+// trailing period, a subtitle, whitespace or HTML-entity differences), and
+// worse: one record may carry a DOI while the other does not. A single-key
+// dedup misses both cases, letting the same paper appear twice in the final
+// bibliography under two different citation numbers. So each record yields
+// EVERY identifier it has (paperDedupeKeys: DOI, PMID/PMC/arXiv, normalized
+// title) and two records are the same paper when ANY key intersects
+// (dedupePapers).
+/* Normalized title for dedupe keys. Shared by the backend paper dedupe and
+ * the web-reference dedupe below so both choke points agree on what "same
+ * title" means. */
+export function normalizePaperTitle(t) {
+  return String(t || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u2018\u2019\u201c\u201d]/g, "'")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/* Every identifier a paper record carries, strongest first.
+ *
+ * paperDedupeKey() used to return only the SINGLE strongest identifier, so
+ * "same paper, one record with a DOI and one without" produced two
+ * different keys ("doi:10.x/..." vs "title:...") and the duplicate survived
+ * to be cited as [1] and [2] in one answer. These are candidate keys: two
+ * records are the same paper when ANY key intersects (see dedupePapers).
+ *
+ * DOI normalization: lowercase, strip the https://doi.org/ prefix and any
+ * trailing slashes/punctuation sloppy metadata appends (a trailing "." from
+ * a citation string is not part of the DOI). */
+function paperDedupeKeys(p) {
+  const keys = [];
+  const push = (k) => { if (k && !keys.includes(k)) keys.push(k); };
   const url = (p && p.url) || "";
 
   /* Identifiers carried as fields, not only as URLs. Several fetchers set
@@ -58,29 +85,31 @@ function paperDedupeKey(p) {
    * had an authoritative identifier sitting right there, and the same work
    * from two APIs was deduped only if both happened to punctuate its title
    * identically. Fields are checked first, then the URL. */
+  const doiNorm = (d) => String(d || "").toLowerCase().replace(/\/+$/, "").trim()
+    .replace(/[.,;:!?)\]]+$/, "");
   const doiField = String((p && (p.doi || p.DOI)) || "")
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
   if (/^10\.\d{4,9}\//.test(doiField)) {
-    return "doi:" + doiField.toLowerCase().replace(/\/+$/, "").trim();
+    push("doi:" + doiNorm(doiField));
   }
   // DOI is the strongest unique identifier
   const doiMatch = url.match(/doi\.org\/(.+)$/i);
-  if (doiMatch && doiMatch[1]) {
-    return "doi:" + doiMatch[1].toLowerCase().replace(/\/+$/, "").trim();
+  if (doiMatch && doiMatch[1] && /^10\.\d{4,9}\//i.test(doiMatch[1])) {
+    push("doi:" + doiNorm(doiMatch[1]));
   }
   const pmidField = String((p && (p.pmid || p.PMID)) || "").trim();
-  if (/^\d{1,9}$/.test(pmidField)) return "pmid:" + pmidField;
+  if (/^\d{1,9}$/.test(pmidField)) push("pmid:" + pmidField);
   // PMID from PubMed/Europe PMC URLs is a strong secondary identifier
   const pmidMatch = url.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i) ||
                     url.match(/europepmc\.org\/article\/med\/(\d+)/i);
   if (pmidMatch && pmidMatch[1]) {
-    return "pmid:" + pmidMatch[1];
+    push("pmid:" + pmidMatch[1]);
   }
   // PMC IDs
   const pmcMatch = url.match(/ncbi\.nlm\.nih\.gov\/pmc\/articles\/(PMC\d+)/i) ||
                    url.match(/europepmc\.org\/article\/pmc\/(PMC\d+)/i);
   if (pmcMatch && pmcMatch[1]) {
-    return "pmc:" + pmcMatch[1].toLowerCase();
+    push("pmc:" + pmcMatch[1].toLowerCase());
   }
   /* arXiv. The previous pattern was /arxiv\.org\/abs\/([\d.]+)/ , which is
    * wrong in three ways that each let one paper appear twice:
@@ -96,7 +125,7 @@ function paperDedupeKey(p) {
     (url.match(/arxiv\.org\/(?:abs|pdf)\/([A-Za-z-]+(?:\.[A-Za-z]{2})?\/\d{7}|\d{4}\.\d{4,5})(v\d+)?/i) || [])[1] ||
     (String((p && p.url) || "").match(/^arxiv:(\S+)$/i) || [])[1];
   if (arxivId) {
-    return "arxiv:" + arxivId.toLowerCase().replace(/v\d+$/, "");
+    push("arxiv:" + arxivId.toLowerCase().replace(/v\d+$/, ""));
   }
   /* Normalized title fallback.
    *
@@ -106,16 +135,64 @@ function paperDedupeKey(p) {
    * study that shares an opening phrase, and silently dropping a distinct
    * paper is worse than showing a near-duplicate. Preprint/journal versions
    * are linked only when an identifier supports it, never by guesswork. */
-  const title = ((p && p.title) || "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\u2018\u2019\u201c\u201d]/g, "'")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-  return title ? "title:" + title : "";
+  const title = normalizePaperTitle((p && p.title) || "");
+  if (title) push("title:" + title);
+  return keys;
 }
+
+function paperDedupeKey(p) {
+  const ks = paperDedupeKeys(p);
+  return ks.length ? ks[0] : "";
+}
+
+/* Order-preserving dedupe over a paper list. A paper is dropped when ANY of
+ * its candidate keys was already seen — this is what catches "same paper,
+ * one record with DOI, one without", the duplicate that used to be cited as
+ * [1] and [2]. Records with no key at all are never dropped blindly. */
+export function dedupePapers(list) {
+  const seen = new Set();
+  return (list || []).filter((p) => {
+    const keys = paperDedupeKeys(p);
+    if (keys.length === 0) return true;
+    for (const k of keys) if (seen.has(k)) return false;
+    for (const k of keys) seen.add(k);
+    return true;
+  });
+}
+
+/* RELEVANCE FLOOR — the citation gate.
+ *
+ * Relevance is scored 0-100 absolute (70 topical match + 30 quality); the UI
+ * labels >=65 "strong", 45-64 "partial", <45 "weak". The floor sits at 60:
+ * "strong" and the top of "partial" survive; below it a paper's score is
+ * typically carried by passing keyword mentions rather than topical study —
+ * the real incident was an ophthalmology abstract that once says "soil
+ * desiccation cracks" scoring 56 on a soil-mechanics query and getting cited
+ * as if it studied the topic.
+ *
+ * Papers below the floor are NEVER cited, NEVER numbered, and NEVER counted
+ * in "N sources" — at the synthesis layer, for both the AI path and the
+ * Wave-4 deterministic fallback. There is deliberately no ungated fallback:
+ * when too few papers clear the floor the answer says the evidence is thin
+ * (evidenceIsThin / the Tier-4 below-the-floor message) instead of padding
+ * with junk.
+ *
+ * No score means below the floor — scores are never invented. Two paths are
+ * exempt, deliberately: name search (relevance measures topical-term
+ * overlap, which is meaningless for a person query; authorship matching is
+ * the signal there, and gating on topicality would nuke correct
+ * author-matched papers) and the web-reference fallback (Wikipedia/DDG when
+ * zero papers matched at all — those records carry no relevance scores, and
+ * inventing a floor for them would delete the last-resort path). */
+export const RELEVANCE_FLOOR = 60;
+export function paperRelevance(p) {
+  const r = p ? p.relevance : undefined;
+  return typeof r === "number" && Number.isFinite(r) ? r : -1;
+}
+export function applyRelevanceGate(list) {
+  return (list || []).filter((p) => paperRelevance(p) >= RELEVANCE_FLOOR);
+}
+
 
 // v34: a raw wwPDB structure deposit got synthesized into an answer and cited
 // with the same weight as a peer-reviewed paper — a real, reported failure,
@@ -4257,6 +4334,23 @@ function usableAbstract(p) {
   return /^no abstract available\.?$/i.test(a) ? "" : a;
 }
 
+/* Fingerprint for claim text: two sentences are "the same claim" when they
+ * normalize identically — case, markdown bold, citation markers, and
+ * punctuation stripped. Used by buildExtractiveSynthesis to guarantee each
+ * claim is emitted exactly once across the whole summary. The real
+ * incident: Wave-4 printed the same sentence twice with [1] and [2] because
+ * the two records were the same paper (one with a DOI, one without) and
+ * nothing compared the claim text itself. */
+export function fingerprintClaim(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/\*\*/g, "")
+    .replace(/\[\d+(?:-\d+)?\]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function buildExtractiveSynthesis(papers, briefClaims) {
   try {
     // When the speculative evidence-brief extraction succeeded before the
@@ -4284,10 +4378,15 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
         .map((s) => ({ s, score: scoreFindingSentence(s) }))
         .filter(({ score }) => score > 0)
         .sort((a, b) => b.score - a.score);
-      it.findings = ranked.slice(0, 2).map(({ s }) => boldExtractQuantities(tidyExtractSentence(s)));
+      const top = ranked.slice(0, 2);
+      it.findings = top.map(({ s }) => boldExtractQuantities(tidyExtractSentence(s)));
+      it.findingScores = top.map(({ score }) => score);
       // Prefer brief claims (LLM-extracted, atomic) over regex-picked sentences.
-      const fromBrief = (briefByIdx[it.idx] || []).slice(0, 2).map(boldExtractQuantities);
-      if (fromBrief.length) it.findings = fromBrief;
+      const fromBrief = (briefByIdx[it.idx] || []).slice(0, 2);
+      if (fromBrief.length) {
+        it.findings = fromBrief.map(boldExtractQuantities);
+        it.findingScores = fromBrief.map((t) => scoreFindingSentence(t));
+      }
       it.titleClaim = extractTitleClaim(it.p.title);
       it.hasFindings = it.findings.length > 0;
       const counts = extractTermCounts((it.p.title || "") + " " + abs);
@@ -4297,100 +4396,116 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
 
     const anyAbstractFindings = items.some((it) => it.hasFindings);
 
-    // Shared-vocabulary clustering: each paper joins the cluster it shares
-    // the most significant terms with (minimum 2), else starts a new one.
-    const clusters = [];
-    for (const it of items) {
-      let best = -1, bestScore = 0;
-      for (let c = 0; c < clusters.length; c++) {
-        let s = 0;
-        for (const t of termSets[items.indexOf(it)]) if (clusters[c].termSet.has(t)) s++;
-        if (s > bestScore) { bestScore = s; best = c; }
-      }
-      if (best >= 0 && bestScore >= 2) {
-        clusters[best].items.push(it);
-        for (const t of termSets[items.indexOf(it)]) clusters[best].termSet.add(t);
-      } else {
-        clusters.push({ items: [it], termSet: new Set(termSets[items.indexOf(it)]) });
-      }
-    }
-    // Cap at 4 themes: fold the smallest cluster into the largest.
-    while (clusters.length > 4) {
-      let smallest = 0, largest = 0;
-      for (let c = 0; c < clusters.length; c++) {
-        if (clusters[c].items.length < clusters[smallest].items.length) smallest = c;
-        if (clusters[c].items.length > clusters[largest].items.length) largest = c;
-      }
-      if (smallest === largest) break;
-      for (const it of clusters[smallest].items) {
-        clusters[largest].items.push(it);
-        for (const t of termSets[items.indexOf(it)]) clusters[largest].termSet.add(t);
-      }
-      clusters.splice(smallest, 1);
-    }
-    // Largest theme first — it anchors the overview.
-    clusters.sort((a, b) => b.items.length - a.items.length);
-
-    const labelFor = (cluster) => {
-      const docFreq = {};
-      for (const it of cluster.items) {
-        for (const t of termSets[items.indexOf(it)]) docFreq[t] = (docFreq[t] || 0) + 1;
-      }
-      const terms = Object.entries(docFreq)
-        .sort((a, b) => b[1] - a[1] || (cluster.items[0].termCounts[b[0]] || 0) - (cluster.items[0].termCounts[a[0]] || 0))
-        .slice(0, 3)
-        .map(([t]) => titleCaseTerm(t));
-      return terms.length ? terms.join(" · ") : "Further findings";
+    // GLOBAL CLAIM DEDUPE. Every candidate claim across the whole summary is
+    // fingerprinted, and a claim is emitted only the first time its
+    // fingerprint appears — in the lede, in the theme sections, and in the
+    // no-abstract fallback alike. This is the backstop for the duplicate
+    // that once shipped: even if two records of one paper survive dedupe,
+    // their identical claim text can only ever print once.
+    const emittedClaims = new Set();
+    const takeClaim = (text) => {
+      const k = fingerprintClaim(text);
+      if (!k || emittedClaims.has(k)) return null;
+      emittedClaims.add(k);
+      return text;
     };
 
-    // Overall topic phrase from terms shared across the whole pool.
-    const globalFreq = {};
-    for (const ts of termSets) for (const t of ts) globalFreq[t] = (globalFreq[t] || 0) + 1;
-    const sharedTopics = Object.entries(globalFreq)
-      .filter(([, n]) => n >= 2)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([t]) => t);
-    const topicPhrase = sharedTopics.length >= 2
-      ? sharedTopics.join(" and ")
-      : sharedTopics.length === 1
-      ? sharedTopics[0]
-      : null;
+    // All candidates ranked once, globally, by finding-density; ties break
+    // by paper order so output is deterministic. Title claims rank last —
+    // they are fallbacks, never lede material when real findings exist.
+    const candidates = [];
+    for (const it of items) {
+      it.findings.forEach((f, fi) => candidates.push({ text: f, idx: it.idx, score: it.findingScores[fi] }));
+      if (it.titleClaim) candidates.push({ text: it.titleClaim, idx: it.idx, score: -1 });
+    }
+    candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
 
     const unitWord = pool.length === 1 ? "source" : "sources";
     let md = "## What the sources indicate\n\n";
-    if (topicPhrase) {
-      md += "The " + pool.length + " " + unitWord + " below converge on " + topicPhrase + ". ";
-    } else {
-      md += "The " + pool.length + " " + unitWord + " below address the question from different angles. ";
-    }
-    // Lead with the strongest finding sentences across the pool.
-    const leadCandidates = [];
-    for (const it of items) for (const f of it.findings) leadCandidates.push({ f, idx: it.idx, score: scoreFindingSentence(f) });
-    leadCandidates.sort((a, b) => b.score - a.score);
+    // The lede is built from the top-ranked UNIQUE claims — never from glued
+    // keywords. The old lede concatenated the most frequent terms ("converge
+    // on crack and patterns and soil"): keyword soup, not an answer. Each
+    // lede claim comes from a different paper so the opening reads as a
+    // synthesis, not one paper's summary.
     const leads = [];
     const usedIdx = new Set();
-    for (const c of leadCandidates) {
-      if (usedIdx.has(c.idx)) continue;
+    for (const c of candidates) {
+      if (c.score < 0 || usedIdx.has(c.idx)) continue;
+      const t = takeClaim(c.text);
+      if (!t) continue;
       usedIdx.add(c.idx);
-      leads.push(c);
+      leads.push({ text: t, idx: c.idx });
       if (leads.length >= 2) break;
     }
     if (leads.length) {
-      md += leads.map((c) => c.f + " [" + c.idx + "]").join(" ") + "\n";
+      md += "Across the " + pool.length + " " + unitWord + " below, the clearest reported findings are: " +
+        leads.map((c) => c.text + " [" + c.idx + "]").join(" ") + "\n";
     } else {
-      md += "Their titles are summarized by theme below.\n";
+      md += "The " + pool.length + " " + unitWord + " below address the question from different angles; their findings are grouped by theme.\n";
     }
 
     if (anyAbstractFindings) {
-      for (const cluster of clusters) {
-        md += "\n### " + labelFor(cluster) + "\n\n";
+      // Shared-vocabulary clustering: each paper joins the cluster it shares
+      // the most significant terms with (minimum 2), else starts a new one.
+      const itemIdx = new Map(items.map((it, i) => [it, i]));
+      const clusters = [];
+      for (const it of items) {
+        let best = -1, bestScore = 0;
+        for (let c = 0; c < clusters.length; c++) {
+          let s = 0;
+          for (const t of termSets[itemIdx.get(it)]) if (clusters[c].termSet.has(t)) s++;
+          if (s > bestScore) { bestScore = s; best = c; }
+        }
+        if (best >= 0 && bestScore >= 2) {
+          clusters[best].items.push(it);
+          for (const t of termSets[itemIdx.get(it)]) clusters[best].termSet.add(t);
+        } else {
+          clusters.push({ items: [it], termSet: new Set(termSets[itemIdx.get(it)]) });
+        }
+      }
+      // Cap at 4 themes: fold the smallest cluster into the largest.
+      while (clusters.length > 4) {
+        let smallest = 0, largest = 0;
+        for (let c = 0; c < clusters.length; c++) {
+          if (clusters[c].items.length < clusters[smallest].items.length) smallest = c;
+          if (clusters[c].items.length > clusters[largest].items.length) largest = c;
+        }
+        if (smallest === largest) break;
+        for (const it of clusters[smallest].items) {
+          clusters[largest].items.push(it);
+          for (const t of termSets[itemIdx.get(it)]) clusters[largest].termSet.add(t);
+        }
+        clusters.splice(smallest, 1);
+      }
+      // Largest theme first — it anchors the overview.
+      clusters.sort((a, b) => b.items.length - a.items.length);
+
+      const labelFor = (cluster) => {
+        const docFreq = {};
         for (const it of cluster.items) {
-          const lines = it.findings.length ? it.findings : [it.titleClaim];
-          for (const line of lines) {
-            if (line) md += "- " + line + " [" + it.idx + "]\n";
+          for (const t of termSets[itemIdx.get(it)]) docFreq[t] = (docFreq[t] || 0) + 1;
+        }
+        const terms = Object.entries(docFreq)
+          .sort((a, b) => b[1] - a[1] || (cluster.items[0].termCounts[b[0]] || 0) - (cluster.items[0].termCounts[a[0]] || 0))
+          .slice(0, 3)
+          .map(([t]) => titleCaseTerm(t));
+        return terms.length ? terms.join(" · ") : "Further findings";
+      };
+
+      for (const cluster of clusters) {
+        const lines = [];
+        for (const it of cluster.items) {
+          const srcLines = it.findings.length ? it.findings : [it.titleClaim];
+          for (const line of srcLines) {
+            const kept = takeClaim(line);
+            if (kept) lines.push("- " + kept + " [" + it.idx + "]");
           }
         }
+        // A cluster whose every claim already appeared (lede or an earlier
+        // theme) contributes nothing new — print no heading for it rather
+        // than an empty section.
+        if (!lines.length) continue;
+        md += "\n### " + labelFor(cluster) + "\n\n" + lines.join("\n") + "\n";
       }
     } else {
       // No abstracts anywhere (common for older papers): the titles ARE the
@@ -4398,8 +4513,10 @@ export function buildExtractiveSynthesis(papers, briefClaims) {
       md += "\n### Findings reported\n\n";
       for (const it of items) {
         if (!it.titleClaim) continue;
+        const kept = takeClaim(it.titleClaim);
+        if (!kept) continue;
         const venue = [it.p.journal, it.p.year].filter(Boolean).join(", ");
-        md += "- **" + it.titleClaim + "**" + (venue ? " — " + venue : "") + " [" + it.idx + "]\n";
+        md += "- **" + kept + "**" + (venue ? " — " + venue : "") + " [" + it.idx + "]\n";
       }
     }
 
@@ -5909,8 +6026,12 @@ async function gatherPapers(rawQuery, opts) {
   // paperDedupeKey() for why a title-only key let the same paper (returned
   // by two different source APIs with slightly different title formatting)
   // through twice, ending up cited as both [1] and [6] in the same answer.
-  const merged = [];
-  const seen = new Set();
+  // v6.3: multi-key dedupe — see paperDedupeKeys()/dedupePapers() for why a
+  // single-key dedupe let the same paper (one record with a DOI, one without)
+  // through twice, ending up cited as both [1] and [2] in the same answer.
+  // A record is the same paper as an earlier one when ANY of its candidate
+  // keys (DOI, PMID/PMC/arXiv, normalized title) intersects.
+  const preDedupe = [];
   for (const res of results) {
     if (res.status === "fulfilled" && Array.isArray(res.value)) {
       for (const p of res.value) {
@@ -5922,19 +6043,17 @@ async function gatherPapers(rawQuery, opts) {
         // this single choke point exists independent of each fetcher's own
         // upstream type filter.
         if (isNonLiterature(p)) { funnel.nonLiterature++; continue; }
-        const key = paperDedupeKey(p);
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          // Same title-sanitization gap as the author-query branch above —
-          // see the comment there. Applied once here so every one of the
-          // 15+ source fetchers is covered without touching each of them.
-          merged.push({ ...p, title: stripTags(p.title || "") || "Untitled", journal: stripTags(p.journal || "") || p.journal || "" });
-        } else if (key) {
-          funnel.duplicates++;
-        }
+        // Same title-sanitization gap as the author-query branch above —
+        // see the comment there. Applied once here so every one of the
+        // 15+ source fetchers is covered without touching each of them.
+        const rec = { ...p, title: stripTags(p.title || "") || "Untitled", journal: stripTags(p.journal || "") || p.journal || "" };
+        if (!paperDedupeKey(rec)) continue; // no identifier and no title: uncitable
+        preDedupe.push(rec);
       }
     }
   }
+  const merged = dedupePapers(preDedupe);
+  funnel.duplicates += preDedupe.length - merged.length;
   funnel.deduped = merged.length;
 
   // ============ RELEVANCE SCORING ============
@@ -7957,7 +8076,7 @@ export async function onRequest(context) {
         ]);
         const seen = new Set();
         for (const r of [...wiki, ...ddg]) {
-          const k = (r.title || "").toLowerCase();
+          const k = normalizePaperTitle(r.title);
           if (r.abstract && !seen.has(k)) {
             seen.add(k);
             webRefs.push(r);
@@ -7968,7 +8087,7 @@ export async function onRequest(context) {
         if (!webRefs.length) {
           const generic = await genericWebSearch(query).catch(() => []);
           for (const r of generic) {
-            const k = (r.title || "").toLowerCase();
+            const k = normalizePaperTitle(r.title);
             if (!seen.has(k)) {
               seen.add(k);
               webRefs.push(r);
@@ -7978,7 +8097,7 @@ export async function onRequest(context) {
       } catch {}
     }
 
-    const useEvidence = hasPapers;
+    let useEvidence = hasPapers;
     const useWeb = !useEvidence && webRefs.length > 0;
 
     // isNameSearch is now computed earlier (right after gResult is available) —
@@ -8057,27 +8176,36 @@ export async function onRequest(context) {
       return !NON_SCHOLARLY_CONTAINER.test(container);
     });
 
+    // The citation gate. Every paper that reaches the answer must clear
+    // RELEVANCE_FLOOR (60) — below it a score is carried by passing keyword
+    // mentions rather than topical study, and the real incident was an
+    // ophthalmology abstract that once says "soil desiccation cracks" being
+    // cited as a soil-mechanics source. Name search and follow-up modes are
+    // exempt: relevance measures topical-term overlap, which is meaningless
+    // for a person query (authorship matching is the signal there), and
+    // follow-up answers anchor on previously retrieved papers.
+    // There is deliberately NO "if too few pass, take the top 8 anyway"
+    // fallback — that old line is what let junk into citations. When fewer
+    // than two papers clear the floor, the answer honestly says the evidence
+    // is thin instead of padding with weak sources.
     let evidencePapers = (isNameSearch || isFollowupMode)
       ? papers.slice(0, maxEvidence)
-      : (() => {
-          // Commit 56 — was `>= 10`. Relevance is scored 0-100 and the UI
-          // labels anything under ~40 as "weak", so a threshold of 10 meant
-          // every paper the search returned counted as strong evidence. Real
-          // example: a BSFL temperature question retrieved three papers
-          // scored 20% — none of which studied temperature — and the answer
-          // synthesized from them anyway, citing all three. Its own
-          // fact-check panel then reported 0% source alignment, which is the
-          // system correctly noticing what it had just done.
-          const strong = papers.filter((p) => (p.relevance || 0) >= 45);
-          return (strong.length >= 2 ? strong : papers.slice(0, 8)).slice(0, maxEvidence);
-        })();
-    // Whether what survived is actually good enough to answer FROM. When it
-    // isn't, the model is told so explicitly below rather than being left to
-    // infer it — a model handed weak papers and no signal will write around
-    // them confidently, which is exactly how a citation ends up attached to
-    // a paper that doesn't support it.
-    const evidenceIsWeak = evidencePapers.length > 0
-      && evidencePapers.filter((p) => (p.relevance || 0) >= 45).length < 2;
+      : applyRelevanceGate(papers).slice(0, maxEvidence);
+    // Papers the gate withheld: reported in the answer envelope as
+    // relevanceGatedOut so the UI can say so honestly ("3 more papers were
+    // too tangential to cite") instead of silently dropping them.
+    let relevanceGatedOut = (isNameSearch || isFollowupMode)
+      ? 0
+      : Math.max(0, papers.length - applyRelevanceGate(papers).length);
+    // Whether what survived is actually good enough to answer FROM. "Thin"
+    // now means fewer than two STRONG (>=65) papers cleared the floor —
+    // everything below 60 never reaches the model at all, so the old
+    // weak-evidence branch (which handed junk to the model and told it to
+    // answer from knowledge) no longer has anything to describe. When the
+    // evidence is thin, the model is told so explicitly below rather than
+    // being left to infer it.
+    const evidenceIsThin = evidencePapers.length > 0
+      && evidencePapers.filter((p) => paperRelevance(p) >= 65).length < 2;
 
     // ═══════════════════════════════════════════════════════════════
     // LLM PAPER VALIDATION: before sending papers to the answer LLM,
@@ -8113,25 +8241,34 @@ export async function onRequest(context) {
       } catch {}
     }
 
-    // v6.3: FINAL DEDUP SAFETY NET. The same paper appeared twice in a live
-    // answer (once as [1], again as [6], identical DOI) despite upstream
-    // merge dedup — evidently reachable via more than one code path (e.g. a
-    // supplementary/secondary-organism fetch merging back in without a
-    // cross-check against papers already selected). Rather than chase every
-    // possible path, dedupe evidencePapers itself, order-preserving, right
-    // before it becomes the numbered bibliography. This can never make
-    // things worse and closes the gap regardless of which upstream path
-    // caused a given duplicate.
+    // v6.3: FINAL DEDUPE + GATE — the last word before numbering.
+    // Dedupe with the multi-key matcher (see paperDedupeKeys): a paper is
+    // dropped when ANY of its candidate keys was already seen, which is what
+    // catches "same paper, one record with DOI, one without" — the duplicate
+    // that once shipped as [1] and [2] in one answer. Then re-apply the
+    // relevance floor for the gated modes: supplementary fetches merge papers
+    // back in AFTER the selection-time gate, so a below-floor paper could
+    // otherwise slip into citations here. Name search and follow-up modes
+    // stay exempt (see the gate comment at selection). After this point
+    // evidencePapers is canonical: the AI evidence, the Wave-4 pool, the
+    // bibliography, the citation bounds, and every "N sources" count all
+    // read from this one list.
     if (useEvidence && evidencePapers.length > 1) {
-      const seenKeys = new Set();
-      evidencePapers = evidencePapers.filter((p) => {
-        const key = paperDedupeKey(p);
-        if (!key) return true; // no title/DOI to key on — don't drop it blindly
-        if (seenKeys.has(key)) return false;
-        seenKeys.add(key);
-        return true;
-      });
+      evidencePapers = dedupePapers(evidencePapers);
     }
+    if (useEvidence && !isNameSearch && !isFollowupMode) {
+      const beforeGate = evidencePapers.length;
+      evidencePapers = applyRelevanceGate(evidencePapers);
+      relevanceGatedOut += beforeGate - evidencePapers.length;
+    }
+
+    // The gate can empty the list even when papers were retrieved: in that
+    // state there is no evidence to synthesize FROM, so the answer takes the
+    // no-evidence path (answer from knowledge, zero citations, suggest better
+    // search terms) instead of the evidence path with "0 papers below". The
+    // withheld count still reaches the UI via relevanceGatedOut, and the
+    // bibliography states it honestly.
+    if (useEvidence && evidencePapers.length === 0) useEvidence = false;
 
     // CITATION ALIGNMENT: the bibliography the user sees MUST be the exact same
     // list, in the exact same order, that the AI was given. Otherwise the model
@@ -8419,7 +8556,13 @@ export async function onRequest(context) {
       "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' — but NEVER invent specific paper titles or authors.\n" +
       "- NEVER write 'Source [1] discusses...' or 'According to [2]...' — weave the citation into your own sentence.\n" +
       "- NEVER use footnote asterisks. Do not write 'clinical trial*', 'meta-analysis*', or any word with a trailing '*' — there are no footnotes in this format, so a dangling asterisk is a typo, not a reference. If you need emphasis, use **bold** or *italics* with proper opening AND closing markers.\n" +
-      "- No <think> tags, no code fences, no meta-commentary about your process.\n";
+      "- No <think> tags, no code fences, no meta-commentary about your process.\n" +
+      // v6.3 — from a real answer: the model printed the same claim twice
+      // with different citations ([1] and [2] were the same paper), and
+      // opened with "The 12 sources below converge on crack and patterns
+      // and soil" — keyword soup, not an answer. Mechanical rules:
+      "- Each distinct finding appears ONCE in the answer. Never restate the same claim in different words in a later section — if two sources report the same result, state it once and cite both, e.g. \u2018... [1][2]\u2019.\n" +
+      "- Open with a direct answer in natural prose, never a keyword summary. NEVER open with \u2018The N sources below converge on X and Y and Z\u2019 or any sentence assembled from topic keywords. The first sentence must make a substantive claim that answers the question.\n";
 
     // v28: this was previously a loose suggestion buried in CONTEXT
     // ("use bold section headers to organize") — real Markdown structure a
@@ -8619,14 +8762,13 @@ export async function onRequest(context) {
       systemPrompt = ID + PERSONALITY + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else if (useEvidence) {
       systemPrompt = ID + PERSONALITY +
-        (evidenceIsWeak
-          ? "⚠ WEAK EVIDENCE — READ THIS FIRST. The retrieved papers scored poorly against this question; " +
-            "most or all of them do NOT directly study what was asked. Say that in your FIRST sentence, plainly and " +
-            "specifically ('the literature search didn't surface papers that directly test X'), then answer from your own " +
-            "scientific knowledge. Do NOT cite these papers for claims they don't actually make — a citation on a " +
-            "borrowed claim is worse than no citation. You may cite them only for the narrower things they genuinely do " +
-            "report, and you may leave them uncited entirely. Suggest the specific search terms that would find the real " +
-            "primary literature.\n\n"
+        (evidenceIsThin
+          ? "THIN EVIDENCE \u2014 READ THIS FIRST. Only a few of the papers below genuinely address this question; " +
+            "the rest of the search results scored too low to trust and were withheld, not cited. Say that in your " +
+            "FIRST sentence, plainly and specifically (\u2018only a few papers directly study X\u2019), then answer from your own " +
+            "scientific knowledge. Cite the papers below ONLY for the narrower things they genuinely do report \u2014 a " +
+            "citation on a borrowed claim is worse than no citation, and you may leave them uncited entirely. " +
+            "Suggest the specific search terms that would find the real primary literature.\n\n"
           : "") +
         "You have " + evidencePapers.length + " papers below. READ EACH ABSTRACT before answering.\n\n" +
         "═══ PAPER USAGE PROTOCOL (HARD-ENFORCED) ═══\n\n" +
@@ -8655,7 +8797,10 @@ export async function onRequest(context) {
         "If you know relevant papers exist on this topic (from your training), mention the general findings and suggest " +
         "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else {
-      systemPrompt = ID + PERSONALITY + "The literature search didn't surface papers for this specific phrasing, but you absolutely know this topic. " +
+      systemPrompt = ID + PERSONALITY + (relevanceGatedOut > 0
+        ? "The literature search returned " + relevanceGatedOut + (relevanceGatedOut === 1 ? " paper, " : " papers, ") +
+          "but none cleared the relevance bar for this question, so none are cited below — they were withheld rather than risk misleading citations. "
+        : "The literature search didn't surface papers for this specific phrasing, ") + "but you absolutely know this topic. " +
         "IMPORTANT: Do NOT start with 'no papers retrieved' or any disclaimer. Start with a direct, authoritative scientific answer. " +
         "Give an excellent, comprehensive answer drawing on your full scientific knowledge. Be specific — name enzymes, genes, organisms, mechanisms, " +
         "quantify where possible, and cite the key researchers and landmark studies you know about in plain text (e.g., 'Work by [name] demonstrated...'). " +
@@ -8961,6 +9106,7 @@ export async function onRequest(context) {
         JSON.stringify({
           answer: italicizeScientificTerms(cachedAnswer.answer, query),
           sources: sourceList,
+          relevanceGatedOut,
           videos,
           factCheck: null,
           related: [],
@@ -9682,7 +9828,9 @@ export async function onRequest(context) {
       // silently omitting the section entirely.
       answer = sourceList.length > 0
         ? "Cerebrum's AI synthesis didn't complete for this question, but the sources below were found and are ready to read directly."
-        : "Cerebrum's AI synthesis didn't complete for this question, and no sources were found either. Please try again in a moment.";
+        : relevanceGatedOut > 0
+          ? "Cerebrum's AI synthesis didn't complete for this question, and the papers the search returned didn't clear the relevance bar for this query — none were cited rather than risk misleading citations. Try more specific search terms."
+          : "Cerebrum's AI synthesis didn't complete for this question, and no sources were found either. Please try again in a moment.";
       }
     }
 
@@ -10096,6 +10244,10 @@ export async function onRequest(context) {
       JSON.stringify({
         answer,
         sources: sourceList,
+        /* Papers the relevance gate withheld from citations/counts (see
+           RELEVANCE_FLOOR). The UI can state this honestly instead of
+           silently dropping them. */
+        relevanceGatedOut,
         videos,
         factCheck: factCheckResult,
         literature_conflicts: literatureConflicts.length > 0 ? literatureConflicts : null,
