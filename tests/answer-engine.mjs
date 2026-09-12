@@ -773,6 +773,28 @@ test("every synthesis adapter enforces the leak/error gate", () => {
   assert.ok(uses.length >= 7, `expected 1 def + 6 call sites, found ${uses.length}`);
 });
 
+test("synthesis adapters keep the abort armed through the body read", () => {
+  // 2026-09-12 root cause of "search is still taking too long": the abort
+  // was disarmed (clearTimeout) the moment response HEADERS arrived, but a
+  // slow model trickles its BODY for tens of seconds — a 550B leg won a
+  // production wave at 53s with a "12s timeout". The timeout must bound the
+  // whole operation: no clearTimeout between fetch() and r.json(), and the
+  // disarm must live in a finally.
+  for (const fnName of ["const callOR = ", "const callCompat = "]) {
+    const start = apiSrc.indexOf(fnName);
+    assert.ok(start > 0, fnName + "not found");
+    const body = apiSrc.slice(start, start + 4000);
+    const fetchIdx = body.indexOf("await fetch(");
+    const jsonIdx = body.indexOf("await r.json()");
+    assert.ok(fetchIdx > 0 && jsonIdx > fetchIdx, fnName + ": fetch/json structure changed");
+    assert.ok(
+      !body.slice(fetchIdx, jsonIdx).includes("clearTimeout"),
+      fnName + " disarms the timeout before the body is read (header-only timeout)"
+    );
+    assert.ok(body.includes("finally"), fnName + ": timeout should be disarmed in finally");
+  }
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 await Promise.all(pending);
 console.log(`\n${passed} passed, ${failures.length} failed`);

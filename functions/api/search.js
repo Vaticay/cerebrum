@@ -3790,7 +3790,10 @@ async function llmValidatePapers(rawQuery, papers, token) {
       }),
       signal: c.signal,
     });
-    clearTimeout(t);
+    // No early clearTimeout here: the abort stays armed through r.json().
+    // (2026-09-12: headers can arrive in ms while the body trickles for
+    // tens of seconds — disarming at headers made the timeout meaningless.
+    // See the same note on callOR.) The finally below disarms it.
     if (!r.ok) return survivors;
     const j = await r.json();
     const txt = (j?.choices?.[0]?.message?.content || "").trim();
@@ -3837,6 +3840,10 @@ async function llmValidatePapers(rawQuery, papers, token) {
     return survivors;
   } catch {
     return survivors;
+  } finally {
+    // Disarms the abort (no-op if it already fired). Lives here — not
+    // right after fetch() — so the timeout covers the full body read.
+    clearTimeout(t);
   }
 }
 
@@ -3992,7 +3999,8 @@ async function deepFactCheck(answer, papers, env) {
         body: JSON.stringify({ model: OR_VALIDATE, temperature: 0, max_tokens: 1900, messages }),
         signal: c.signal,
       });
-      clearTimeout(t);
+      // No early clearTimeout: the abort stays armed through r.json(), so a
+      // slow body can't outlive the timeout (2026-09-12 whole-operation fix).
       if (r.ok) {
         const j = await r.json();
         const claims = parseDeepFactCheckJSON(j?.choices?.[0]?.message?.content || "");
@@ -4002,6 +4010,8 @@ async function deepFactCheck(answer, papers, env) {
       }
     } catch {
       // Both tiers failed — caller falls back to verifyAnswerAgainstSources.
+    } finally {
+      clearTimeout(t);
     }
   }
   return null;
@@ -10243,6 +10253,14 @@ export async function onRequest(context) {
     const callOR = async (model, msgs, maxTok, timeoutMs = 12000) => {
       if (!token) throw new Error(model + ": no OpenRouter key configured (OPENROUTER_KEY or OPENROUTER_API_KEY)");
       const c = new AbortController();
+      // 2026-09-12: the abort stays armed for the WHOLE operation — headers
+      // + body + processing. The old code called clearTimeout() right after
+      // fetch() resolved, but OpenRouter sends headers immediately and then
+      // trickles the body as the model generates: a slow model (the 550B
+      // primary won a production wave at 53s) blew straight past the
+      // "timeout", which had only ever bounded time-to-first-byte. Now the
+      // timeout bounds the full response; aborting mid-body rejects r.json()
+      // with AbortError, which becomes a clean "timed out".
       const t = setTimeout(() => c.abort(), timeoutMs);
       try {
         const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -10251,7 +10269,6 @@ export async function onRequest(context) {
           body: JSON.stringify({ model, temperature: 0.3, max_tokens: maxTok, messages: msgs }),
           signal: c.signal,
         });
-        clearTimeout(t);
         if (!r.ok) {
           let bodyText = "";
           try { bodyText = (await r.text()).slice(0, 100); } catch {}
@@ -10265,9 +10282,10 @@ export async function onRequest(context) {
         if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
         return { answer: cleaned, model };
       } catch (e) {
-        clearTimeout(t);
         if (e && e.name === "AbortError") throw new Error(model + ": timed out");
         throw e;
+      } finally {
+        clearTimeout(t);
       }
     };
 
@@ -10320,9 +10338,12 @@ export async function onRequest(context) {
     // trail in the logs, and the model_perf table, can tell which BUCKET
     // won — which is the number that matters when the complaint is rate
     // limiting, not which model name did.
-    const callCompat = (provider) => async (model, msgs, maxTok, timeoutMs = 18000) => {
+    const callCompat = (provider) => async (model, msgs, maxTok, timeoutMs = 12000) => {
       const tag = provider.id + ":" + model;
       const c = new AbortController();
+      // 2026-09-12: same whole-operation timeout fix as callOR — the abort
+      // used to disarm as soon as headers arrived, so a slow model could
+      // trickle its body past the timeout. Default 18s -> 12s to match.
       const t = setTimeout(() => c.abort(), timeoutMs);
       try {
         const r = await fetch(provider.url, {
@@ -10331,7 +10352,6 @@ export async function onRequest(context) {
           body: JSON.stringify({ model, temperature: 0.3, max_tokens: maxTok, messages: msgs }),
           signal: c.signal,
         });
-        clearTimeout(t);
         if (!r.ok) {
           let bodyText = "";
           try { bodyText = (await r.text()).slice(0, 100); } catch {}
@@ -10345,9 +10365,10 @@ export async function onRequest(context) {
         if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(tag + ": missing required **bold** formatting");
         return { answer: cleaned, model: tag };
       } catch (e) {
-        clearTimeout(t);
         if (e && e.name === "AbortError") throw new Error(tag + ": timed out");
         throw e;
+      } finally {
+        clearTimeout(t);
       }
     };
 
