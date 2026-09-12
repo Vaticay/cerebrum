@@ -565,6 +565,16 @@ await test("search errors carry a diagnostic caption and the request is bounded"
   assert.match(appSrc, /askCtrl\.abort\("timeout"\)/, "no client-side search timeout");
   assert.match(appSrc, /clearTimeout\(askTimeout\)/, "search timeout is not cleared on completion");
 });
+await test("modal scroll lock is keyed on the overlay boolean, not each overlay", async () => {
+  const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
+  // The pin/restore effect must run once per open-session: keying it on the
+  // individual overlay states re-pinned on every nested open/close and read
+  // a stale scrollY on iOS, sending the page rogue.
+  assert.match(appSrc, /const anyOverlayOpen = cmdOpen \|\| howItWorksOpen \|\| mobilePanel/, "anyOverlayOpen boolean missing");
+  assert.match(appSrc, /\}, \[anyOverlayOpen\]\);/, "scroll-lock effect is not keyed on the single overlay boolean");
+  assert.ok(!/}, \[cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource\]\);/.test(appSrc),
+    "scroll-lock effect still re-runs per overlay");
+});
 await test("vote/report UI is honest about the auth requirement", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
   // Votes: a 401 must not be thanked for.

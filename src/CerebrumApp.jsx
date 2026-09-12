@@ -19668,9 +19668,22 @@ function App() {
   // Pin the body at its current visual scroll position explicitly instead
   // (the standard robust scroll-lock pattern) and restore that exact
   // position on close, rather than trusting the browser to remember it.
+  //
+  // Keyed on the single anyOverlayOpen boolean, NOT on the individual
+  // overlay states. Overlays nest (a source drawer over the command menu,
+  // an import prompt over a modal), and keying the effect on each dep
+  // re-ran it on every open/close — including when one overlay closed while
+  // another was still open. Each re-run unpinned and re-pinned the body,
+  // and the re-pin read window.scrollY before the cleanup's
+  // scrollTo({behavior:"instant"}) had been applied on iOS (it is not
+  // synchronous there), so the body got pinned at a stale offset — the
+  // page then jumped or stranded when the last overlay closed, which reads
+  // from the outside as the scroll position going rogue. Now the pin
+  // happens once when the first overlay opens and the restore happens once
+  // when the last one closes, with the scroll offset from the first open.
+  const anyOverlayOpen = cmdOpen || howItWorksOpen || mobilePanel
+    || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource;
   useEffect(() => {
-    const anyOverlayOpen = cmdOpen || howItWorksOpen || mobilePanel
-      || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource;
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
     const body = document.body;
@@ -19690,7 +19703,7 @@ function App() {
       // should be invisible, not animated.
       window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
     };
-  }, [cmdOpen, howItWorksOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource]);
+  }, [anyOverlayOpen]);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
