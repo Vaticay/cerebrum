@@ -1,4 +1,4 @@
-import { corsHeaders, readOriginAllowed } from "../lib/http.js";
+import { corsHeaders, readOriginAllowed, readJsonBody } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { withTimeout, neverFail, fetchWithTimeout, jsonError, clampText } from "../lib/resilience.js";
 
@@ -51,10 +51,10 @@ export async function onRequest(context) {
   }
 
   let body;
-  try { body = await request.json(); }
-  catch {
-    return jsonError(400, "bad_json", "Bad JSON.", cors);
-  }
+  // 2026-09-12: bounded body read — request.json() alone buffers any size.
+  const parsed = await readJsonBody(request, cors, 256 * 1024);
+  if (!parsed.ok) return parsed.response;
+  body = parsed.body;
   // Bug: a request body of the literal 4 bytes `null` is valid JSON, so it
   // parses successfully to `body = null` with no exception — the catch
   // above never fires. The next line used to dereference `.text` on that

@@ -2284,7 +2284,7 @@ function ImageCredit({ image, style }) {
   return (
     <div style={{ position: "absolute", right: 10, bottom: 6, maxWidth: "72%", pointerEvents: "auto", ...style }}>
       {image.creditUrl
-        ? <a href={image.creditUrl} target="_blank" rel="noopener noreferrer nofollow" title={text} style={{ textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>{body}</a>
+        ? <a href={safeHref(image.creditUrl)} target="_blank" rel="noopener noreferrer nofollow" title={text} style={{ textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>{body}</a>
         : body}
     </div>
   );
@@ -3061,7 +3061,7 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
             background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-body)",
           }}>What's going on here?</button>
           {item.url && (
-            <a href={item.url} target="_blank" rel="noopener noreferrer" className="cb-deck-btn" style={{
+            <a href={safeHref(item.url)} target="_blank" rel="noopener noreferrer" className="cb-deck-btn" style={{
               padding: "7px 15px", borderRadius: 100, textDecoration: "none",
               border: `1px solid ${P.line2}`, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
               display: "inline-flex", alignItems: "center",
@@ -3402,7 +3402,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
           display: "inline-flex", alignItems: "center", gap: 6,
         }}>Deep read <Icon name="arrowRight" size={11} /></button>
         {src.url && (
-          <a href={src.url} target="_blank" rel="noopener noreferrer" style={{
+          <a href={safeHref(src.url)} target="_blank" rel="noopener noreferrer" style={{
             textDecoration: "none", border: "1px solid " + P.line2, color: P.ink2,
             borderRadius: RADIUS.pill, padding: "5px 12px", fontSize: 11.5,
             display: "inline-flex", alignItems: "center", gap: 5,
@@ -3606,7 +3606,7 @@ function EvidenceStructure({ data, P, accent, isMobile }) {
               }}>{a.citedBy}/{papers}</span>
               <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5 }}>
                 {a.url
-                  ? <a href={a.url} target="_blank" rel="noopener noreferrer" style={{ color: P.ink2, textDecoration: "underline", textUnderlineOffset: 2 }}>{a.title}</a>
+                  ? <a href={safeHref(a.url)} target="_blank" rel="noopener noreferrer" style={{ color: P.ink2, textDecoration: "underline", textUnderlineOffset: 2 }}>{a.title}</a>
                   : a.title}
                 {a.year ? " · " + a.year : ""}
               </span>
@@ -4639,10 +4639,10 @@ function FilmCreditsDialog({ onClose, accent }) {
                 <div style={{ fontSize: 12, color: "rgba(242,244,242,0.62)", lineHeight: 1.55 }}>
                   {c.credit}
                   {" · "}
-                  <a href={c.source} target="_blank" rel="noopener noreferrer" style={link}>Source</a>
+                  <a href={safeHref(c.source)} target="_blank" rel="noopener noreferrer" style={link}>Source</a>
                   {" · "}
                   {c.licenseUrl
-                    ? <a href={c.licenseUrl} target="_blank" rel="noopener noreferrer" style={link}>{c.license}</a>
+                    ? <a href={safeHref(c.licenseUrl)} target="_blank" rel="noopener noreferrer" style={link}>{c.license}</a>
                     : <span>{c.license}</span>}
                 </div>
               </div>

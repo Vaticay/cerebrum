@@ -485,11 +485,13 @@ await test("wave 4 prefers brief claims over regex sentences", () => {
   assert.ok(out.includes("[1]"), "brief claim citation missing");
 });
 
-await test("evidence brief is launched before wave 1 and consumed by waves 2+", () => {
-  assert.match(searchSrc, /briefPromise/, "speculative brief launch missing");
+await test("evidence brief is launched lazily and consumed by waves 2+", () => {
+  // 2026-09-12: the brief is lazy (startBrief, fired when wave 1 fails)
+  // rather than speculative (briefPromise alongside wave 1) — no wave-1
+  // budget contention.
+  assert.match(searchSrc, /startBrief\(\)/, "lazy brief launch missing");
   assert.match(searchSrc, /buildBriefMessages\(briefText\)/, "wave 2 does not consume the brief");
   assert.match(searchSrc, /EVIDENCE BRIEF \(pre-extracted claims — lead with these/, "wave 3 does not consume the brief");
-  assert.match(searchSrc, /Promise\.any\(legs\)/, "extraction has no provider race");
 });
 await test("speculative brief fan-out is capped and wave 2 waits boundedly", () => {
   // The brief must not drain the rate-limit buckets waves 1-3 need:
@@ -498,7 +500,7 @@ await test("speculative brief fan-out is capped and wave 2 waits boundedly", () 
   assert.ok(!/activeProviders\.slice\(0, 2\)/.test(searchSrc), "brief still fans out across multiple provider legs");
   // A fast-failing wave 1 must not outrun the extraction: bounded await
   // before wave-2 messages are built.
-  assert.match(searchSrc, /Promise\.race\(\[\s*briefPromise/, "wave 2 does not take a bounded await on the brief");
+  assert.match(searchSrc, /Promise\.race\(\[\s*startBrief\(\)/, "wave 2 does not take a bounded await on the brief");
 });
 await test("Turn is memoized with stabilized per-turn callbacks", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));

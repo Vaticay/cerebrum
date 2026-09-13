@@ -517,7 +517,11 @@ export async function onRequest(context) {
     return json({ error: "Method not allowed." }, 405, cors);
   }
 
-  const body = await request.json().catch(() => ({}));
+  // 2026-09-12: bounded body read — request.json() alone buffers any size.
+  const { readJsonBody } = await import("../lib/http.js");
+  const parsed = await readJsonBody(request, cors, 64 * 1024);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
   const action = body && typeof body.action === "string" ? body.action : "";
 
   try {

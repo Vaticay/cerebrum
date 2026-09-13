@@ -1,4 +1,4 @@
-import { corsHeaders, readOriginAllowed } from "../lib/http.js";
+import { corsHeaders, readOriginAllowed, readJsonBody } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { neverFail, raceFirst, fetchWithTimeout, safeErr, jsonOk, jsonError, clampText } from "../lib/resilience.js";
 
@@ -241,7 +241,10 @@ export async function onRequest(context) {
     if (request.method === "GET") {
       query = clampText(new URL(request.url).searchParams.get("q"), 300);
     } else {
-      const body = await request.json().catch(() => ({}));
+      // 2026-09-12: bounded body read — request.json() alone buffers any size.
+      const parsed = await readJsonBody(request, cors, 64 * 1024);
+      if (!parsed.ok) return parsed.response;
+      const body = parsed.body;
       query = clampText(body && body.query, 300);
     }
     if (!query) return jsonOk({ videos: [] }, cors);

@@ -783,7 +783,8 @@ test("synthesis adapters keep the abort armed through the body read", () => {
   for (const fnName of ["const callOR = ", "const callCompat = "]) {
     const start = apiSrc.indexOf(fnName);
     assert.ok(start > 0, fnName + "not found");
-    const body = apiSrc.slice(start, start + 4000);
+    // Strip line comments so the check sees code, not prose about the fix.
+    const body = apiSrc.slice(start, start + 4000).replace(/\/\/[^\n]*/g, "");
     const fetchIdx = body.indexOf("await fetch(");
     const jsonIdx = body.indexOf("await r.json()");
     assert.ok(fetchIdx > 0 && jsonIdx > fetchIdx, fnName + ": fetch/json structure changed");
@@ -793,6 +794,60 @@ test("synthesis adapters keep the abort armed through the body read", () => {
     );
     assert.ok(body.includes("finally"), fnName + ": timeout should be disarmed in finally");
   }
+});
+
+test("pre-work fetchers keep the abort armed through the body read", () => {
+  // 2026-09-12: selfReason's header-only 5s timeout let the 550B trickle
+  // its body for 50s+ — the unaccounted ~51s in the 78s all-fail query.
+  // Same whole-operation rule as the synthesis adapters, applied to
+  // selfReason, llmGenerateSearchQueries, getJSON, getText.
+  for (const fnName of [
+    "async function selfReason(",
+    "async function llmGenerateSearchQueries(",
+    "async function getJSON(",
+    "async function getText(",
+  ]) {
+    const start = apiSrc.indexOf(fnName);
+    assert.ok(start > 0, fnName + " not found");
+    // Strip line comments so the check sees code, not prose about the fix.
+    const body = apiSrc.slice(start, start + 6000).replace(/\/\/[^\n]*/g, "");
+    const fetchIdx = body.indexOf("await fetch(");
+    assert.ok(fetchIdx > 0, fnName + ": fetch structure changed");
+    // Find the body-read: r.json(), res.json(), res.text()
+    const readIdx = Math.min(
+      ...["await r.json()", "await res.json()", "await res.text()"]
+        .map((s) => { const i = body.indexOf(s, fetchIdx); return i < 0 ? Infinity : i; })
+    );
+    assert.ok(readIdx < Infinity && readIdx > fetchIdx, fnName + ": body-read structure changed");
+    assert.ok(
+      !body.slice(fetchIdx, readIdx).includes("clearTimeout"),
+      fnName + " disarms the timeout before the body is read (header-only timeout)"
+    );
+    assert.ok(body.includes("finally"), fnName + ": timeout should be disarmed in finally");
+  }
+});
+
+test("synthesis deadline is derived from the global request budget", () => {
+  // 2026-09-12: a flat 90s synthesisDeadline was incompatible with the
+  // 20s end-to-end ceiling. It must now derive from requestDeadline.
+  assert.ok(
+    apiSrc.includes("requestDeadline - 2500") || apiSrc.includes("requestDeadline-2500"),
+    "synthesisDeadline must derive from requestDeadline"
+  );
+  assert.ok(
+    !apiSrc.includes("const synthesisDeadline = Date.now() + 90000;"),
+    "flat 90s synthesis deadline must be gone"
+  );
+  // Fastpath must race concurrently with wave 1 (no sequential await).
+  const fpIdx = apiSrc.indexOf("const fastpathCalls = ");
+  assert.ok(fpIdx > 0, "concurrent fastpath not found");
+  const fpBlock = apiSrc.slice(fpIdx, fpIdx + 1500);
+  assert.ok(fpBlock.includes("raceEntry(0,"), "fastpath should go through raceEntry");
+  // Wave 1 must include the fastpath calls in its race.
+  assert.ok(apiSrc.includes("...fastpathCalls,"), "wave 1 should race fastpath concurrently");
+  // Waves 2/3 must be budget-gated.
+  assert.ok(apiSrc.includes("msLeft() > 6000"), "wave 2 budget gate missing");
+  assert.ok(apiSrc.includes("msLeft() > 4000"), "wave 3 budget gate missing");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

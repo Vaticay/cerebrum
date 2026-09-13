@@ -344,7 +344,9 @@ async function getJSON(url, headers = {}, timeoutMs = 4000, retries = 1) {
         signal: c.signal,
         cf: { cacheTtl: 60, cacheEverything: true },
       });
-      clearTimeout(t);
+      // 2026-09-12: no early clearTimeout — the abort stays armed while the
+      // body is read (return res.json() below resolves outside this try).
+      // Disarmed in the finally.
       if (res.status === 429) { await res.text().catch(() => {}); throw new Error("HTTP 429 rate-limited"); }
       // Retry on 502/503/504 — transient upstream failures that often self-heal
       if (res.status >= 502 && res.status <= 504 && attempt < retries) {
@@ -362,15 +364,18 @@ async function getJSON(url, headers = {}, timeoutMs = 4000, retries = 1) {
       // it's sometimes described, but consuming-or-discarding every body
       // before throwing is real defensive practice for a fan-out this wide.
       if (!res.ok) { await res.text().catch(() => {}); throw new Error("HTTP " + res.status); }
-      return res.json();
+      // return-await: keeps the abort armed in the finally until the body
+      // is fully read (a bare `return res.json()` would disarm first).
+      return await res.json();
     } catch (e) {
-      clearTimeout(t);
       // Retry on abort (timeout) if we have attempts left
       if (attempt < retries && (e.name === "AbortError" || (e.message && e.message.includes("502")))) {
         await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
         continue;
       }
       throw e;
+    } finally {
+      clearTimeout(t);
     }
   }
 }
@@ -385,7 +390,7 @@ async function getText(url, headers = {}, timeoutMs = 4000, retries = 1) {
         signal: c.signal,
         cf: { cacheTtl: 60, cacheEverything: true },
       });
-      clearTimeout(t);
+      // 2026-09-12: whole-operation timeout (see getJSON above).
       if (res.status === 429) { await res.text().catch(() => {}); throw new Error("HTTP 429 rate-limited"); }
       if (res.status >= 502 && res.status <= 504 && attempt < retries) {
         await res.text().catch(() => {});
@@ -393,14 +398,15 @@ async function getText(url, headers = {}, timeoutMs = 4000, retries = 1) {
         continue;
       }
       if (!res.ok) { await res.text().catch(() => {}); throw new Error("HTTP " + res.status); }
-      return res.text();
+      return await res.text();
     } catch (e) {
-      clearTimeout(t);
       if (attempt < retries && (e.name === "AbortError" || (e.message && e.message.includes("502")))) {
         await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
         continue;
       }
       throw e;
+    } finally {
+      clearTimeout(t);
     }
   }
 }
@@ -3239,7 +3245,8 @@ async function tryVideoInstance(inst, query, timeoutMs) {
       signal: c.signal,
       headers: { "User-Agent": "Mozilla/5.0 Cerebrum" },
     });
-    clearTimeout(t);
+    // 2026-09-12: whole-operation timeout (see getJSON note) — the abort
+    // stays armed through res.json().
     if (!res.ok) { await res.text().catch(() => {}); throw new Error("HTTP " + res.status); }
     const data = await res.json();
 
@@ -3275,8 +3282,9 @@ async function tryVideoInstance(inst, query, timeoutMs) {
     if (!out.length) throw new Error("no valid items");
     return out;
   } catch (e) {
-    clearTimeout(t);
     throw e;
+  } finally {
+    clearTimeout(t);
   }
 }
 
@@ -3406,7 +3414,10 @@ async function llmGenerateSearchQueries(rawQuery, token) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
       body: JSON.stringify({
-        model: OR_PRIMARY,
+        // 2026-09-12: was OR_PRIMARY (550B) for a 300-token query-generation
+        // job — same reasoning as selfReason: the small model is faster and
+        // can't trickle past the timeout.
+        model: OR_VALIDATE,
         temperature: 0.1,
         max_tokens: 300,
         messages: [{
@@ -3426,7 +3437,8 @@ async function llmGenerateSearchQueries(rawQuery, token) {
       }),
       signal: c.signal,
     });
-    clearTimeout(t);
+    // 2026-09-12: no early clearTimeout — whole-operation timeout (see
+    // selfReason note). Disarmed in the finally below.
     if (!r.ok) return [];
     const j = await r.json();
     const txt = (j?.choices?.[0]?.message?.content || "").trim();
@@ -3442,6 +3454,8 @@ async function llmGenerateSearchQueries(rawQuery, token) {
     return clean.split("\n").map(l => l.replace(/^[\d\.\-\*\s"]+|"$/g, "").trim()).filter(s => s.length > 3 && s.length < 100).slice(0, 6);
   } catch {
     return [];
+  } finally {
+    clearTimeout(t);
   }
 }
 
@@ -6096,7 +6110,13 @@ async function selfReason(query, history, token) {
         "X-Title": "Cerebrum",
       },
       body: JSON.stringify({
-        model: OR_PRIMARY,
+        // 2026-09-12: was OR_PRIMARY (550B). A 420-token JSON extraction
+        // does not need the slowest model in the catalog — and the 550B's
+        // trickling body is what hung this call for 50s+ (header-only
+        // timeout, see below), blowing the 20s budget before retrieval
+        // even finished. The small validation model does the same job
+        // in ~2s.
+        model: OR_VALIDATE,
         temperature: 0.1,
         max_tokens: 420,
         messages: [
@@ -6142,7 +6162,10 @@ async function selfReason(query, history, token) {
       }),
       signal: c.signal,
     });
-    clearTimeout(t);
+    // 2026-09-12: no early clearTimeout — the abort stays armed through
+    // r.json(). The old header-only timeout let a slow model trickle its
+    // body for 50s+; this call's 5s hang was the unaccounted ~51s in the
+    // 78s all-fail query. Disarmed in the finally below.
     if (!r.ok) return null;
     const j = await r.json();
     const txt = (j?.choices?.[0]?.message?.content || "").trim();
@@ -6152,6 +6175,8 @@ async function selfReason(query, history, token) {
     return null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(t);
   }
 }
 
@@ -7982,6 +8007,21 @@ export async function onRequest(context) {
   maybeSweep(context);
   const { request, env, waitUntil } = context;
 
+  // ════════════════════════════════════════════════════════════════════
+  // GLOBAL REQUEST DEADLINE (2026-09-12): Dusty's hard ceiling is 20s
+  // end-to-end. Every phase used to carry its own generous budget
+  // (retrieval 10-20s, synthesis 90s, fact-check 7.5s, …) with no shared
+  // cap — the 78s all-fail query proved the budgets stack. This single
+  // deadline is the backstop: phases check it before starting optional
+  // work, and per-leg timeouts are clamped to the time remaining.
+  // 19s leaves a 1s margin under the 20s ceiling.
+  // ════════════════════════════════════════════════════════════════════
+  const requestT0 = Date.now();
+  const REQUEST_BUDGET_MS = 19000;
+  const requestDeadline = requestT0 + REQUEST_BUDGET_MS;
+  // Milliseconds left on the global budget. Clamped at 0 — never negative.
+  const msLeft = () => Math.max(0, requestDeadline - Date.now());
+
   // Lock CORS to our own origins instead of the wildcard "*".
   const reqOrigin = request.headers.get("Origin") || "";
   const corsOrigin =
@@ -8899,7 +8939,12 @@ export async function onRequest(context) {
           },
         };
       }), {
-        timeoutMs: GATHER_PAPERS_BUDGET_MS + 10000,
+        // 2026-09-12: was GATHER_PAPERS_BUDGET_MS + 10000 (30s) — a single
+        // phase must never be allowed to consume the whole request budget.
+        // Clamped to the global deadline, reserving ≥12s for validation +
+        // synthesis + post. gatherPapers' own internal 20s budget is now
+        // moot (this backstop always fires first), kept as defense in depth.
+        timeoutMs: Math.max(3000, Math.min(GATHER_PAPERS_BUDGET_MS + 10000, msLeft() - 12000)),
         fallback: { papers: [], _diag: { fatalError: "retrieval stage timed out", errorType: "StageTimeout" } },
         health: stageHealth,
       });
@@ -10582,21 +10627,16 @@ export async function onRequest(context) {
     // never counted in the synthesis stage (synthesisStageT0 was set after
     // it). A slow "known best" model (the 13-19s nemotron winner) therefore
     // single-handedly blew the 20s budget on repeat queries: 32.5s observed
-    // on a query whose fast path fired. Now: 8s cap, then fall through to
-    // the full cross-provider race. Attempt recorded as wave 0.
-    if (preferredModel && token) {
-      const fpT0 = Date.now();
-      try {
-        const r = await callOR(preferredModel, messages, maxTokens, 8000);
-        // Same structural rule as raceEntry: error text is never an answer.
-        // (The prompt-leak gate already runs inside callOR.)
-        if (isProviderErrorText(r.answer)) throw new Error(preferredModel + ": provider returned error text, not an answer");
-        answer = r.answer; aiOK = true;
-        aiAttempts.push({ wave: 0, model: "fastpath:" + preferredModel, ok: true, ms: Date.now() - fpT0 });
-      } catch (e) {
-        aiAttempts.push({ wave: 0, model: "fastpath:" + preferredModel, ok: false, ms: Date.now() - fpT0, error: String((e && e.message) || e).slice(0, 120) });
-      }
-    }
+    // on a query whose fast path fired. The 8s cap (06086ed) helped, but a
+    // sequential 8s is still 8s of budget. Now the fastpath leg races
+    // CONCURRENTLY with wave 1 — first success wins, no sequential tax.
+    // raceEntry already applies assertValidProviderText (prompt-leak gate +
+    // provider-error-text rejection), so no separate check is needed.
+    // Attempt recorded as wave 0.
+    const fastpathCalls = (preferredModel && token && msLeft() > 3000)
+      ? [raceEntry(0, "fastpath:" + preferredModel,
+          callOR(preferredModel, messages, maxTokens, clampLegTimeout(8000)))]
+      : [];
 
     // ════════════════════════════════════════════════════════════════
     // v6.2: TRUE CROSS-PROVIDER PARALLEL RACING
@@ -10748,24 +10788,47 @@ export async function onRequest(context) {
     // passes, waves 2+ are skipped and the pipeline falls through to the
     // deterministic Wave 4 — the timeout's typed fallback. Recorded in
     // stageHealth as the "synthesis" stage.
-    const synthesisDeadline = Date.now() + 90000;
+    //
+    // 2026-09-12: was a flat 90s — flatly incompatible with the 20s global
+    // ceiling (a 78s all-fail query proved it). Now derived from the
+    // request deadline: synthesis must finish with ≥2.5s left for the
+    // extractive fallback + response assembly. Individual waves are
+    // additionally gated on remaining budget below.
+    const synthesisDeadline = Math.min(Date.now() + 90000, requestDeadline - 2500);
     const synthesisStageT0 = Date.now();
+    // Clamp a per-leg timeout to the global budget, keeping a reserve for
+    // the fallback + assembly. The wave-level Promise.race against
+    // synthesisDeadline (below) is the backstop; this keeps individual
+    // legs from being given time that doesn't exist.
+    const clampLegTimeout = (wantedMs, reserveMs = 2000) =>
+      Math.max(1000, Math.min(wantedMs, msLeft() - reserveMs));
 
     // WAVE 1: small, fast, historically-reliable set from EVERY provider,
-    // raced together. This is what actually fixes "OpenRouter-only outage
-    // blocks everything" — Workers AI and Pollinations are in flight from
-    // the very first attempt, not after two OpenRouter tiers exhaust.
+    // raced together (fastpath included — see above). This is what actually
+    // fixes "OpenRouter-only outage blocks everything" — Workers AI and
+    // the compat providers are in flight from the very first attempt, not
+    // after OpenRouter tiers exhaust. The whole wave is additionally raced
+    // against the synthesis deadline: even if a leg's abort misbehaves,
+    // the wave cannot outlive the budget.
     if (!aiOK) {
+      const wave1Timeout = clampLegTimeout(10000);
       const wave1Calls = [
-        ...(token ? OR_WAVE1.map((m) => raceEntry(1, m, callOR(m, messages, maxTokens))) : []),
+        ...fastpathCalls,
+        ...(token ? OR_WAVE1.map((m) => raceEntry(1, m, callOR(m, messages, maxTokens, wave1Timeout))) : []),
         // Commit 86 — the independent buckets go in from the very first
         // wave, not as a fallback. A wave that is 80% OpenRouter is one
         // 429 away from being no wave at all.
-        ...compatLegs(1, "w1", messages, maxTokens),
-        ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, messages, maxTokens))) : []),
+        ...compatLegs(1, "w1", messages, maxTokens, wave1Timeout),
+        ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, messages, maxTokens, wave1Timeout))) : []),
       ];
       try {
-        const winner = await Promise.any(wave1Calls);
+        const winner = await Promise.race([
+          Promise.any(wave1Calls),
+          new Promise((_, reject) => setTimeout(
+            () => reject(new Error("synthesis-deadline: wave 1 exceeded budget")),
+            Math.max(1, synthesisDeadline - Date.now())
+          )),
+        ]);
         answer = winner.answer; aiOK = true;
         recordWin(winner.model);
       } catch (agg) {
@@ -10775,8 +10838,11 @@ export async function onRequest(context) {
 
     // WAVE 2: broader set from every provider, raced together. Only fires if
     // wave 1 fully failed across ALL providers simultaneously — and only
-    // inside the synthesis deadline (past it, Wave 4 takes over).
-    if (!aiOK && Date.now() < synthesisDeadline) {
+    // when the global budget has room (≥6s: brief wait + legs + fallback
+    // reserve). Past that, Wave 4 takes over.
+    // 2026-09-12: the old gate (Date.now() < 90s synthesisDeadline) let
+    // wave 2 start with seconds left and 12s legs, blowing the 20s ceiling.
+    if (!aiOK && Date.now() < synthesisDeadline && msLeft() > 6000) {
       // Bounded wait for the speculative brief: the brief starts HERE (not
       // alongside wave 1 — see startBrief above), and the small wave-2
       // models do far better composing from pre-digested claims than from
@@ -10793,14 +10859,24 @@ export async function onRequest(context) {
       // pre-digested atomic claims — a much easier task for the smaller
       // models in this tier than the full abstract block.
       const wave2Messages = buildBriefMessages(briefText);
+      // 2026-09-12: legs clamped to the remaining budget (8s wanted) and
+      // the wave raced against the synthesis deadline — same backstop as
+      // wave 1.
+      const wave2Timeout = clampLegTimeout(8000);
       const wave2Calls = [
-        ...(token ? OR_WAVE2.map((m) => raceEntry(2, m, callOR(m, wave2Messages, maxTokens))) : []),
-        ...compatLegs(2, "w2", wave2Messages, maxTokens),
-        ...(cfBound ? CF_WAVE2.map((m) => raceEntry(2, m, callCF(m, wave2Messages, maxTokens))) : []),
+        ...(token ? OR_WAVE2.map((m) => raceEntry(2, m, callOR(m, wave2Messages, maxTokens, wave2Timeout))) : []),
+        ...compatLegs(2, "w2", wave2Messages, maxTokens, wave2Timeout),
+        ...(cfBound ? CF_WAVE2.map((m) => raceEntry(2, m, callCF(m, wave2Messages, maxTokens, wave2Timeout))) : []),
       ];
       if (wave2Calls.length > 0) {
         try {
-          const winner = await Promise.any(wave2Calls);
+          const winner = await Promise.race([
+            Promise.any(wave2Calls),
+            new Promise((_, reject) => setTimeout(
+              () => reject(new Error("synthesis-deadline: wave 2 exceeded budget")),
+              Math.max(1, synthesisDeadline - Date.now())
+            )),
+          ]);
           answer = winner.answer; aiOK = true;
           recordWin(winner.model);
         } catch (agg) {
@@ -10833,7 +10909,11 @@ export async function onRequest(context) {
     //      from waves 1-2 has had a few seconds to clear by now.
     // ════════════════════════════════════════════════════════════════
     // Wave 3 also respects the synthesis deadline (see above).
-    if (!aiOK && Date.now() < synthesisDeadline) {
+    // 2026-09-12: was given a "longer 24s runway" — incompatible with the
+    // 20s global ceiling. Now gated on ≥4s of remaining budget, legs
+    // clamped to it, and raced against the synthesis deadline like waves
+    // 1-2. A last resort that can't fit in the budget is skipped, not run.
+    if (!aiOK && Date.now() < synthesisDeadline && msLeft() > 4000) {
       const bulletproofSystem =
         ID +
         "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass — be direct and skip elaboration.\n\n" +
@@ -10892,18 +10972,27 @@ export async function onRequest(context) {
       // deterministic fallback, and the section STRUCTURE the frontend
       // needs is still enforced by the prompt.
       formattingRelaxed = true;
+      // 2026-09-12: legs clamped to the remaining budget (6s wanted, not
+      // 24s/18s) and the tier raced against the synthesis deadline.
+      const bpTimeout = clampLegTimeout(6000);
       const bulletproofLegs = [
         // Commit 86 — waves 1 and 2 failing together used to mean the
         // OpenRouter bucket was throttled and this tier had almost nothing
         // structurally different left to try. With independent providers
         // configured it does: each one below is a quota that had nothing to
-        // do with whatever just failed, given the longer 24s runway.
-        ...compatLegs(3, "w1", bulletproofMessages, bulletproofMaxTok, 24000),
-        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, 24000))) : []),
-        ...(token ? [OR_FREE_MODELS[4], OR_FREE_MODELS[5]].map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, 18000))) : []),
+        // do with whatever just failed.
+        ...compatLegs(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
+        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
+        ...(token ? [OR_FREE_MODELS[4], OR_FREE_MODELS[5]].map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
       ];
       try {
-        const winner = await Promise.any(bulletproofLegs);
+        const winner = await Promise.race([
+          Promise.any(bulletproofLegs),
+          new Promise((_, reject) => setTimeout(
+            () => reject(new Error("synthesis-deadline: wave 3 exceeded budget")),
+            Math.max(1, synthesisDeadline - Date.now())
+          )),
+        ]);
         answer = winner.answer; aiOK = true;
         recordWin(winner.model);
       } catch (agg) {
@@ -11012,7 +11101,10 @@ export async function onRequest(context) {
     // if the first model produces garbage, we catch it and try again.
     if (aiOK && useEvidence && evidencePapers.length > 0) {
       const qualityScore = scoreAnswerQuality(answer, query);
-      if (qualityScore < 35 && token) {
+      // 2026-09-12: the retry race costs up to 12s — only when the global
+      // budget has room. A good-enough answer delivered on time beats a
+      // marginally better one delivered late.
+      if (qualityScore < 35 && token && msLeft() > 9000) {
         // Build a retry prompt that's EXTREMELY explicit about what went wrong
         const retrySystemPrompt =
           "You are a scientific expert writing a research synthesis. CRITICAL RULES:\n\n" +
@@ -11062,7 +11154,8 @@ export async function onRequest(context) {
       const hasCitations = /\[\d+\]/.test(answer);
       // Only retry if: no citations AND answer is suspiciously short (model may
       // have given up rather than engaging with the papers)
-      if (!hasCitations && answer.length < 200) {
+      // 2026-09-12: budget-gated like the quality retry above.
+      if (!hasCitations && answer.length < 200 && msLeft() > 9000) {
         try {
           const retryMsgs2 = [
             { role: "system", content: "You are a scientific expert. Write a thorough, accurate answer. " +
@@ -11269,7 +11362,10 @@ export async function onRequest(context) {
     // matters most — a degraded-capacity notice dressed up with a bogus
     // confidence score. Same guard, same reasoning as the `&& aiOK` already
     // added to the answer-cache write a few lines above.
-    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK) {
+    // 2026-09-12: budget-gated — the deep pass costs up to ~7.5s. When the
+    // budget is nearly spent, skip it; the zero-network heuristic below
+    // still runs, so correctness is kept and only nuance is lost.
+    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000) {
       // v34: the deep, claim-by-claim pass is tried first — see deepFactCheck()
       // above for the two-tier LLM strategy and why it can't reuse callOR/
       // callCF. It replaces the old one-line-per-entity output ("References
@@ -11428,8 +11524,9 @@ export async function onRequest(context) {
     const coverageNote = buildCoverageNote(publicSourcesQueried());
 
     /* Computed, not generated. Runs only when there is enough to compare and
-       never blocks the answer for more than its own deadline. */
-    const evidenceMap = (useEvidence && sourceList.length >= 3)
+       never blocks the answer for more than its own deadline.
+       2026-09-12: also budget-gated — skipped when <2s remain. */
+    const evidenceMap = (useEvidence && sourceList.length >= 3 && msLeft() > 2000)
       ? await evidenceStructure(sourceList).catch(() => null)
       : null;
 
