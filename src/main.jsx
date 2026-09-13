@@ -136,10 +136,21 @@ function Root() {
     : "";
   const INFO = ["about", "privacy", "terms", "disclosures", "contact"];
   const slug = path.replace(/^\//, "");
-  const content = INFO.includes(slug) ? <InfoPage page={slug} /> : <App />;
+  const isInfo = INFO.includes(slug);
+  const content = isInfo ? <InfoPage page={slug} /> : <App />;
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      {/* Screen-reader-only h1 for the application route. The app shell is
+          a ceremonial intro with no visible heading by design; InfoPage
+          routes render their own visible h1, so this only fills the gap
+          where crawlers and assistive tech would otherwise find no
+          top-level heading at all. Zero visual impact. */}
+      {!isInfo && (
+        <h1 style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 }}>
+          Cerebrum — free scientific literature search
+        </h1>
+      )}
       {content}
     </>
   );

@@ -6524,6 +6524,24 @@ function InfoPage({ page }) {
               </div>
             ))}
           </div>
+          {data.faq && data.faq.length > 0 && (
+            /* Frequently asked questions. The same array lives in
+               src/legalContent.js and is also rendered into the prerendered
+               /about document with FAQPage structured data, so the two
+               cannot drift. The id matches the #frequently-asked-questions
+               anchor published in public/llms.txt. */
+            <div id="frequently-asked-questions" className="cb-fadein" style={{ marginTop: 56, scrollMarginTop: 90 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 8px", color: P.ink, fontFamily: "var(--cb-display)" }}>Frequently asked questions</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: 28, marginTop: 20 }}>
+                {data.faq.map((item, i) => (
+                  <div key={i} className="cb-info-block">
+                    <h2 style={{ fontSize: 17 }}>{item.q}</h2>
+                    <p>{item.a}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </main>
       <footer style={{ borderTop: `1px solid ${P.line}`, padding: "28px 20px", textAlign: "center", position: "relative", zIndex: 1 }}>

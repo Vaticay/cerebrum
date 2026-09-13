@@ -65,6 +65,29 @@ function renderPage(slug, data, shell) {
   const canonical = `${ORIGIN}/${slug}`;
   const body = (data.blocks || []).map(renderBlock).join("\n");
 
+  /* FAQ section. data.faq is the same array the in-app InfoPage renders,
+   * so the static document and the app cannot drift. Questions become h3s
+   * under one h2, and the whole set is also emitted as FAQPage structured
+   * data — the format search engines and AI answer products lift most. */
+  const faqHtml = Array.isArray(data.faq) && data.faq.length
+    ? `<hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />\n` +
+      `<div id="frequently-asked-questions">\n<h2>Frequently asked questions</h2>\n` +
+      data.faq.map((item) =>
+        `<h3 style="font-size:1.05rem;margin:1.4rem 0 .4rem">${esc(item.q)}</h3>\n<p>${esc(item.a)}</p>`
+      ).join("\n") + `\n</div>`
+    : "";
+  const faqJsonLd = Array.isArray(data.faq) && data.faq.length
+    ? `\n    <script type="application/ld+json">\n    ${JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": data.faq.map((item) => ({
+          "@type": "Question",
+          "name": item.q,
+          "acceptedAnswer": { "@type": "Answer", "text": item.a },
+        })),
+      })}\n    </script>`
+    : "";
+
   const head = `
     <title>${esc(title)}</title>
     <meta name="description" content="${esc(description)}" />
@@ -82,7 +105,7 @@ function renderPage(slug, data, shell) {
     <meta name="twitter:title" content="${esc(title)}" />
     <meta name="twitter:description" content="${esc(description)}" />
     <meta name="twitter:image" content="${ORIGIN}/og-image.png?v=20260912" />
-    <meta name="robots" content="index, follow" />`;
+    <meta name="robots" content="index, follow" />${faqJsonLd}`;
 
   /* The prerendered content sits inside the SPA's mount point. React replaces
    * it on hydration, so a normal visitor sees the application and never this
@@ -98,6 +121,7 @@ function renderPage(slug, data, shell) {
       ${data.updated ? `<p style="font:500 13px/1.5 system-ui,sans-serif;color:#6b6b6b">${esc(data.updated)}</p>` : ""}
       <hr style="border:0;border-top:1px solid #e0ddd8;margin:2rem 0" />
       ${body}
+      ${faqHtml}
       <hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />
       <p style="font:400 13px/1.6 system-ui,sans-serif;color:#6b6b6b">
         <a href="/about" style="color:#6b6b6b">About</a> &middot;

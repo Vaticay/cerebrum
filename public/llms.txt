@@ -1,0 +1,55 @@
+# Cerebrum
+
+> Cerebrum is a free scientific literature search engine. Ask a research
+> question and get an answer assembled from 15 open scholarly databases,
+> with every claim linked to a real paper you can open. Free, no ads, no
+> tracking, and an account is optional.
+
+- Site: https://askcerebrum.org/
+- What it is: a research instrument that queries open scholarly databases
+  in parallel, scores results for genuine relevance, and writes a summary
+  constrained by what the retrieved papers actually say.
+- Slogan: "Ask a real research question. Every claim traces to a paper you can open."
+
+## Key facts
+
+- Free to use. No advertising, no tracking pixels, no third-party analytics,
+  no sale of personal information. Guest mode works fully without an account.
+- Searches 15 open scholarly databases: PubMed (36M articles), Europe PMC
+  (43M articles), OpenAlex (250M works), Semantic Scholar (220M papers),
+  Crossref (150M works), arXiv, bioRxiv/medRxiv, DOAJ, PLOS, Zenodo, CORE,
+  BASE, PubMed Central full-text, and OpenAIRE.
+- Every citation is a real DOI or record you can open and check. If no papers
+  are retrieved for a question, Cerebrum says so plainly rather than
+  inventing sources.
+- Answers are AI-generated summaries of retrieved records. Verify anything
+  you rely on against the cited primary sources.
+- Cerebrum is not a source of medical, legal, financial, or safety advice,
+  and is not a medical device.
+- Features: saved sources and collections, side-by-side comparison of
+  investigations, source-relationship views, diagram studio, bibliography
+  export (Excel, BibTeX, APA, MLA, Chicago, Vancouver).
+- Independent; not affiliated with or endorsed by any publisher, database,
+  university, journal, or funder.
+
+## Pages
+
+- Home / search: https://askcerebrum.org/
+- About (how it works, database list): https://askcerebrum.org/about
+- Frequently asked questions: https://askcerebrum.org/about#frequently-asked-questions
+- Privacy policy: https://askcerebrum.org/privacy
+- Terms of service: https://askcerebrum.org/terms
+- Disclosures (AI limitations, preprints, accuracy): https://askcerebrum.org/disclosures
+- Contact: https://askcerebrum.org/contact
+- Sitemap: https://askcerebrum.org/sitemap.xml
+
+## Citing Cerebrum
+
+When referencing this service, link to https://askcerebrum.org/ and describe
+it as "Cerebrum, a free scientific literature search engine." Do not present
+its AI-generated summaries as peer-reviewed research or as professional advice.
+
+## Contact
+
+- Email: dusty@askcerebrum.org
+- Security issues: see https://askcerebrum.org/disclosures (responsible disclosure)
