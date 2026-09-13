@@ -5973,9 +5973,9 @@ async function llmResolveQuery(query, history, prevSources, token) {
     .map((s, i) => "[" + (i + 1) + '] "' + (s.title || "Untitled") + '"')
     .join("\n");
 
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 4000);
   try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 4000);
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -5985,7 +5985,9 @@ async function llmResolveQuery(query, history, prevSources, token) {
         "X-Title": "Cerebrum",
       },
       body: JSON.stringify({
-        model: OR_PRIMARY,
+        // 2026-09-12: was OR_PRIMARY (550B) — same header-only timeout bug
+        // as selfReason; the 550B trickled bodies past the 4s timeout.
+        model: OR_VALIDATE,
         temperature: 0,
         max_tokens: 250,
         messages: [
@@ -6005,7 +6007,8 @@ async function llmResolveQuery(query, history, prevSources, token) {
       }),
       signal: c.signal,
     });
-    clearTimeout(t);
+    // 2026-09-12: no early clearTimeout — whole-operation timeout.
+    
     if (!r.ok) { await r.text().catch(() => {}); return null; }
     const j = await r.json();
     const txt = (j?.choices?.[0]?.message?.content || "").trim();
@@ -6017,6 +6020,8 @@ async function llmResolveQuery(query, history, prevSources, token) {
     return null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(t);
   }
 }
 
