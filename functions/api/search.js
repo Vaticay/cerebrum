@@ -10636,6 +10636,28 @@ export async function onRequest(context) {
     // raceEntry already applies assertValidProviderText (prompt-leak gate +
     // provider-error-text rejection), so no separate check is needed.
     // Attempt recorded as wave 0.
+    // 2026-09-12: defined BEFORE fastpathCalls — the fastpath ternary
+    // evaluates raceEntry() immediately when a preferred model exists,
+    // so this must not sit in its temporal dead zone.
+    const raceEntry = (wave, label, p) => {
+      const t0 = Date.now();
+      return p.then(
+        (r) => {
+          // Provider-error text must never WIN a race: a 200 whose body is
+          // "API key … reached its budget" is a failure, not an answer. It
+          // becomes a recorded failed attempt so the next wave still fires.
+          try {
+            if (r && r.answer) assertValidProviderText(r.answer, label);
+          } catch (err) {
+            aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: err.message });
+            throw err;
+          }
+          aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 }); return r;
+        },
+        (e) => { aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: String((e && e.message) || e) }); throw e; }
+      );
+    };
+
     const fastpathCalls = (preferredModel && token && msLeft() > 3000)
       ? [raceEntry(0, "fastpath:" + preferredModel,
           callOR(preferredModel, messages, maxTokens, clampLegTimeout(8000)))]
@@ -10712,24 +10734,6 @@ export async function onRequest(context) {
     // definitively whether OpenRouter is rate-limited (fast 429s) or just
     // slow (long times before losing), without needing to force a total
     // failure to see anything at all.
-    const raceEntry = (wave, label, p) => {
-      const t0 = Date.now();
-      return p.then(
-        (r) => {
-          // Provider-error text must never WIN a race: a 200 whose body is
-          // "API key … reached its budget" is a failure, not an answer. It
-          // becomes a recorded failed attempt so the next wave still fires.
-          try {
-            if (r && r.answer) assertValidProviderText(r.answer, label);
-          } catch (err) {
-            aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: err.message });
-            throw err;
-          }
-          aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 }); return r;
-        },
-        (e) => { aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: String((e && e.message) || e) }); throw e; }
-      );
-    };
 
     // 2026-09-12: all model IDs now come from the verified OR_FREE_MODELS
     // catalog (module top). The old hardcoded :free IDs are retired (404).
@@ -11751,9 +11755,6 @@ export async function onRequest(context) {
         degraded: true,
         stageHealth: [{ name: "request", ok: false, ms: 0 }],
         synthesisMode: "none",
-        // TEMP-DIAG 2026-09-12: diagnosing "why does soil" top-level exception. REMOVE BEFORE SHIP.
-        _diagError: String((e && e.message) || e).slice(0, 500),
-        _diagStack: String((e && e.stack) || "").split("\n").slice(0, 5).join(" | ").slice(0, 500),
       }),
       { status: 200, headers: secureCors }
     );
