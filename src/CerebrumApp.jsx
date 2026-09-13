@@ -20272,6 +20272,22 @@ function App() {
   }
   const [turns, setTurns] = useState([]);
   const investigationRequest = useRef(0);
+  /* Tab title follows the work: a bookmarked or shared tab should read as
+     the question being investigated, not the generic site title. Views get
+     their own titles; the search view shows the latest question when one
+     exists. Resets whenever the view or thread changes. */
+  useEffect(() => {
+    const base = "Cerebrum — Free Scientific Literature Search";
+    let t = base;
+    if (view === "search" && turns.length > 0) {
+      const q = String(turns[turns.length - 1].q || "").trim().replace(/\s+/g, " ");
+      if (q) t = (q.length > 70 ? q.slice(0, 67) + "…" : q) + " — Cerebrum";
+    } else if (view === "profile") t = "Profile — Cerebrum";
+    else if (view === "settings") t = "Settings — Cerebrum";
+    else if (view === "trending") t = "Trending in research — Cerebrum";
+    else if (view === "inbox") t = "Messages — Cerebrum";
+    if (document.title !== t) document.title = t;
+  }, [view, turns]);
   // Aborts the in-flight /api/search (+videos) request when a new question
   // supersedes it. The old code only *ignored* stale responses after they
   // fully arrived — the server still burned a full synthesis on a question

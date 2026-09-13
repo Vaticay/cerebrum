@@ -1,6 +1,6 @@
 /* TEAM */
 Cerebrum: a free scientific literature search engine.
-Contact: contact@askcerebrum.org
+Contact: dusty@askcerebrum.org
 Site: https://askcerebrum.org
 
 /* THANKS */

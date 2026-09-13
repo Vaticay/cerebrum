@@ -70,9 +70,18 @@ function renderPage(slug, data, shell) {
     <meta name="description" content="${esc(description)}" />
     <link rel="canonical" href="${esc(canonical)}" />
     <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Cerebrum" />
     <meta property="og:title" content="${esc(title)}" />
     <meta property="og:description" content="${esc(description)}" />
     <meta property="og:url" content="${esc(canonical)}" />
+    <meta property="og:image" content="${ORIGIN}/og-image.png?v=20260912" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Cerebrum — scientific literature search" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${esc(title)}" />
+    <meta name="twitter:description" content="${esc(description)}" />
+    <meta name="twitter:image" content="${ORIGIN}/og-image.png?v=20260912" />
     <meta name="robots" content="index, follow" />`;
 
   /* The prerendered content sits inside the SPA's mount point. React replaces
@@ -108,6 +117,8 @@ function renderPage(slug, data, shell) {
   html = html.replace(/<meta property="og:title"[^>]*>/, "");
   html = html.replace(/<meta property="og:description"[^>]*>/, "");
   html = html.replace(/<meta property="og:url"[^>]*>/, "");
+  html = html.replace(/<meta property="og:image[^>]*>/g, "");
+  html = html.replace(/<meta name="twitter:[^>]*>/g, "");
   html = html.replace("</head>", `${head}\n  </head>`);
 
   // Put the document inside the React root.
