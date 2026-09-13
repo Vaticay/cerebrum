@@ -11751,6 +11751,9 @@ export async function onRequest(context) {
         degraded: true,
         stageHealth: [{ name: "request", ok: false, ms: 0 }],
         synthesisMode: "none",
+        // TEMP-DIAG 2026-09-12: diagnosing "why does soil" top-level exception. REMOVE BEFORE SHIP.
+        _diagError: String((e && e.message) || e).slice(0, 500),
+        _diagStack: String((e && e.stack) || "").split("\n").slice(0, 5).join(" | ").slice(0, 500),
       }),
       { status: 200, headers: secureCors }
     );
