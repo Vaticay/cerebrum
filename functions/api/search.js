@@ -8946,13 +8946,13 @@ export async function onRequest(context) {
       }), {
         // 2026-09-12: was GATHER_PAPERS_BUDGET_MS + 10000 (30s) — a single
         // phase must never be allowed to consume the whole request budget.
-        // Retrieval gets up to 7s but always leaves ≥6s for synthesis +
-        // assembly (synthesis has its own deadline from requestDeadline, so
-        // it takes whatever time remains). The 3s floor keeps a slow
+        // Retrieval takes whatever time remains after pre-work, always
+        // leaving ≥6s for synthesis + assembly (synthesis has its own
+        // deadline from requestDeadline). The 3s floor keeps a slow
         // pre-work phase from starving retrieval to zero; gatherPapers' own
         // internal 20s budget is now moot (this backstop always fires
         // first), kept as defense in depth.
-        timeoutMs: Math.max(3000, Math.min(7000, msLeft() - 6000)),
+        timeoutMs: Math.max(3000, msLeft() - 6000),
         fallback: { papers: [], _diag: { fatalError: "retrieval stage timed out", errorType: "StageTimeout" } },
         health: stageHealth,
       });
