@@ -10636,6 +10636,13 @@ export async function onRequest(context) {
     // raceEntry already applies assertValidProviderText (prompt-leak gate +
     // provider-error-text rejection), so no separate check is needed.
     // Attempt recorded as wave 0.
+    // Clamp a per-leg timeout to the global budget, keeping a reserve for
+    // the fallback + assembly. The wave-level Promise.race against
+    // synthesisDeadline (below) is the backstop; this keeps individual
+    // legs from being given time that doesn't exist.
+    const clampLegTimeout = (wantedMs, reserveMs = 2000) =>
+      Math.max(1000, Math.min(wantedMs, msLeft() - reserveMs));
+
     // 2026-09-12: defined BEFORE fastpathCalls — the fastpath ternary
     // evaluates raceEntry() immediately when a preferred model exists,
     // so this must not sit in its temporal dead zone.
@@ -10803,12 +10810,6 @@ export async function onRequest(context) {
     // additionally gated on remaining budget below.
     const synthesisDeadline = Math.min(Date.now() + 90000, requestDeadline - 2500);
     const synthesisStageT0 = Date.now();
-    // Clamp a per-leg timeout to the global budget, keeping a reserve for
-    // the fallback + assembly. The wave-level Promise.race against
-    // synthesisDeadline (below) is the backstop; this keeps individual
-    // legs from being given time that doesn't exist.
-    const clampLegTimeout = (wantedMs, reserveMs = 2000) =>
-      Math.max(1000, Math.min(wantedMs, msLeft() - reserveMs));
 
     // WAVE 1: small, fast, historically-reliable set from EVERY provider,
     // raced together (fastpath included — see above). This is what actually
@@ -11755,7 +11756,6 @@ export async function onRequest(context) {
         degraded: true,
         stageHealth: [{ name: "request", ok: false, ms: 0 }],
         synthesisMode: "none",
-        _diagError2: String((e && e.message) || e).slice(0, 500),
       }),
       { status: 200, headers: secureCors }
     );
