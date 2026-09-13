@@ -11755,6 +11755,7 @@ export async function onRequest(context) {
         degraded: true,
         stageHealth: [{ name: "request", ok: false, ms: 0 }],
         synthesisMode: "none",
+        _diagError2: String((e && e.message) || e).slice(0, 500),
       }),
       { status: 200, headers: secureCors }
     );
