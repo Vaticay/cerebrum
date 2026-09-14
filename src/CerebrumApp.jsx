@@ -15836,7 +15836,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
          backgrounds need directional scrims, not full-bleed imagery. */
       background: P.bg,
     }}>
-      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 72px" : "18px 28px 96px" }}>
+      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "32px 18px 72px" : "18px 28px 96px" }}>
 
         {/* ── Identity header: editorial, left-aligned. ──────────────────
             No banner, no badge pills, no stat row. A profile reads human
@@ -16006,19 +16006,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             "Library · 128", not a dashboard. (HN: stat walls read as
             metagaming — "they do things to make number go up.") */}
 
-        {/* Account & security sits below the identity, quiet — sensitive
-            actions belong beneath sections of clarity and trust. */}
-        <div style={{ marginTop: 16 }}>
-          <button
-            onClick={onManageAccount}
-            style={{
-              background: "none", border: "none", padding: 0, cursor: "pointer",
-              fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
-              color: P.faint, textDecoration: "underline",
-              textUnderlineOffset: 3, textDecorationColor: withAlpha(P.faint, 0.4),
-            }}
-          >Account &amp; security</button>
-        </div>
         {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 12 }}>{avatarError}</div>}
 
         {editing && (
@@ -16311,6 +16298,19 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </details>
           </section>
         )}
+
+        {/* Account & security lives at the very bottom, quiet — sensitive
+            actions belong beneath everything, not interrupting the profile. */}
+        <div style={{ marginTop: 40, paddingTop: 20, borderTop: `1px solid ${P.line}` }}>
+          <button
+            onClick={onManageAccount}
+            style={{
+              background: "none", border: "none", padding: 0, cursor: "pointer",
+              fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)",
+              color: P.faint,
+            }}
+          >Account &amp; security</button>
+        </div>
       </div>
     </div>
   );
