@@ -146,7 +146,7 @@ function renderPage(slug, data, shell) {
   html = html.replace("</head>", `${head}\n  </head>`);
 
   // Put the document inside the React root.
-  html = html.replace(/<div id="root">[\s\S]*?<\/div>/, `<div id="root">${noscriptDoc}</div>`);
+  html = html.replace(/<div id="root">[\s\S]*?<\/style><\/div>/, `<div id="root">${noscriptDoc}</div>`);
   if (!html.includes("cb-prerender")) {
     html = html.replace('<div id="root"></div>', `<div id="root">${noscriptDoc}</div>`);
   }

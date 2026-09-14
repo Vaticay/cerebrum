@@ -116,11 +116,12 @@ function relativeTime(ms) {
 // Previously these two spots (plus package.json) had each drifted to a
 // different number independently — a user could see three different
 // version strings in one sitting. One constant, everything else reads it.
-// Bumped whenever a batch of changes ships. This is the fastest way to
-// answer "did my deploy actually go live?" — the footer prints it, so a
-// stale bundle is visible in one glance instead of being diagnosed by
-// hunting for a missing feature.
+// APP_VERSION is the internal semver (workspace export schema, deploy
+// forensics — the live-bundle check now lives in version.json's sha plus
+// the baked-in __CB_BUILD__). APP_VERSION_LABEL is what a person reads:
+// the footer and Settings print the label, never the raw number.
 const APP_VERSION = "6.20.0";
+const APP_VERSION_LABEL = "Public Beta 1";
 
 /* Commit 69 — the legal layer.
    ---------------------------------------------------------------------
@@ -1919,10 +1920,11 @@ function MilestoneCard({ P, accent, at, user, refreshKey }) {
             overflow: "hidden",
           }}>
             <div className="cb-progress-fill" style={{
-              height: "100%", width: pct + "%", borderRadius: RADIUS.pill,
+              height: "100%", width: "100%", borderRadius: RADIUS.pill,
               background: "linear-gradient(90deg, " + withAlpha(accent, 0.55) + ", " + accent + ")",
               boxShadow: "0 0 14px " + withAlpha(accent, 0.45),
-              transition: "width 1100ms cubic-bezier(0.16, 1, 0.3, 1)",
+              transform: "scaleX(" + pct / 100 + ")", transformOrigin: "left",
+              transition: "transform 1100ms cubic-bezier(0.16, 1, 0.3, 1)",
             }} />
           </div>
           <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, fontFamily: "var(--cb-body)", fontVariantNumeric: "tabular-nums" }}>
@@ -3111,7 +3113,10 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
 const TYPEWRITER_DURATION_MS = 900;
 const TYPEWRITER_MAX_CHARS = 2600;
 function useTypewriter(full, on) {
-  const animate = on && !!full && full.length <= TYPEWRITER_MAX_CHARS;
+  // Reduced motion (OS setting or the app's cb_anim2 kill-switch) skips the
+  // typing effect — the full answer renders at once instead of animating
+  // while the reader tries to read it.
+  const animate = on && !!full && full.length <= TYPEWRITER_MAX_CHARS && !cbMotionOff();
   const [out, setOut] = useState(animate ? "" : full);
   useEffect(() => {
     if (!animate) { setOut(full); return; }
@@ -3222,7 +3227,13 @@ function splitGluedHeading(line) {
   if (!t) return { head: "", body: "" };
   if (t.length <= HEADING_MAX) return { head: t, body: "" };
   for (const label of SECTION_LABELS) {
-    const re = new RegExp("^" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b[\\s:.\u2014-]*", "i");
+    // The "?" belongs to the header: the synthesis prompt enforces
+    // "## How solid is this?" verbatim, so a glued header arrives as
+    // "## How solid is this? Confidence in the link..." — without "?" in
+    // this separator class the match ended before it and the "?" leaked
+    // onto the front of the body, rendering as a stray glyph under the
+    // masthead (Public Beta 1 QA screenshot).
+    const re = new RegExp("^" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b[\\s:.?\u2014-]*", "i");
     const m = t.match(re);
     if (m) {
       const body = t.slice(m[0].length).trim();
@@ -3989,6 +4000,10 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       fontSize: 17.5, lineHeight: 1.75, margin: "0 0 22px", color: P.ink,
       letterSpacing: "0", fontFamily: "var(--cb-body)", fontWeight: 400,
       fontOpticalSizing: "auto",
+      /* Long unbreakable tokens (DOIs, URLs, chemical names) otherwise
+         force horizontal overflow at phone widths. Normal prose still
+         wraps at spaces exactly as before. */
+      overflowWrap: "anywhere",
     }}>
       {paraClean.split("\n").map((line, li) => (
         <React.Fragment key={li}>
@@ -4251,7 +4266,7 @@ function FactCheck({ fc, P, accent }) {
     <div style={{ marginTop: 20, border: `1px solid ${withAlpha(oc, 0.4)}`, borderRadius: 8, background: withAlpha(oc, 0.04), padding: "18px 20px" }} className="cb-rise">
       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
         <span style={{ color: oc, flexShrink: 0, display: "flex" }}><Icon name={nUns > 0 ? "close" : "partial"} size={14} /></span>
-        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: oc, fontFamily: "var(--cb-body)", lineHeight: 1.4 }}>{headline}</span>
+        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: oc, fontFamily: "var(--cb-body)", lineHeight: 1.4, minWidth: 0, overflowWrap: "anywhere" }}>{headline}</span>
       </div>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, marginBottom: 4 }}>{why}</div>
       {nSup > 0 && (
@@ -4271,9 +4286,9 @@ function FactCheck({ fc, P, accent }) {
         return (
           <div key={i} style={{ display: "flex", gap: 11, padding: "12px 0 0", marginTop: 12, borderTop: `1px solid ${P.line}` }}>
             <span style={{ color: cc, flexShrink: 0, width: 18, height: 18, borderRadius: 8, background: withAlpha(cc, 0.12), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}><Icon name={c.status === "thin" ? "partial" : "close"} size={11} /></span>
-            <div>
-              <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5, fontFamily: isTerms ? "var(--cb-body)" : "var(--cb-body)", fontWeight: isTerms ? 600 : 500 }}>{c.claim}</div>
-              {c.note && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 3, lineHeight: 1.55 }}>{c.note}</div>}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5, fontFamily: isTerms ? "var(--cb-body)" : "var(--cb-body)", fontWeight: isTerms ? 600 : 500, overflowWrap: "anywhere" }}>{c.claim}</div>
+              {c.note && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 3, lineHeight: 1.55, overflowWrap: "anywhere" }}>{c.note}</div>}
             </div>
           </div>
         );
@@ -5156,7 +5171,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
     width: "100%", height: "100%", objectFit: "cover",
     transform: "translate(-50%, -50%)",
     opacity: 0,
-    transition: "opacity 2.2s cubic-bezier(0.22, 1, 0.36, 1)",
+    transition: "opacity 2.2s var(--cb-ease)",
     pointerEvents: "none",
   };
 
@@ -5180,7 +5195,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
         position: "absolute", inset: 0, pointerEvents: "none",
         background: "#0b0d10",
         opacity: Math.max(0, Math.min(1, 1 - intensity)),
-        transition: "opacity 1.2s cubic-bezier(0.22, 1, 0.36, 1)",
+        transition: "opacity 1.2s var(--cb-ease)",
       }} />
     </div>
   );
@@ -5634,7 +5649,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           }}>
             Ask a real research question. Every claim traces to a paper you can open.
           </p>
-          <div className={animate ? "cb-focus-in" : undefined} style={{
+          <div className={animate ? "cb-focus-in cb-hero-ctas" : "cb-hero-ctas"} style={{
             marginTop: 40,
             display: "flex", alignItems: "center", justifyContent: "center",
             gap: isMobile ? 16 : 22, flexWrap: "wrap",
@@ -6369,7 +6384,7 @@ function LegalProgress({ accent }) {
     window.addEventListener("resize", onScroll);
     return () => { window.removeEventListener("scroll", onScroll); window.removeEventListener("resize", onScroll); };
   }, []);
-  return <div className="cb-legal-progress" aria-hidden="true" style={{ width: pct + "%" }} />;
+  return <div className="cb-legal-progress" aria-hidden="true" style={{ transform: "scaleX(" + pct / 100 + ")" }} />;
 }
 
 function InfoPage({ page }) {
@@ -6428,7 +6443,7 @@ function InfoPage({ page }) {
       <style>{`
         .cb-info-block:hover .cb-anchor, .cb-anchor:focus-visible { opacity: 1; }
         .cb-toc-link:hover { color: ${accent}; }
-        .cb-legal-progress { position: fixed; top: 0; left: 0; height: 2px; background: ${accent}; z-index: 30; transition: width 90ms linear; }
+        .cb-legal-progress { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: ${accent}; z-index: 30; transform-origin: left; }
         .cb-info-block h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-display); }
         .cb-info-block p { font-size: 15.5px; line-height: 1.7; color: ${P.ink2}; margin: 0; }
         .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
@@ -6595,7 +6610,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
   const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint };
   const hoverQuiet = (e, on) => { e.currentTarget.style.color = on ? accent : P.faint; };
   const controls = (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+    <span className="cb-cite-controls" style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
       <SegControl small value={citationStyle} onChange={setCitationStyle} P={P} accent={accent} ariaLabel="Citation style"
         options={styleOptions.map((o) => ({ id: o.key, label: o.label }))} />
       <button onClick={copyAll} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>{copied ? "\u2713 Copied" : "Copy all"}</button>
@@ -6687,7 +6702,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
   const domain = source.url ? source.url.replace(/^https?:\/\//, "").replace(/^www\./, "").slice(0, 42) : "";
   return (
     <li id={alphaAnchor ? `ref-alpha-${alphaAnchor}` : `ref-${index}`}
-      className="cb-fade"
+      className="cb-fade cb-bibentry"
       style={{
         display: "flex", gap: 14, alignItems: "flex-start", padding: "10px 10px",
         borderBottom: last ? "none" : `1px solid ${P.line}`,
@@ -6719,7 +6734,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
             cites. Label them as further reading rather than letting the
             numbered list imply they back a claim. */}
         {source.uncited && (
-          <div title={source.uncitedReason || "Not cited by the answer"}
+          <div title={source.uncitedReason || "Not cited by the answer"} className="cb-further-pill"
             style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", marginBottom: 5, marginLeft: (source.retracted || source.concern) ? 6 : 0, background: "transparent", border: `1px dashed ${P.faint}`, borderRadius: 8, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-body)", cursor: "help" }}>
             Further reading — not cited above
           </div>
@@ -6739,7 +6754,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
             {citeLabel && domain && <span style={{ opacity: 0.4 }}>·</span>}
             {domain && (
               <a href={safeHref(source.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-                style={{ color: accent, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                style={{ color: accent, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, maxWidth: "min(260px, 100%)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{domain}</span><span style={{ flexShrink: 0 }}>↗</span>
               </a>
             )}
@@ -6871,27 +6886,27 @@ const TOUR_STEPS = [
     title: "Ask a question",
     icon: "⌘",
     text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel, PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more, then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
-    hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to focus the search bar from anywhere.`,
+    hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to open the command palette — search or run a command from anywhere.`,
   },
   {
-    title: "Evidence Filters",
+    title: "Narrow by evidence type",
     icon: "◉",
-    text: "After results arrive, use the filter row to narrow by publication type (meta-analysis, RCT, review, preprint), date range, and evidence tier. Filters apply instantly: the source panel and synthesis update in real time so you see only the evidence that meets your threshold.",
-    hint: "Combine filters to surface the highest-confidence subset of the literature.",
+    text: "Before you ask, set the evidence scope: all evidence, systematic reviews, randomised trials, or in vivo / in vitro work. It shapes what the search returns, so the answer is built only from the kind of evidence you asked for.",
+    hint: "Start broad, then re-ask with a narrower tier when a question needs the strongest evidence.",
   },
   {
-    title: "Deep Read Drawer",
+    title: "Deep Read",
     icon: "⊞",
-    text: "Click any source card to open its deep-read panel: full abstract, author list, journal metadata, DOI link, relevance score, and evidence classification. Save or pin papers directly from here, and use the Author button to instantly find more work by the same research group.",
+    text: "Click any source card to open its Deep Read panel: TL;DR, full abstract, authors, journal metadata, and relevance score, plus an \"Ask about this paper\" box for follow-ups scoped to that source alone. The Methodology tab pulls the study design, sample size, and key metrics from the abstract.",
     hint: "Navigate source cards with J/K keys; Enter opens the drawer, Escape closes it.",
   },
   {
-    title: "Contradiction Engine",
+    title: "Where the literature disagrees",
     icon: "⟁",
     // Commit 55: these referenced the old section names ("Divergent
     // Findings & Gaps", "Methodological Confidence"). Tour copy that names
     // sections the reader will never see is worse than no tour copy.
-    text: "The \"Where researchers disagree\" section surfaces papers that conflict with each other or with the consensus. Instead of burying disagreement, Cerebrum shows it, so you can judge the full landscape of a question, not just the majority position.",
+    text: "The \"Where the literature disagrees\" section surfaces papers that conflict with each other or with the consensus, instead of smoothing disagreement into false agreement. When the claims split into camps you see the shape of the fight; when they don't, it says so honestly.",
     hint: "The \"How solid is this?\" section tells you which disagreements actually matter.",
   },
   {
@@ -6970,9 +6985,10 @@ function GuidedTour({ P, accent, forceShow = false, onClose = () => {} }) {
         {/* Progress bar */}
         <div style={{ height: 2, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
           <div style={{
-            height: "100%", width: progress + "%",
+            height: "100%", width: "100%",
             background: accent,
-            transition: "width 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+            transform: "scaleX(" + progress / 100 + ")", transformOrigin: "left",
+            transition: "transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
           }} />
         </div>
 
@@ -7962,11 +7978,11 @@ function JumpRail({ items, P, accent, onJump }) {
       position: "sticky", top: 64, zIndex: 30, background: P.bg,
       marginTop: 22, borderBottom: `1px solid ${P.line}`,
     }}>
-      <div role="navigation" aria-label="Answer sections"
-        style={{ display: "flex", gap: 2, overflowX: "auto", padding: "4px 2px", scrollbarWidth: "none", alignItems: "center" }}>
+      <div role="navigation" aria-label="Answer sections" className="cb-jumpnav"
+        style={{ display: "flex", gap: 2, padding: "4px 2px", scrollbarWidth: "none", alignItems: "center" }}>
         {primary.map(tabBtn)}
-        <div ref={moreRef} style={{ position: "relative", flexShrink: 0 }}>
-          <button type="button" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-haspopup="menu"
+        <div ref={moreRef} className="cb-jumpmore" style={{ position: "relative", flexShrink: 0 }}>
+          <button type="button" className="cb-jumpmore-btn" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-haspopup="menu"
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "10px 12px", background: "none", border: "none",
@@ -8578,7 +8594,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             text is changing every few milliseconds; animating each keystroke
             would be strobing, not motion). */}
         {/* The rail's "Answer" jump lands here. */}
-        <div ref={answerTopRef} style={{ scrollMarginTop: 90 }} />
+        <div ref={answerTopRef} style={{ scrollMarginTop: 130 }} />
         <div ref={answerRevealRef} className="cb-answer-body">
           {connFailed ? (
             /* Connection failed: every database reported ok:false, so there
@@ -14871,13 +14887,13 @@ function UILabel({ children, P, accent, right, style }) {
 
 function Eyebrow({ children, P, accent, right, style }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, ...style }}>
+    <div className="cb-eyebrow" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, ...style }}>
       <span style={{
         fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.micro, fontWeight: 700,
         letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint, whiteSpace: "nowrap",
       }}>{children}</span>
       <span aria-hidden="true" style={{ flex: 1, height: 1, background: P.line, minWidth: 24 }} />
-      {right && <span style={{ flexShrink: 0 }}>{right}</span>}
+      {right && <span className="cb-eyebrow-right" style={{ flexShrink: 0 }}>{right}</span>}
     </div>
   );
 }
@@ -15027,7 +15043,7 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
     if (el) setBar({ left: el.offsetLeft, width: el.offsetWidth });
   }, [value, options]);
   return (
-    <div role="tablist" aria-label={ariaLabel} style={{
+    <div role="tablist" aria-label={ariaLabel} className="cb-seg" style={{
       position: "relative", display: "inline-flex", alignItems: "stretch",
       gap: small ? 2 : 6, borderBottom: `1px solid ${P.line}`,
     }}>
@@ -15052,9 +15068,10 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
         );
       })}
       <div aria-hidden="true" style={{
-        position: "absolute", bottom: -1, left: bar.left, width: bar.width, height: 2,
+        position: "absolute", bottom: -1, left: 0, width: 1, height: 2,
         background: accent, borderRadius: 2,
-        transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1), width 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+        transform: "translateX(" + bar.left + "px) scaleX(" + bar.width + ")",
+        transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)",
       }} />
     </div>
   );
@@ -17155,7 +17172,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
               }}
             />
           )}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexShrink: 0, gap: 12 }}>
+          <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexShrink: 0, gap: 12 }}>
             {/* Commit 64 — a bare character count told a reader nothing they
                 could act on. Words and an approximate read time are the units
                 people actually think in, and the count no longer implies a
@@ -17174,7 +17191,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
                 </>;
               })()}
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+            <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
               {/* No paper at hand shouldn't mean the feature is
                   un-triable: a labeled sample loads into the composer so
                   the whole flow can be watched end to end. */}
@@ -17922,7 +17939,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
                   style={{ flexShrink: 0, padding: "8px 10px 10px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
               ))}
-              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: tabUnderline.left, width: tabUnderline.width, height: 2, background: accent, borderRadius: 8, transition: "left 250ms cubic-bezier(0.4, 0, 0.2, 1), width 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
+              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: 0, width: 1, height: 2, background: accent, borderRadius: 8, transform: "translateX(" + tabUnderline.left + "px) scaleX(" + tabUnderline.width + ")", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
             </div>
           )}
         </div>
@@ -18317,7 +18334,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Export workspace" desc="Download all your data as JSON" control={
                 <button onClick={() => {
                   const workspace = {
-                    version: APP_VERSION,
+                    version: APP_VERSION_LABEL,
                     exported: new Date().toISOString(),
                     saved, history,
                     preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, typewriter: typewriter ? "1" : "0", citationStyle, animationMode, dataDensity },
@@ -18399,7 +18416,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
 
             <Section title="About">
-              <Row label="Version" control={<span style={{ fontSize: FONT_SIZES.body, color: P.faint, fontFamily: "var(--cb-body)" }}>{APP_VERSION}</span>} />
+              <Row label="Version" control={<span style={{ fontSize: FONT_SIZES.body, color: P.faint, fontFamily: "var(--cb-body)" }}>{APP_VERSION_LABEL}</span>} />
               <Row label="Built by" control={<span style={{ fontSize: FONT_SIZES.body, color: accent, fontWeight: 500 }}>Vaticay</span>} last />
             </Section>
           </>)}
@@ -18949,7 +18966,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // itself (rather than the FAB or some wrapper) guarantees real content
     // never lands in that reserved strip regardless of how long the answer
     // runs. Desktop keeps the old, smaller value — there's no floating FAB there.
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? 120 : 48, flex: 1, maxWidth: 980, margin: "0 auto", width: "100%" },
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? "calc(152px + env(safe-area-inset-bottom, 0px))" : 48, flex: 1, maxWidth: 980, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -19140,13 +19157,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        Solid background, no backdrop blur: a 52px blur over playing video
        is per-frame compositor work for zero legibility gain at this size. */
     mobSrcBtn: {
-      position: "fixed", bottom: "calc(20px + env(safe-area-inset-bottom, 0px))", right: 16,
+      position: "fixed", bottom: "calc(20px + env(safe-area-inset-bottom, 0px))", right: "max(16px, env(safe-area-inset-right, 0px))",
       width: 52, height: 52, borderRadius: "50%",
       background: accent, color: at, border: "none", cursor: "pointer",
       boxShadow: `0 8px 28px ${withAlpha(accent, 0.45)}, 0 2px 8px rgba(0,0,0,0.25)`,
       zIndex: 20, fontFamily: "var(--cb-body)",
       display: "flex", alignItems: "center", justifyContent: "center",
-      transition: "transform 260ms cubic-bezier(0.22,1,0.36,1), opacity 200ms ease",
+      transition: "transform 260ms var(--cb-ease), opacity 200ms ease",
     },
     scrim: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", zIndex: 25 },
 
@@ -21631,7 +21648,7 @@ function App() {
           edge of a card is its quiet side. Opaque, shadowed, and on the
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
-      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? 88 : 24) /* clears the 52px Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? 16 : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
+      {showScrollTop && <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? "calc(88px + env(safe-area-inset-bottom, 0px))" : "calc(24px + env(safe-area-inset-bottom, 0px))") /* clears the 52px Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? "max(16px, env(safe-area-inset-right, 0px))" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</button>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -21968,9 +21985,9 @@ function App() {
               )}
             </div>
           )}
-          <div style={S.foot}>
+          <div style={S.foot} className="cb-appfoot">
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 10px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: isMobile ? "2px 12px" : "8px 14px", maxWidth: 620, width: "100%", margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
+            <div className="cb-appfoot-links" style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: isMobile ? "2px 12px" : "8px 14px", maxWidth: 620, width: "100%", margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
               {[
                 ["how", "How it works"],
                 /* The reel plays behind the whole application, not just the
@@ -22009,7 +22026,7 @@ function App() {
                 );
                 return <a key={label} href={href} style={st}>{label}</a>;
               })}
-              <span style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · v{APP_VERSION}</span>
+              <span className="cb-appfoot-copy" style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}</span>
             </div>
           </div>
         </div>
@@ -22692,13 +22709,14 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 /* Skip link: invisible until keyboard focus lands on it, then a clear
    pill in the top-left. The one class every keyboard user needs. */
 .cb-skip-link {
-  position: fixed; top: -48px; left: 16px; z-index: 10000;
+  position: fixed; top: 12px; left: 16px; z-index: 10000;
   padding: 10px 18px; border-radius: 999px;
   background: var(--cb-accent, #34d399); color: #0b0f0d;
   font-size: 14px; font-weight: 600; text-decoration: none;
-  transition: top 160ms var(--cb-ease);
+  transform: translateY(-64px);
+  transition: transform 160ms var(--cb-ease);
 }
-.cb-skip-link:focus-visible { top: 12px; outline: 2px solid #fff; outline-offset: 2px; }
+.cb-skip-link:focus-visible { transform: translateY(0); outline: 2px solid #fff; outline-offset: 2px; }
 input, textarea, select { font-size: 16px; }
 a { color: inherit; text-decoration: none; }
 input::placeholder, textarea::placeholder { color: inherit; opacity: 0.62; }
@@ -22799,11 +22817,7 @@ summary::-webkit-details-marker { display: none; }
   .cb-source-linked { animation: none; }
 }
 
-@keyframes cbSynapse {
-  0%, 100% { opacity: 0.2; transform: scale(0.7); }
-  35%      { opacity: 1; transform: scale(1.2); }
-  65%      { opacity: 0.35; transform: scale(0.85); }
-}
+/* PUBLIC BETA 1 — removed: cbSynapse keyframes were dead CSS (no call site). */
 
 /* ══════════════════════════════════════════════════════════════
    INNOVATION REFINEMENT — new motion + instrument card language.
@@ -22830,7 +22844,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-iris-veil {
   position: fixed; inset: 0; z-index: 300; pointer-events: none;
   background: #05070a;
-  animation: cbIrisOpen 1.1s cubic-bezier(.22,1,.36,1) .05s both;
+  animation: cbIrisOpen 1.1s var(--cb-ease) .05s both;
 }
 
 /* ── Threshold veil: the bloom that carries you inside.
@@ -22878,7 +22892,7 @@ summary::-webkit-details-marker { display: none; }
   to   { opacity: 1; filter: blur(0); }
 }
 .cb-focus-in {
-  animation: cbFocusIn 1.15s cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation: cbFocusIn 1.15s var(--cb-ease-out) both;
 }
 /* The opening beat: near-black holds briefly, then lifts over two and a
    half seconds to reveal the footage underneath. Opacity only — the veil
@@ -22891,7 +22905,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-title-veil {
   position: fixed; inset: 0; z-index: 3; pointer-events: none;
   background: #06080a;
-  animation: cbVeilLift 2.4s cubic-bezier(0.33, 1, 0.68, 1) 0.2s both;
+  animation: cbVeilLift 2.4s var(--cb-ease-out) 0.2s both;
 }
 /* Leaving: the chrome fades fast, the film frame stays behind for the
    handoff into the workspace (see .cb-enter-frame). */
@@ -22924,16 +22938,17 @@ summary::-webkit-details-marker { display: none; }
 /* The ghost link draws its underline on hover instead of wearing one. */
 .cb-intro-how { position: relative; text-decoration: none !important; }
 .cb-intro-how::after {
-  content: ""; position: absolute; left: 4px; right: calc(100% - 4px); bottom: 11px; height: 1px;
+  content: ""; position: absolute; left: 4px; right: 4px; bottom: 11px; height: 1px;
   background: rgba(242,244,242,0.6);
-  transition: right 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: scaleX(0); transform-origin: left center;
+  transition: transform 0.38s var(--cb-ease);
 }
-.cb-intro-how:hover::after, .cb-intro-how:focus-visible::after { right: 4px; }
+.cb-intro-how:hover::after, .cb-intro-how:focus-visible::after { transform: scaleX(1); }
 .cb-intro-how:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 4px; }
 /* "A real answer" arrives on scroll, in the same language as the hero. */
 .cb-real-answer {
   opacity: 0; transform: translateY(24px);
-  transition: opacity 1s cubic-bezier(0.22, 1, 0.36, 1), transform 1s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 1s var(--cb-ease), transform 1s var(--cb-ease);
 }
 .cb-real-answer.cb-inview { opacity: 1; transform: none; }
 /* The handoff bridge: the current clip's graded still, full-viewport,
@@ -22966,7 +22981,7 @@ summary::-webkit-details-marker { display: none; }
   /* Relative: the recent-questions deck anchors to this box. */
   position: relative;
   width: 100%; max-width: 760px; margin: 0 auto;
-  animation: cbSignalIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: cbSignalIn 0.8s var(--cb-ease) both;
 }
 .cb-qline-row {
   display: flex; align-items: center; gap: 12px;
@@ -23023,7 +23038,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-qline-ring {
   width: 14px; height: 14px; border-radius: 50%;
   border: 2px solid var(--cb-acc);
-  animation: cbQlineRing 1.3s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: cbQlineRing 1.3s var(--cb-ease) infinite;
 }
 @keyframes cbQlineRing {
   0%   { transform: scale(0.55); opacity: 0.9; }
@@ -23038,7 +23053,7 @@ summary::-webkit-details-marker { display: none; }
   content: ""; position: absolute; left: 0; right: 0; top: -0.5px; height: 2px;
   background: var(--cb-acc);
   transform: scaleX(0);
-  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.45s var(--cb-ease);
 }
 .cb-qline-rule-live::after { transform: scaleX(1); }
 /* The reading line: one hushed row. Kind in tracked-out small caps, value
@@ -23141,7 +23156,7 @@ summary::-webkit-details-marker { display: none; }
   display: flex; flex-direction: column; align-items: center;
   text-align: center;
   padding: 40px 0 10px;
-  animation: cbSignalIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: cbSignalIn 0.7s var(--cb-ease) both;
 }
 .cb-echo-kicker {
   font-family: var(--cb-body); font-size: 10.5px; font-weight: 500;
@@ -23163,6 +23178,9 @@ summary::-webkit-details-marker { display: none; }
   width: min(72vw, 380px); height: 1px;
   background: rgba(255,255,255,0.16);
   margin: 30px auto 0;
+  /* Query container so the travelling marker crosses the full track width
+     with a transform (100cqw) instead of animating left. */
+  container-type: inline-size;
 }
 .cb-echo-cursor {
   position: absolute; top: -2.5px; left: 0;
@@ -23172,13 +23190,13 @@ summary::-webkit-details-marker { display: none; }
   animation: cbEchoScan 3.4s ease-in-out infinite;
 }
 @keyframes cbEchoScan {
-  0%   { left: 0; opacity: 0; }
+  0%   { transform: translateX(0); opacity: 0; }
   10%  { opacity: 1; }
-  50%  { left: calc(100% - 6px); opacity: 1; }
+  50%  { transform: translateX(calc(100cqw - 6px)); opacity: 1; }
   60%  { opacity: 0; }
-  61%  { left: 0; }
+  61%  { transform: translateX(0); }
   70%  { opacity: 0; }
-  100% { left: 0; opacity: 0; }
+  100% { transform: translateX(0); opacity: 0; }
 }
 .cb-echo-sub {
   margin-top: 16px;
@@ -23194,7 +23212,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-room {
   --cb-acc: #a3b899;
   padding: 34px 4px 8px;
-  animation: cbSignalIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: cbSignalIn 0.7s var(--cb-ease) both;
 }
 .cb-room-kicker {
   font-family: var(--cb-body); font-size: 10.5px; font-weight: 500;
@@ -23353,19 +23371,9 @@ summary::-webkit-details-marker { display: none; }
    mid-request (see the AgentTrace comment). The only number is elapsed
    time, which is real; the database chips arrive only after the response,
    populated from actual settled promises, cascading in. */
-.cb-trace-comet {
-  position: absolute; top: 50%; left: 0; width: 7px; height: 7px;
-  border-radius: 50%; margin-top: -3.5px;
-  background: #fff;
-  box-shadow: 0 0 10px 2px rgba(163,184,153,0.9), 0 0 26px 6px rgba(163,184,153,0.35);
-  animation: cbTraceSweep 2.2s cubic-bezier(.4,0,.6,1) infinite;
-}
-@keyframes cbTraceSweep {
-  0%   { left: 0; opacity: 0; }
-  12%  { opacity: 1; }
-  88%  { opacity: 1; }
-  100% { left: calc(100% - 7px); opacity: 0; }
-}
+/* PUBLIC BETA 1 — removed: .cb-trace-comet / cbTraceSweep were dead CSS
+   (no call site anywhere in the repo) running an infinite \`left\`
+   animation — layout thrash for nothing. */
 .cb-trace-chip { animation: cbRise 320ms var(--cb-ease) both; }
 
 /* ── Specimen frame: the instrument card language.
@@ -23403,10 +23411,8 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-answer-enter.cb-glass-panel { animation: cbAnswerFocus 800ms var(--cb-ease) both; }
 
-/* ── Hero parallax: the intro breathes with the pointer (desktop only,
-   applied via rAF in Intro; the transition smooths the last frame when
-   the pointer leaves). ── */
-.cb-hero-parallax { will-change: transform; }
+/* PUBLIC BETA 1 — removed: .cb-hero-parallax was dead CSS (no call site;
+   pointer parallax was retired) carrying a persistent will-change. */
 
 /* CTA shimmer — removed: monochrome CTA needs no shimmer */
 
@@ -23441,7 +23447,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-rise    { opacity: 1; animation: cbRise  320ms var(--cb-ease) both; }
 .cb-pop     { opacity: 1; animation: cbPop   320ms var(--cb-ease) both; }
 .cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
-.cb-modal   { animation: cbModal 560ms var(--cb-ease) both; will-change: transform, opacity, filter; }
+.cb-modal   { animation: cbModal 560ms var(--cb-ease) both; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
 /* (cb-answer-enter's entrance now lives in the Innovation Refinement block
    above as cbAnswerFocus — a focus pull rather than a plain fade.)
@@ -23519,12 +23525,14 @@ summary::-webkit-details-marker { display: none; }
    exist to show. (css-keyframes.mjs asserts every referenced cb*
    animation has a @keyframes block: cbReadheadSweep is defined here.) */
 @keyframes cbReadheadSweep {
-  0% { left: -36px; }
-  100% { left: 100%; }
+  0% { transform: translateX(-36px); }
+  100% { transform: translateX(100cqw); }
 }
-.cb-readhead { position: relative; height: 1px; overflow: hidden; }
+/* Query container so the marker sweeps the full track width with a
+   transform (100cqw) instead of animating left. */
+.cb-readhead { position: relative; height: 1px; overflow: hidden; container-type: inline-size; }
 .cb-readhead-marker {
-  position: absolute; top: -2px; left: -36px; width: 36px; height: 5px;
+  position: absolute; top: -2px; left: 0; width: 36px; height: 5px;
   border-radius: 3px; animation: cbReadheadSweep 1.8s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -23601,11 +23609,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .cb-shine { position: relative; overflow: hidden; }
 .cb-shine::after {
   content: ""; position: absolute; top: -20%; bottom: -20%; width: 45%;
-  left: -70%; transform: skewX(-18deg); pointer-events: none;
+  left: -70%; transform: skewX(-18deg) translateX(0); pointer-events: none;
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.38), transparent);
-  transition: left 650ms var(--cb-ease);
+  transition: transform 650ms var(--cb-ease);
 }
-.cb-shine:hover::after { left: 135%; }
+/* 456% of the 45%-wide band ≈ the old left:-70% → left:135% travel. */
+.cb-shine:hover::after { transform: skewX(-18deg) translateX(456%); }
 /* Snap back instantly when the pointer leaves: the sweep reads as a
    one-way gesture, not a pendulum. */
 .cb-shine:not(:hover)::after { transition: none; }
@@ -23615,13 +23624,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    spring back on leave. The class only declares the transition; the
    transform itself is written inline by the pointer handler so leaving
    the element always eases home. */
-.cb-magnetic { transition: transform 320ms var(--cb-spring); will-change: transform; }
+.cb-magnetic { transition: transform 320ms var(--cb-spring); }
 
 /* ── 3D tilt ──
    Subtle perspective tilt for feature/hero cards. The wrapper supplies
    perspective; JS writes rotateX/rotateY (max 5deg). Disabled on touch. */
 .cb-tilt-wrap { perspective: 900px; }
-.cb-tilt { transition: transform 380ms var(--cb-spring); transform-style: preserve-3d; will-change: transform; }
+.cb-tilt { transition: transform 380ms var(--cb-spring); transform-style: preserve-3d; }
 
 /* ── Animated gradient hairline ──
    For featured panels: a 1px top border that slowly cycles through the
@@ -23649,7 +23658,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
      removed mid-flight — display:none guarantees the content is reachable. */
   .cb-iris-veil { display: none; }
   .cb-threshold-veil { display: none; }
-  .cb-trace-comet, .cb-trace-chip { animation: none; }
+  .cb-trace-chip { animation: none; }
   .cb-qline, .cb-echo { animation: none; }
   .cb-qline-reading { animation: none; }
   .cb-qline-ring { animation: none; }
@@ -23767,18 +23776,15 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   animation: cbTextReveal 1s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @keyframes cbTextReveal {
-  from { opacity: 0; transform: translateY(20px); filter: blur(8px); letter-spacing: 0.05em; }
-  to { opacity: 1; transform: none; filter: none; letter-spacing: inherit; }
+  /* letter-spacing removed: it is a layout property and re-lays-out the
+     heading on every frame of the reveal. */
+  from { opacity: 0; transform: translateY(20px); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
 }
 
-/* Floating action button pulse */
-.cb-fab-pulse {
-  animation: cbFabPulse 2.5s ease-in-out infinite;
-}
-@keyframes cbFabPulse {
-  0%, 100% { box-shadow: 0 4px 20px var(--fab-glow, rgba(52,211,153,0.35)); }
-  50% { box-shadow: 0 4px 32px var(--fab-glow, rgba(52,211,153,0.5)); }
-}
+/* PUBLIC BETA 1 — removed: .cb-fab-pulse / cbFabPulse were dead CSS (no
+   call site anywhere in the repo) running an infinite box-shadow
+   animation — continuous paint for nothing. */
 
 /* Focus */
 :focus { outline: none; }
@@ -23921,7 +23927,10 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 .cb-scroll-progress {
   position: fixed; top: 0; left: 0; width: 100%; height: 2px; z-index: 100;
   background: var(--cb-accent, #34d399);
-  transform-origin: left; transition: transform 0.1s linear;
+  transform-origin: left;
+  /* No transition: the value already updates at most once per frame via the
+     rAF-coalesced scroll handler — a transition only lags the bar behind
+     the finger. */
   pointer-events: none;
 }
 
@@ -23960,7 +23969,7 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
   vertical-align: super;
   padding: 0 4px;
   margin: 0;
-  transition: all 0.15s ease;
+  transition: transform 0.15s ease;
 }
 .cb-answer-enter a[href^="#ref-"]:hover {
   transform: scale(1.1);
@@ -24089,6 +24098,23 @@ body {
   }
 }
 
+/* ════════════════════════════════════════════════════════════════
+   PUBLIC BETA 1 — motion fluidity: reduced-motion coverage.
+   The global block above collapses every animation and transition to a
+   0.01ms single iteration. This block covers what that cannot: motion
+   that lives outside animations/transitions, and resting states that
+   need an explicit pinned value once their animation is killed. ═════ */
+@media (prefers-reduced-motion: reduce) {
+  /* Smooth scrolling is motion — reduced-motion users get instant jumps. */
+  html { scroll-behavior: auto; }
+  /* The kinetic wordmark's letters rest at opacity 0 until their entrance
+     runs; pin them visible so the headline can never depend on animation. */
+  .cb-kinetic > span { opacity: 1 !important; }
+  /* Park the converted (transform-based) travelling markers at the start
+     of their tracks when their animations are killed. */
+  .cb-readhead-marker, .cb-echo-cursor { transform: none; }
+}
+
 
 
 /* ══════════════════════════════════════════════════════════════════
@@ -24208,7 +24234,7 @@ button, a {
   from { opacity: 0; transform: translateY(4px) scale(0.985); }
   to   { opacity: 1; transform: none; }
 }
-.cb-deck-media { transform-origin: center; will-change: transform; }
+.cb-deck-media { transform-origin: center; }
 .cb-card:hover .cb-deck-media,
 .cb-deck-card:hover .cb-deck-media { transform: scale(1.06); }
 
@@ -24275,7 +24301,6 @@ button, a {
 .cb-trend-card, .cb-trend-hero {
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
               border-color 0.3s ease, box-shadow 0.3s ease;
-  will-change: transform;
 }
 .cb-trend-card:hover, .cb-trend-hero:hover {
   transform: translateY(-3px);
@@ -24296,7 +24321,9 @@ button, a {
    for the shape. */
 .cb-row {
   position: relative;
-  transition: background-color 0.2s ease, padding-left 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  /* padding-left was listed here but nothing ever changes it — a dead
+     entry animating a layout property. Removed. */
+  transition: background-color 0.2s ease;
 }
 .cb-row::before {
   content: '';
@@ -24430,6 +24457,78 @@ button, a {
 #cb-intro-wrap h1 { text-wrap: balance; }
 @media (prefers-reduced-motion: reduce) {
   .cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-deck-btn, .cb-hbtn { transition: none !important; transform: none !important; }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   PUBLIC BETA 1 — mobile fixes
+   iPhone 360–390px sweep. Additive overrides only: nothing above this
+   block changes, desktop rendering is untouched, and no rule introduces
+   a new font-family (standing law). Class hooks (added at the JSX sites):
+   cb-hero-ctas · cb-doc-helper · cb-doc-actions · cb-jumpnav · cb-jumpmore ·
+   cb-jumpmore-btn · cb-eyebrow · cb-eyebrow-right · cb-seg ·
+   cb-cite-controls · cb-bibentry · cb-further-pill · cb-bibentry-copy ·
+   cb-appfoot · cb-appfoot-links · cb-appfoot-copy.
+   ────────────────────────────────────────────────────────────────────
+   Base (all viewports): the jump-rail nav keeps its horizontal-scroll
+   behavior — the inline overflowX moved here so the mobile query below
+   can relax it without touching desktop. */
+.cb-jumpnav { overflow-x: auto; }
+
+@media (max-width: 480px) {
+
+  /* 1 · Hero CTA row: stack the pill above the "How it works" whisper so
+     the pair can never clip at the viewport edge. */
+  .cb-hero-ctas { flex-direction: column; }
+  .cb-hero-ctas .cb-intro-go { width: min(320px, calc(100% - 32px)); }
+
+  /* 2 · Document-mode helper row: the hint text gets its own full-width
+     line instead of being squeezed beside the buttons; the buttons share
+     the next row and wrap if needed. */
+  .cb-doc-helper { flex-direction: column; }
+  .cb-doc-helper > div { align-self: stretch; }
+  .cb-doc-actions { flex-wrap: wrap; }
+  .cb-doc-actions > button { flex: 1 1 140px; }
+
+  /* 3 · Answer sticky tab bar: the four tabs fit 360px once tightened, so
+     the nav no longer needs to be a scroll container — which also unclips
+     the "More" dropdown (an absolutely-positioned menu can never escape
+     an overflow-x:auto ancestor). */
+  .cb-jumpnav { overflow-x: visible; }
+  .cb-jumpnav > button,
+  .cb-jumpnav .cb-jumpmore-btn { padding-left: 8px !important; padding-right: 8px !important; }
+
+  /* 3b · Section eyebrows (Evidence "Bibliography · N / Videos · N" tabs):
+     the tab control drops to its own full-width row — labels never clip. */
+  .cb-eyebrow { flex-wrap: wrap; row-gap: 10px; }
+  .cb-eyebrow-right { flex: 1 1 100%; }
+  .cb-eyebrow-right .cb-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .cb-eyebrow-right .cb-seg::-webkit-scrollbar { display: none; }
+
+  /* 4 · Citation format controls: tidy wrap instead of viewport overflow;
+     action buttons never break mid-label ("COPY ALL" stays one line). */
+  .cb-cite-controls { flex-wrap: wrap; max-width: 100%; }
+  .cb-cite-controls .cb-seg { flex-wrap: wrap; }
+  .cb-cite-controls > button { white-space: nowrap; flex-shrink: 0; }
+
+  /* 5a · "Further reading" pill: own full-width line inside the entry's
+     text column — it can never touch the index numeral. */
+  .cb-further-pill { display: flex !important; max-width: 100%; }
+  /* 5b · DOI links: the fixed 260px cap becomes viewport-aware (JSX:
+     maxWidth: "min(260px, 100%)") so long DOIs ellipsis inside the card. */
+  /* 5c · Per-entry Copy: hover-reveal doesn't exist on touch — always
+     visible and tappable on mobile. */
+  .cb-bibentry-copy { opacity: 1 !important; }
+
+  /* 7 · App footer: clean two-column stacked grid instead of ragged
+     wrapping rows; the copyright spans the full width. (!important: the
+     row carries inline display/gap for desktop.) */
+  .cb-appfoot { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+  .cb-appfoot-links {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px 24px !important;
+  }
+  .cb-appfoot-copy { grid-column: 1 / -1; margin-top: 8px; }
 }
 
 `;
