@@ -2643,7 +2643,7 @@ async function openAlex(query, limit = 10, key = "") {
         return {
           title: w.title || "Untitled",
           url:
-            w.doi ||
+            (w.doi ? "https://doi.org/" + w.doi.replace(/^https?:\/\/doi\.org\//i, "") : "") ||
             (w.primary_location && (w.primary_location.landing_page_url || w.primary_location.pdf_url)) ||
             "",
           year: w.publication_year || "",
@@ -6543,7 +6543,12 @@ async function gatherPapers(rawQuery, opts) {
     if (scored.length) {
       funnel.deduped = merged.length;
       funnel.ranked = scored.length;
-      return { papers: scored, _diag: { funnel } };
+      // 2026-09-14: filter out papers without URLs. A paper you can't open
+      // violates "Every claim traces to a paper you can open." An unopenable
+      // citation looks verifiable but isn't — worse than no citation.
+      const withUrls = scored.filter(p => p && p.url && String(p.url).trim().length > 0);
+      funnel.ranked = withUrls.length;
+      return { papers: withUrls, _diag: { funnel } };
     }
 
     // Truly no papers matched by author. Signal that so the endpoint can
