@@ -334,8 +334,22 @@ const POLITE_UA =
 // from setting the pace for an entire rung. Call sites that already pass
 // their own explicit timeout (a few sources needed more headroom, tuned in
 // an earlier round) are untouched — this only changes the shared default.
-async function getJSON(url, headers = {}, timeoutMs = 4000, retries = 1) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
+// Scale fix (2026-09-14): links a leg's private AbortController to a
+// wave-level signal. The leg keeps its own per-model timeout; the wave
+// signal only fires once the wave is decided (a winner, total failure,
+// or the deadline timer). An external abort surfaces inside the leg as
+// the same AbortError its own timeout would raise, so every downstream
+// handler treats a cancelled loser exactly like an ordinary leg failure.
+// Pure + exported so the race-cancellation contract is unit-testable.
+export function linkWaveAbort(internal, waveSignal) {
+  if (!waveSignal) return () => {};
+  if (waveSignal.aborted) { internal.abort(); return () => {}; }
+  const onWaveAbort = () => { try { internal.abort(); } catch {} };
+  waveSignal.addEventListener("abort", onWaveAbort, { once: true });
+  return () => waveSignal.removeEventListener("abort", onWaveAbort);
+}
+
+async function getJSON(url, headers = {}, timeoutMs = 4000, retries = 1) {  for (let attempt = 0; attempt <= retries; attempt++) {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), timeoutMs);
     try {
@@ -2776,7 +2790,7 @@ const S2_LITERATURE_TYPES = [
   "BookSection",
 ].join(",");
 
-async function semanticScholar(query, limit = 8) {
+export async function semanticScholar(query, limit = 8, apiKey = "") {
   try {
     const url =
       "https://api.semanticscholar.org/graph/v1/paper/search?" +
@@ -2787,7 +2801,12 @@ async function semanticScholar(query, limit = 8) {
         fields:
           "title,abstract,tldr,year,citationCount,authors,venue,externalIds,openAccessPdf,url,publicationTypes",
       });
-    const data = await getJSON(url);
+    // Scale fix (2026-09-14): without a key S2 sits in the unauthenticated
+    // shared pool (100 req/5min) — at ~50+ concurrent users it 429s and
+    // silently drops out of every answer. Key is opt-in via
+    // SEMANTIC_SCHOLAR_KEY env (free); absent key = previous behavior.
+    const headers = apiKey ? { "x-api-key": apiKey } : {};
+    const data = await getJSON(url, headers);
     return ((data && data.data) || [])
       .filter((r) => r.title)
       .map((r) => {
@@ -6397,6 +6416,7 @@ async function gatherPapers(rawQuery, opts) {
   try {
   const openAlexKey = (opts && opts.openAlexKey) || "";
   const ncbiKey = (opts && opts.ncbiKey) || "";
+  const s2Key = (opts && opts.s2Key) || "";
   const limit = (opts && opts.limit) || 25;
   _outerDiag.phase = "cleaned_query"; const query = cleanQuery(preprocessQuery(rawQuery)); _outerDiag.cleanedQuery = query.slice(0, 200);
   // A resolved person name from conversation history (pronoun follow-up like
@@ -6441,7 +6461,7 @@ async function gatherPapers(rawQuery, opts) {
       openAlex(quoted, 25, openAlexKey),            // cross-disciplinary
       crossref(quoted, 15),                         // DOI-registered works
       arxiv(effectiveName, 15),                     // physics/CS/quantitative bio
-      semanticScholar(quoted, 15),                  // includes preprints
+      semanticScholar(quoted, 15, s2Key),           // includes preprints
       // Commit 94 — the authoritative preprint index. Europe PMC's default
       // search excludes SRC:PPR, so without this line an author whose only
       // work is a preprint was invisible to the entire author lookup no
@@ -6709,7 +6729,7 @@ async function gatherPapers(rawQuery, opts) {
       openAlex(bare, 12, openAlexKey),
       crossref(bare, 10),
       arxiv(arx, 8),
-      semanticScholar(bare, 10),
+      semanticScholar(bare, 10, s2Key),
       doaj(bare, 8),
       biorxiv(bare, 8),
       zenodo(bare, 6),
@@ -6747,7 +6767,15 @@ async function gatherPapers(rawQuery, opts) {
   const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire","preprints"];
 
   let accumulated = [];
-  for (let i = 0; i < rungs.length; i++) {
+  // Subrequest guard (2026-09-14): Cloudflare's free plan allows 50
+  // subrequests per invocation, and the ladder is the dominant fetch term
+  // (~15-19 fetches per rung — pubmed fans out to 3-5 E-utility calls).
+  // Typical searches break after rung 1 (the loop exits at >=8 papers), so
+  // this changes nothing for them. Only the hardest queries ever reached
+  // rung 4, and rung 4 is the single loosest term — marginal recall value
+  // for the most expensive 15+ fetches of the search.
+  const MAX_LADDER_RUNGS = 3;
+  for (let i = 0; i < rungs.length && i < MAX_LADDER_RUNGS; i++) {
     const rungResults = await Promise.allSettled(fanout(rungs[i], i === 0));
     accumulated = accumulated.concat(rungResults);
     const perSource = rungResults.map((r, idx) => ({
@@ -6808,7 +6836,7 @@ async function gatherPapers(rawQuery, opts) {
       : query;
     const rawFallback = await Promise.allSettled([
       europePMC(rawQ, 12),
-      semanticScholar(rawQ, 10),
+      semanticScholar(rawQ, 10, s2Key),
       openAlex(rawQ, 10, openAlexKey),
     ]);
     results = results.concat(rawFallback);
@@ -6889,7 +6917,7 @@ async function gatherPapers(rawQuery, opts) {
       const expandedResults = await Promise.allSettled(
         expandedArr.flatMap((eq) => [
           europePMC(eq, 8),
-          semanticScholar(eq, 6),
+          semanticScholar(eq, 6, s2Key),
           openAlex(eq, 6, openAlexKey),
         ])
       );
@@ -6920,7 +6948,7 @@ async function gatherPapers(rawQuery, opts) {
       const memResults = await Promise.allSettled(
         recalledQueries.flatMap((eq) => [
           europePMC(eq, 8),
-          semanticScholar(eq, 6),
+          semanticScholar(eq, 6, s2Key),
         ])
       );
       results = results.concat(memResults);
@@ -6943,7 +6971,7 @@ async function gatherPapers(rawQuery, opts) {
   );
   if (totalAfterExpand < 5 && _budgetLeft()) {
     const nlFallback = await Promise.allSettled([
-      semanticScholar(rawQuery.slice(0, 200), 15),
+      semanticScholar(rawQuery.slice(0, 200), 15, s2Key),
       europePMC(rawQuery.slice(0, 200), 12),
       openAlex(rawQuery.slice(0, 200), 10, openAlexKey),
     ]);
@@ -7031,7 +7059,7 @@ async function gatherPapers(rawQuery, opts) {
           pubmed(orgQuoted2 + " AND (" + topicStr2 + ")", 10, ncbiKey),
           openAlex(sciName + " " + topicStr2, 10, openAlexKey),
           crossref(sciName + " " + topicStr2, 8),
-          semanticScholar(sciName + " " + topicStr2, 10),
+          semanticScholar(sciName + " " + topicStr2, 10, s2Key),
           doaj(sciName + " " + topicStr2, 6),
           biorxiv(sciName + " " + topicStr2, 6),
         ]);
@@ -8824,6 +8852,7 @@ export async function onRequest(context) {
           gatherPapers(deepQuery, {
             openAlexKey: env.OPENALEX_KEY || "",
             ncbiKey: env.NCBI_API_KEY || "",
+            s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
             limit: 15,
             resolvedPersonName,
             db: env.DB,
@@ -8928,6 +8957,7 @@ export async function onRequest(context) {
       const retrievalStage = await runStage("retrieval", () => gatherPapers(searchQuery, {
         openAlexKey: env.OPENALEX_KEY || "",
         ncbiKey: env.NCBI_API_KEY || "",
+        s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
         limit: wantsMorePapers ? 40 : 25,
         resolvedPersonName,
         db: env.DB,
@@ -8972,7 +9002,7 @@ export async function onRequest(context) {
         if (llmQueries.length > 0) {
           const llmSearches = llmQueries.flatMap((q) => [
             europePMC(q, 8).catch(() => []),
-            semanticScholar(q, 6).catch(() => []),
+            semanticScholar(q, 6, env.SEMANTIC_SCHOLAR_KEY || "").catch(() => []),
             openAlex(q, 6, env.OPENALEX_KEY || "").catch(() => []),
           ]);
           const llmResults = await Promise.allSettled(llmSearches);
@@ -10303,7 +10333,9 @@ export async function onRequest(context) {
     // (observed); the 18s only ever bound how long a wave waited on its
     // slowest LOSER before the next wave could start — 18s x 3 sequential
     // waves = 54s of all-fail tail. Wave 3 keeps its explicit 24s runway.
-    const callOR = async (model, msgs, maxTok, timeoutMs = 12000) => {
+    // (linkWaveAbort is defined + exported at module level, above getJSON.)
+
+    const callOR = async (model, msgs, maxTok, timeoutMs = 12000, waveSignal) => {
       if (!token) throw new Error(model + ": no OpenRouter key configured (OPENROUTER_KEY or OPENROUTER_API_KEY)");
       const c = new AbortController();
       // 2026-09-12: the abort stays armed for the WHOLE operation — headers
@@ -10315,6 +10347,7 @@ export async function onRequest(context) {
       // timeout bounds the full response; aborting mid-body rejects r.json()
       // with AbortError, which becomes a clean "timed out".
       const t = setTimeout(() => c.abort(), timeoutMs);
+      const unlinkWave = linkWaveAbort(c, waveSignal);
       try {
         const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
@@ -10339,6 +10372,7 @@ export async function onRequest(context) {
         throw e;
       } finally {
         clearTimeout(t);
+        unlinkWave();
       }
     };
 
@@ -10391,13 +10425,14 @@ export async function onRequest(context) {
     // trail in the logs, and the model_perf table, can tell which BUCKET
     // won — which is the number that matters when the complaint is rate
     // limiting, not which model name did.
-    const callCompat = (provider) => async (model, msgs, maxTok, timeoutMs = 12000) => {
+    const callCompat = (provider) => async (model, msgs, maxTok, timeoutMs = 12000, waveSignal) => {
       const tag = provider.id + ":" + model;
       const c = new AbortController();
       // 2026-09-12: same whole-operation timeout fix as callOR — the abort
       // used to disarm as soon as headers arrived, so a slow model could
       // trickle its body past the timeout. Default 18s -> 12s to match.
       const t = setTimeout(() => c.abort(), timeoutMs);
+      const unlinkWave = linkWaveAbort(c, waveSignal);
       try {
         const r = await fetch(provider.url, {
           method: "POST",
@@ -10422,6 +10457,7 @@ export async function onRequest(context) {
         throw e;
       } finally {
         clearTimeout(t);
+        unlinkWave();
       }
     };
 
@@ -10448,11 +10484,11 @@ export async function onRequest(context) {
       github:   { w1: ["openai/gpt-4o-mini"],      w2: ["meta/Llama-3.3-70B-Instruct"] },
       nvidia:   { w1: ["meta/llama-3.3-70b-instruct"], w2: ["qwen/qwen2.5-7b-instruct"] },
     };
-    const compatLegs = (waveNo, which, msgs, maxTok, timeoutMs) =>
+    const compatLegs = (waveNo, which, msgs, maxTok, timeoutMs, waveSignal) =>
       activeProviders.flatMap((p) => {
         const names = (PROVIDER_MODELS[p.id] || {})[which] || [];
         const call = callCompat(p);
-        return names.map((m) => raceEntry(waveNo, p.id + ":" + m, call(m, msgs, maxTok, timeoutMs)));
+        return names.map((m) => raceEntry(waveNo, p.id + ":" + m, call(m, msgs, maxTok, timeoutMs, waveSignal)));
       });
 
     // 2026-09-12: 18s -> 12s, same rationale as callOR above — the default
@@ -10648,9 +10684,10 @@ export async function onRequest(context) {
     const clampLegTimeout = (wantedMs, reserveMs = 2000) =>
       Math.max(1000, Math.min(wantedMs, msLeft() - reserveMs));
 
-    // 2026-09-12: defined BEFORE fastpathCalls — the fastpath ternary
-    // evaluates raceEntry() immediately when a preferred model exists,
-    // so this must not sit in its temporal dead zone.
+    // 2026-09-12: defined BEFORE the wave blocks below — the fastpath
+    // ternary inside wave 1 evaluates raceEntry() immediately when a
+    // preferred model exists, so this must not sit in its temporal dead
+    // zone.
     const raceEntry = (wave, label, p) => {
       const t0 = Date.now();
       return p.then(
@@ -10670,10 +10707,9 @@ export async function onRequest(context) {
       );
     };
 
-    const fastpathCalls = (preferredModel && token && msLeft() > 3000)
-      ? [raceEntry(0, "fastpath:" + preferredModel,
-          callOR(preferredModel, messages, maxTokens, clampLegTimeout(8000)))]
-      : [];
+    // fastpathCalls moved INTO the wave-1 block (2026-09-14): it must be
+    // created after the wave's AbortController so the preferred-model leg
+    // is cancellable like every other leg. See below.
 
     // ════════════════════════════════════════════════════════════════
     // v6.2: TRUE CROSS-PROVIDER PARALLEL RACING
@@ -10824,14 +10860,25 @@ export async function onRequest(context) {
     // against the synthesis deadline: even if a leg's abort misbehaves,
     // the wave cannot outlive the budget.
     if (!aiOK) {
+      // 2026-09-14 scale fix: ONE AbortController for the whole wave. The
+      // moment the race is decided the losers' in-flight HTTP is aborted —
+      // without this every search burns ~15 AI legs of quota for one
+      // answer (free-tier buckets: Groq 30/min, Gemini 15/min, OpenRouter
+      // :free shared). The fastpath leg is built here (not earlier) so it
+      // is created after the controller and gets the signal too.
+      const w1Abort = new AbortController();
       const wave1Timeout = clampLegTimeout(10000);
+      const fastpathCalls = (preferredModel && token && msLeft() > 3000)
+        ? [raceEntry(0, "fastpath:" + preferredModel,
+            callOR(preferredModel, messages, maxTokens, clampLegTimeout(8000), w1Abort.signal))]
+        : [];
       const wave1Calls = [
         ...fastpathCalls,
-        ...(token ? OR_WAVE1.map((m) => raceEntry(1, m, callOR(m, messages, maxTokens, wave1Timeout))) : []),
+        ...(token ? OR_WAVE1.map((m) => raceEntry(1, m, callOR(m, messages, maxTokens, wave1Timeout, w1Abort.signal))) : []),
         // Commit 86 — the independent buckets go in from the very first
         // wave, not as a fallback. A wave that is 80% OpenRouter is one
         // 429 away from being no wave at all.
-        ...compatLegs(1, "w1", messages, maxTokens, wave1Timeout),
+        ...compatLegs(1, "w1", messages, maxTokens, wave1Timeout, w1Abort.signal),
         ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, messages, maxTokens, wave1Timeout))) : []),
       ];
       try {
@@ -10846,6 +10893,12 @@ export async function onRequest(context) {
         recordWin(winner.model);
       } catch (agg) {
         aiAttempts.push({ wave: 1, ok: false, attempted: wave1Calls.length, summary: errMsgs(agg) });
+      } finally {
+        // Losing legs are dead weight now — abort their HTTP so the quota
+        // they would burn stays in the bucket for real searches. Also
+        // covers the deadline-timer path: legs that would have lingered
+        // past the budget are cancelled instead of running on.
+        w1Abort.abort();
       }
     }
 
