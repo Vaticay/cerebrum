@@ -39,9 +39,9 @@ database_id = "dde9ab43-bb34-4c27-afc8-b79a53adbaaf"
 #   2. That command prints an `id = "...")` line — copy the actual hex id
 #   3. Uncomment the three lines below and paste that id in place of the
 #      placeholder, then commit and deploy again.
-# [[kv_namespaces]]
-# binding = "RATE_LIMIT_KV"
-# id = "PASTE_THE_REAL_ID_FROM_STEP_1_HERE"
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "b5732c572fe24442b01134d0887e4318"
 
 # Automated Reports Queue Producer
 [[queues.producers]]
