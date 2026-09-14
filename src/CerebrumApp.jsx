@@ -19380,7 +19380,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // change there. srcMeta was the one actually set to mono; switched to
     // body, since long author lists/journal names in a monospace face read
     // cramped and harder to scan than the same text in the body sans-serif.
-    srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em" },
+    srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em", overflowWrap: "anywhere", wordBreak: "break-word" },
     srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-body)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
     chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", fontWeight: 600, background: "transparent", transition: "all 0.2s ease" },

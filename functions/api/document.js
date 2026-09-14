@@ -165,7 +165,10 @@ export { okRes, errRes };
 // the message is written for a person and its advice matches the cause.
 export function classifyDocumentError(e) {
   const msg = String((e && e.message) || e || "");
-  if (/OPENROUTER_KEY|Workers AI binding|no .* configured|ENV/i.test(msg)) {
+  // 2026-09-14: narrowed from /ENV/ to specific config phrases. The broad
+  // /ENV/ matched "environment" in unrelated provider errors (e.g. oversized
+  // input), misreporting them as "isn't configured".
+  if (/OPENROUTER_KEY|Workers AI binding|no .* configured|not configured|missing .*key/i.test(msg)) {
     return {
       status: 500,
       code: "provider_unavailable",
