@@ -23130,7 +23130,7 @@ summary::-webkit-details-marker { display: none; }
   padding: 12px 0;
   caret-color: var(--cb-acc);
 }
-.cb-qline-input::placeholder { color: rgba(242,244,242,0.32); }
+.cb-qline-input::placeholder { color: rgba(242,244,242,0.58); }
 /* The rule below is the focus indicator, so the input suppresses the
    global :focus-visible ring — otherwise the ring draws a second
    rectangle inside the instrument. */
@@ -23262,12 +23262,12 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-modepreview {
   min-height: 15px; margin-top: 9px; margin-bottom: 2px; text-align: center;
-  font-size: 11px; line-height: 1.4; color: rgba(242, 244, 242, 0.5);
+  font-size: 11px; line-height: 1.4; color: rgba(242, 244, 242, 0.72);
   font-family: var(--cb-body);
 }
 .cb-modepreview-key {
   font-family: var(--cb-body); font-size: 9.5px; letter-spacing: 0.22em;
-  text-transform: uppercase; color: rgba(242, 244, 242, 0.34);
+  text-transform: uppercase; color: rgba(242, 244, 242, 0.55);
   margin-right: 8px;
 }
 .cb-modepreview-text { animation: cbReadingIn 0.3s ease both; display: inline-block; }
