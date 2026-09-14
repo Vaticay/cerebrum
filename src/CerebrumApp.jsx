@@ -5480,9 +5480,9 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
     fontWeight: 500, padding: "8px 12px", borderRadius: 8,
   };
   const footLink = {
-    background: "none", border: "none", padding: 0, cursor: "pointer",
-    color: "rgba(242,244,242,0.66)", fontSize: 12.5, fontFamily: "var(--cb-body)",
-    textDecoration: "none",
+    background: "none", border: "none", padding: "6px 0", cursor: "pointer",
+    color: "rgba(242,244,242,0.66)", fontSize: 12.5, fontWeight: 500, fontFamily: "var(--cb-body)",
+    textDecoration: "none", display: "inline-block",
   };
 
   /* The single short fade on arrival (CSS class below). Under reduced
@@ -5624,7 +5624,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             style={animate ? { animationDelay: "0.5s" } : undefined}>
             <span style={{
               fontFamily: "var(--cb-body)", fontSize: 10, letterSpacing: "0.42em",
-              textIndent: "0.42em", fontWeight: 500,
+              textIndent: "0.42em", fontWeight: 600,
               textTransform: "uppercase", color: "rgba(242,244,242,0.55)",
               fontVariantNumeric: "tabular-nums",
             }}>
@@ -5633,7 +5633,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           </div>
           <h1 style={{
             fontSize: isMobile ? "clamp(24px, 7vw, 34px)" : "clamp(28px, 3.6vw, 46px)",
-            fontWeight: 300, letterSpacing: "0.045em", lineHeight: 1.42,
+            fontWeight: 400, letterSpacing: "0.045em", lineHeight: 1.42,
             color: "#ffffff", margin: "28px 0 0", maxWidth: "36ch",
             textShadow: "0 2px 44px rgba(0,0,0,0.55)",
             textWrap: "balance",
@@ -5643,7 +5643,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           </h1>
           <p className={animate ? "cb-focus-in cb-hero-slogan" : "cb-hero-slogan"} style={{
             margin: "26px 0 0", maxWidth: "52ch",
-            fontSize: isMobile ? 12.5 : 13.5, lineHeight: 1.7, fontWeight: 400,
+            fontSize: isMobile ? 12.5 : 13.5, lineHeight: 1.7, fontWeight: 500,
             letterSpacing: "0.02em",
             color: "rgba(242,244,242,0.62)",
             textShadow: "0 2px 30px rgba(0,0,0,0.5)",
@@ -5663,7 +5663,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                  RESEARCHING" fits 360px on one line — it was wrapping to
                  two lines. whiteSpace: nowrap is the hard guarantee. */
               padding: isMobile ? "12px 24px" : "14px 34px",
-              fontSize: isMobile ? 12 : 12.5, fontWeight: 500, fontFamily: "var(--cb-body)",
+              fontSize: isMobile ? 12 : 12.5, fontWeight: 600, fontFamily: "var(--cb-body)",
               letterSpacing: isMobile ? "0.18em" : "0.24em", textIndent: isMobile ? "0.18em" : "0.24em",
               textTransform: "uppercase", whiteSpace: "nowrap",
             }}>Start researching</button>
@@ -5671,7 +5671,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 competing with the single way in. */}
             <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
               cursor: "pointer", border: "none", background: "none", padding: "14px 4px",
-              fontSize: isMobile ? 14 : 14.5, fontWeight: 500,
+              fontSize: isMobile ? 14 : 14.5, fontWeight: 600,
               color: "rgba(242,244,242,0.6)", fontFamily: "var(--cb-body)",
             }}>How it works</button>
           </div>
@@ -5713,7 +5713,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         }}>
           <div style={{
             fontSize: 11, letterSpacing: "0.26em", textTransform: "uppercase",
-            color: withAlpha(introAccent, 0.85), marginBottom: 18,
+            color: withAlpha(introAccent, 0.85), marginBottom: 18, fontWeight: 600,
             fontVariantNumeric: "tabular-nums",
           }}>
             A real answer
@@ -5789,7 +5789,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         }}>
           <div style={{
             fontSize: 11, letterSpacing: "0.26em", textTransform: "uppercase",
-            color: withAlpha(introAccent, 0.85), marginBottom: 18,
+            color: withAlpha(introAccent, 0.85), marginBottom: 18, fontWeight: 600,
             fontVariantNumeric: "tabular-nums",
           }}>
             Why Cerebrum
@@ -5802,20 +5802,20 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             One search. One honest answer.
           </h2>
           <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65,
+            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
             color: "rgba(242,244,242,0.82)", margin: "0 0 14px",
           }}>
             One search returns a fully sourced answer — no ten-query rabbit hole,
             no twenty tabs open to verify it yourself.
           </p>
           <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65,
+            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
             color: "rgba(242,244,242,0.82)", margin: "0 0 14px",
           }}>
             Every claim traces to a paper you can open.
           </p>
           <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65,
+            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
             color: "rgba(242,244,242,0.82)", margin: 0,
           }}>
             No ads. No engagement farming. This product has one job: the truth.
@@ -5827,7 +5827,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             marginTop: 26,
           }}>
             <p style={{
-              fontSize: isMobile ? 15 : 15.5, lineHeight: 1.65,
+              fontSize: isMobile ? 15 : 15.5, lineHeight: 1.65, fontWeight: 500,
               color: "rgba(242,244,242,0.9)", margin: "0 0 14px",
             }}>
               A Cerebrum search uses about the same energy as a single AI chat
@@ -5838,15 +5838,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               display: "flex", flexWrap: "wrap", gap: "6px 18px",
             }}>
               <a href="https://epoch.ai/data-insights/how-much-energy-does-chatgpt-use" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 12.5, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                style={{ fontSize: 12.5, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
                 Epoch AI · Feb 2025 — 0.3 Wh per GPT-4o query ↗
               </a>
               <a href="https://blog.samaltman.com/the-gentle-singularity" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 12.5, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                style={{ fontSize: 12.5, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
                 Sam Altman, OpenAI · Jun 2025 — 0.34 Wh average ↗
               </a>
               <a href="https://blog.google/technology/ai/google-ai-environmental-impact/" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 12.5, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                style={{ fontSize: 12.5, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
                 Google · Aug 2025 — 0.24 Wh for AI Overviews ↗
               </a>
             </div>
@@ -5886,12 +5886,12 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               unreadable to a screen reader in any useful order. One link,
               and the actual list is one press away. */}
           <button type="button" onClick={() => setSourcesOpen(true)} className="cb-intro-sourcelink" style={{
-            ...footLink, color: "rgba(242,244,242,0.82)", fontSize: 13.5, fontWeight: 500,
+            ...footLink, color: "rgba(242,244,242,0.82)", fontSize: 13.5, fontWeight: 600,
           }}>Explore our research sources ↗</button>
 
           {!isMobile && <span style={{ flex: 1, minWidth: 0 }} />}
 
-          <div style={{
+          <div className="cb-introfoot-links" style={{
             display: "flex", alignItems: "center", flexWrap: "wrap",
             /* Full width on a phone so the wrap happens where the row runs
                out of room, not where a shrink-to-fit box does. */
@@ -5899,7 +5899,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             gap: isMobile ? "12px 16px" : "10px 22px",
           }}>
             {isMobile
-              ? ["About", "Privacy", "Contact"].map((item) => (
+              ? ["About", "Privacy", "Contact", "Terms"].map((item) => (
                   <a key={item} href={"/" + item.toLowerCase()} style={footLink}>{item}</a>
                 ))
               : (
@@ -5925,7 +5925,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             this; the cinematic homepage footer was missing it. */}
         <div style={{
           ...container, paddingTop: 10,
-          fontSize: 11.5, color: "rgba(242,244,242,0.42)",
+          fontSize: 11.5, fontWeight: 500, color: "rgba(242,244,242,0.42)",
           fontFamily: "var(--cb-body)", letterSpacing: "0.02em",
         }}>
           © {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}
@@ -6328,7 +6328,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPlay, text, useElevenLabs]);
 
-  const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch {} return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play(); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch {} return; } if (useElevenLabs) playEleven(); else playCerebrum(); };
+  const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch {} return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play()?.catch(() => {}); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch {} return; } if (useElevenLabs) playEleven(); else playCerebrum(); };
   useEffect(() => () => stop(), []);
   const label = status === "loading" ? "Loading…" : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
   const active = status === "playing" || status === "paused";
@@ -6398,6 +6398,12 @@ function ElevenLabsSetting({ P, accent, at, S, sfx }) {
       <div style={{ display: "flex", gap: 6 }}>
         <button onClick={save} style={{ flex: 1, padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{saved ? "✓ Saved" : "Save"}</button>
         {key && <button onClick={clear} style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>}
+      </div>
+      {/* BYOK by design: the key lives in this browser's localStorage, in
+          cleartext, readable by any script running on this origin. Say so
+          plainly next to the field. */}
+      <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.5 }}>
+        Saved in this browser only — anyone with access to this browser can read it.
       </div>
     </div>
   );
@@ -6537,7 +6543,8 @@ function InfoPage({ page }) {
   return (
     <div style={{ minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: "var(--cb-body)", position: "relative", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
       <style>{`
-        .cb-info-block:hover .cb-anchor, .cb-anchor:focus-visible { opacity: 1; }
+        .cb-info-block:hover .cb-anchor, .cb-info-block:focus-within .cb-anchor, .cb-anchor:focus-visible { opacity: 1; }
+        @media (hover: none) { .cb-info-block .cb-anchor { opacity: 1; } }
         .cb-toc-link:hover { color: ${accent}; }
         .cb-legal-progress { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: ${accent}; z-index: 30; transform-origin: left; }
         .cb-info-block h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-display); }
@@ -8032,7 +8039,7 @@ function QueryRetryForm({ P, accent, onAsk, id }) {
    failed (bad). Statuses are derived from the turn's real data in
    TurnInner, not invented here. Buttons, so touch works; nothing here
    depends on hover. */
-function JumpRail({ items, P, accent, onJump }) {
+function JumpRail({ items, P, accent, onJump, isMobile }) {
   /* Four tabs, not seven: Answer, Evidence, Videos stay; Fact-check,
      Disagreements, Compare and Open questions move behind "More".
      No status dots — a count says "has content" better than a 6px dot
@@ -8071,7 +8078,7 @@ function JumpRail({ items, P, accent, onJump }) {
   );
   return (
     <div style={{
-      position: "sticky", top: 64, zIndex: 30, background: P.bg,
+      position: "sticky", top: isMobile ? 56 : 64, zIndex: 30, background: P.bg,
       marginTop: 22, borderBottom: `1px solid ${P.line}`,
     }}>
       <div role="navigation" aria-label="Answer sections" className="cb-jumpnav"
@@ -8768,7 +8775,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {/* Jump rail — sticky under the answer card, mono labels with live
           ready/empty/failed status from the turn's real data. Buttons, so
           touch works; nothing here depends on hover. */}
-      {done && t.answer && <JumpRail items={railItems} P={P} accent={accent} onJump={jumpToSection} />}
+      {done && t.answer && <JumpRail items={railItems} P={P} accent={accent} onJump={jumpToSection} isMobile={typeof window !== "undefined" && window.innerWidth < 900} />}
       {/* The Evidence band: Bibliography + Videos as tabs in one band,
           directly under the answer. Always rendered — the shells inside are
           honest about empty/loading instead of vanishing. */}
@@ -12074,7 +12081,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                       ))}
                     </select>
                     {selSource?.url && (
-                      <a href={selSource.url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8, fontSize: FONT_SIZES.caption, color: accent, fontWeight: 600 }}>
+                      <a href={safeHref(selSource.url)} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8, fontSize: FONT_SIZES.caption, color: accent, fontWeight: 600 }}>
                         Open the paper <Icon name="arrowUpRight" size={11} />
                       </a>
                     )}
@@ -14617,7 +14624,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           still reads like a source. */}
                       {m.attachmentKind === "paper" && m.attachmentTitle && (
                         <a
-                          href={m.attachmentUrl || "#"} target="_blank" rel="noopener noreferrer"
+                          href={safeHref(m.attachmentUrl || "#")} target="_blank" rel="noopener noreferrer"
                           style={{
                             marginTop: m.text ? 8 : 0, padding: "12px 14px", borderRadius: 12, display: "block",
                             background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.28)}`, textDecoration: "none",
@@ -15138,8 +15145,15 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
   const btnRefs = useRef({});
   const [bar, setBar] = useState({ left: 0, width: 0 });
   useEffect(() => {
-    const el = btnRefs.current[value];
-    if (el) setBar({ left: el.offsetLeft, width: el.offsetWidth });
+    const measure = () => {
+      const el = btnRefs.current[value];
+      if (el) setBar({ left: el.offsetLeft, width: el.offsetWidth });
+    };
+    measure();
+    /* Rotating the phone (or any resize) moves the tabs under a stale
+       indicator — re-measure so the accent bar tracks the active tab. */
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
   }, [value, options]);
   return (
     <div role="tablist" aria-label={ariaLabel} className="cb-seg" style={{
@@ -16855,7 +16869,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                     {links.map((l) => (
                       <a
                         key={l.label}
-                        href={l.href}
+                        href={safeHref(l.href)}
                         target="_blank"
                         // noopener/noreferrer on every outbound link a person
                         // put on their own profile: without it the destination
@@ -22993,17 +23007,23 @@ summary::-webkit-details-marker { display: none; }
    continuous motion. */
 @keyframes cbFocusIn {
   from { opacity: 0; filter: blur(12px); }
-  to   { opacity: 1; filter: blur(0); }
+  /* The "to" frame lands on the "filter: none" keyword, never
+     "filter: blur(0)" — a non-none filter (even a no-op blur) keeps the
+     element a containing block for fixed/absolute descendants and can
+     leave iOS compositing the layer soft. This matches the v43 rule
+     documented elsewhere in this file. */
+  to   { opacity: 1; filter: none; }
 }
 .cb-focus-in {
   animation: cbFocusIn 1.15s var(--cb-ease-out) both;
 }
 /* iOS quirk: the blur(12px)→blur(0) focus-in can freeze mid-animation or
-   composite poorly on mobile GPUs, leaving the resting slogan blurry.
-   On touch devices the slogan skips the filter entirely and renders
+   composite poorly on mobile GPUs, leaving resting text blurry — the
+   footer and the headline were both reported "off" on touch. On touch
+   devices every focus-in layer skips the filter entirely and renders
    tack-sharp from the first frame. Wording untouched. */
 @media (hover: none), (pointer: coarse) {
-  .cb-hero-slogan.cb-focus-in { animation: none; filter: none; opacity: 1; }
+  .cb-focus-in { animation: none; filter: none; opacity: 1; }
 }
 /* The opening beat: near-black holds briefly, then lifts over two and a
    half seconds to reveal the footage underneath. Opacity only — the veil
@@ -24588,7 +24608,7 @@ button, a {
    cb-hero-ctas · cb-doc-helper · cb-doc-actions · cb-jumpnav · cb-jumpmore ·
    cb-jumpmore-btn · cb-eyebrow · cb-eyebrow-right · cb-seg ·
    cb-cite-controls · cb-bibentry · cb-further-pill · cb-bibentry-copy ·
-   cb-appfoot · cb-appfoot-links · cb-appfoot-copy.
+   cb-appfoot · cb-appfoot-links · cb-appfoot-copy · cb-introfoot-links.
    ────────────────────────────────────────────────────────────────────
    Base (all viewports): the jump-rail nav keeps its horizontal-scroll
    behavior — the inline overflowX moved here so the mobile query below
@@ -24656,6 +24676,18 @@ button, a {
     gap: 2px 24px !important;
   }
   .cb-appfoot-copy { grid-column: 1 / -1; margin-top: 8px; }
+
+  /* 8 · Intro footer: the same cure as the app footer. Its wrapping flex
+     row went ragged on iOS — "Film credits" kicked to the right of its
+     line with a dead gap below it. A deterministic two-column grid cannot
+     do that: About/Privacy, Contact/Terms, Film credits/Pause background.
+     (!important: the row carries inline display/gap for desktop.) */
+  .cb-introfoot-links {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 24px !important;
+    align-items: center;
+  }
 }
 
 `;
