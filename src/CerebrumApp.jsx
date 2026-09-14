@@ -11615,6 +11615,10 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
     const svg = fcSvgString(nodes, edges, title);
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
     const img = new Image();
+    // 2026-09-14: Surface export failures. The old code closed the menu
+    // synchronously before async work finished, and swallowed all errors —
+    // a failed export looked exactly like success.
+    img.onerror = () => { URL.revokeObjectURL(url); setExportOpen(false); toast("Couldn't render the diagram image. Try again.", { tone: "error" }); };
     img.onload = () => {
       try {
         const scale = 2;
@@ -11622,23 +11626,26 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
         c.width = Math.max(1, Math.ceil(b.w * scale));
         c.height = Math.max(1, Math.ceil(b.h * scale));
         const ctx = c.getContext("2d");
+        if (!ctx) throw new Error("canvas unavailable");
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, c.width, c.height);
         ctx.drawImage(img, 0, 0, c.width, c.height);
         c.toBlob((blob) => {
+          URL.revokeObjectURL(url);
+          setExportOpen(false);
           if (blob) {
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
             a.download = fcSlug(title) + ".png";
             a.click();
             setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+          } else {
+            toast("Couldn't encode the PNG. Try again.", { tone: "error" });
           }
-          URL.revokeObjectURL(url);
         });
-      } catch { URL.revokeObjectURL(url); }
+      } catch (e) { URL.revokeObjectURL(url); setExportOpen(false); toast(e?.message || "Couldn't export the PNG. Try again.", { tone: "error" }); }
     };
     img.src = url;
-    setExportOpen(false);
   };
   const doExportMD = () => {
     download(fcSlug(title) + ".md", fcToMarkdown(nodes, edges, title));
@@ -12655,13 +12662,15 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   const exportPNG = async () => {
     const el = svgHostRef.current && svgHostRef.current.querySelector("svg");
     if (!el) return;
+    // 2026-09-14: Surface export failures. The empty catch left the menu
+    // closing with no file and no feedback.
     try {
       const clone = el.cloneNode(true);
       clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
       const str = new XMLSerializer().serializeToString(clone);
       const url = URL.createObjectURL(new Blob([str], { type: "image/svg+xml;charset=utf-8" }));
       const img = new Image();
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error("image decode failed")); img.src = url; });
       const vb = el.viewBox && el.viewBox.baseVal;
       const w = Math.max(1, Math.round((vb && vb.width) || img.naturalWidth || 800));
       const h = Math.max(1, Math.round((vb && vb.height) || img.naturalHeight || 600));
@@ -12670,13 +12679,15 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       canvas.width = w * scale;
       canvas.height = h * scale;
       const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas unavailable");
       ctx.fillStyle = dark ? "#101013" : "#ffffff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
       const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-      if (blob) downloadBlob(`${slug}.png`, blob);
-    } catch {}
+      if (!blob) throw new Error("PNG encoding failed");
+      downloadBlob(`${slug}.png`, blob);
+    } catch (e) { toast(e?.message || "Couldn't export the PNG. Try again.", { tone: "error" }); }
     setMenu(null);
   };
 
@@ -17333,6 +17344,9 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     if (file) readFile(file);
   };
 
+  // 2026-09-14: Document Mode now has a 120s timeout and a cancel button.
+  // The old plain fetch() could hang forever with only "Reading it…" showing.
+  const analyzeAbort = useRef(null);
   const analyze = async () => {
     const text = documentText.trim();
     if (!text || analyzing) return;
@@ -17341,17 +17355,27 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     setSummary(null);
     setQaHistory([]);
     setRightTab("summary");
+    const controller = new AbortController();
+    analyzeAbort.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
     try {
-      const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text }) });
+      const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text }), signal: controller.signal });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Couldn't analyze that document. Please try again.");
       setSummary(data);
     } catch (e) {
-      setError(e.message || "Couldn't analyze that document. Please try again.");
+      if (e.name === "AbortError") {
+        setError("The analysis took too long and was stopped. Try a shorter document, or try again.");
+      } else {
+        setError(e.message || "Couldn't analyze that document. Please try again.");
+      }
     } finally {
+      clearTimeout(timeoutId);
+      analyzeAbort.current = null;
       setAnalyzing(false);
     }
   };
+  const cancelAnalyze = () => { if (analyzeAbort.current) analyzeAbort.current.abort(); };
 
   // Every factual claim in the answer still has to come from the document
   // text alone (see QA_SYSTEM_PROMPT in functions/api/document.js) — but a
@@ -17518,6 +17542,17 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
                   opacity: (!documentText.trim() || analyzing) ? 0.75 : 1,
                 }}
               >{analyzing ? "Reading it…" : "Read this document"}</button>
+              {analyzing && (
+                <button
+                  onClick={cancelAnalyze}
+                  title="Stop the analysis"
+                  style={{
+                    padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`,
+                    cursor: "pointer", background: "transparent", color: P.ink2,
+                    fontWeight: 600, fontSize: FONT_SIZES.small, flexShrink: 0,
+                  }}
+                >Cancel</button>
+              )}
             </div>
           </div>
           {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
