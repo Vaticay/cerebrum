@@ -193,10 +193,17 @@ export function classifyDocumentError(e) {
   };
 }
 
-const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
+const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000, externalSignal = null) => {
   if (!env.OPENROUTER_KEY) throw new Error(model + ": no OPENROUTER_KEY configured");
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
+  // If an external signal is provided (e.g., from a shared race controller),
+  // abort this call when it fires too — lets the race winner cancel losers.
+  const onExternalAbort = () => c.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) c.abort();
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  }
   try {
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -205,6 +212,7 @@ const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
       signal: c.signal,
     });
     clearTimeout(t);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
     if (!r.ok) {
       let bodyText = "";
       try { bodyText = (await r.text()).slice(0, 150); } catch {}
@@ -216,6 +224,7 @@ const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
     return { answer: cleaned, model };
   } catch (e) {
     clearTimeout(t);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
     if (e && e.name === "AbortError") throw new Error(model + ": timed out");
     throw e;
   }
@@ -244,19 +253,29 @@ async function generate(env, messages, maxTokens) {
   // trimming the per-call timeout from 25s to 15s means a wedged provider
   // stops holding the whole request hostage. The old configuration could
   // sit for 25 seconds and then report a generic failure.
+  //
+  // 2026-09-14: share one AbortController across the race — the instant one
+  // model wins, the losers are cancelled instead of running to completion.
+  // Previously all 5 fetches burned OpenRouter quota even after a winner
+  // emerged, hitting free-tier rate limits 5x faster.
+  const raceController = new AbortController();
   const calls = [
-    callOR(env, "deepseek/deepseek-chat-v3-0324:free", messages, maxTokens, 15000),
-    callOR(env, "google/gemini-2.0-flash-exp:free", messages, maxTokens, 15000),
-    callOR(env, "meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens, 15000),
-    callOR(env, "qwen/qwen-2.5-72b-instruct:free", messages, maxTokens, 15000),
-    callOR(env, "mistralai/mistral-small-3.2-24b-instruct:free", messages, maxTokens, 15000),
+    callOR(env, "deepseek/deepseek-chat-v3-0324:free", messages, maxTokens, 15000, raceController.signal),
+    callOR(env, "google/gemini-2.0-flash-exp:free", messages, maxTokens, 15000, raceController.signal),
+    callOR(env, "meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens, 15000, raceController.signal),
+    callOR(env, "qwen/qwen-2.5-72b-instruct:free", messages, maxTokens, 15000, raceController.signal),
+    callOR(env, "mistralai/mistral-small-3.2-24b-instruct:free", messages, maxTokens, 15000, raceController.signal),
   ];
   if (env.AI && typeof env.AI.run === "function") {
     calls.push(callCF(env, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", messages, maxTokens));
   }
   try {
-    return await Promise.any(calls);
+    const winner = await Promise.any(calls);
+    // Winner found — cancel the losers so they stop burning quota.
+    raceController.abort();
+    return winner;
   } catch (agg) {
+    raceController.abort();
     const errList = agg && agg.errors ? agg.errors.map((e) => String((e && e.message) || e)) : [String((agg && agg.message) || agg)];
     if (env.OPENROUTER_KEY) {
       try {
@@ -315,7 +334,9 @@ export async function onRequest(context) {
   if (!requireTrustedOrigin(request, env)) return forbiddenOrigin(cors);
 
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
-  if (!(await checkRateLimit(env, `document:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
+  // Use the hashed privacyKey (not the raw IP) — consistent with every
+  // other endpoint, and avoids storing raw IPs in the rate-limit KV.
+  if (!(await checkRateLimit(env, privacyKey("document", clientIP), RATE_LIMIT, RATE_WINDOW_MS))) {
     return errRes("Too many requests. Please wait a moment and try again.", 429, "rate_limited", { ...cors, "Retry-After": "30" });
   }
 
@@ -373,7 +394,10 @@ export async function onRequest(context) {
     // ~40s of a visitor staring at a spinner. Thirty seconds is the most
     // patience a document analysis deserves; past that the classifier below
     // turns the timeout into advice instead of a hang.
-    const result = await withTimeout(generate(env, messages, maxTokens), 30000, "document analysis");
+    // 2026-09-14: raised from 30s to 60s. A tiny test document took 23.5s on
+    // throttled free models, so 30s was timing out real papers and reading
+    // as "doesn't work". 60s gives the provider race room to finish.
+    const result = await withTimeout(generate(env, messages, maxTokens), 60000, "document analysis");
 
     if (isQA) {
       return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model }, 200, cors);

@@ -10785,8 +10785,14 @@ export async function onRequest(context) {
 
     // 2026-09-12: all model IDs now come from the verified OR_FREE_MODELS
     // catalog (module top). The old hardcoded :free IDs are retired (404).
-    const OR_WAVE1 = OR_FREE_MODELS.slice(0, 4);
-    const OR_WAVE2 = OR_FREE_MODELS.slice(4);
+    //
+    // 2026-09-14: reduced from 4 to 2. Racing 4 concurrent OpenRouter calls
+    // (plus resolver + self-reasoning + potential Wave 2) could burst ~27
+    // requests against a single shared key bucket — one heavy question could
+    // exhaust the key alone. 2 concurrent is enough for redundancy without
+    // self-throttling.
+    const OR_WAVE1 = OR_FREE_MODELS.slice(0, 2);
+    const OR_WAVE2 = OR_FREE_MODELS.slice(2);
     /* Commit 86 — four of the seven Workers AI models listed here were
        dead weight. Cloudflare has since marked llama-3.1-8b-instruct,
        mistral-7b-instruct-v0.2 and phi-2 DEPRECATED, and
