@@ -15624,25 +15624,47 @@ function ProfileCover({ P, cover, accent, height }) {
     </div>
   );
 }
-/* The stats row both profiles share: one line, tabular numerals, every
-   number a real count. Zero is a legitimate reading for a new account,
-   not an accusation — social profiles show their zeros. */
-function ProfileStats({ P, stats }) {
+/* Markers are inline micro-labels, not a badge wall. The forum consensus
+   (GitHub #28686/#28161) is blunt: badge walls read as engagement-farming
+   and trivial styling trivialises real achievements. The markers that stay
+   are scarce, textual, and verifiable — a quiet line under the name, each
+   explained on hover — never icons in tinted boxes, never gold gradients. */
+function ProfileMarkers({ P, accent, markers }) {
+  if (!markers || markers.length === 0) return null;
   return (
-    <div style={{ display: "flex", gap: 26, flexWrap: "wrap" }} role="list" aria-label="Profile statistics">
-      {stats.map((s) => (
-        <div key={s.label} role="listitem" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={{
-            fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink,
-            fontFamily: "var(--cb-body)", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em",
-          }}>{s.value}</span>
-          <span style={{
-            fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em",
-            textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-body)",
-          }}>{s.label}</span>
-        </div>
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", rowGap: 4, marginTop: 7 }} aria-label="Account markers">
+      {markers.map((m, i) => (
+        <span key={m.key} style={{ display: "inline-flex", alignItems: "center" }}>
+          {i > 0 && <span aria-hidden="true" style={{ color: P.faint, margin: "0 8px", fontSize: 12 }}>·</span>}
+          <span
+            title={m.title}
+            style={{
+              fontSize: 12, fontWeight: 600, letterSpacing: "0.05em",
+              fontFamily: "var(--cb-body)", cursor: "default",
+              color: m.key === "founder" || m.key === "verified" ? accent : P.faint,
+            }}
+          >
+            {m.key === "verified" ? "✓ " : ""}{m.label}
+          </span>
+        </span>
       ))}
     </div>
+  );
+}
+
+/* The save indicator: "Saving…" while the debounced sync is pending,
+   "Saved ✓" briefly after, then quiet. One save model (autosave), three
+   visually distinct states — never guessing whether an edit persisted. */
+function SaveIndicator({ state, P, accent }) {
+  if (state === "idle") return null;
+  return (
+    <span style={{
+      fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-body)",
+      color: state === "saved" ? accent : P.faint,
+      display: "inline-flex", alignItems: "center", gap: 5,
+    }}>
+      {state === "saving" ? "Saving…" : "✓ Saved"}
+    </span>
   );
 }
 
@@ -15661,30 +15683,8 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const fileInputRef = useRef(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarError, setAvatarError] = useState("");
-  const [coverSaving, setCoverSaving] = useState(false);
-  async function pickCover(c) {
-    const prev = profile.cover || "";
-    if (coverSaving || prev === c) return;
-    setCoverSaving(true);
-    try {
-      setProfile((p) => ({ ...p, cover: c }));
-      // Immediate, like the avatar — and the backend only accepts the
-      // eight named designs, so a bad value fails here, not silently.
-      await apiDataAction("update-profile", { cover: c });
-    } catch (err) {
-      setProfile((p) => ({ ...p, cover: prev }));
-      toast(err.message || "Couldn't update your cover.", { tone: "error" });
-    } finally {
-      setCoverSaving(false);
-    }
-  }
   // A profile is a thing you LOOK at; editing it is a mode you enter.
-  // "Annotate" rather than "Edit profile": you are annotating the record
-  // of your work, not filling in a social form.
   const [editing, setEditing] = useState(false);
-  // Content tabs: investigations, shelf, shelves — the social-profile
-  // order instead of a stacked ledger.
-  const [tab, setTab] = useState("investigations");
 
   // Center-crops whatever aspect ratio was uploaded to a square, then
   // downsamples it onto a fixed 256x256 canvas and re-encodes as JPEG —
@@ -15738,12 +15738,20 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   }
 
   const rawBadges = profileMeta?.badges || [];
-  const isFounder = rawBadges.includes("founder");
-  const isVerified = rawBadges.includes("verified");
-  const realBadges = [
-    ...BADGE_ORDER.filter((k) => rawBadges.includes(k)).map((k) => BADGE_DISPLAY[k]),
-    ...rawBadges.filter((k) => !BADGE_ORDER.includes(k)).map((k) => BADGE_DISPLAY[k]).filter(Boolean),
-  ];
+  /* Markers for the inline micro-label line: key, label, and the plain-
+     language criterion behind it (the tooltip). An unexplained badge is
+     decoration; an explained one is trust. */
+  const MARKER_TITLES = {
+    founder: "Founder — built Cerebrum",
+    verified: "Verified — this account's identity was confirmed",
+    early_adopter: "Early adopter — here since the public beta",
+  };
+  const markers = [
+    ...BADGE_ORDER.filter((k) => rawBadges.includes(k)),
+    ...rawBadges.filter((k) => !BADGE_ORDER.includes(k)),
+  ]
+    .map((k) => BADGE_DISPLAY[k] && { key: k, label: BADGE_DISPLAY[k].label, title: MARKER_TITLES[k] || BADGE_DISPLAY[k].label })
+    .filter(Boolean);
 
   // Affiliation command-palette: filters UNIVERSITIES against whatever is
   // currently typed, live, on every keystroke. Capped to a handful of
@@ -15767,6 +15775,47 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
   // The ledger, newest first.
   const ledger = [...(history || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  /* The pinned shelf: up to 4 landmark papers, pinned in the user's chosen
+     order. IDs resolve against the saved list — a stale ID (paper unsaved
+     elsewhere) simply drops out of the shelf rather than rendering a hole. */
+  const pinnedIds = Array.isArray(profile.pinned) ? profile.pinned.filter((v) => typeof v === "string").slice(0, 4) : [];
+  const pinnedPapers = pinnedIds
+    .map((id) => (saved || []).find((s) => (s.id || s.doi || s.title) === id))
+    .filter(Boolean);
+  const [pinSaving, setPinSaving] = useState(false);
+  async function togglePin(paperId) {
+    if (pinSaving) return;
+    const next = pinnedIds.includes(paperId)
+      ? pinnedIds.filter((id) => id !== paperId)
+      : [...pinnedIds, paperId].slice(0, 4);
+    setPinSaving(true);
+    const prev = pinnedIds;
+    setProfile((p) => ({ ...p, pinned: next }));
+    try {
+      await apiDataAction("update-profile", { pinned: next });
+    } catch (err) {
+      setProfile((p) => ({ ...p, pinned: prev }));
+      toast(err.message || "Couldn't update your pinned shelf.", { tone: "error" });
+    } finally {
+      setPinSaving(false);
+    }
+  }
+  const paperKey = (sv) => sv.id || sv.doi || sv.title;
+  /* Save state for the edit-mode indicator: "saving" while keystrokes are
+     still inside the debounce window, "saved" briefly after they settle.
+     It mirrors the 900ms debounced profile sync at the App level. */
+  const [saveState, setSaveState] = useState("idle");
+  const saveTimer = useRef(null);
+  useEffect(() => {
+    if (!editing) { setSaveState("idle"); return; }
+    setSaveState("saving");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      setSaveState("saved");
+      saveTimer.current = setTimeout(() => setSaveState("idle"), 1600);
+    }, 1000);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [profile, editing]);
   /* Research interests are user-written, not extracted from query
      fragments. Auto-derived "pursuits" read like broken keywords. */
   const interests = Array.isArray(profile.interests) ? profile.interests.filter(Boolean) : [];
@@ -15788,19 +15837,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     <div role="region" aria-label="Your profile" style={{ flex: 1, minHeight: 0 }}>
       <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "10px 18px 72px" : "18px 28px 96px" }}>
 
-        {/* ── Cover + identity ───────────────────────────────────
-            A social profile opens with a banner, not a ledger. The cover
-            is the stored value (update-profile's `cover`, one of the
-            eight named designs, picked in the Annotate panel below); the
-            avatar overlaps its lower edge the way every profile people
-            already use lays out. */}
-        <ProfileCover P={P} cover={profile.cover} accent={accent} height={isMobile ? 140 : 150} />
-
+        {/* ── Identity header: editorial, left-aligned. ──────────────────
+            No banner, no badge pills, no stat row. A profile reads human
+            when identity is a deliberate choice for this product — name,
+            markers, and the work itself — not the centered-avatar →
+            stats → tabs template stack. */}
         <div style={{
-          display: "flex", gap: isMobile ? 14 : 18, alignItems: "flex-end",
-          marginTop: isMobile ? -30 : -36, padding: isMobile ? "0 6px" : "0 10px",
+          display: "flex", gap: isMobile ? 16 : 20, alignItems: "flex-start",
         }}>
-          <div style={{ position: "relative", width: isMobile ? 80 : 88, height: isMobile ? 80 : 88, flexShrink: 0, marginTop: isMobile ? -24 : 0 }}>
+          <div style={{ position: "relative", width: isMobile ? 72 : 88, height: isMobile ? 72 : 88, flexShrink: 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
@@ -15836,63 +15881,64 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               {avatarSaving ? <Icon name="refresh" size={12} className="cb-spin" /> : <Icon name="camera" size={12} />}
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
+            {/* Upload progress: a thin bar under the avatar. The upload is
+                a single request, so this is indeterminate — but a visible
+                bar beats a silent spinner for "did it take my photo?" */}
+            {avatarSaving && (
+              <div style={{
+                position: "absolute", left: 8, right: 8, bottom: -8, height: 3,
+                borderRadius: 2, background: P.line, overflow: "hidden",
+              }}>
+                <div className="cb-indeterminate-bar" style={{ height: "100%", width: "40%", borderRadius: 2, background: accent }} />
+              </div>
+            )}
           </div>
 
-          <div style={{ flex: 1, minWidth: 0, paddingBottom: 4 }}>
-            {!editing ? (
-              <div style={{
-                fontSize: isMobile ? 22 : 26, fontWeight: 700,
-                color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", lineHeight: 1.1,
-                display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap",
-                ...(isFounder ? {
-                  background: "linear-gradient(105deg, #f7e8b0 0%, #c9a227 40%, #ffe9a8 62%, #a8842a 100%)",
-                  WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-                  filter: "drop-shadow(0 2px 10px rgba(201,162,39,0.25))",
-                } : {}),
-              }}>
-                {displayName}
-                {isVerified && <VerifiedCheck size={isMobile ? 18 : 21} />}
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                {editing ? (
+                  <input
+                    value={profile.name || ""}
+                    onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
+                    placeholder={displayName}
+                    aria-label="Your name"
+                    style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: isMobile ? 22 : 26, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", outline: "none" }}
+                  />
+                ) : (
+                  <h1 style={{
+                    margin: 0, fontSize: isMobile ? 22 : 26, fontWeight: 700,
+                    color: P.ink, fontFamily: "var(--cb-display)",
+                    letterSpacing: "-0.02em", lineHeight: 1.1,
+                  }}>{displayName}</h1>
+                )}
+                {/* Markers are a quiet line under the name — text, not a wall. */}
+                {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
+                <div style={{ marginTop: markers.length > 0 && !editing ? 6 : 8, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}>
+                  {displayUsername}
+                </div>
               </div>
-            ) : (
-              <input
-                value={profile.name || ""}
-                onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
-                placeholder={displayName}
-                aria-label="Your name"
-                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: isMobile ? 22 : 26, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", outline: "none" }}
-              />
-            )}
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 5, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}>
-              <span>{displayUsername}</span>
+              {/* Edit lives top-right — the convention. */}
+              <button
+                onClick={() => setEditing((v) => !v)}
+                style={{
+                  flexShrink: 0, padding: "8px 16px", borderRadius: 100, cursor: "pointer",
+                  fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
+                  background: editing ? accent : "transparent",
+                  color: editing ? at : P.ink,
+                  border: editing ? "none" : `1px solid ${P.line2}`,
+                }}
+              >{editing ? "Done" : "Edit profile"}</button>
             </div>
-            {/* Badges live with the identity now, not in a ledger section
-                at the bottom of the page — they are about who this is. */}
-            {!editing && realBadges.length > 0 && (
-              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
-                {realBadges.map((b) => (
-                  <span key={b.label} style={{
-                    display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600,
-                    padding: "4px 10px", borderRadius: RADIUS.pill,
-                    color: b.real ? accent : (b.tint || P.ink2),
-                    background: b.real ? withAlpha(accent, 0.1) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
-                    border: b.real ? `1px solid ${withAlpha(accent, 0.3)}` : `1px solid ${P.line}`,
-                  }}>
-                    <Icon name={b.icon} size={12} />
-                    {b.label}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Bio, context and links read full-width under the identity row —
-            the social-profile order: who, then what they're about. */}
-        <div style={{ padding: isMobile ? "0 6px" : "0 10px", marginTop: 14 }}>
-          {/* Research interests — written by the user, not extracted from
-              queries. */}
-          {!editing && interests.length > 0 && (
+        {/* Bio, context and links — the social-profile order: who, then what
+            they're about. In edit mode the bio edits inline, where it
+            lives; the heavier fields (degree, affiliation, links) stay in
+            the focused form below. */}
+        <div style={{ marginTop: 14 }}>
+          {interests.length > 0 && !editing && (
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
               <span style={{ ...eyebrow, letterSpacing: "0.1em", marginRight: 10 }}>Research interests</span>
               {interests.join(" · ")}
@@ -15911,8 +15957,34 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </button>
           )}
 
-          {!editing && profile.bio && (
-            <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
+          {/* Bio: inline in edit mode, autosaved by the same debounced
+              sync as everything else — one save model, no guessing. */}
+          {editing ? (
+            <div style={{ marginTop: 12, maxWidth: 620 }}>
+              <textarea
+                value={profile.bio || ""}
+                onChange={(e) => setProfile((p2) => ({ ...p2, bio: e.target.value.slice(0, 400) }))}
+                aria-label="What do you work on"
+                placeholder="What do you work on? One or two sentences is plenty."
+                rows={3}
+                style={{
+                  width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 8,
+                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                  border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", lineHeight: 1.6,
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>
+                  {(profile.bio || "").length}/400
+                </span>
+                <SaveIndicator state={saveState} P={P} accent={accent} />
+              </div>
+            </div>
+          ) : (
+            profile.bio && (
+              <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
+            )
           )}
           {!editing && (profile.link_site || profile.link_orcid || profile.link_scholar) && (
             <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
@@ -15929,42 +16001,20 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           )}
         </div>
 
-        {/* The stats row — every number a real count: investigations and
-            papers from local state, followers and following from the
-            account's own profile endpoint. Zero is a legitimate reading
-            for a new account, not an accusation — social profiles show
-            their zeros. */}
-        <div style={{
-          marginTop: 20, padding: isMobile ? "16px 6px 0" : "18px 10px 0",
-          borderTop: `1px solid ${P.line}`,
-        }}>
-          <ProfileStats P={P} stats={[
-            /* history.length counts conversations (investigations), not
-               individual questions — one conversation with five questions
-               is one investigation. */
-            { label: "Investigations", value: (history || []).length },
-            { label: "Papers", value: (saved || []).length },
-            { label: "Followers", value: profileMeta?.followers || 0 },
-            { label: "Following", value: profileMeta?.followingCount || 0 },
-          ]} />
-        </div>
+        {/* No hero stat row. Counts live on the sections they describe —
+            "Library · 128", not a dashboard. (HN: stat walls read as
+            metagaming — "they do things to make number go up.") */}
 
-        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16 }}>
-          <button
-            onClick={() => setEditing((v) => !v)}
-            style={{
-              padding: "8px 18px", borderRadius: 100, cursor: "pointer",
-              fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
-              background: editing ? accent : "transparent", color: editing ? at : P.ink,
-              border: editing ? "none" : `1px solid ${P.line2}`,
-            }}
-          >{editing ? "Done" : "Edit profile"}</button>
+        {/* Account & security sits below the identity, quiet — sensitive
+            actions belong beneath sections of clarity and trust. */}
+        <div style={{ marginTop: 16 }}>
           <button
             onClick={onManageAccount}
             style={{
-              padding: "8px 18px", borderRadius: 100, cursor: "pointer",
-              fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-body)",
-              background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
+              background: "none", border: "none", padding: 0, cursor: "pointer",
+              fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-body)",
+              color: P.faint, textDecoration: "underline",
+              textUnderlineOffset: 3, textDecorationColor: withAlpha(P.faint, 0.4),
             }}
           >Account &amp; security</button>
         </div>
@@ -15972,59 +16022,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
         {editing && (
           <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px dashed ${P.line2}`, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
-            {/* The cover picker: the eight named designs update-profile
-                accepts. Saved immediately like the avatar — a banner you
-                just picked shouldn't be one closed tab away from being
-                lost. The backend rejects anything outside ALLOWED_COVERS,
-                so a hand-edited value can never be stored. */}
-            <div>
-              <div style={{ ...eyebrow, marginBottom: 8 }}>Cover</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }} role="radiogroup" aria-label="Profile cover">
-                {COVER_ORDER.map((c) => {
-                  const on = (profile.cover || "graphite") === c;
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      role="radio"
-                      aria-checked={on}
-                      title={COVER_LABELS[c]}
-                      aria-label={`Cover: ${COVER_LABELS[c]}`}
-                      disabled={coverSaving}
-                      onClick={() => pickCover(c)}
-                      style={{
-                        width: 56, height: 36, borderRadius: 8, cursor: coverSaving ? "default" : "pointer",
-                        background: coverDesign(c, accent),
-                        border: on ? `2px solid ${accent}` : `1px solid ${P.line2}`,
-                        opacity: coverSaving && !on ? 0.5 : 1,
-                        padding: 0,
-                      }}
-                    />
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", marginTop: 6 }}>
-                {coverSaving ? "Saving…" : `Now showing: ${COVER_LABELS[profile.cover] || "Graphite"}`}
-              </div>
-            </div>
-            <div>
-              <div style={{ ...eyebrow, marginBottom: 8 }}>About you</div>
-              <textarea
-                value={profile.bio || ""}
-                onChange={(e) => setProfile((p2) => ({ ...p2, bio: e.target.value.slice(0, 400) }))}
-                aria-label="What do you work on" placeholder="What do you work on? One or two sentences is plenty."
-                rows={3}
-                style={{
-                  width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 8,
-                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-                  border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)", lineHeight: 1.6,
-                }}
-              />
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", marginTop: 4 }}>
-                {(profile.bio || "").length}/400
-              </div>
-            </div>
+            {/* No cover picker: the banner is gone. No bio field: it edits
+                inline, where it lives. What remains are the interdependent
+                fields (degree, affiliation) and the lists — the focused
+                form, not a chain of isolated inline fields. */}
             <div>
               <div style={{ ...eyebrow, marginBottom: 8 }}>Research interests</div>
               <input
@@ -16135,54 +16136,134 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </div>
         )}
 
-        {/* ── Research activity ────────────────────────────────────
-            The shape of the work, drawn from the work: one tick per
-            investigation over the last 120 days, taller where the paper
-            haul was bigger. Collapses when there is little data. */}
-        {(history || []).length >= 3 && (
-          <div style={{ marginTop: 30 }}>
-            <div style={{ ...eyebrow, marginBottom: 4 }}>Research activity · last 120 days</div>
-            <FieldRidge history={history} accent={accent} P={P} />
-          </div>
+        {/* ── Pinned shelf ───────────────────────────────────────────
+            The profile's signature: up to four landmark papers, pinned in
+            the user's chosen order. Letterboxd's "Four Favorites" is the
+            most forum-praised profile pattern found — identity through
+            taste, not metadata. */}
+        {(pinnedPapers.length > 0 || editing) && (
+          <section aria-label="Pinned papers" style={{ marginTop: 30 }}>
+            <div style={{ ...eyebrow, marginBottom: 12 }}>Pinned</div>
+            {pinnedPapers.length === 0 ? (
+              <p style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, margin: 0, maxWidth: 520 }}>
+                Pin up to four papers that define your work. They'll live here,
+                at the top of your profile — pin them from your library below.
+              </p>
+            ) : (
+              <div style={{
+                display: "grid", gap: 10,
+                gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+              }}>
+                {pinnedPapers.map((sv) => {
+                  const key = paperKey(sv);
+                  return (
+                    <div key={key} style={{
+                      position: "relative", padding: "14px 14px 12px",
+                      borderRadius: 10, background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+                      border: `1px solid ${P.line}`,
+                    }}>
+                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45, paddingRight: editing ? 24 : 0 }}>
+                        {renderCleanTitle(sv.title)}
+                      </div>
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-body)", lineHeight: 1.5 }}>
+                        {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                      </div>
+                      {editing && (
+                        <button
+                          type="button"
+                          onClick={() => togglePin(key)}
+                          disabled={pinSaving}
+                          aria-label={`Unpin ${renderCleanTitle(sv.title)}`}
+                          title="Unpin"
+                          style={{
+                            position: "absolute", top: 8, right: 8, width: 24, height: 24,
+                            borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                            background: "transparent", border: "none", cursor: "pointer",
+                            color: P.faint, fontSize: 14, lineHeight: 1,
+                          }}
+                        >×</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         )}
 
-        {/* ── Content tabs ─────────────────────────────────────────
-            Investigations, the shelf, and shelves are tabs now, not a
-            stacked ledger — the social-profile order. Badges moved up
-            with the identity and affiliation stays in the context line,
-            so the old Marks section has nothing left to hold. */}
-        <div style={{ marginTop: 26 }}>
-          <div role="tablist" aria-label="Profile content" style={{ display: "flex", gap: 2, borderBottom: `1px solid ${P.line}` }}>
-            {[
-              { key: "investigations", label: "Investigations", count: ledger.length },
-              { key: "shelf", label: "Saved", count: (saved || []).length },
-              { key: "shelves", label: "Collections", count: collectionCounts.length },
-            ].map((t) => {
-              const on = tab === t.key;
-              return (
-                <button
-                  key={t.key}
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => setTab(t.key)}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    padding: "10px 14px", marginBottom: -1,
-                    /* Color carries the state, not weight — swapping 500/700
-                       reshuffles the row width on every tap. */
-                    fontSize: FONT_SIZES.small, fontWeight: 600,
-                    fontFamily: "var(--cb-body)", color: on ? P.ink : P.faint,
-                    borderBottom: on ? `2px solid ${accent}` : "2px solid transparent",
-                  }}
-                >
-                  {t.label}
-                  <span style={{ marginLeft: 7, fontSize: FONT_SIZES.micro, color: on ? P.ink2 : P.faint, fontFamily: "var(--cb-body)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{t.count}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div role="tabpanel" style={{ paddingTop: 8, minHeight: 120 }}>
-            {tab === "investigations" && (ledger.length === 0 ? (
+        {/* ── Library ────────────────────────────────────────────────
+            Artifacts first: the papers say who this is. Counts live on the
+            section header, never in a hero stat row. */}
+        <section aria-label="Saved papers" style={{ marginTop: 30 }}>
+          <div style={{ ...eyebrow, marginBottom: 4 }}>Library · {(saved || []).length}</div>
+          {(saved || []).length === 0 ? (
+            <ProfileEmpty P={P} accent={accent} icon="bookmark"
+              title="Nothing on the shelf yet"
+              body="Save a paper from any answer and it lands here, with the investigation that found it." />
+          ) : (
+            <div>
+              {(saved || []).map((sv, i) => {
+                const key = paperKey(sv);
+                const isPinned = pinnedIds.includes(key);
+                return (
+                  <div key={key || i} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-body)", lineHeight: 1.5 }}>
+                        {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                        {shelfName(sv) && <span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.micro }}> · filed under {shelfName(sv)}</span>}
+                      </div>
+                    </div>
+                    {/* Pin toggle: quiet text, not an icon in a box. */}
+                    <button
+                      type="button"
+                      onClick={() => togglePin(key)}
+                      disabled={pinSaving || (!isPinned && pinnedIds.length >= 4)}
+                      title={isPinned ? "Unpin from profile" : pinnedIds.length >= 4 ? "Shelf is full (4)" : "Pin to profile"}
+                      style={{
+                        flexShrink: 0, background: "none", border: "none", cursor: "pointer",
+                        fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-body)",
+                        letterSpacing: "0.06em", textTransform: "uppercase",
+                        color: isPinned ? accent : P.faint,
+                        opacity: pinSaving ? 0.5 : 1, padding: "4px 2px",
+                      }}
+                    >{isPinned ? "Pinned" : "Pin"}</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* ── Collections ──────────────────────────────────────────── */}
+        <section aria-label="Collections" style={{ marginTop: 30 }}>
+          <div style={{ ...eyebrow, marginBottom: 4 }}>Collections · {collectionCounts.length}</div>
+          {collectionCounts.length === 0 ? (
+            <ProfileEmpty P={P} accent={accent} icon="folder"
+              title="No shelves yet"
+              body="Shelves group saved papers by question rather than by date. Make one from any paper you have saved." />
+          ) : (
+            <div>
+              {collectionCounts.map((c, i) => (
+                <div key={c.id} style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                  <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, display: "inline-flex", alignItems: "center", gap: 9 }}>
+                    <Icon name="folder" size={14} style={{ color: P.faint }} />{c.name}
+                  </span>
+                  <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>
+                    {c.count} paper{c.count === 1 ? "" : "s"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ── Investigations: the diary ──────────────────────────────
+            A dated trail of the work, not a counter. Each row opens the
+            thread it came from. */}
+        <section aria-label="Investigations" style={{ marginTop: 30 }}>
+          <div style={{ ...eyebrow, marginBottom: 4 }}>Investigations · {ledger.length}</div>
+          {ledger.length === 0 ? (
             <ProfileEmpty P={P} accent={accent} icon="history"
               title="No investigations yet"
               body="Every question you ask is kept as an investigation: the thread, the papers it found, and what you saved from it." />
@@ -16207,46 +16288,28 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   </div>
                 </button>
               ))}
+            </div>
+          )}
+        </section>
 
-            </div>
-            ))}
-            {tab === "shelf" && (saved.length === 0 ? (
-            <ProfileEmpty P={P} accent={accent} icon="bookmark"
-              title="Nothing on the shelf yet"
-              body="Save a paper from any answer and it lands here, with the investigation that found it." />
-          ) : (
-            <div>
-              {(saved || []).map((sv, i) => (
-                <div key={sv.id || i} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
-                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-body)", lineHeight: 1.5 }}>
-                    {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
-                    {shelfName(sv) && <span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.micro }}> · filed under {shelfName(sv)}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-            ))}
-            {tab === "shelves" && (collectionCounts.length === 0 ? (
-            <ProfileEmpty P={P} accent={accent} icon="folder"
-              title="No shelves yet"
-              body="Shelves group saved papers by question rather than by date. Make one from any paper you have saved." />
-          ) : (
-            <div>
-              {collectionCounts.map((c, i) => (
-                <div key={c.id} style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
-                  <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, display: "inline-flex", alignItems: "center", gap: 9 }}>
-                    <Icon name="folder" size={14} style={{ color: P.faint }} />{c.name}
-                  </span>
-                  <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>
-                    {c.count} paper{c.count === 1 ? "" : "s"}
-                  </span>
-                </div>
-              ))}
-            </div>
-            ))}
-          </div>
-        </div>
+        {/* ── Activity: the shape of the work, behind a disclosure. ──
+            Detailed stats belong here, not on the landing view. */}
+        {(history || []).length >= 3 && (
+          <section aria-label="Research activity" style={{ marginTop: 30 }}>
+            <details>
+              <summary style={{
+                ...eyebrow, cursor: "pointer", listStyle: "none",
+                display: "flex", alignItems: "center", gap: 8,
+              }}>
+                <span style={{ fontSize: 10, color: P.faint }}>▶</span>
+                Activity · last 120 days
+              </summary>
+              <div style={{ marginTop: 12 }}>
+                <FieldRidge history={history} accent={accent} P={P} />
+              </div>
+            </details>
+          </section>
+        )}
       </div>
     </div>
   );
@@ -16889,11 +16952,16 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                   </div>
                 )}
 
-                <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${P.line}` }}>
-                  <ProfileStats P={P} stats={[
+                <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", gap: 20 }}>
+                  {[
                     { label: "Followers", value: data.followers || 0 },
                     { label: "Following", value: data.followingCount || 0 },
-                  ]} />
+                  ].map((s) => (
+                    <div key={s.label} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                      <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)", fontVariantNumeric: "tabular-nums" }}>{s.value}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-body)" }}>{s.label}</span>
+                    </div>
+                  ))}
                 </div>
 
                 {(data.badges || []).length > 0 && (
@@ -21288,6 +21356,7 @@ function App() {
         link_site: profile.link_site || "",
         link_orcid: profile.link_orcid || "",
         link_scholar: profile.link_scholar || "",
+        interests: Array.isArray(profile.interests) ? profile.interests.filter(Boolean).slice(0, 8) : [],
       }).catch((e) => toast(e.message || "Couldn't save your profile changes.", { tone: "error" }));
     }, 900);
     return () => clearTimeout(profileSyncTimer.current);
@@ -22851,6 +22920,16 @@ summary::-webkit-details-marker { display: none; }
 /* ── Keyframes: all blur-to-focus, slow, intentional ── */
 @keyframes cbspin { to { transform: rotate(360deg); } }
 .cb-spin { animation: cbspin 0.9s linear infinite; display: inline-flex; }
+/* Indeterminate upload bar: slides across its track while the avatar POST
+   is in flight. Pure transform/opacity motion, respects reduced motion. */
+.cb-indeterminate-bar { animation: cbIndeterminate 1.1s ease-in-out infinite; }
+@keyframes cbIndeterminate {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(280%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-indeterminate-bar { animation: none; }
+}
 @keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes cbHuddleRing {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.18); }

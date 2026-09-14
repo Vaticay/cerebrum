@@ -458,7 +458,7 @@ export async function onRequest(context) {
       // raise, so it's not being guessed at here.
       if (resource === "profile") {
         const row = await env.DB.prepare(
-          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, bio, cover, link_site, link_orcid, link_scholar, terms_version, terms_accepted_at, discoverable, dm_policy, show_affiliation FROM users WHERE id = ?"
+          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, bio, cover, link_site, link_orcid, link_scholar, pinned, interests, terms_version, terms_accepted_at, discoverable, dm_policy, show_affiliation FROM users WHERE id = ?"
         ).bind(user.id).first();
         if (!row) return errRes("Account not found.", 404, "not_found", cors);
         const followerCount = await env.DB.prepare(
@@ -476,9 +476,26 @@ export async function onRequest(context) {
         const badgeRows = await env.DB.prepare(
           "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
         ).bind(user.id).all();
+        // Pinned shelf: stored as a JSON array string; a corrupt value
+        // degrades to an empty shelf, never a 500.
+        let pinnedIds = [];
+        if (row.pinned) {
+          try {
+            const parsed = JSON.parse(row.pinned);
+            if (Array.isArray(parsed)) pinnedIds = parsed.filter((v) => typeof v === "string").slice(0, 4);
+          } catch { /* keep the empty shelf */ }
+        }
+        // Interests: same JSON-array-string shape, same graceful degrade.
+        let interestList = [];
+        if (row.interests) {
+          try {
+            const parsed = JSON.parse(row.interests);
+            if (Array.isArray(parsed)) interestList = parsed.filter((v) => typeof v === "string").slice(0, 8);
+          } catch { /* keep the empty list */ }
+        }
         return new Response(JSON.stringify({
           ok: true,
-          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, degree: row.degree || null, grad_year: row.grad_year || null, avatar_base64: row.avatar_base64 || null, bio: row.bio || null, cover: row.cover || null, link_site: row.link_site || null, link_orcid: row.link_orcid || null, link_scholar: row.link_scholar || null },
+          user: { id: row.id, email: row.email, username: row.username, name: row.name, affiliation: row.affiliation, degree: row.degree || null, grad_year: row.grad_year || null, avatar_base64: row.avatar_base64 || null, bio: row.bio || null, cover: row.cover || null, link_site: row.link_site || null, link_orcid: row.link_orcid || null, link_scholar: row.link_scholar || null, pinned: pinnedIds, interests: interestList },
           followers: followerCount?.n || 0,
           followingCount: followingCount?.n || 0,
           badges: (badgeRows.results || []).map((b) => b.badge_type),
@@ -1334,6 +1351,39 @@ export async function onRequest(context) {
         return errRes("Unknown cover.", 400, "bad_request", cors);
       }
       if (cover === "") cover = null;
+      // Pinned shelf: an array of up to 4 saved-paper IDs, stored as a JSON
+      // string. The IDs are opaque client-side strings; we validate shape
+      // (array, max 4, short non-empty strings), not membership — the paper
+      // has to be in the user's own saved list to render, so a forged ID
+      // simply matches nothing. `null` clears the shelf.
+      let pinned;
+      if (body.pinned === null) {
+        pinned = null;
+      } else if (body.pinned !== undefined) {
+        if (!Array.isArray(body.pinned)) {
+          return errRes("Pinned must be a list of papers.", 400, "bad_request", cors);
+        }
+        const ids = body.pinned
+          .filter((v) => typeof v === "string" && v.length > 0 && v.length <= 200)
+          .slice(0, 4);
+        pinned = JSON.stringify(ids);
+      }
+      // Research interests: up to 8 short strings. `null`/empty clears.
+      let interests;
+      if (body.interests !== undefined) {
+        if (body.interests === null) {
+          interests = null;
+        } else if (Array.isArray(body.interests)) {
+          const list = body.interests
+            .filter((v) => typeof v === "string")
+            .map((v) => v.trim().slice(0, 60))
+            .filter(Boolean)
+            .slice(0, 8);
+          interests = JSON.stringify(list);
+        } else {
+          return errRes("Interests must be a list of strings.", 400, "bad_request", cors);
+        }
+      }
       const safeUrl = (v) => {
         if (typeof v !== "string") return undefined;
         const t = v.trim();
@@ -1354,6 +1404,8 @@ export async function onRequest(context) {
       const binds = [];
       if (bio !== undefined) { sets.push("bio = ?"); binds.push(bio); }
       if (cover !== undefined) { sets.push("cover = ?"); binds.push(cover); }
+      if (pinned !== undefined) { sets.push("pinned = ?"); binds.push(pinned); }
+      if (interests !== undefined) { sets.push("interests = ?"); binds.push(interests); }
       if (linkSite !== undefined) { sets.push("link_site = ?"); binds.push(linkSite); }
       if (linkOrcid !== undefined) { sets.push("link_orcid = ?"); binds.push(linkOrcid); }
       if (linkScholar !== undefined) { sets.push("link_scholar = ?"); binds.push(linkScholar); }

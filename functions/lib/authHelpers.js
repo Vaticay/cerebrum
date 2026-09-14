@@ -440,6 +440,15 @@ export async function ensureUserProfileColumns(env) {
     "ALTER TABLE users ADD COLUMN link_scholar TEXT",
     "ALTER TABLE users ADD COLUMN terms_version TEXT",
     "ALTER TABLE users ADD COLUMN terms_accepted_at INTEGER",
+    // Pinned shelf — up to 4 saved-paper IDs the user pins to the top of
+    // their own profile. Stored as a JSON array string; NULL means none
+    // pinned. Never exposed on public profiles (pinned papers are saved
+    // papers, and saved papers are private).
+    "ALTER TABLE users ADD COLUMN pinned TEXT",
+    // Research interests — up to 8 short strings, stored as a JSON array.
+    // The frontend edited these for a while without a column; they were
+    // local-only and lost on refresh.
+    "ALTER TABLE users ADD COLUMN interests TEXT",
     /* Commit 100 — privacy controls. Three columns, all nullable, all with a
        defined meaning for NULL so an account that predates them behaves
        sensibly without a backfill:
