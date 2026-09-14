@@ -15543,22 +15543,16 @@ function FieldRidge({ history, accent, P }) {
 }
 
 // ProfileEmpty is shared by the profile tabs' honest empty states.
-function ProfileEmpty({ P, accent, icon, title, body }) {
+/* Empty states: compact and human, not billboards. A big dashed box with
+   an icon in a tinted square screams "template" — and the research is
+   explicit that icons in rounded tinted boxes are an AI tell. Just say
+   what's true, in one or two lines, and leave room for the content that
+   will be there. */
+function ProfileEmpty({ P, title, body }) {
   return (
-    <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center",
-      padding: "44px 24px", borderRadius: RADIUS.lg,
-      border: `1px dashed ${P.line2}`,
-      background: P.dark ? "rgba(255,255,255,0.018)" : "rgba(0,0,0,0.012)",
-    }}>
-      <span aria-hidden="true" style={{
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        width: 44, height: 44, borderRadius: RADIUS.md, marginBottom: 14,
-        color: accent, background: withAlpha(accent, 0.1),
-        border: `1px solid ${withAlpha(accent, 0.22)}`,
-      }}><Icon name={icon} size={19} /></span>
-      <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>{title}</div>
-      <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 7, maxWidth: 380, fontFamily: "var(--cb-body)" }}>{body}</div>
+    <div style={{ padding: "16px 0" }}>
+      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-body)" }}>{title}</div>
+      <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 4, maxWidth: 480, fontFamily: "var(--cb-body)" }}>{body}</div>
     </div>
   );
 }
@@ -15834,8 +15828,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-body)" };
 
   return (
-    <div role="region" aria-label="Your profile" style={{ flex: 1, minHeight: 0 }}>
-      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "10px 18px 72px" : "18px 28px 96px" }}>
+    <div role="region" aria-label="Your profile" style={{
+      flex: 1, minHeight: 0,
+      /* Solid background: the cinematic backdrop stays on the landing and
+         workspace, but a profile is a document — text over a butterfly
+         is unreadable, and the research is explicit that dim film
+         backgrounds need directional scrims, not full-bleed imagery. */
+      background: P.bg,
+    }}>
+      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 72px" : "18px 28px 96px" }}>
 
         {/* ── Identity header: editorial, left-aligned. ──────────────────
             No banner, no badge pills, no stat row. A profile reads human
@@ -15903,13 +15904,13 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                     onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
                     placeholder={displayName}
                     aria-label="Your name"
-                    style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: isMobile ? 22 : 26, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em", outline: "none" }}
+                    style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: isMobile ? 28 : 34, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.03em", outline: "none" }}
                   />
                 ) : (
                   <h1 style={{
-                    margin: 0, fontSize: isMobile ? 22 : 26, fontWeight: 700,
+                    margin: 0, fontSize: isMobile ? 28 : 34, fontWeight: 700,
                     color: P.ink, fontFamily: "var(--cb-display)",
-                    letterSpacing: "-0.02em", lineHeight: 1.1,
+                    letterSpacing: "-0.03em", lineHeight: 1.05,
                   }}>{displayName}</h1>
                 )}
                 {/* Markers are a quiet line under the name — text, not a wall. */}
@@ -16197,7 +16198,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         <section aria-label="Saved papers" style={{ marginTop: 30 }}>
           <div style={{ ...eyebrow, marginBottom: 4 }}>Library · {(saved || []).length}</div>
           {(saved || []).length === 0 ? (
-            <ProfileEmpty P={P} accent={accent} icon="bookmark"
+            <ProfileEmpty P={P}
               title="Nothing on the shelf yet"
               body="Save a paper from any answer and it lands here, with the investigation that found it." />
           ) : (
@@ -16239,7 +16240,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         <section aria-label="Collections" style={{ marginTop: 30 }}>
           <div style={{ ...eyebrow, marginBottom: 4 }}>Collections · {collectionCounts.length}</div>
           {collectionCounts.length === 0 ? (
-            <ProfileEmpty P={P} accent={accent} icon="folder"
+            <ProfileEmpty P={P}
               title="No shelves yet"
               body="Shelves group saved papers by question rather than by date. Make one from any paper you have saved." />
           ) : (
@@ -16264,7 +16265,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         <section aria-label="Investigations" style={{ marginTop: 30 }}>
           <div style={{ ...eyebrow, marginBottom: 4 }}>Investigations · {ledger.length}</div>
           {ledger.length === 0 ? (
-            <ProfileEmpty P={P} accent={accent} icon="history"
+            <ProfileEmpty P={P}
               title="No investigations yet"
               body="Every question you ask is kept as an investigation: the thread, the papers it found, and what you saved from it." />
           ) : (
