@@ -15598,7 +15598,7 @@ function StarRating({ P, value, onRate, disabled, size = 16 }) {
     <div
       role="radiogroup"
       aria-label="Rate this paper"
-      style={{ display: "inline-flex", alignItems: "center", gap: 2 }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 0 }}
       onMouseLeave={() => setHover(0)}
     >
       {[1, 2, 3, 4, 5].map((star) => {
@@ -15617,7 +15617,12 @@ function StarRating({ P, value, onRate, disabled, size = 16 }) {
             onFocus={() => setHover(star)}
             onBlur={() => setHover(0)}
             style={{
-              background: "none", border: "none", padding: 14, margin: -10,
+              // 2026-09-14: Fixed overlapping hit targets. The old
+              // padding:14/margin:-10 created 42px boxes on a 26px pitch —
+              // adjacent stars overlapped 18px, so a 3-star tap could register
+              // as 4. Now each star gets a clean 44px box with no overlap.
+              background: "none", border: "none", padding: 0,
+              width: 44, height: 44,
               cursor: disabled ? "default" : "pointer",
               color: filled ? "#e8b44a" : P.faint,
               opacity: disabled ? 0.5 : (filled ? 1 : 0.55),
