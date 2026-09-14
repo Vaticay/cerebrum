@@ -426,6 +426,14 @@ export async function onRequest(context) {
     if (request.method === "GET") {
       const resource = url.searchParams.get("resource");
       if (resource === "saved") {
+        // Self-healing: add the rating column if it doesn't exist yet.
+        // (SQLite has no ADD COLUMN IF NOT EXISTS, so we try and swallow
+        // the "duplicate column" error — same pattern as ensureUserProfileColumns.)
+        try {
+          await env.DB.exec("ALTER TABLE user_saved_sources ADD COLUMN rating INTEGER");
+        } catch (e) {
+          if (!/duplicate column/i.test(String(e && e.message || e))) throw e;
+        }
         // Optional pagination via `?limit=` / `?offset=`. The client syncs
         // whole libraries through replace-all, so the default is the full
         // list — but nothing here is ever unbounded: the write path caps a
@@ -433,12 +441,12 @@ export async function onRequest(context) {
         const limit = safeInt(url.searchParams.get("limit"), { min: 1, max: MAX_SAVED_PER_USER, fallback: MAX_SAVED_PER_USER });
         const offset = safeInt(url.searchParams.get("offset"), { min: 0, max: 1000000, fallback: 0 });
         const rows = await env.DB.prepare(
-          "SELECT id, collection_id, source_json, created_at FROM user_saved_sources WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+          "SELECT id, collection_id, source_json, rating, created_at FROM user_saved_sources WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
         ).bind(user.id, limit, offset).all();
         const items = (rows.results || []).map((r) => {
           let source = {};
           try { source = JSON.parse(r.source_json); } catch {}
-          return { id: r.id, collectionId: r.collection_id, createdAt: r.created_at, ...source };
+          return { id: r.id, collectionId: r.collection_id, createdAt: r.created_at, rating: r.rating, ...source };
         });
         return okRes({ items }, 200, cors);
       }
@@ -1218,11 +1226,15 @@ export async function onRequest(context) {
       );
       const stmts = [env.DB.prepare("DELETE FROM user_saved_sources WHERE user_id = ?").bind(user.id)];
       for (const item of items) {
-        const { collectionId, ...source } = item || {};
+        const { collectionId, rating, ...source } = item || {};
         const sourceJson = JSON.stringify(source);
         if (sourceJson.length > MAX_SOURCE_JSON_LEN) continue;
-        stmts.push(env.DB.prepare("INSERT INTO user_saved_sources (id, user_id, collection_id, source_json, created_at) VALUES (?, ?, ?, ?, ?)")
-          .bind(newId("src"), user.id, validCollections.has(collectionId) ? collectionId : null, sourceJson, now));
+        // Rating is validated: null (unrated) or integer 1-5. Anything else
+        // is dropped to null rather than rejected — a malformed rating
+        // shouldn't fail the whole library sync.
+        const cleanRating = (Number.isInteger(rating) && rating >= 1 && rating <= 5) ? rating : null;
+        stmts.push(env.DB.prepare("INSERT INTO user_saved_sources (id, user_id, collection_id, source_json, rating, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .bind(newId("src"), user.id, validCollections.has(collectionId) ? collectionId : null, sourceJson, cleanRating, now));
       }
       // Chunked (see batchedWrites): a full-library sync is thousands
       // of statements, and one giant batch risks D1 statement/parameter
@@ -1232,6 +1244,35 @@ export async function onRequest(context) {
       // next change and heals it.
       await batchedWrites(env.DB, stmts);
       return new Response(JSON.stringify({ ok: true, count: items.length }), { status: 200, headers: cors });
+    }
+
+    /* Paper ratings (Goodreads/Letterboxd-style, 1-5 stars, personal).
+       Sets or clears the rating on a single saved paper. The paper must
+       belong to the requesting user — otherwise 404 (not 403, to avoid
+       leaking whether the ID exists for another user). */
+    if (resource === "saved" && action === "set-rating") {
+      // Ensure the column exists (same self-heal as the GET path).
+      try {
+        await env.DB.exec("ALTER TABLE user_saved_sources ADD COLUMN rating INTEGER");
+      } catch (e) {
+        if (!/duplicate column/i.test(String(e && e.message || e))) throw e;
+      }
+      const paperId = typeof body.id === "string" ? body.id.trim().slice(0, 64) : "";
+      if (!paperId) return new Response(JSON.stringify({ ok: false, error: "missing id" }), { status: 400, headers: cors });
+      // rating: null clears, 1-5 sets. Anything else is 400.
+      const rating = body.rating;
+      const cleanRating = rating === null ? null :
+        (Number.isInteger(rating) && rating >= 1 && rating <= 5) ? rating : undefined;
+      if (cleanRating === undefined) {
+        return new Response(JSON.stringify({ ok: false, error: "rating must be null or an integer 1-5" }), { status: 400, headers: cors });
+      }
+      const result = await env.DB.prepare(
+        "UPDATE user_saved_sources SET rating = ? WHERE id = ? AND user_id = ?"
+      ).bind(cleanRating, paperId, user.id).run();
+      if (!result.meta || result.meta.changes === 0) {
+        return new Response(JSON.stringify({ ok: false, error: "not found" }), { status: 404, headers: cors });
+      }
+      return new Response(JSON.stringify({ ok: true, id: paperId, rating: cleanRating }), { status: 200, headers: cors });
     }
 
     if (resource === "history" && action === "replace-all") {

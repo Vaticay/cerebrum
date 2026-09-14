@@ -15548,6 +15548,56 @@ function FieldRidge({ history, accent, P }) {
    explicit that icons in rounded tinted boxes are an AI tell. Just say
    what's true, in one or two lines, and leave room for the content that
    will be there. */
+/* Star rating for saved papers (Goodreads/Letterboxd-style, 1-5).
+   Personal, not aggregated — it's your library, your taste.
+   Click a star to set; click the current rating again to clear.
+   Gold fill is the universal rating language; it doesn't compete with
+   the sage accent because ratings are content, not chrome. */
+function StarRating({ P, value, onRate, disabled, size = 16 }) {
+  const [hover, setHover] = React.useState(0);
+  const display = hover || value || 0;
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Rate this paper"
+      style={{ display: "inline-flex", alignItems: "center", gap: 2 }}
+      onMouseLeave={() => setHover(0)}
+    >
+      {[1, 2, 3, 4, 5].map((star) => {
+        const filled = star <= display;
+        const isCurrent = star === value;
+        return (
+          <button
+            key={star}
+            type="button"
+            role="radio"
+            aria-checked={isCurrent}
+            aria-label={`${star} star${star > 1 ? "s" : ""}${isCurrent ? " (click again to clear)" : ""}`}
+            disabled={disabled}
+            onClick={() => onRate(isCurrent ? null : star)}
+            onMouseEnter={() => setHover(star)}
+            onFocus={() => setHover(star)}
+            onBlur={() => setHover(0)}
+            style={{
+              background: "none", border: "none", padding: 4, margin: -2,
+              cursor: disabled ? "default" : "pointer",
+              color: filled ? "#e8b44a" : P.faint,
+              opacity: disabled ? 0.5 : (filled ? 1 : 0.55),
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              transition: "color 120ms ease, transform 120ms ease",
+              transform: hover === star ? "scale(1.15)" : "none",
+            }}
+          >
+            <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={filled ? 0 : 1.6} aria-hidden="true">
+              <path d="M12 2.6l2.9 6.0 6.6.9-4.8 4.6 1.2 6.5L12 17.5l-5.9 3.1 1.2-6.5L2.5 9.5l6.6-.9L12 2.6z" strokeLinejoin="round" />
+            </svg>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProfileEmpty({ P, title, body }) {
   return (
     <div style={{ padding: "16px 0" }}>
@@ -15662,7 +15712,7 @@ function SaveIndicator({ state, P, accent }) {
   );
 }
 
-function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, collections, onOpenHistory, onManageAccount }) {
+function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
   // A signed-in account always has a real username by the time this page
@@ -15792,6 +15842,28 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
       toast(err.message || "Couldn't update your pinned shelf.", { tone: "error" });
     } finally {
       setPinSaving(false);
+    }
+  }
+  /* Paper ratings: optimistic update with rollback. The rating lives on
+     the saved-paper row (user_saved_sources.rating), not in source_json,
+     so it survives library re-syncs. */
+  const [ratingSaving, setRatingSaving] = useState(null);
+  async function ratePaper(paperId, rating) {
+    if (ratingSaving) return;
+    setRatingSaving(paperId);
+    const prevSaved = saved;
+    // Optimistic: update the rating in the local saved array.
+    setSaved((prev) => (prev || []).map((sv) =>
+      (sv.id === paperId) ? { ...sv, rating } : sv
+    ));
+    try {
+      await apiDataAction("set-rating", { resource: "saved", id: paperId, rating });
+    } catch (err) {
+      // Roll back on failure — don't leave a rating the server rejected.
+      setSaved(prevSaved);
+      toast(err.message || "Couldn't save your rating.", { tone: "error" });
+    } finally {
+      setRatingSaving(null);
     }
   }
   const paperKey = (sv) => sv.id || sv.doi || sv.title;
@@ -16203,6 +16275,18 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-body)", lineHeight: 1.5 }}>
                         {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
                         {shelfName(sv) && <span style={{ fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.micro }}> · filed under {shelfName(sv)}</span>}
+                      </div>
+                      {/* Personal star rating — Goodreads/Letterboxd-style.
+                          Quiet until hovered; the gold only appears when
+                          there's a rating or the user is interacting. */}
+                      <div style={{ marginTop: 6 }}>
+                        <StarRating
+                          P={P}
+                          value={sv.rating}
+                          disabled={ratingSaving === sv.id}
+                          onRate={(rating) => ratePaper(sv.id, rating)}
+                          size={14}
+                        />
                       </div>
                     </div>
                     {/* Pin toggle: quiet text, not an icon in a box. */}
@@ -22239,7 +22323,7 @@ function App() {
           <ProfileView
             P={P} accent={accent} at={at} isMobile={isMobile}
             user={user} profile={profile} setProfile={setProfile} profileMeta={profileMeta}
-            history={history} saved={saved} collections={collections}
+            history={history} saved={saved} setSaved={setSaved} collections={collections}
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
           />

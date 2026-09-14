@@ -291,6 +291,7 @@ CREATE TABLE IF NOT EXISTS user_saved_sources (
   user_id        TEXT NOT NULL,
   collection_id  TEXT, -- NULL = uncategorized, otherwise FK to user_collections.id
   source_json    TEXT NOT NULL,
+  rating         INTEGER, -- NULL = unrated, 1-5 = user's star rating (Goodreads/Letterboxd-style)
   created_at     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_saved_user ON user_saved_sources(user_id);
