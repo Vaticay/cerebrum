@@ -894,6 +894,9 @@ function Icon({ name, size = 17, className, style }) {
     // Commit 87 — used by EvidenceFilter's disclosure trigger.
     case "filter": return <svg {...common}><path d="M3 5h18M7 12h10M11 19h2" /></svg>;
     case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
+    // Human-audit: the Space trend category used to borrow "sparkle" — the
+    // universal "an AI did this" badge. Space gets its own planet glyph.
+    case "planet": return <svg {...common}><circle cx="12" cy="12" r="5.5" /><ellipse cx="12" cy="12" rx="10" ry="3.4" transform="rotate(-18 12 12)" /></svg>;
     case "history": return <svg {...common}><path d="M3 12a9 9 0 109-9 9 9 0 00-9 9z" /><path d="M12 7v5l3 3" /><path d="M3 3v6h6" /><path d="M3 9a9 9 0 011.5-3.5" /></svg>;
     case "image": return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="2.5" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>;
     case "pin": return <svg {...common}><path d="M12 21s-7-7.7-7-12.3A7 7 0 0119 8.7C19 13.3 12 21 12 21z" /><circle cx="12" cy="8.7" r="2.4" /></svg>;
@@ -6223,7 +6226,7 @@ function SelectionAsk({ onAsk, P, accent, containerRef }) {
         boxShadow: P.dark ? "0 8px 26px rgba(0,0,0,0.55)" : "0 8px 26px rgba(0,0,0,0.16)",
       }}
     >
-      <span style={{ display: "inline-flex", color: accent }}><Icon name="sparkle" size={13} /></span>
+      <span style={{ display: "inline-flex", color: accent }}><Icon name="question" size={13} /></span>
       Ask about this
     </button>
   );
@@ -10247,7 +10250,7 @@ const SOURCE_FULL_NAMES = {
 const TREND_CATEGORY_ICONS = [
   ["Biology & Medicine", "brain"],
   ["Physics & Chemistry", "zap"],
-  ["Space", "sparkle"],
+  ["Space", "planet"],
   ["Preprints", "document"],
 ];
 function TrendBandArt({ item }) {
@@ -10524,7 +10527,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
                 fontSize: FONT_SIZES.small, fontWeight: 700, color: at, background: accent,
                 borderRadius: 100, border: "none", cursor: "pointer", fontFamily: "var(--cb-body)",
               }}
-            ><Icon name="sparkle" size={14} /> Explain with papers</button>
+            ><Icon name="bookOpen" size={14} /> Explain with papers</button>
             <a href={safeHref(item.url)} target="_blank" rel="noreferrer" style={{
               display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 18px",
               fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: "transparent",
@@ -11785,7 +11788,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
             {studioIconBtn("redo", redo, { disabled: !canRedo, title: "Redo (Ctrl+Y)" })}
             <div style={{ width: 1, height: 22, background: P.line, margin: "0 6px", flexShrink: 0 }} />
             {studioBtn("Arrange", doAutoLayout, { icon: "wand", title: "Auto-arrange the chart top-down", disabled: nodes.length < 2 })}
-            {answerText && studioBtn("Draft", doDraft, { icon: "sparkle", title: "Turn this answer's steps into a starting chart (marked as draft)" })}
+            {answerText && studioBtn("Draft", doDraft, { icon: "edit", title: "Turn this answer's steps into a starting chart (marked as draft)" })}
             <div style={{ position: "relative" }}>
               {studioBtn("Export", () => setExportOpen((v) => !v), { icon: "download", title: "Export as SVG, PNG, or Markdown" })}
               {exportOpen && (
@@ -11826,7 +11829,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
             padding: "8px 16px", background: withAlpha(accent, 0.08), borderBottom: `1px solid ${P.line}`,
             fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
           }}>
-            <Icon name="sparkle" size={13} />
+            <Icon name="edit" size={13} />
             <span><strong>Draft.</strong> These steps were lifted from the answer — review every node before you trust the chart.</span>
             <button type="button" onClick={() => setDraftNotice(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption }}>Dismiss</button>
           </div>
@@ -11989,7 +11992,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                   </div>
                   {answerText && (
                     <button type="button" onClick={doDraft} style={{ pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 9999, border: `1px solid ${accent}`, background: `linear-gradient(180deg, ${withAlpha(accent, 0.9)}, ${withAlpha(accent, 0.75)})`, color: at, fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-body)", cursor: "pointer", boxShadow: `0 4px 18px ${withAlpha(accent, 0.4)}` }}>
-                      <Icon name="sparkle" size={14} /> Draft from answer
+                      <Icon name="edit" size={14} /> Draft from answer
                     </button>
                   )}
                 </div>
@@ -15255,7 +15258,7 @@ function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3,
 const RADIUS = { sm: 10, md: 14, lg: 18, pill: 100 };
 
 const BADGE_DISPLAY = {
-  founder: { label: "Founder & Owner", icon: "sparkle", tint: "#c9a227" },
+  founder: { label: "Founder & Owner", icon: "award", tint: "#c9a227" },
   verified: { label: "Verified", icon: "check", tint: "#34d399" },
   early_adopter: { label: "Early adopter", icon: "zap", tint: "#b45309" },
 };
@@ -15904,7 +15907,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               type="button" onClick={() => setEditing(true)}
               style={{ marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "inline-flex", alignItems: "center", gap: 6 }}
             >
-              <Icon name="sparkle" size={12} /> Add your degree and institution
+              <Icon name="edit" size={12} /> Add your degree and institution
             </button>
           )}
 
@@ -17842,7 +17845,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const TABS = [
     ["account", "Account", "user"],
     ["answers", "Answers", "settings"],
-    ["appearance", "Appearance", "sparkle"],
+    ["appearance", "Appearance", "eye"],
     ["notifications", "Notifications", "bell"],
     ["data", "Data & storage", "database"],
   ];
@@ -22556,7 +22559,7 @@ function App() {
           aria-hidden={!fabVisible}
           tabIndex={fabVisible ? 0 : -1}
         >
-          <Icon name="sparkle" size={19} />
+          <Icon name="bookOpen" size={19} />
           {allSources.length > 0 && (
             <span style={{
               position: "absolute", top: -5, right: -5, minWidth: 24, height: 24,
