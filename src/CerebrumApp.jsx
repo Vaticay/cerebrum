@@ -6700,7 +6700,10 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
   const exportExcel = async () => {
     if (excelBusy || !sources || !sources.length) return;
     setExcelBusy(true);
-    try { await exportTopPapersExcel(sources, { accent }); } catch {}
+    // 2026-09-14: Surface export failures. The empty catch left the button
+    // flipping "Building…"→"Excel" with zero feedback when the export failed.
+    try { await exportTopPapersExcel(sources, { accent }); }
+    catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); }
     setExcelBusy(false);
   };
   // Jump bar: first letters of the author field, for long lists.
@@ -6848,7 +6851,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
         {style === "bibtex" ? (
           <pre style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-body)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
         ) : (
-          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: P.ink, paddingLeft: "1.2em", textIndent: "-1.2em" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
+          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: P.ink, paddingLeft: "1.2em", textIndent: "-1.2em", overflowWrap: "anywhere", wordBreak: "break-word" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
             .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
             .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
         )}
@@ -6930,8 +6933,16 @@ function ReportModal({ query, P, accent, at, onClose }) {
     { id: "other", label: "Other" },
   ];
 
+  // 2026-09-14: Escape dismisses the dialog, consistent with the app's
+  // "Escape dismisses a dialog" rule.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
   return (
-    <div onClick={onClose} role="dialog" aria-modal="true" aria-label="Report data issue" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 220, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+    <div onClick={onClose} onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation(); }} role="dialog" aria-modal="true" aria-label="Report data issue" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 220, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
       <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
         background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.95)",
         backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
@@ -8385,12 +8396,18 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   };
   // Commit 98 — votes feed /api/vote (see the old toolbar comment, kept in
   // the overflow menu item below). One-shot per answer, fire-and-forget.
+  // 2026-09-14: Check res.ok. A 500/429/403 must not get the success toast,
+  // and the optimistic vote flips back on failure.
   const castVote = (v) => {
     if (vote || !t.answerId) return;
     setVote(v);
     fetch("/api/vote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answerId: t.answerId, vote: v }) })
-      .then((r) => { toast(r.status === 401 ? "Sign in to have your vote counted." : v === "up" ? "Thanks. That helps rank this answer." : "Noted. This answer won't be reused."); })
-      .catch(() => {});
+      .then((r) => {
+        if (r.status === 401) { toast("Sign in to have your vote counted."); return; }
+        if (!r.ok) throw new Error("vote failed");
+        toast(v === "up" ? "Thanks. That helps rank this answer." : "Noted. This answer won't be reused.");
+      })
+      .catch(() => { setVote(null); toast("Couldn't record your vote. Try again.", { tone: "error" }); });
   };
   const answerStatus = connFailed || synthFailed ? "failed" : (done && !answerText.trim() ? "failed" : answerText ? "ready" : "empty");
   const railItems = [
@@ -21470,8 +21487,12 @@ function App() {
     catch (e) { toast(e.message || "Couldn't create that collection.", { tone: "error" }); }
   }
   async function renameCollection(id, name) {
-    setCollections((c) => c.map((x) => x.id === id ? { ...x, name } : x));
-    try { await apiDataPost("collections", { action: "rename", id, name }); } catch (e) { toast(e.message || "Couldn't rename that collection.", { tone: "error" }); }
+    // 2026-09-14: Reject empty names. An empty rename field was pushing ""
+    // to the server, corrupting the collection name.
+    const cleanName = String(name || "").trim();
+    if (!cleanName) { toast("Give the collection a name.", { tone: "error" }); return; }
+    setCollections((c) => c.map((x) => x.id === id ? { ...x, name: cleanName } : x));
+    try { await apiDataPost("collections", { action: "rename", id, name: cleanName }); } catch (e) { toast(e.message || "Couldn't rename that collection.", { tone: "error" }); }
   }
   async function deleteCollection(id) {
     setCollections((c) => c.filter((x) => x.id !== id));
@@ -22379,7 +22400,7 @@ function App() {
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>BibTeX</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" disabled={excelBusy}
                   title="Export your top 20 saved papers to a branded Excel workbook"
-                  onClick={async () => { sfx(); if (excelBusy) return; setExcelBusy(true); try { await exportTopPapersExcel(saved, { accent, title: "Cerebrum — Top saved papers", filename: "cerebrum-saved-papers.xlsx" }); } catch {} setExcelBusy(false); }}>
+                  onClick={async () => { sfx(); if (excelBusy) return; setExcelBusy(true); try { await exportTopPapersExcel(saved, { accent, title: "Cerebrum — Top saved papers", filename: "cerebrum-saved-papers.xlsx" }); } catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); } setExcelBusy(false); }}>
                   {excelBusy ? "Building…" : "Excel"}
                 </UIButton>
                 {confirmClearSaved ? (

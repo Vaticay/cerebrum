@@ -581,7 +581,9 @@ await test("modal scroll lock is keyed on the overlay boolean, not each overlay"
 await test("vote/report UI is honest about the auth requirement", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
   // Votes: a 401 must not be thanked for.
-  assert.match(appSrc, /r\.status === 401 \? "Sign in to have your vote counted\."/, "vote 401 feedback missing");
+  // 2026-09-14: The vote handler now checks res.ok and rolls back on failure.
+  // The 401 message is shown via an if-block, not the old ternary.
+  assert.match(appSrc, /if \(r\.status === 401\) \{ toast\("Sign in to have your vote counted\."\); return; \}/, "vote 401 feedback missing");
   // Report: anonymous users are routed to sign-in before the modal opens.
   assert.match(appSrc, /onRequireAuth=\{stableOnRequireAuth\}/, "onRequireAuth not wired to TurnRow");
   assert.match(appSrc, /if \(user\) setShowReport\(true\); else onRequireAuth\(\)/, "report button not gated on sign-in");
