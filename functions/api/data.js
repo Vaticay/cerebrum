@@ -446,7 +446,7 @@ export async function onRequest(context) {
         const items = (rows.results || []).map((r) => {
           let source = {};
           try { source = JSON.parse(r.source_json); } catch {}
-          return { id: r.id, collectionId: r.collection_id, createdAt: r.created_at, rating: r.rating, ...source };
+          return { id: r.id, savedId: r.id, collectionId: r.collection_id, createdAt: r.created_at, rating: r.rating, ...source, id: source.id || r.id };
         });
         return okRes({ items }, 200, cors);
       }

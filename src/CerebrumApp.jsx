@@ -6895,6 +6895,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
   const [category, setCategory] = useState("hallucination");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
   const trapRef = useRef(null);
 
   useEffect(() => { if (trapRef.current) trapRef.current.focus(); }, []);
@@ -6903,17 +6904,21 @@ function ReportModal({ query, P, accent, at, onClose }) {
     e.preventDefault();
     if (!description.trim()) return;
     setSubmitting(true);
+    setError("");
     try {
-      await fetch("/api/report", {
+      const res = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, description: description.trim(), category }),
       });
+      // 2026-09-14: Check res.ok. A failed/offline/500 request must not show
+      // the green "Report received" confirmation — the report was lost.
+      if (!res.ok) throw new Error("submit failed");
       setSubmitted(true);
       setTimeout(() => onClose(), 1800);
     } catch {
-      setSubmitted(true);
-      setTimeout(() => onClose(), 1800);
+      setSubmitting(false);
+      setError("Couldn't send your report. Check your connection and try again.");
     }
   };
 
@@ -6977,6 +6982,11 @@ function ReportModal({ query, P, accent, at, onClose }) {
               opacity: submitting || !description.trim() ? 0.6 : 1,
               fontFamily: "var(--cb-body)",
             }}>{submitting ? "Sending…" : "Submit report"}</button>
+            {error && (
+              <div role="alert" style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8, fontSize: FONT_SIZES.small, color: "#ff6b6b", background: "rgba(255,107,107,0.1)", border: "1px solid rgba(255,107,107,0.3)" }}>
+                {error}
+              </div>
+            )}
           </form>
         )}
       </div>
@@ -15853,8 +15863,11 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     setRatingSaving(paperId);
     const prevSaved = saved;
     // Optimistic: update the rating in the local saved array.
+    // 2026-09-14: Match on savedId (DB row ID) first, then id. The GET returns
+    // savedId separately because the scholarly paper's id can overwrite the
+    // DB row id in the spread.
     setSaved((prev) => (prev || []).map((sv) =>
-      (sv.id === paperId) ? { ...sv, rating } : sv
+      ((sv.savedId || sv.id) === paperId) ? { ...sv, rating } : sv
     ));
     try {
       await apiDataAction("set-rating", { resource: "saved", id: paperId, rating });
@@ -16282,7 +16295,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                           P={P}
                           value={sv.rating}
                           disabled={ratingSaving === sv.id}
-                          onRate={(rating) => ratePaper(sv.id, rating)}
+                          onRate={(rating) => ratePaper(sv.savedId || sv.id, rating)}
                           size={14}
                         />
                       </div>
@@ -21446,7 +21459,7 @@ function App() {
     }, 900);
     return () => clearTimeout(profileSyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile.name, profile.username, profile.affiliation, profile.degree, profile.grad_year, profile.bio, profile.cover, profile.link_site, profile.link_orcid, profile.link_scholar, user, syncReady]);
+  }, [profile.name, profile.username, profile.affiliation, profile.degree, profile.grad_year, profile.bio, profile.cover, profile.link_site, profile.link_orcid, profile.link_scholar, profile.interests, user, syncReady]);
 
   // Collections CRUD — thin wrappers around /api/data's "collections"
   // actions, plus the local `saved` array update so the Collections modal
