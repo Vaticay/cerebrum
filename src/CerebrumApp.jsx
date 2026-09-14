@@ -15836,7 +15836,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
          backgrounds need directional scrims, not full-bleed imagery. */
       background: P.bg,
     }}>
-      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "32px 18px 72px" : "18px 28px 96px" }}>
+      {/* Mobile: the hamburger is fixed at top:14 and 38px tall, owning the
+          first ~52px. Mirror the thread's 68px clearance (36px here + 32px
+          from the workspace) so the name never slides under the button. */}
+      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 72px" : "18px 28px 96px" }}>
 
         {/* ── Identity header: editorial, left-aligned. ──────────────────
             No banner, no badge pills, no stat row. A profile reads human
@@ -21955,16 +21958,24 @@ function App() {
                   competing with the one control you came here to use.
                   A 40px "Good afternoon" directly above the search bar was
                   taking the focal position and giving it to a salutation. */}
-              {deckHasContent ? null : (
-                <>
-                  <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+              {/* The Cerebrum mark is always visible — it's the brand's
+                  signature, not a reward for having an empty account.
+                  When the user has work in progress, it renders compact
+                  so the composer stays the focal point. */}
+              <>
+                <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: deckHasContent ? 8 : undefined }}>
+                  {deckHasContent ? null : (
                     <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
-                    <Mark size={44} accent={accent} glow={P.dark} />
-                  </div>
-                  <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
-                  <p style={S.heroSub}>Ask a real research question. Every claim traces to a paper you can open.</p>
-                </>
-              )}
+                  )}
+                  <Mark size={deckHasContent ? 32 : 44} accent={accent} glow={P.dark} />
+                </div>
+                {deckHasContent ? null : (
+                  <>
+                    <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
+                    <p style={S.heroSub}>Ask a real research question. Every claim traces to a paper you can open.</p>
+                  </>
+                )}
+              </>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               {attachedImage && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
