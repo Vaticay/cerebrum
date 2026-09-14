@@ -16494,13 +16494,22 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
       return;
     }
     setLoading(true);
-    searchTimer.current = setTimeout(async () => {
-      const data = await apiDataGet("search-users", { q });
-      setLoading(false);
-      setResults(data && Array.isArray(data.items) ? data.items : []);
-      setFounder((data && data.founder) || null);
+    // 2026-09-14: try/catch around the debounced fetch. A network failure
+    // used to leave setLoading(false) unreached — the UI parked on
+    // "Searching…" forever with an unhandled rejection.
+    const timerId = setTimeout(async () => {
+      try {
+        const data = await apiDataGet("search-users", { q });
+        setResults(data && Array.isArray(data.items) ? data.items : []);
+        setFounder((data && data.founder) || null);
+      } catch {
+        // Keep the previous results; just stop the spinner.
+      } finally {
+        setLoading(false);
+      }
     }, 300);
-    return () => clearTimeout(searchTimer.current);
+    searchTimer.current = timerId;
+    return () => clearTimeout(timerId);
   }, [query]);
 
   const toggleFollow = async (r) => {
