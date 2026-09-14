@@ -1918,6 +1918,11 @@ const STOPWORDS = new Set([
   "different","part","parts","type","types","kind","example","within",
   "some","other","most","many","much","very","just","also","still","really",
   "would","could","should","might","may","will","shall","must","need",
+  // 2026-09-14: question-framing meta-words. "Is it true that X?" was
+  // cleaned to "true X" — databases searched for the literal word "true"
+  // and returned 0 papers. These words describe the question, not the
+  // science, and must not pollute the database query.
+  "true","false","truly","actually","fact","facts",
 ]);
 
 function cleanQuery(raw) {
