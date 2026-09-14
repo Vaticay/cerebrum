@@ -24601,9 +24601,12 @@ button, a {
 @media (max-width: 480px) {
 
   /* 1 · Hero CTA row: stack the pill above the "How it works" whisper so
-     the pair can never clip at the viewport edge. */
+     the pair can never clip at the viewport edge. The pill shrink-wraps
+     its label (width: auto) instead of a fixed 320px — with whiteSpace:
+     nowrap on the label, a fixed width is what let the text overrun the
+     pill edge. Shrink-wrapped, it cannot overflow by construction. */
   .cb-hero-ctas { flex-direction: column; }
-  .cb-hero-ctas .cb-intro-go { width: min(320px, calc(100% - 32px)); }
+  .cb-hero-ctas .cb-intro-go { width: auto; max-width: calc(100% - 32px); }
 
   /* 2 · Document-mode helper row: the hint text gets its own full-width
      line instead of being squeezed beside the buttons; the buttons share
