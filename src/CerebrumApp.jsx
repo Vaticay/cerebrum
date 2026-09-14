@@ -24681,12 +24681,24 @@ button, a {
      row went ragged on iOS — "Film credits" kicked to the right of its
      line with a dead gap below it. A deterministic two-column grid cannot
      do that: About/Privacy, Contact/Terms, Film credits/Pause background.
-     (!important: the row carries inline display/gap for desktop.) */
+     (!important: the row carries inline display/gap for desktop.)
+     The rows stay compact and every item left-aligns: the global 44px
+     touch-target rule makes each row 44px tall, and buttons center their
+     text by default while anchors left-align — so both are pinned to
+     inline-flex, vertically centered, hugging the left of their column. */
   .cb-introfoot-links {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px 24px !important;
+    gap: 2px 24px !important;
     align-items: center;
+  }
+  .cb-introfoot-links a,
+  .cb-introfoot-links button {
+    justify-self: start;
+    display: inline-flex !important;
+    align-items: center;
+    text-align: left;
+    padding: 0 !important;
   }
 }
 
