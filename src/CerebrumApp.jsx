@@ -15870,17 +15870,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   /* Save state for the edit-mode indicator: "saving" while keystrokes are
      still inside the debounce window, "saved" briefly after they settle.
      It mirrors the 900ms debounced profile sync at the App level. */
+  /* 2026-09-14: Removed the fake "✓ Saved" timer. It showed "saved" 1000ms
+     after typing stopped regardless of whether the API request succeeded —
+     violating the no-fake-progress rule. Now shows "Saving..." while editing
+     and nothing when idle. The actual sync status is handled by the App-level
+     debounced sync with its own error handling. */
   const [saveState, setSaveState] = useState("idle");
-  const saveTimer = useRef(null);
   useEffect(() => {
     if (!editing) { setSaveState("idle"); return; }
     setSaveState("saving");
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      setSaveState("saved");
-      saveTimer.current = setTimeout(() => setSaveState("idle"), 1600);
-    }, 1000);
-    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [profile, editing]);
   /* Research interests are user-written, not extracted from query
      fragments. Auto-derived "pursuits" read like broken keywords. */
@@ -20694,7 +20692,6 @@ function App() {
   const [askMode, setAskMode] = useState("explain");
   const [evidenceScrollRef, evidenceMask] = useEdgeMask();
   const [dataDensity, setDataDensity] = useState(() => getCookie("cb_density") || "comfortable");
-  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [zoteroOpen, setZoteroOpen] = useState(false);
@@ -21262,7 +21259,7 @@ function App() {
   // from the outside as the scroll position going rogue. Now the pin
   // happens once when the first overlay opens and the restore happens once
   // when the last one closes, with the scroll offset from the first open.
-  const anyOverlayOpen = cmdOpen || howItWorksOpen || mobilePanel
+  const anyOverlayOpen = cmdOpen || mobilePanel
     || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource;
   useEffect(() => {
     if (!anyOverlayOpen) return;
@@ -22275,7 +22272,6 @@ function App() {
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 10px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
             <div className="cb-appfoot-links" style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: isMobile ? "2px 12px" : "8px 14px", maxWidth: 620, width: "100%", margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
               {[
-                ["how", "How it works"],
                 /* The reel plays behind the whole application, not just the
                    intro, so its attribution has to be reachable from in here
                    too — the CC BY clips are on screen either way. */
@@ -22298,7 +22294,6 @@ function App() {
                   textDecoration: "underline", textDecorationStyle: "dotted",
                   textDecorationColor: withAlpha(P.faint, 0.55), textUnderlineOffset: "3px",
                 };
-                if (href === "how") return <button key={label} type="button" onClick={() => setHowItWorksOpen(true)} style={st}>{label}</button>;
                 if (href === "credits") return <button key={label} type="button" onClick={() => setFilmCreditsOpen(true)} style={st}>{label}</button>;
                 if (href === "motion") return (
                   <button key="motion" type="button" style={st} onClick={() => {
