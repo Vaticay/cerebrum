@@ -6604,7 +6604,7 @@ function InfoPage({ page }) {
       {isLegal && <LegalProgress accent={accent} />}
       {isLegal && <LegalHashScroll />}
       <main style={{ flex: 1, position: "relative", zIndex: 1 }}>
-        <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "48px 20px 64px" : "72px 28px 80px" }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "72px 20px 64px" : "72px 28px 80px" }}>
           <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)" }}>{data.eyebrow}</span>
             <h1 style={{ fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.15, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-display)" }}>{data.title}</h1>
@@ -10842,7 +10842,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
 
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
-      <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "24px 18px 60px" : "44px 32px 90px" }}>
+      <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "72px 18px 60px" : "44px 32px 90px" }}>
         <div style={{ marginBottom: 28 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             {/* Commit 88 — an h1, like every other page title. This was a div,
@@ -15579,7 +15579,7 @@ function StarRating({ P, value, onRate, disabled, size = 16 }) {
             onFocus={() => setHover(star)}
             onBlur={() => setHover(0)}
             style={{
-              background: "none", border: "none", padding: 4, margin: -2,
+              background: "none", border: "none", padding: 14, margin: -10,
               cursor: disabled ? "default" : "pointer",
               color: filled ? "#e8b44a" : P.faint,
               opacity: disabled ? 0.5 : (filled ? 1 : 0.55),
@@ -15948,13 +15948,13 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               aria-label="Change photo"
               title="Change photo"
               style={{
-                position: "absolute", bottom: -2, right: -2, width: 26, height: 26, borderRadius: "50%",
+                position: "absolute", bottom: -2, right: -2, width: 44, height: 44, borderRadius: "50%",
                 display: "flex", alignItems: "center", justifyContent: "center", cursor: avatarSaving ? "default" : "pointer",
                 background: P.raised, color: P.ink2, border: `1px solid ${P.line2}`,
                 opacity: avatarSaving ? 0.6 : 1,
               }}
             >
-              {avatarSaving ? <Icon name="refresh" size={12} className="cb-spin" /> : <Icon name="camera" size={12} />}
+              {avatarSaving ? <Icon name="refresh" size={16} className="cb-spin" /> : <Icon name="camera" size={16} />}
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
             {/* Upload progress: a thin bar under the avatar. The upload is
@@ -17379,7 +17379,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     <div
       {...(asPage ? { role: "region", "aria-label": "Document Mode" } : { role: "dialog", "aria-modal": "true", "aria-label": "Document Mode" })}
       style={asPage
-        ? { display: "flex", flexDirection: "column", minHeight: 0, height: "calc(100dvh - 96px)", background: P.bg }
+        ? { display: "flex", flexDirection: "column", minHeight: 0, height: "calc(100dvh - 96px)", background: P.bg, paddingTop: isMobile ? 56 : 0 }
         : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "14px 16px" : "16px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -19055,7 +19055,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       flex: 1, display: "flex", flexDirection: "column", 
       alignItems: "center", justifyContent: "center", 
       textAlign: "center",
-      padding: isMobile ? "32px 0 40px" : "40px 0 56px", 
+      padding: isMobile ? "72px 0 40px" : "40px 0 56px", 
       position: "relative",
     },
     // Commit 66 — compact variants used when the Home Deck has content.
@@ -19075,7 +19075,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        work is what you scroll to. */
     heroCompact: {
       flex: "0 0 auto",
-      padding: isMobile ? "20px 0 12px" : "24px 0 16px",
+      padding: isMobile ? "72px 0 12px" : "24px 0 16px",
     },
     /* The composer's own band.
 
