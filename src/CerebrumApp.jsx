@@ -2581,8 +2581,10 @@ function SignalComposer({
      item (or asks), Esc dismisses. Touch: items are 44px buttons and the
      item's mousedown uses preventDefault, so the input keeps focus and
      Ask stays one tap away. */
+  /* Deduped: the same question asked twice in a row would otherwise
+     render as two identical rows. */
   const recents = useMemo(
-    () => (Array.isArray(recentQuestions) ? recentQuestions.filter(Boolean).slice(0, 6) : []),
+    () => (Array.isArray(recentQuestions) ? [...new Set(recentQuestions.filter(Boolean))].slice(0, 6) : []),
     [recentQuestions]
   );
   const [recentOpen, setRecentOpen] = useState(false);
@@ -2600,7 +2602,7 @@ function SignalComposer({
     setTimeout(() => inputRef.current?.focus(), 30);
   };
   return (
-    <div role="search" style={{ "--cb-acc": accent }} className="cb-qline">
+    <div role="search" style={{ "--cb-acc": accent }} className={"cb-qline" + (showRecents ? " cb-qline--recents-open" : "")}>
       <div className="cb-qline-row">
         <input
           ref={inputRef}
@@ -5639,7 +5641,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             <span className={animate ? "cb-focus-in" : undefined}
               style={{ display: "block", ...(animate ? { animationDelay: "0.8s" } : null) }}>There&rsquo;s a world behind your question.</span>
           </h1>
-          <p className={animate ? "cb-focus-in" : undefined} style={{
+          <p className={animate ? "cb-focus-in cb-hero-slogan" : "cb-hero-slogan"} style={{
             margin: "26px 0 0", maxWidth: "52ch",
             fontSize: isMobile ? 12.5 : 13.5, lineHeight: 1.7, fontWeight: 400,
             letterSpacing: "0.02em",
@@ -5657,9 +5659,13 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           }}>
             <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
               cursor: "pointer",
-              padding: isMobile ? "13px 30px" : "14px 34px",
-              fontSize: 12.5, fontWeight: 500, fontFamily: "var(--cb-body)",
-              letterSpacing: "0.24em", textIndent: "0.24em", textTransform: "uppercase",
+              /* Mobile: tighter tracking/size/padding so "START
+                 RESEARCHING" fits 360px on one line — it was wrapping to
+                 two lines. whiteSpace: nowrap is the hard guarantee. */
+              padding: isMobile ? "12px 24px" : "14px 34px",
+              fontSize: isMobile ? 12 : 12.5, fontWeight: 500, fontFamily: "var(--cb-body)",
+              letterSpacing: isMobile ? "0.18em" : "0.24em", textIndent: isMobile ? "0.18em" : "0.24em",
+              textTransform: "uppercase", whiteSpace: "nowrap",
             }}>Start researching</button>
             {/* "How it works" stays a whisper — never a second button
                 competing with the single way in. */}
@@ -5767,6 +5773,87 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         </div>
       </section>
 
+      {/* ── Ethics: why Cerebrum is built this way ──
+          Calm reassurance, not a lecture. No greenwashing, no invented
+          numbers: the energy figure is stated as an approximation and
+          every number on the panel traces to a linked source — the same
+          standard the product's answers are held to. */}
+      <section aria-label="Why Cerebrum" className={animate ? "cb-intro-chrome cb-ethics" : "cb-intro-chrome cb-ethics"} style={{
+        position: "relative", zIndex: 10,
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+        background: "linear-gradient(180deg, rgba(8,10,13,0.80) 0%, rgba(8,10,13,0.94) 100%)",
+      }}>
+        <div style={{
+          ...container, maxWidth: 760,
+          paddingTop: isMobile ? 44 : 60, paddingBottom: isMobile ? 48 : 68,
+        }}>
+          <div style={{
+            fontSize: 11, letterSpacing: "0.26em", textTransform: "uppercase",
+            color: withAlpha(introAccent, 0.85), marginBottom: 18,
+            fontVariantNumeric: "tabular-nums",
+          }}>
+            Why Cerebrum
+          </div>
+          <h2 style={{
+            fontSize: isMobile ? 24 : 30, fontWeight: 600, letterSpacing: "-0.02em",
+            lineHeight: 1.25, color: "#ffffff", margin: "0 0 16px",
+            textShadow: "0 2px 30px rgba(0,0,0,0.5)",
+          }}>
+            One search. One honest answer.
+          </h2>
+          <p style={{
+            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65,
+            color: "rgba(242,244,242,0.82)", margin: "0 0 14px",
+          }}>
+            One search returns a fully sourced answer — no ten-query rabbit hole,
+            no twenty tabs open to verify it yourself.
+          </p>
+          <p style={{
+            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65,
+            color: "rgba(242,244,242,0.82)", margin: "0 0 14px",
+          }}>
+            Every claim traces to a paper you can open.
+          </p>
+          <p style={{
+            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65,
+            color: "rgba(242,244,242,0.82)", margin: 0,
+          }}>
+            No ads. No engagement farming. This product has one job: the truth.
+          </p>
+          <div style={{
+            border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
+            padding: isMobile ? "18px" : "20px 22px",
+            background: "rgba(255,255,255,0.03)",
+            marginTop: 26,
+          }}>
+            <p style={{
+              fontSize: isMobile ? 15 : 15.5, lineHeight: 1.65,
+              color: "rgba(242,244,242,0.9)", margin: "0 0 14px",
+            }}>
+              A Cerebrum search uses about the same energy as a single AI chat
+              answer — <strong style={{ fontWeight: 650, color: "#ffffff" }}>roughly 0.3&nbsp;Wh</strong> —
+              and it&rsquo;s the only one you need.
+            </p>
+            <div style={{
+              display: "flex", flexWrap: "wrap", gap: "6px 18px",
+            }}>
+              <a href="https://epoch.ai/data-insights/how-much-energy-does-chatgpt-use" target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 12.5, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                Epoch AI · Feb 2025 — 0.3 Wh per GPT-4o query ↗
+              </a>
+              <a href="https://blog.samaltman.com/the-gentle-singularity" target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 12.5, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                Sam Altman, OpenAI · Jun 2025 — 0.34 Wh average ↗
+              </a>
+              <a href="https://blog.google/technology/ai/google-ai-environmental-impact/" target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 12.5, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                Google · Aug 2025 — 0.24 Wh for AI Overviews ↗
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Footer ──
           Credits and legal live here; the header stays clean. */}
       <footer className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
@@ -5833,6 +5920,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               {filmPlaying ? "Pause background" : "Play background"}
             </button>
           </div>
+        </div>
+        {/* Copyright + release line: the answer-page footer already carries
+            this; the cinematic homepage footer was missing it. */}
+        <div style={{
+          ...container, paddingTop: 10,
+          fontSize: 11.5, color: "rgba(242,244,242,0.42)",
+          fontFamily: "var(--cb-body)", letterSpacing: "0.02em",
+        }}>
+          © {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}
         </div>
       </footer>
 
@@ -7998,7 +8094,10 @@ function JumpRail({ items, P, accent, onJump }) {
           {moreOpen && (
             <div role="menu" aria-label="More answer sections" className="cb-fade"
               style={{
-                position: "absolute", left: 0, top: "calc(100% + 6px)", minWidth: 200, zIndex: 70,
+                /* Right-anchored: the More button sits at the rail's right
+                   edge, so a left-anchored menu runs off the viewport on a
+                   phone. Right-anchoring keeps the whole panel on screen. */
+                position: "absolute", right: 0, left: "auto", top: "calc(100% + 6px)", minWidth: 200, zIndex: 70,
                 background: P.dark ? "rgba(20,22,26,0.98)" : "rgba(255,255,255,0.98)",
                 border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
                 boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
@@ -21835,7 +21934,7 @@ function App() {
                    full-width stacked chips were three rows of chrome before
                    the deck; the swipe row keeps every example reachable in
                    the height of one. */
-                <div style={{ width: "100%", maxWidth: 820, marginTop: 10 }}>
+                <div className="cb-try-examples" style={{ width: "100%", maxWidth: 820, marginTop: 10 }}>
                   <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px 4px" }}>Try</div>
                   <div className="cb-scroll-x" style={{ display: "flex", gap: 8, flexWrap: "nowrap", overflowX: "auto", scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", padding: "2px 4px 6px" }}>
                     {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2).map((ex) => (
@@ -21850,15 +21949,9 @@ function App() {
                       >{ex}</button>
                     ))}
                   </div>
-                  {/* Optional tour — "Show me around" instead of an automatic tour. */}
-                  <div style={{ textAlign: "center", marginTop: 8 }}>
-                    <button onClick={() => setTourOpen(true)}
-                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", textDecoration: "underline", textUnderlineOffset: 3 }}
-                    >Show me around</button>
-                  </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, flexWrap: "wrap", maxWidth: 820, padding: "0 8px" }}>
+                <div className="cb-try-examples" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, flexWrap: "wrap", maxWidth: 820, padding: "0 8px" }}>
                   <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", letterSpacing: "0.08em", textTransform: "uppercase", flexShrink: 0 }}>Try</span>
                   {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2).map((ex) => (
                     <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
@@ -21875,6 +21968,17 @@ function App() {
                   ))}
                 </div>
               ))}
+              {/* Guided tour launcher: stable home under the composer. It
+                  used to live inside the mobile example carousel's
+                  empty-input branch, so it vanished with typed input, on
+                  desktop, or whenever examples were empty — which is why
+                  it was never found. One quiet line, always in the same
+                  place; the tour itself stays opt-in, never automatic. */}
+              <div style={{ textAlign: "center", marginTop: 14 }}>
+                <button onClick={() => setTourOpen(true)}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", textDecoration: "underline", textUnderlineOffset: 3 }}
+                >Show me around</button>
+              </div>
               {/* ══════════════════════════════════════════════════════
                   Commit 87 — the evidence filter is a disclosure now.
 
@@ -22894,6 +22998,13 @@ summary::-webkit-details-marker { display: none; }
 .cb-focus-in {
   animation: cbFocusIn 1.15s var(--cb-ease-out) both;
 }
+/* iOS quirk: the blur(12px)→blur(0) focus-in can freeze mid-animation or
+   composite poorly on mobile GPUs, leaving the resting slogan blurry.
+   On touch devices the slogan skips the filter entirely and renders
+   tack-sharp from the first frame. Wording untouched. */
+@media (hover: none), (pointer: coarse) {
+  .cb-hero-slogan.cb-focus-in { animation: none; filter: none; opacity: 1; }
+}
 /* The opening beat: near-black holds briefly, then lifts over two and a
    half seconds to reveal the footage underneath. Opacity only — the veil
    never touches layout or the video elements. */
@@ -23083,16 +23194,24 @@ summary::-webkit-details-marker { display: none; }
    to show — no history, no dropdown, no empty box. Items are 44px buttons
    so the touch targets stay honest on a phone. */
 .cb-qline-recent {
-  position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 30;
+  position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 60;
   padding: 8px 0 6px;
-  background: rgba(13, 16, 13, 0.94);
+  /* Solid, not translucent: the 0.94-alpha + backdrop-blur let the
+     suggestion chips and HomeDeck text ghost through from underneath,
+     reading as one smeared layer. The open panel is a single clean
+     opaque sheet above everything else. */
+  background: #0d100d;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
   animation: cbReadingIn 0.25s ease both;
 }
+/* While the panel is open it lifts the whole composer above the
+   suggestion chips / HomeDeck below (they paint later in DOM order, so
+   without this they can composite above the panel), and the chip
+   carousel hides entirely — one layer, no collision. */
+.cb-qline--recents-open { z-index: 60; }
+.cb-qline--recents-open ~ .cb-try-examples { display: none !important; }
 .cb-qline-recent-k {
   padding: 4px 18px 6px;
   font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase;
@@ -23539,9 +23658,11 @@ summary::-webkit-details-marker { display: none; }
   .cb-readhead-marker { animation: none; left: 0; }
 }
 /* Touch: the per-row citation copy button is hover-revealed on desktop;
-   coarse pointers have no hover, so it stays visible there instead of
-   being unreachable. */
-@media (pointer: coarse) {
+   touch pointers have no hover, so it stays visible there instead of
+   being unreachable. Both conditions are listed: some touch laptops
+   report a coarse pointer but still hover, and some touch phones report
+   hover:none without the coarse tag. */
+@media (hover: none), (pointer: coarse) {
   .cb-bibentry-copy { opacity: 1 !important; }
 }
 
@@ -24472,7 +24593,10 @@ button, a {
    Base (all viewports): the jump-rail nav keeps its horizontal-scroll
    behavior — the inline overflowX moved here so the mobile query below
    can relax it without touching desktop. */
-.cb-jumpnav { overflow-x: auto; }
+.cb-jumpnav { overflow: visible; }
+/* The "More" anchor keeps its own stacking level so the dropdown always
+   paints above the tab buttons beside it. */
+.cb-jumpmore { position: relative; z-index: 40; }
 
 @media (max-width: 480px) {
 
