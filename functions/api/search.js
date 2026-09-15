@@ -7818,11 +7818,11 @@ function originAllowed(request) {
 }
 
 // Rate limiter now lives in functions/lib/rateLimit.js, shared across every
-// endpoint. It prefers a KV namespace (env.RATE_LIMIT_KV) so the limit is a
+// endpoint. It prefers the D1 database (env.DB) so the limit is a
 // real cross-colo count instead of the old per-isolate Map (which reset
 // independently at every edge location Cloudflare happened to route a
 // request through) — falls back to the same in-memory behavior as before if
-// that KV binding isn't configured yet, so this isn't a breaking change.
+// D1 isn't configured yet, so this isn't a breaking change.
 const RATE_LIMIT = 20;         // requests
 const RATE_WINDOW_MS = 60000;  // per minute
 

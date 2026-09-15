@@ -403,3 +403,18 @@ CREATE TABLE IF NOT EXISTS stripe_events (
   event_id    TEXT PRIMARY KEY, -- evt_* — claimed before apply, so retried
   received_at INTEGER NOT NULL  -- deliveries can never double-apply
 );
+
+-- ============================================================
+-- 2026-09-15 — Shared rate limiter moved from Workers KV to D1.
+-- KV's free tier allows only 1,000 writes/day and the limiter wrote one
+-- key per rate-limited request, so normal traffic exhausted it in hours.
+-- D1 gives ~100x the free write headroom on infrastructure already bound.
+-- One row per (key, fixed window bucket); the table is also created on
+-- first use by ensureTable in functions/lib/rateLimit.js, so deploys
+-- self-heal. Over-limit requests never write (rejected before the upsert).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS rate_limits (
+  k          TEXT NOT NULL PRIMARY KEY, -- rl:<scope>:<window bucket>
+  count      INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL           -- ms epoch; pruned probabilistically
+);

@@ -260,6 +260,84 @@ await test("expired timestamps stop counting", async () => {
   assert.equal(await checkRateLimit({}, key, 2, 60), true, "window did not reset");
 });
 
+// ── Fake D1 binding for the shared-limiter D1 path ──────────────────────
+// Implements just enough of the D1 API (exec/prepare/bind/first/run) for
+// rateLimit.js: an in-memory map of k -> { count, expires_at }.
+function fakeD1() {
+  const rows = new Map();
+  const db = {
+    _rows: rows,
+    _writes: 0,
+    async exec() { return undefined; },
+    prepare(sql) {
+      const stmt = {
+        _params: [],
+        bind(...params) { stmt._params = params; return stmt; },
+        async first() {
+          if (/SELECT count FROM rate_limits/i.test(sql)) {
+            const r = rows.get(stmt._params[0]);
+            return r ? { count: r.count } : null;
+          }
+          return null;
+        },
+        async run() {
+          if (/INSERT INTO rate_limits/i.test(sql)) {
+            db._writes++;
+            const [k, expiresAt] = stmt._params;
+            const r = rows.get(k);
+            if (r) { r.count += 1; r.expires_at = expiresAt; }
+            else rows.set(k, { count: 1, expires_at: expiresAt });
+          } else if (/DELETE FROM rate_limits/i.test(sql)) {
+            const now = stmt._params[0];
+            for (const [k, r] of rows) if (r.expires_at < now) rows.delete(k);
+          }
+          return { success: true };
+        },
+      };
+      return stmt;
+    },
+  };
+  return db;
+}
+
+await test("D1 path: rejects once the limit is exceeded", async () => {
+  const db = fakeD1();
+  const key = "test:d1:basic:" + Math.random();
+  const env = { DB: db };
+  assert.equal(await checkRateLimit(env, key, 3, 60000), true);
+  assert.equal(await checkRateLimit(env, key, 3, 60000), true);
+  assert.equal(await checkRateLimit(env, key, 3, 60000), true);
+  assert.equal(await checkRateLimit(env, key, 3, 60000), false);
+  assert.equal(await checkRateLimit(env, key, 3, 60000), false);
+});
+
+await test("D1 path: over-limit requests skip the write", async () => {
+  const db = fakeD1();
+  const key = "test:d1:nowrite:" + Math.random();
+  const env = { DB: db };
+  for (let i = 0; i < 3; i++) await checkRateLimit(env, key, 3, 60000);
+  const writesBefore = db._writes;
+  assert.equal(await checkRateLimit(env, key, 3, 60000), false);
+  assert.equal(await checkRateLimit(env, key, 3, 60000), false);
+  assert.equal(db._writes, writesBefore, "rejected requests wrote to D1");
+});
+
+await test("D1 path: a failing D1 fails open to memory", async () => {
+  const broken = { prepare() { throw new Error("d1 down"); }, async exec() { throw new Error("d1 down"); } };
+  const key = "test:d1:failopen:" + Math.random();
+  const env = { DB: broken };
+  assert.equal(await checkRateLimit(env, key, 3, 60000), true);
+  assert.equal(await checkRateLimit(env, key, 3, 60000), true);
+  assert.equal(await checkRateLimit(env, key, 3, 60000), true);
+  assert.equal(await checkRateLimit(env, key, 3, 60000), false, "memory fallback did not enforce the limit");
+});
+
+await test("D1 path: no KV binding is consulted", async () => {
+  const src = await import("node:fs/promises").then((fs) =>
+    fs.readFile(join(root, "functions/lib/rateLimit.js"), "utf8"));
+  assert.ok(!/RATE_LIMIT_KV/.test(src), "rateLimit.js still references the removed KV binding");
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 group("conversation — history bound");
 

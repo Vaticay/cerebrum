@@ -97,7 +97,7 @@ export function buildConfigReport(env) {
       // just as easy to forget.
       DB: !!(env.DB && typeof env.DB.prepare === "function"),
       AI: !!(env.AI && typeof env.AI.run === "function"),
-      RATE_LIMIT_KV: !!(env.RATE_LIMIT_KV && typeof env.RATE_LIMIT_KV.get === "function"),
+      RATE_LIMIT_D1: !!(env.DB && typeof env.DB.prepare === "function"),
     },
     checkedAt: Date.now(),
   };

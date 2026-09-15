@@ -13,20 +13,25 @@
 // isolate) could exceed the stated limit by whatever multiple of isolates it
 // hit, with no code-visible sign that the cap wasn't real.
 //
-// This version prefers a Workers KV namespace (`env.RATE_LIMIT_KV`) as a
-// genuinely shared counter across every isolate/colo, and falls back to the
-// old in-memory behavior only when that binding isn't configured yet — so a
-// deployment that hasn't added the KV namespace to wrangler.toml (see the
-// comment there) still works exactly as before, rather than breaking.
+// This version prefers the D1 database (`env.DB`) as a genuinely shared
+// counter across every isolate/colo, and falls back to the old in-memory
+// behavior only when that binding isn't configured — so a deployment without
+// D1 still works exactly as before, rather than breaking.
 //
-// Honest limitation, stated plainly rather than implied: this KV-backed
-// counter is a fixed-window read-then-write, not an atomic increment — KV has
-// no native atomic counter primitive. Under a genuine burst (many requests
-// for the same key landing on different edge colos within the same
-// KV-propagation window, typically well under a second), a handful of
-// requests can be under-counted and slip through slightly over the stated
-// limit. That's a real, bounded imprecision, not a silent no-op — it is still
-// a strict, meaningful improvement over the previous per-isolate Map, which
+// Why D1 and not Workers KV: the limiter used to write one KV key per
+// request, and KV's free tier allows only 1,000 writes per day — normal
+// traffic exhausted that in hours ("KV limit hit" in the dashboard). D1's
+// free tier allows 100,000 rows written per day, roughly 100x the headroom,
+// and the database was already bound for the answer cache and OTP codes, so
+// this adds no new infrastructure.
+//
+// Honest limitation, stated plainly rather than implied: this D1-backed
+// counter is a fixed-window read-then-write, not an atomic increment.
+// Under a genuine burst (many requests for the same key landing on different
+// edge colos within the same D1 replication window), a handful of requests
+// can be under-counted and slip through slightly over the stated limit.
+// That's a real, bounded imprecision, not a silent no-op — it is still a
+// strict, meaningful improvement over the previous per-isolate Map, which
 // provided no real cross-edge bound at all. Closing the gap completely would
 // need a Durable Object (one single strongly-consistent instance per key),
 // which is the right next step if this ever needs to be airtight rather than
@@ -55,33 +60,72 @@ function checkMemory(key, limit, windowMs) {
   return recent.length <= limit;
 }
 
-async function checkKV(kv, key, limit, windowMs) {
-  const windowSeconds = Math.max(1, Math.ceil(windowMs / 1000));
-  const bucket = Math.floor(Date.now() / windowMs);
-  const kvKey = `rl:${key}:${bucket}`;
-  let count = 0;
+// Lazily created once per isolate; a failure resets the flag so the next
+// request retries instead of caching a broken state forever.
+let tableReady = null;
+function ensureTable(db) {
+  if (!tableReady) {
+    tableReady = db
+      .exec(
+        "CREATE TABLE IF NOT EXISTS rate_limits (" +
+          "k TEXT PRIMARY KEY, " +
+          "count INTEGER NOT NULL, " +
+          "expires_at INTEGER NOT NULL)"
+      )
+      .then(
+        () => true,
+        (e) => {
+          tableReady = null;
+          throw e;
+        }
+      );
+  }
+  return tableReady;
+}
+
+async function checkD1(db, key, limit, windowMs) {
+  const now = Date.now();
+  const bucket = Math.floor(now / windowMs);
+  const dbKey = `rl:${key}:${bucket}`;
+  // Headroom past the window itself so a bucket can't expire mid-window and
+  // quietly reset the count to zero for stragglers still inside it.
+  const expiresAt = now + windowMs + 30000;
   try {
-    const existing = await kv.get(kvKey);
-    count = existing ? parseInt(existing, 10) || 0 : 0;
+    await ensureTable(db);
+    const row = await db
+      .prepare("SELECT count FROM rate_limits WHERE k = ?")
+      .bind(dbKey)
+      .first();
+    const count = row ? row.count | 0 : 0;
+    // Already at the limit: reject WITHOUT writing. Under abuse this is the
+    // hot path, and skipping the write both saves D1 write budget and keeps
+    // the counter from growing without bound on a hammered key.
+    if (count >= limit) return false;
+    await db
+      .prepare(
+        "INSERT INTO rate_limits(k, count, expires_at) VALUES (?, 1, ?) " +
+          "ON CONFLICT(k) DO UPDATE SET count = rate_limits.count + 1, " +
+          "expires_at = excluded.expires_at"
+      )
+      .bind(dbKey, expiresAt)
+      .run();
+    // Prune dead buckets probabilistically — every request doing a DELETE
+    // would double the write budget for no benefit.
+    if (Math.random() < 0.01) {
+      await db
+        .prepare("DELETE FROM rate_limits WHERE expires_at < ?")
+        .bind(now)
+        .run()
+        .catch(() => {});
+    }
+    return true;
   } catch (e) {
-    // KV read failure (rare transient error): fail open to the in-memory
+    // D1 failure (transient error, table issue): fail open to the in-memory
     // check for this one call rather than blocking every request on an
     // infrastructure hiccup unrelated to the actual client.
-    console.error("Cerebrum rateLimit: KV read failed, falling back to memory for this call", e);
+    console.error("Cerebrum rateLimit: D1 failed, falling back to memory for this call", e);
     return checkMemory(key, limit, windowMs);
   }
-  if (count >= limit) return false;
-  try {
-    // expirationTtl needs a little headroom past the window itself so a
-    // bucket doesn't expire mid-window and quietly reset the count to zero
-    // for stragglers still inside it.
-    await kv.put(kvKey, String(count + 1), { expirationTtl: windowSeconds + 30 });
-  } catch (e) {
-    // Write failed but the read already told us we're under the limit —
-    // allow this one request through; the count just won't reflect it.
-    console.error("Cerebrum rateLimit: KV write failed", e);
-  }
-  return true;
 }
 
 /**
@@ -91,11 +135,11 @@ async function checkKV(kv, key, limit, windowMs) {
  *
  * `key` should already be scoped to whatever you're actually limiting — e.g.
  * `search:${ip}` or `login:${emailLower}` — since all callers across every
- * endpoint share the same KV namespace/in-memory map.
+ * endpoint share the same D1 table/in-memory map.
  */
 export async function checkRateLimit(env, key, limit, windowMs) {
-  if (env && env.RATE_LIMIT_KV) {
-    return checkKV(env.RATE_LIMIT_KV, key, limit, windowMs);
+  if (env && env.DB && typeof env.DB.prepare === "function") {
+    return checkD1(env.DB, key, limit, windowMs);
   }
   return checkMemory(key, limit, windowMs);
 }

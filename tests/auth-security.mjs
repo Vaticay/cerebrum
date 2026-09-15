@@ -331,11 +331,10 @@ await test("buildConfigReport: binding presence is reported, bindings are not", 
   const report = buildConfigReport({
     DB: { prepare() {} },
     AI: { run() {} },
-    RATE_LIMIT_KV: {},
   });
   assert.equal(report.bindings.DB, true);
   assert.equal(report.bindings.AI, true);
-  assert.equal(report.bindings.RATE_LIMIT_KV, false, "KV without a get() was reported present");
+  assert.equal(report.bindings.RATE_LIMIT_D1, true, "D1-backed shared limiter was reported absent");
   assert.equal(typeof report.checkedAt, "number");
 });
 

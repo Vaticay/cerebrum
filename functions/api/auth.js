@@ -18,13 +18,12 @@
 // issued code is ever valid; the table is created on first use if schema.sql
 // hasn't been run against the live database yet — see ensureOtpTable below,
 // added after a missing-table 503 turned out to be exactly what "sign-in
-// doesn't work" looked like in practice); then env.RATE_LIMIT_KV when D1
-// isn't bound, since it's genuinely shared across every Cloudflare
-// isolate/colo; and only when NEITHER is configured, a per-isolate in-memory
-// Map — the same honest tradeoff already documented in lib/rateLimit.js,
-// kept purely so the flow still works end-to-end with nothing provisioned,
-// with no guarantee a pending code survives a request landing on a
-// different edge isolate mid-flow.
+// doesn't work" looked like in practice); the shared limiter in
+// lib/rateLimit.js (D1-backed when env.DB is configured, per-isolate
+// in-memory Map otherwise — the same honest tradeoff already documented
+// there, kept purely so the flow still works end-to-end with nothing
+// provisioned, with no guarantee a pending code survives a request landing
+// on a different edge isolate mid-flow).
 //
 // Security properties of the OTP path specifically:
 //   - The 6-digit code is drawn from crypto.getRandomValues with rejection
@@ -473,7 +472,7 @@ export async function onRequest(context) {
   // OTP emails) before D1 is provisioned, and an unthrottled send-code in
   // that state is a free way to spam an arbitrary inbox or burn Resend
   // sending quota. checkRateLimit() itself is DB-independent — it prefers
-  // env.RATE_LIMIT_KV and falls back to a per-isolate in-memory counter — so
+  // env.DB and falls back to a per-isolate in-memory counter — so
   // calling it here has no dependency on fullMode either.
   {
     const { checkRateLimit } = await rateLimit();
