@@ -8277,6 +8277,47 @@ export async function onRequest(context) {
     // Rebind cors to the secured version for the rest of the handler.
     const cors = secureCors;
 
+    // PRO TIER (2026-09-15) — AI synthesis is the metered resource. The gate
+    // is resolved HERE, before any provider-backed call, because several
+    // early-return paths below burn inference or serve AI answers:
+    //   pro       → unlimited AI synthesis
+    //   free      → FREE_AI_ANSWERS_PER_MONTH AI answers per UTC month, across
+    //               EVERY AI surface (search waves, cached answers, follow-up
+    //               transforms, persona chat) — the cache is an optimization,
+    //               not an entitlement bypass
+    //   anonymous → no provider-backed AI; the pipeline falls through to the
+    //               deterministic Wave-4 extractive answer, and the client
+    //               nudges toward sign-in.
+    let aiGate = { kind: "anonymous", userId: null, aiUsed: 0, aiCap: 15, proSource: null };
+    let proLib = null;
+    try {
+      const { getSessionUser: proSessionUser } = await import("../lib/authHelpers.js");
+      proLib = await import("../lib/proEntitlement.js");
+      aiGate = await proLib.resolveAiGate(env, await proSessionUser(request, env));
+    } catch {
+      proLib = null;
+      // Fail closed on AI spend: an unresolvable gate keeps the anonymous
+      // default, so the extractive fallback answers instead of inference.
+    }
+    const aiSynthesisAllowed = proLib ? proLib.aiSynthesisAllowed(aiGate) : false;
+    // Consume one AI answer from a free account's monthly bucket. Best-effort
+    // by design: a failed increment must never fail the search itself.
+    const meterAiAnswer = async () => {
+      if (proLib && aiGate.kind === "free" && aiGate.userId) {
+        try { aiGate.aiUsed = await proLib.recordAiAnswer(env, aiGate.userId); } catch {}
+      }
+    };
+    // The quota shape every AI surface returns, so the client's upgrade
+    // nudge works identically on cached, follow-up, and pipeline answers.
+    const aiQuotaPayload = () => ({
+      kind: aiGate.kind,
+      used: aiGate.aiUsed,
+      cap: aiGate.kind === "pro" ? null : aiGate.aiCap,
+      gated: aiSynthesisAllowed
+        ? null
+        : aiGate.kind === "anonymous" ? "signin-required" : "free-cap",
+    });
+
     // ════════════════════════════════════════════════════════════════
     // IMAGE COMPREHENSION — see describeImage() above. A hard size cap
     // (~6MB base64, comfortably above any reasonable photo/screenshot but
@@ -8286,7 +8327,9 @@ export async function onRequest(context) {
     // call fails or isn't configured, the request still proceeds as a
     // normal text-only search rather than erroring out.
     let imageContext = null;
-    if (hasImage && body.image.length < 8_000_000 && openRouterKey(env)) {
+    // Vision description is provider-backed AI: gated like every other AI
+    // surface. A gated caller still gets the text query path below.
+    if (hasImage && body.image.length < 8_000_000 && openRouterKey(env) && aiSynthesisAllowed) {
       imageContext = await describeImage(body.image, query, openRouterKey(env)).catch(() => null);
       if (imageContext) {
         query = (query + " " + imageContext).slice(0, MAX_QUERY_LEN);
@@ -8295,9 +8338,29 @@ export async function onRequest(context) {
 
     // Context-only requests precede shared caches, query expansion and all retrieval.
     const respondFromContext = async (action) => {
+      // The 'sources' action is pure formatting of already-retrieved sources
+      // — no inference burned, always allowed. Every other context action
+      // (summary, explain, format, translate) burns an LLM call, so it is
+      // gated and metered exactly like the main pipeline: the free bucket
+      // covers ALL AI surfaces, and a capped caller gets the honest nudge
+      // instead of a silent inference burn.
+      const burnsInference = action !== "sources";
+      if (burnsInference && !aiSynthesisAllowed) {
+        return new Response(JSON.stringify({
+          answer: aiGate.kind === "anonymous"
+            ? "Sign in to use AI follow-ups — summaries, simplifications, and translations run on the same monthly AI budget as search."
+            : "You've used your 15 free AI answers for this month. Upgrade to Pro for unlimited AI follow-ups — or ask a new question and I'll answer from the papers directly.",
+          sources: [], videos: [], related: [], source: "Cerebrum",
+          aiQuota: aiQuotaPayload(),
+        }), { status: 200, headers: { ...cors, "Cache-Control": "no-store" } });
+      }
       const contextual = await answerFromContext(query, body.history, env, action);
       if (!contextual) return new Response(JSON.stringify({ error: "I couldn't process that follow-up right now. Please retry; no new paper search was performed." }), { status: 503, headers: { ...cors, "Cache-Control": "no-store" } });
       contextual.answer = cleanAIResponse(contextual.answer);
+      if (burnsInference) {
+        await meterAiAnswer();
+        contextual.aiQuota = aiQuotaPayload();
+      }
       return new Response(JSON.stringify(contextual), { status: 200, headers: { ...cors, "Cache-Control": "no-store" } });
     };
     const action = !hasImage && !body.scopedSource && !body.stressFilter && !body.stressExclude && contextAction(query);
@@ -8405,11 +8468,28 @@ export async function onRequest(context) {
       // "conversational" branch can reach it too. It previously lived inline
       // here, which meant only the regex list below could ever trigger it —
       // see the dead `case "conversational"` this fixes.
+      //
+      // PRO TIER — persona chat burns a real LLM call, so it is gated and
+      // metered like every other AI surface. A gated caller gets the honest
+      // static fallback (no inference burned, nothing metered) plus the
+      // quota payload so the client can render the upgrade nudge.
+      if (!aiSynthesisAllowed) {
+        return new Response(
+          JSON.stringify({
+            answer: "I'm better at science questions than small talk. Try me.",
+            sources: [], videos: [], source: "Cerebrum",
+            aiQuota: aiQuotaPayload(),
+          }),
+          { status: 200, headers: cors }
+        );
+      }
       const personaText = await answerConversationally(query, body.history, env);
+      await meterAiAnswer();
       return new Response(
         JSON.stringify({
           answer: personaText || "I'm better at science questions than small talk. Try me.",
           sources: [], videos: [], source: "Cerebrum",
+          aiQuota: aiQuotaPayload(),
         }),
         { status: 200, headers: cors }
       );
@@ -8605,9 +8685,15 @@ export async function onRequest(context) {
         const earlyHit = await env.DB.prepare(
           "SELECT answer, sources FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
         ).bind(earlyCacheKey, Date.now() - CACHE_TTL_MS).first();
-        if (earlyHit && earlyHit.answer) {
+        // PRO TIER — the shared cache is an optimization, not an entitlement
+        // bypass: a gated caller (anonymous, or a free account past its
+        // monthly bucket) falls through to the normal pipeline below, which
+        // answers deterministically (Wave 4) with the honest nudge. A served
+        // cache hit IS an AI answer, so free callers are metered for it.
+        if (earlyHit && earlyHit.answer && aiSynthesisAllowed) {
           let cachedSources = [];
           try { cachedSources = JSON.parse(earlyHit.sources || "[]"); } catch {}
+          await meterAiAnswer();
           return new Response(
             JSON.stringify({
               answer: italicizeScientificTerms(earlyHit.answer, query),
@@ -8616,6 +8702,7 @@ export async function onRequest(context) {
               factCheck: null,
               related: [],
               source: "Cached (verified)",
+              aiQuota: aiQuotaPayload(),
               _cached: true,
             }),
             { status: 200, headers: cors }
@@ -8882,10 +8969,25 @@ export async function onRequest(context) {
           // it", "that clears things up", "you're quicker than I expected").
           // Understanding a message is small talk and then searching for
           // papers about it anyway was the worst of both designs.
+          //
+          // PRO TIER — same gate as the regex persona path above: persona
+          // chat burns a real LLM call. Gated callers get the static
+          // fallback with the quota payload instead.
+          if (!aiSynthesisAllowed) {
+            return new Response(
+              JSON.stringify({
+                answer: "I'm better at science questions than small talk. Try me.",
+                answerId: Date.now().toString(36), sources: [], videos: [], source: "Cerebrum",
+                aiQuota: aiQuotaPayload(),
+              }),
+              { status: 200, headers: cors }
+            );
+          }
           const chat = await answerConversationally(query, body.history, env);
           if (chat) {
+            await meterAiAnswer();
             return new Response(
-              JSON.stringify({ answer: chat, answerId: Date.now().toString(36), sources: [], videos: [], source: "Cerebrum" }),
+              JSON.stringify({ answer: chat, answerId: Date.now().toString(36), sources: [], videos: [], source: "Cerebrum", aiQuota: aiQuotaPayload() }),
               { status: 200, headers: cors }
             );
           }
@@ -8920,6 +9022,12 @@ export async function onRequest(context) {
     // NEXT-GEN query intelligence: assigned once the final searchQuery is
     // known (see below); defaults to "not ambiguous".
     let ambiguity = { ambiguous: false, term: null, resolvedAs: null, interpretations: [] };
+    // The final query actually searched (resolved from conversation context
+    // when available, else the raw query). Hoisted here because Wave 4 and
+    // the no-results builder below need it, but it is assigned inside the
+    // fresh-search branch — a block-scoped `let` there left Wave 4 with a
+    // ReferenceError whenever the AI waves were skipped or failed.
+    let searchQuery = query;
     // The public per-database record, computed once from the retrieval diag
     // and reused by the Wave-4 context, the coverage note, and the response.
     const publicSourcesQueried = () => (
@@ -9024,7 +9132,7 @@ export async function onRequest(context) {
       // that — it includes context from the conversation (e.g., "tell me more"
       // resolved to "BSFL gut microbiome mechanism detail"). Otherwise fall back
       // to the user's raw message.
-      let searchQuery = resolvedSearchQuery || query;
+      searchQuery = resolvedSearchQuery || query;
       
       // If user is asking for MORE papers, use the ORIGINAL topic as the search query
       if (wantsMorePapers && Array.isArray(body.history)) {
@@ -10378,7 +10486,10 @@ export async function onRequest(context) {
 
     // If we have a high-confidence cached answer (score >= 2 means multiple
     // upvotes), serve it directly. Otherwise fall through to the LLM chain.
-    if (cachedAnswer && cachedAnswer.score >= 2) {
+    // PRO TIER — same rule as the early cache check above: the cache is not
+    // an entitlement bypass, and a served hit counts as an AI answer.
+    if (cachedAnswer && cachedAnswer.score >= 2 && aiSynthesisAllowed) {
+      await meterAiAnswer();
       return new Response(
         JSON.stringify({
           answer: italicizeScientificTerms(cachedAnswer.answer, query),
@@ -10388,6 +10499,7 @@ export async function onRequest(context) {
           factCheck: null,
           related: [],
           source: "Cached (verified)",
+          aiQuota: aiQuotaPayload(),
           ...(await operatorDiagnostics(request, env, { diag: gResult && gResult._diag })),
           _cached: true,
         }),
@@ -10998,6 +11110,10 @@ export async function onRequest(context) {
     const synthesisDeadline = Math.min(Date.now() + 90000, requestDeadline - 2500);
     const synthesisStageT0 = Date.now();
 
+    // PRO TIER — the gate was resolved at the top of the handler (before any
+    // early-return AI path), so the waves below just read aiSynthesisAllowed.
+    // Metering happens once per search after the waves, below.
+
     // WAVE 1: small, fast, historically-reliable set from EVERY provider,
     // raced together (fastpath included — see above). This is what actually
     // fixes "OpenRouter-only outage blocks everything" — Workers AI and
@@ -11005,7 +11121,7 @@ export async function onRequest(context) {
     // after OpenRouter tiers exhaust. The whole wave is additionally raced
     // against the synthesis deadline: even if a leg's abort misbehaves,
     // the wave cannot outlive the budget.
-    if (!aiOK) {
+    if (!aiOK && aiSynthesisAllowed) {
       // 2026-09-14 scale fix: ONE AbortController for the whole wave. The
       // moment the race is decided the losers' in-flight HTTP is aborted —
       // without this every search burns ~15 AI legs of quota for one
@@ -11054,7 +11170,7 @@ export async function onRequest(context) {
     // reserve). Past that, Wave 4 takes over.
     // 2026-09-12: the old gate (Date.now() < 90s synthesisDeadline) let
     // wave 2 start with seconds left and 12s legs, blowing the 20s ceiling.
-    if (!aiOK && Date.now() < synthesisDeadline && msLeft() > 6000) {
+    if (!aiOK && aiSynthesisAllowed && Date.now() < synthesisDeadline && msLeft() > 6000) {
       // Bounded wait for the speculative brief: the brief starts HERE (not
       // alongside wave 1 — see startBrief above), and the small wave-2
       // models do far better composing from pre-digested claims than from
@@ -11125,7 +11241,7 @@ export async function onRequest(context) {
     // 20s global ceiling. Now gated on ≥4s of remaining budget, legs
     // clamped to it, and raced against the synthesis deadline like waves
     // 1-2. A last resort that can't fit in the budget is skipped, not run.
-    if (!aiOK && Date.now() < synthesisDeadline && msLeft() > 4000) {
+    if (!aiOK && aiSynthesisAllowed && Date.now() < synthesisDeadline && msLeft() > 4000) {
       const bulletproofSystem =
         ID +
         "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass — be direct and skip elaboration.\n\n" +
@@ -11211,6 +11327,12 @@ export async function onRequest(context) {
         aiAttempts.push({ wave: 3, ok: false, bulletproof: true, summary: errMsgs(agg) });
       }
     }
+
+    // PRO TIER — charge the AI answer against the caller's monthly bucket.
+    // Only free accounts are metered (Pro is unlimited; anonymous callers
+    // never reach the AI waves). Best-effort by design: a failed increment
+    // must never fail the search itself.
+    if (aiOK) await meterAiAnswer();
 
     // Log the full attempt trail so a future total-failure is diagnosable
     // from Cloudflare's dashboard logs instead of requiring another live
@@ -11833,6 +11955,21 @@ export async function onRequest(context) {
         // the footer can label it honestly ("Drafted from sources" vs
         // "AI-synthesized") instead of the UI having to guess.
         synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
+        /* PRO TIER — what the UI needs to render quota honestly: the
+         * caller's tier, AI answers used this month, the cap (null =
+         * unlimited on Pro), and why AI synthesis was skipped when it was
+         * ("signin-required" for anonymous, "free-cap" when the free bucket
+         * is empty — both render as an upgrade nudge, never an error). */
+        aiQuota: {
+          kind: aiGate.kind,
+          used: aiGate.aiUsed,
+          cap: aiGate.kind === "pro" ? null : aiGate.aiCap,
+          gated: aiSynthesisAllowed
+            ? null
+            : aiGate.kind === "anonymous"
+              ? "signin-required"
+              : "free-cap",
+        },
         source:
           aiOK && useEvidence
             ? dbUsed + " + AI"

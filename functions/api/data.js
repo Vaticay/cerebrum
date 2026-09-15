@@ -224,7 +224,7 @@ async function founderRow(env) {
     // backfilled yet still resolves instead of the founder silently not
     // existing.
     return await env.DB.prepare(
-      "SELECT id, username, name, affiliation, degree, grad_year FROM users WHERE email_lower = ? OR LOWER(email) = ?"
+      "SELECT id, username, name, affiliation, degree, grad_year, plan FROM users WHERE email_lower = ? OR LOWER(email) = ?"
     ).bind(founderEmail, founderEmail).first();
   } catch { return null; }
 }
@@ -254,6 +254,7 @@ async function founderCard(env, user) {
       followers: (followers && followers.n) || 0,
       following: !!isFollowing,
       isFounder: true,
+      isPro: fr.plan === "pro",
       prompt: "Have a question for the owner?",
     };
   } catch { return null; }
@@ -562,7 +563,7 @@ export async function onRequest(context) {
         }
         const row = await env.DB.prepare(
           `SELECT id, username, name, affiliation, show_affiliation, degree, grad_year,
-                  avatar_base64, bio, cover, link_site, link_orcid, link_scholar, discoverable, dm_policy
+                  avatar_base64, bio, cover, link_site, link_orcid, link_scholar, discoverable, dm_policy, plan
            FROM users WHERE id = ?`
         ).bind(targetId).first();
         const blocked = row ? await isBlockedPair(env, user.id, targetId) : false;
@@ -595,6 +596,9 @@ export async function onRequest(context) {
             id: row.id,
             username: row.username,
             name: row.name || row.username || "Researcher",
+            // Pro is a public badge, not private account state: a member's
+            // Pro status is meant to be seen on their public profile.
+            isPro: row.plan === "pro",
             affiliation: row.show_affiliation === 0 ? null : (row.affiliation || null),
             degree: row.degree || null,
             grad_year: row.grad_year || null,
@@ -948,7 +952,7 @@ export async function onRequest(context) {
 
         const like = "%" + escapeLikeWildcards(q) + "%";
         const rows = await env.DB.prepare(
-          `SELECT u.id, u.username, u.name, u.affiliation, u.show_affiliation, u.degree, u.grad_year,
+          `SELECT u.id, u.username, u.name, u.affiliation, u.show_affiliation, u.degree, u.grad_year, u.plan,
                   (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
                   EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
            FROM users u
@@ -976,6 +980,7 @@ export async function onRequest(context) {
           gradYear: r.grad_year || null,
           followers: r.followers || 0,
           following: !!r.is_following,
+          isPro: r.plan === "pro",
         }));
 
         return okRes({ items, founder: await founderCard(env, user) }, 200, cors);

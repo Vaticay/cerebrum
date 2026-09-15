@@ -128,7 +128,12 @@ CREATE TABLE IF NOT EXISTS users (
   password_salt   TEXT,
   created_at      INTEGER NOT NULL,
   last_login_at   INTEGER,
-  avatar_base64   TEXT           -- data: URL of a client-compressed 256x256 JPEG; NULL until the person uploads one
+  avatar_base64   TEXT,          -- data: URL of a client-compressed 256x256 JPEG; NULL until the person uploads one
+  plan            TEXT,          -- Pro tier (2026-09-15): NULL/'free' = free, 'pro' = entitled
+  pro_source      TEXT,          -- 'subscription' (Stripe) or 'lifetime' (founder grant); webhooks never touch 'lifetime'
+  pro_granted_at  INTEGER,       -- when a lifetime grant was made (founder action)
+  pro_interval    TEXT,          -- subscription billing interval: 'month' | 'year' (NULL for lifetime/free)
+  stripe_customer_id TEXT        -- cus_* — links the account to Stripe billing
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users(email_lower);
 
@@ -380,3 +385,21 @@ CREATE TABLE IF NOT EXISTS reports (
   ip          TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at);
+
+-- ============================================================
+-- 2026-09-15 — Pro tier: AI-answer metering + Stripe idempotency.
+-- One row per (user, UTC month) counts AI-synthesized answers against the
+-- free monthly cap (15). Pro accounts never write here. Both tables are
+-- also created on first use by ensureProTables in
+-- functions/lib/proEntitlement.js, so deploys self-heal.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS pro_usage (
+  user_id    TEXT NOT NULL,
+  month      TEXT NOT NULL, -- UTC YYYY-MM
+  ai_answers INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, month)
+);
+CREATE TABLE IF NOT EXISTS stripe_events (
+  event_id    TEXT PRIMARY KEY, -- evt_* — claimed before apply, so retried
+  received_at INTEGER NOT NULL  -- deliveries can never double-apply
+);

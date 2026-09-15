@@ -472,6 +472,15 @@ export async function ensureUserProfileColumns(env) {
     "ALTER TABLE users ADD COLUMN discoverable INTEGER",
     "ALTER TABLE users ADD COLUMN dm_policy TEXT",
     "ALTER TABLE users ADD COLUMN show_affiliation INTEGER",
+    // 2026-09-15 — Pro tier. plan: NULL/'free' = free, 'pro' = entitled.
+    // pro_source: 'subscription' (Stripe) or 'lifetime' (founder grant).
+    // Lifetime rows are never touched by Stripe webhooks — see
+    // functions/lib/proEntitlement.js.
+    "ALTER TABLE users ADD COLUMN plan TEXT",
+    "ALTER TABLE users ADD COLUMN pro_source TEXT",
+    "ALTER TABLE users ADD COLUMN pro_granted_at INTEGER",
+    "ALTER TABLE users ADD COLUMN pro_interval TEXT",
+    "ALTER TABLE users ADD COLUMN stripe_customer_id TEXT",
   ];
   for (const sql of alters) {
     try {

@@ -503,6 +503,40 @@ export async function onRequest(context) {
     try {
       const auth = await fullAuth();
       const user = await auth.getSessionUser(request, env);
+      if (user) {
+        // Pro tier (2026-09-15): the client needs to know the caller's plan
+        // (badge, gated palettes/backgrounds) and whether this session is
+        // the founder (grant-Pro panel). One indexed lookup; failures keep
+        // the signed-in user but report non-Pro, never a broken session.
+        try {
+          await auth.ensureUserProfileColumns(env);
+          const founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
+          const isFounder =
+            !!founderEmail &&
+            String(user.email || "").trim().toLowerCase() === founderEmail;
+          // The founder is Pro by definition: a one-time self-grant on
+          // first sight (idempotent — after the first grant plan is 'pro'
+          // and this never writes again). A failed grant must never break
+          // the session; the worst case is the founder grants themselves
+          // from the Pro panel instead.
+          if (isFounder) {
+            try {
+              await env.DB.prepare(
+                "UPDATE users SET plan = 'pro', pro_source = 'lifetime', pro_granted_at = COALESCE(pro_granted_at, ?) WHERE id = ? AND (plan IS NULL OR plan != 'pro')"
+              ).bind(Date.now(), user.id).run();
+            } catch {}
+          }
+          const row = await env.DB.prepare(
+            "SELECT plan, pro_source FROM users WHERE id = ?"
+          ).bind(user.id).first();
+          user.isPro = !!row && row.plan === "pro";
+          user.proSource = (row && row.pro_source) || null;
+          user.isFounder = isFounder;
+        } catch {
+          user.isPro = false;
+          user.proSource = null;
+        }
+      }
       return json({ user }, 200, cors);
     } catch (e) {
       // A failure here means we could not VERIFY a session, which is not the

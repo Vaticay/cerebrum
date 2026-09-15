@@ -174,6 +174,24 @@ async function apiWhoAmI() {
     return data.user || null;
   } catch { return null; }
 }
+// ── Pro tier ──
+async function apiProGet() {
+  try {
+    const res = await fetch("/api/pro");
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+async function apiProPost(action, payload) {
+  const res = await fetch("/api/pro", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...(payload || {}) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || data.message || "Something went wrong. Please try again.");
+  return data;
+}
 async function apiDataGet(resource, params) {
   try {
     const qs = new URLSearchParams({ resource, ...(params || {}) });
@@ -719,6 +737,12 @@ const PALETTES = {
   // undertone rather than going fully neutral, so it stays visibly a
   // different palette from Dark, not a re-skinned duplicate.
   Sage:  { dark: true, bg: "#0d0f0e", surface: "#151816", raised: "#1e221f", ink: "#f4f7f4", ink2: "#cbd5cd", faint: "#94a397", line: "rgba(139,168,136,0.12)", line2: "rgba(139,168,136,0.2)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #151816 25%, #1e221f 50%, #151816 75%)" },
+  // Pro — the members' palette (2026-09-15). Deep black-bronze with a
+  // restrained gold register: premium without going "finance app". Gated:
+  // the theme picker only offers it when user.isPro is true (see
+  // SettingsView), and the P resolution below falls back to Dark for anyone
+  // else holding the cookie — so the palette can never leak to free.
+  Pro:   { dark: true, bg: "#0b0a07", surface: "#14110b", raised: "#1e1a11", ink: "#faf3e0", ink2: "#e6d6a8", faint: "#a2936b", line: "rgba(212,175,55,0.13)", line2: "rgba(212,175,55,0.24)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #14110b 25%, #1e1a11 50%, #14110b 75%)" },
 };
 // Cyberpunk-leaning neon set — the two hues the blueprint calls out by name
 // (Matrix Green, Cyberpunk Cyan) moved to the front and pushed slightly
@@ -4458,7 +4482,6 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-09.mp4", // Splashing volcanic lava — Martin Sanchez
   "/assets/cinematic/science-10.mp4", // Volcanic eruption at sunset — Gylfi Gylfason
   "/assets/cinematic/science-11.mp4", // Greenland icebergs — Mikhail Nilov
-  "/assets/cinematic/science-12.mp4", // Jellyfish — Chris Munnik
   "/assets/cinematic/science-13.mp4", // Coral aquarium — Pexels contributor
   "/assets/cinematic/science-14.mp4", // Neuronal image-volume reconstruction — Economo, Clack et al.
   "/assets/cinematic/science-15.mp4", // Laboratory sample work — Pexels contributor
@@ -4490,27 +4513,18 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-32.mp4", // Clear quartz crystal — Monstera Production
   "/assets/cinematic/science-33.mp4", // Volcanic lava in slow motion — Anoop A Nair
   "/assets/cinematic/science-34.mp4", // Ferrofluid spikes under a magnet — Film Composite
-  "/assets/cinematic/science-35.mp4", // Northern lights timelapse — T Honkamies
   "/assets/cinematic/science-36.mp4", // Soap bubble freezing, macro — Aaron Burden
-  "/assets/cinematic/science-37.mp4", // Nebula field with stars — Adis Resic
   "/assets/cinematic/science-38.mp4", // Ants on a tiny white flower — Vung Nguyen
   "/assets/cinematic/science-39.mp4", // DNA chain animation — Pressmaster
-  "/assets/cinematic/science-40.mp4", // Glowing blue DNA strand — Pressmaster
-  "/assets/cinematic/science-41.mp4", // Sun illuminating Earth's surface — Ingrid
   "/assets/cinematic/science-42.mp4", // Rotating Earth and Sun — Endiae Genius
   "/assets/cinematic/science-43.mp4", // Starry night sky — Pexels contributor
-  "/assets/cinematic/science-44.mp4", // Milky Way over mountain lake — Dmitry Varennikov
   "/assets/cinematic/science-45.mp4", // Milky Way over beach — Luz Calor Som
-  "/assets/cinematic/science-46.mp4", // Lightning strikes over ocean — Tom Fisk
   "/assets/cinematic/science-47.mp4", // Night thunderstorm — Kmeel.com Videos
   "/assets/cinematic/science-48.mp4", // Thunderclouds from below — Magda Ehlers
   "/assets/cinematic/science-49.mp4", // Dark thunderstorm — Pixabay
-  "/assets/cinematic/science-50.mp4", // Orange lunar eclipse — Kindel Media
   "/assets/cinematic/science-51.mp4", // Lunar eclipse — Tom Fisk
   "/assets/cinematic/science-52.mp4", // Lunar eclipse close-up — Tom Fisk
   "/assets/cinematic/science-53.mp4", // Sharks and marine life — Ruvim M
-  "/assets/cinematic/science-54.mp4", // Grayscale cloud timelapse — CESAR A RAMIREZ VALLEJO TRAPHITHO
-  "/assets/cinematic/science-55.mp4", // Moody sky over hill — CESAR A RAMIREZ VALLEJO TRAPHITHO
   "/assets/cinematic/science-56.mp4", // Ink swirling in water — Engin Akyurt
 ];
 
@@ -4520,16 +4534,41 @@ const FILM_CLIPS_PORTRAIT = [
   "/assets/cinematic/science-24.mp4", // Coral reef close-up — JUN HO LEE
   "/assets/cinematic/science-25.mp4", // Yellowstone geyser — Rec Everywhere
   "/assets/cinematic/science-28.mp4", // Butterfly feeding on a flower — Hao Le
+];
+
+/* Pro reel (2026-09-15) — the members' backdrop. Ten landscape and two
+   portrait clips moved OUT of the free lists above, so they play only for
+   Pro members with the "Pro cinematic backgrounds" toggle on. These are the
+   strongest frames in the set — aurora, nebula, eclipse, DNA, lightning —
+   which is exactly why they're the perk, not the default. Attribution for
+   every clip still lives in FILM_CREDITS below; moving a clip between lists
+   does not move its credit row. */
+const FILM_CLIPS_PRO_LANDSCAPE = [
+  "/assets/cinematic/science-12.mp4", // Jellyfish — Chris Munnik
+  "/assets/cinematic/science-35.mp4", // Northern lights timelapse — T Honkamies
+  "/assets/cinematic/science-37.mp4", // Nebula field with stars — Adis Resic
+  "/assets/cinematic/science-40.mp4", // Glowing blue DNA strand — Pressmaster
+  "/assets/cinematic/science-41.mp4", // Sun illuminating Earth's surface — Ingrid
+  "/assets/cinematic/science-44.mp4", // Milky Way over mountain lake — Dmitry Varennikov
+  "/assets/cinematic/science-46.mp4", // Lightning strikes over ocean — Tom Fisk
+  "/assets/cinematic/science-50.mp4", // Orange lunar eclipse — Kindel Media
+  "/assets/cinematic/science-54.mp4", // Grayscale cloud timelapse — CESAR A RAMIREZ VALLEJO TRAPHITHO
+  "/assets/cinematic/science-55.mp4", // Moody sky over hill — CESAR A RAMIREZ VALLEJO TRAPHITHO
+];
+const FILM_CLIPS_PRO_PORTRAIT = [
   "/assets/cinematic/science-57.mp4", // Moon behind clouds — ren lavsad
   "/assets/cinematic/science-58.mp4", // Ice cave — Nadezhda Moryak
 ];
 
 /* What the component actually reads. Landscape is the fallback when the
    orientation cannot be determined, because a landscape clip cropped on a
-   phone still looks like footage; the reverse does not. */
-function filmReel() {
+   phone still looks like footage; the reverse does not. `pro` selects the
+   members-only reel (see FILM_CLIPS_PRO_* above) — offered only to Pro
+   members, never to anyone else. */
+function filmReel(pro) {
   if (typeof window === "undefined") return FILM_CLIPS_LANDSCAPE;
   const portrait = window.innerHeight > window.innerWidth;
+  if (pro) return portrait && FILM_CLIPS_PRO_PORTRAIT.length ? FILM_CLIPS_PRO_PORTRAIT : FILM_CLIPS_PRO_LANDSCAPE;
   return portrait && FILM_CLIPS_PORTRAIT.length ? FILM_CLIPS_PORTRAIT : FILM_CLIPS_LANDSCAPE;
 }
 const FILM_POSTER = "/assets/cinematic/poster.webp";
@@ -4808,7 +4847,7 @@ function filmPoster(src) {
    call issued from a real click/touch handler. The old path ran play() in
    a React effect after setState, outside the gesture, so the opt-in button
    silently did nothing on exactly the phones that needed it most. */
-const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked, onPlaybackChange, startAt = null, holdMs = FILM_HOLD_MS }, ref) {
+const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked, onPlaybackChange, startAt = null, holdMs = FILM_HOLD_MS, proReel = false }, ref) {
   const aRef = useRef(null);
   const bRef = useRef(null);
   const curRef = useRef(0);
@@ -4817,13 +4856,21 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
   const timerRef = useRef(0);
   const fadeRef = useRef(0);
   const orderRef = useRef(null);
-  if (!orderRef.current) {
-    const o = filmReel().slice();
+  const orderProRef = useRef(null);
+  // Reshuffle when the reel switches between free and Pro. The reel effect
+  // below is keyed on proReel too, so the switch takes effect at once: the
+  // member sees the members-only backdrop immediately, not after the
+  // current free clip's hold expires. idxRef restarts at the head of the
+  // new order (the lists are disjoint, so no index can carry over).
+  if (!orderRef.current || orderProRef.current !== proReel) {
+    const o = filmReel(proReel).slice();
     for (let i = o.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       const t = o[i]; o[i] = o[j]; o[j] = t;
     }
     orderRef.current = o;
+    orderProRef.current = proReel;
+    idxRef.current = 0;
   }
   /* `startAt` keeps the same background frame across a handoff: a fresh
      reel (the workspace mounts its own instance) opens on the given clip
@@ -5150,7 +5197,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
       }
       stop();
     };
-  }, [blocked]);
+  }, [blocked, proReel]);
 
   /* There is no CSS filter here any more, and that is the whole fix for
      the stutter.
@@ -6494,7 +6541,11 @@ function LegalProgress({ accent }) {
 
 function InfoPage({ page }) {
   const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
-  const P = PALETTES[paletteName] || PALETTES.Dark;
+  // The Pro palette is a members-only entitlement resolved from the signed-in
+  // account inside App(). This standalone route has no account context, so a
+  // stale cb_palette cookie (set while Pro, kept after logout/revocation)
+  // must fall back to Dark — never render member-only chrome to a stranger.
+  const P = PALETTES[paletteName === "Pro" ? "Dark" : paletteName] || PALETTES.Dark;
   // ACCENTS was collapsed to a single { Mono } entry when the app moved to
   // its current monochrome accent direction (App()'s own accentName state,
   // a few thousand lines down, already defaults to "Mono" to match) — this
@@ -6892,6 +6943,298 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
 function bibBtn(P, accent) { return { padding: "5px 10px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", letterSpacing: "0.01em" }; }
 
 function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-body)", transition: "background 0.15s ease, color 0.15s ease" }; }
+
+/* ════════════════════════════════════════════════════════════════════
+   Cerebrum Pro (2026-09-15).
+
+   The membership tier: unlimited AI-synthesized answers, the PRO badge,
+   the exclusive Pro palette, and the members-only cinematic reel. Billing
+   runs through Stripe (Checkout + Customer Portal); the backend
+   (functions/api/pro.js) is the authority on who is Pro — the frontend
+   only renders what /api/pro and /api/auth report. Dusty alone can grant
+   permanent Pro: the grant panel below renders only when user.isFounder,
+   and the server re-checks FOUNDER_EMAIL on every grant/revoke.
+   ════════════════════════════════════════════════════════════════════ */
+
+// Gold the eye can find at a glance, quiet enough to live next to the
+// wordmark. One component so the badge is identical on profile, nav,
+// settings, and the paywall.
+function ProBadge({ style } = {}) {
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center",
+      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
+      fontFamily: "var(--cb-body)", color: "#1a1405",
+      background: "linear-gradient(135deg, #f2d67c 0%, #d4a437 55%, #a67c1a 100%)",
+      border: "1px solid rgba(212,175,55,0.55)",
+      borderRadius: 999, padding: "2px 8px 2px 9px",
+      boxShadow: "0 1px 8px rgba(212,175,55,0.35)",
+      whiteSpace: "nowrap", ...style,
+    }}>PRO</span>
+  );
+}
+
+// Pricing + checkout + portal. Rendered as a modal by the main app;
+// also opened from the answer-footnote quota nudge via the "cb:open-pro"
+// window event so deeply-nested components never need prop drilling.
+function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
+  const [plan, setPlan] = useState("annual");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const trapRef = useRef(null);
+  useEffect(() => { if (trapRef.current) trapRef.current.focus(); }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
+  const configured = !!proStatus?.proConfigured;
+  const plans = proStatus?.plans || {};
+  const monthlyAmt = plans.monthly && plans.monthly.usd != null ? `$${plans.monthly.usd}` : "$20";
+  const annualAmt = plans.annual && plans.annual.usd != null ? `$${plans.annual.usd}` : "$144";
+
+  const startCheckout = async () => {
+    if (busy) return;
+    setBusy(true); setError("");
+    try {
+      const r = await apiProPost("create-checkout", { plan });
+      window.location.href = r.url;
+    } catch (e) {
+      setError(e.message || "Couldn't start checkout. Try again?");
+      setBusy(false);
+    }
+  };
+  const openPortal = async () => {
+    if (busy) return;
+    setBusy(true); setError("");
+    try {
+      const r = await apiProPost("create-portal", {});
+      window.location.href = r.url;
+    } catch (e) {
+      setError(e.message || "Couldn't open billing. Try again?");
+      setBusy(false);
+    }
+  };
+
+  const planCard = (id, name, price, per, note, tag) => (
+    <button key={id} onClick={() => { setPlan(id); }} aria-pressed={plan === id}
+      style={{
+        flex: "1 1 200px", minWidth: 0, textAlign: "left", cursor: "pointer", borderRadius: 12, padding: "16px 14px",
+        background: plan === id ? withAlpha("#d4af37", 0.08) : P.surface,
+        border: plan === id ? "1px solid rgba(212,175,55,0.6)" : `1px solid ${P.line}`,
+        transition: "border-color 150ms ease, background 150ms ease",
+      }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)" }}>{name}</span>
+        {tag && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.08em", color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", borderRadius: 999, padding: "2px 8px", fontFamily: "var(--cb-body)" }}>{tag}</span>}
+      </div>
+      <div style={{ marginTop: 8, display: "flex", alignItems: "baseline", gap: 4 }}>
+        <span style={{ fontSize: FONT_SIZES.display, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em" }}>{price}</span>
+        <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}>{per}</span>
+      </div>
+      <div style={{ marginTop: 4, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>{note}</div>
+    </button>
+  );
+
+  return (
+    <div onClick={onClose} role="dialog" aria-modal="true" aria-label="Cerebrum Pro" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 220, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} className="cb-backdrop">
+      <div ref={trapRef} tabIndex={-1} onClick={(e) => e.stopPropagation()} style={{
+        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        backdropFilter: "blur(40px) saturate(150%)", WebkitBackdropFilter: "blur(40px) saturate(150%)",
+        border: "1px solid rgba(212,175,55,0.35)",
+        borderRadius: 12, maxWidth: 540, width: "100%", maxHeight: "90vh", overflowY: "auto",
+        padding: "28px", outline: "none",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.5), 0 0 60px rgba(212,175,55,0.08)",
+      }} className="cb-modal">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: FONT_SIZES.heading, fontWeight: 800, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-display)" }}>Cerebrum Pro</span>
+            <ProBadge />
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+        </div>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-body)", marginBottom: 20 }}>
+          For the researchers who live here. Everything free stays free — Pro is the deep end.
+        </div>
+
+        {proStatus == null ? (
+          <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)", padding: "24px 0", textAlign: "center" }}>Checking Pro status…</div>
+        ) : user?.isPro ? (
+          <div style={{ textAlign: "center", padding: "12px 0 4px" }}>
+            <div style={{ width: 52, height: 52, borderRadius: "50%", margin: "0 auto 14px", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#f2d67c,#a67c1a)", color: "#1a1405" }}>
+              <Icon name="check" size={24} />
+            </div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)" }}>You're Pro.</div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 6, fontFamily: "var(--cb-body)" }}>
+              {user.proSource === "lifetime" ? "Lifetime member — no billing, ever." : proStatus.billing?.plan === "annual" ? "Annual billing · renews automatically" : proStatus.billing?.plan === "monthly" ? "Monthly billing · renews automatically" : "Active membership"}
+            </div>
+            {proStatus.hasBilling && configured && (
+              <button onClick={openPortal} disabled={busy} style={{ marginTop: 18, padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                {busy ? "Opening…" : "Manage subscription"}
+              </button>
+            )}
+            {error && <div style={{ marginTop: 12, fontSize: FONT_SIZES.small, color: "#e5484d", fontFamily: "var(--cb-body)" }}>{error}</div>}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
+              {planCard("monthly", "Monthly", monthlyAmt, "/month", "Billed monthly · cancel anytime")}
+              {planCard("annual", "Annual", annualAmt, "/year", "$12/mo billed annually · two months free", "BEST VALUE")}
+            </div>
+            <ul style={{ listStyle: "none", margin: "0 0 20px", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              {[
+                ["Unlimited AI-synthesized answers", "Free plan: 15 per month"],
+                ["PRO badge on your profile", "Gold, everywhere your name appears"],
+                ["Exclusive Pro theme", "Black-bronze and gold, members only"],
+                ["Members-only cinematic backgrounds", "The aurora, nebula, eclipse and DNA reels"],
+              ].map(([t, d]) => (
+                <li key={t} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ color: "#d4a437", marginTop: 1 }}><Icon name="check" size={15} /></span>
+                  <span>
+                    <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)" }}>{t}</span>
+                    <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}> — {d}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {error && <div style={{ marginBottom: 12, fontSize: FONT_SIZES.small, color: "#e5484d", fontFamily: "var(--cb-body)" }}>{error}</div>}
+            {!user ? (
+              <button onClick={() => { onClose(); onSignIn(); }} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                Sign in to go Pro
+              </button>
+            ) : !configured ? (
+              <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-body)", textAlign: "center", padding: "12px", border: `1px dashed ${P.line2}`, borderRadius: 10 }}>
+                Checkout opens soon — billing is still being wired up. Your free 15 AI answers a month keep working meanwhile.
+              </div>
+            ) : (
+              <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-body)" }}>
+                {busy ? "Starting secure checkout…" : `Go Pro — ${plan === "annual" ? `${annualAmt}/year` : `${monthlyAmt}/month`}`}
+              </button>
+            )}
+            <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", textAlign: "center" }}>
+              Secure checkout by Stripe · cancel anytime from the customer portal
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// The membership card inside Settings → Account: status, usage meter,
+// upgrade/manage. Section/Row come from SettingsView.
+function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section, Row }) {
+  const [portalBusy, setPortalBusy] = useState(false);
+  const openPortal = async () => {
+    if (portalBusy) return;
+    setPortalBusy(true);
+    try {
+      const r = await apiProPost("create-portal", {});
+      window.location.href = r.url;
+    } catch (e) {
+      toast(e.message || "Couldn't open billing. Try again?", { tone: "error" });
+      setPortalBusy(false);
+    }
+  };
+  const q = proStatus?.quota;
+  const pct = q && q.cap ? Math.min(100, Math.round((q.used / q.cap) * 100)) : 0;
+  return (
+    <Section title="Cerebrum Pro" footer={user?.isPro ? undefined : "Free accounts get 15 AI-synthesized answers a month. Pro is unlimited."}>
+      {!user ? (
+        <Row label="Go further with Pro" desc="Unlimited AI answers, the PRO badge, an exclusive theme and cinematic backgrounds."
+          control={<button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>See plans</button>} last />
+      ) : user.isPro ? (
+        <Row
+          label={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>Cerebrum Pro <ProBadge /></span>}
+          desc={user.proSource === "lifetime" ? "Lifetime member — no billing, ever." : proStatus?.billing?.plan === "annual" ? "Annual billing · renews automatically" : proStatus?.billing?.plan === "monthly" ? "Monthly billing · renews automatically" : "Active membership"}
+          control={proStatus?.hasBilling && proStatus?.proConfigured ? (
+            <button onClick={openPortal} disabled={portalBusy} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+              {portalBusy ? "Opening…" : "Manage subscription"}
+            </button>
+          ) : null}
+          last />
+      ) : (
+        <Row
+          label="AI answers this month"
+          desc={q ? `${q.used} of ${q.cap} free AI answers used · resets monthly` : "Free plan · 15 AI answers a month"}
+          control={
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {q && (
+                <div style={{ width: 110, maxWidth: "100%", height: 6, borderRadius: 999, background: P.raised, overflow: "hidden", flexShrink: 1, minWidth: 70 }} aria-hidden="true">
+                  <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: pct >= 100 ? "#e5484d" : "linear-gradient(90deg,#d4a437,#f2d67c)", transition: "width 300ms ease" }} />
+                </div>
+              )}
+              <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", flexShrink: 0 }}>Go Pro</button>
+            </div>
+          }
+          last />
+      )}
+    </Section>
+  );
+}
+
+// Founder-only: grant and revoke permanent Pro. The parent renders this
+// only when user.isFounder — and the server re-checks FOUNDER_EMAIL on
+// every call, so hiding it is courtesy, not the security boundary.
+function ProGrantPanel({ P, accent, at, Section, Row, onProChanged }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // { tone, text }
+  const [list, setList] = useState(null);
+  const refreshList = async () => {
+    try {
+      const r = await apiProPost("list-lifetime", {});
+      setList(r.lifetime || []);
+    } catch { setList([]); }
+  };
+  useEffect(() => { refreshList(); }, []);
+  const run = async (action, targetEmail) => {
+    if (busy) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await apiProPost(action, { email: targetEmail });
+      // Backend returns { ok, email, already, lifetime } — read r.email, not r.user.email.
+      setMsg({ tone: "good", text: action === "grant" ? `Permanent Pro granted to ${r.email}.` : `Pro revoked for ${r.email}.` });
+      setEmail("");
+      await refreshList();
+      if (onProChanged) await onProChanged();
+    } catch (e) {
+      setMsg({ tone: "bad", text: e.message || "That didn't work. Try again?" });
+    }
+    setBusy(false);
+  };
+  return (
+    <Section title="Grant Pro access" footer="Founder only. A grant is permanent: it survives cancellations, failed payments, and every Stripe webhook. Nothing on this page is visible to anyone but you.">
+      <Row
+        label="Grant permanent Pro"
+        desc="Enter the account's email address. They get everything Pro has, forever, with no billing."
+        control={
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run("grant", email); }}
+              placeholder="name@example.com" type="email" autoComplete="off"
+              style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, fontFamily: "var(--cb-body)", flex: "1 1 160px", minWidth: 0, maxWidth: 260 }} />
+            <button onClick={() => run("grant", email)} disabled={busy || !email.trim()} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: busy ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", color: busy ? P.faint : "#1a1405", border: "none", borderRadius: 8, cursor: busy || !email.trim() ? "default" : "pointer", fontFamily: "var(--cb-body)", flexShrink: 0 }}>
+              {busy ? "…" : "Grant"}
+            </button>
+          </div>
+        } />
+      {msg && (
+        <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.small, color: msg.tone === "good" ? "#3fb96c" : "#e5484d", fontFamily: "var(--cb-body)" }}>{msg.text}</div>
+      )}
+      <Row
+        label="Lifetime Pro members"
+        desc={list == null ? "Loading…" : list.length === 0 ? "Nobody yet." : `${list.length} member${list.length === 1 ? "" : "s"}`}
+        control={null}
+        last={!(list && list.length)} />
+      {list && list.map((m) => (
+        <Row key={m.email} label={m.email} desc={m.granted_at ? `Granted ${new Date(m.granted_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "Lifetime member"}
+          control={<button onClick={() => run("revoke", m.email)} disabled={busy} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>Revoke</button>}
+          last={m === list[list.length - 1]} />
+      ))}
+    </Section>
+  );
+}
 
 function ReportModal({ query, P, accent, at, onClose }) {
   const [description, setDescription] = useState("");
@@ -8782,6 +9125,22 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 must never wear the AI-synthesized label — the state card
                 above already owns the failure plainly. */}
             <span style={S.aiTag}>{t.synthesisMode === "none" ? "Synthesis unavailable · verify against cited sources" : t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
+            {/* Pro quota nudge: when the backend gated AI synthesis (free cap
+                hit, or signed out), the footnote says why and where to go —
+                never a dead end. Opens the Pro modal / auth via window
+                events so this deeply-nested renderer needs no props. */}
+            {t.aiQuota && t.aiQuota.gated === "free-cap" && (
+              <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro"))}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-body)", color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 999, padding: "3px 10px", cursor: "pointer" }}>
+                Out of free AI answers — Go Pro
+              </button>
+            )}
+            {t.aiQuota && t.aiQuota.gated === "signin-required" && (
+              <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-auth"))}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-body)", color: P.ink, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 999, padding: "3px 10px", cursor: "pointer" }}>
+                Sign in for AI-synthesized answers
+              </button>
+            )}
             <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           </div>
         )}
@@ -15248,8 +15607,8 @@ function UIRow({ label, desc, control, onClick, P, accent, last, tone, style }) 
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 500, color: tone === "bad" ? STATUS.bad : P.ink }}>{label}</div>
-        {desc && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.45, marginTop: 2 }}>{desc}</div>}
+        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 500, color: tone === "bad" ? STATUS.bad : P.ink, overflowWrap: "anywhere" }}>{label}</div>
+        {desc && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.45, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
     </div>
@@ -16030,7 +16389,8 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                     margin: 0, fontSize: isMobile ? 28 : 34, fontWeight: 700,
                     color: P.ink, fontFamily: "var(--cb-display)",
                     letterSpacing: "-0.03em", lineHeight: 1.05,
-                  }}>{displayName}</h1>
+                    display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                  }}><span>{displayName}</span>{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
                 )}
                 {/* Markers are a quiet line under the name — text, not a wall. */}
                 {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
@@ -16661,6 +17021,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{founder.name}</span>
                     <VerifiedCheck size={15} />
+                    {founder.isPro && <ProBadge style={{ fontSize: 10 }} />}
                   </div>
                   <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)" }}>
                     @{founder.username} · Founder &amp; Owner
@@ -16719,7 +17080,10 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   ...avatarSkin(r.name || r.username || r.id),
                 }}>{(r.name || r.username || "?").trim().charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                    {r.isPro && <ProBadge style={{ fontSize: 9, flexShrink: 0 }} />}
+                  </div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>@{r.username}</div>
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{subtitle}</div>}
                 </div>
@@ -17046,6 +17410,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                   <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                     <h2 style={{ fontSize: isMobile ? 21 : 24, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-display)" }}>{displayName}</h2>
                     {isFounder && <VerifiedCheck size={16} />}
+                    {u.isPro && <ProBadge style={{ fontSize: 11 }} />}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
                     <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)" }}>@{u.username}</span>
@@ -17938,7 +18303,7 @@ function ConfigStatus({ P, accent }) {
   );
 }
 
-function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns }) {
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -18336,15 +18701,25 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
           {tab === "account" && (<>
             {!user ? (
+              <>
               <Section title="Account" footer="An account syncs your library across devices. Guest mode keeps working forever if you'd rather not.">
                 <Row label="You're browsing as a guest" desc="Nothing here leaves this browser." control={
                   <button onClick={() => onOpenAuth("login")} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer" }}>Sign in</button>
                 } last />
               </Section>
+              <ProAccountSection P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={onOpenPro} Section={Section} Row={Row} />
+              </>
             ) : (<>
               <Section title="Account">
                 <Row label={user.email} desc="Signed in" last />
               </Section>
+              {/* Pro membership: status, usage meter, upgrade/manage. */}
+              <ProAccountSection P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={onOpenPro} Section={Section} Row={Row} />
+              {/* Founder-only: permanent Pro grants. Rendered only for the
+                  founder; the server re-checks FOUNDER_EMAIL on every call. */}
+              {user.isFounder && (
+                <ProGrantPanel P={P} accent={accent} at={at} Section={Section} Row={Row} onProChanged={onProChanged} />
+              )}
               {/* Commit 100 — privacy sits directly under the account it
                   governs, above password and everything else. It is the
                   first thing someone should meet when they come looking for
@@ -18438,10 +18813,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
           {tab === "appearance" && (<>
             <Section title="Theme">
-              <div style={{ display: "flex", gap: 8, padding: 12 }}>
-                {Object.keys(PALETTES).map((pn) => (
+              <div style={{ display: "flex", gap: 8, padding: 12, flexWrap: "wrap" }}>
+                {/* The Pro palette is members-only: it is not offered in the
+                    picker at all unless the signed-in account is Pro. */}
+                {Object.keys(PALETTES).filter((pn) => pn !== "Pro" || (user && user.isPro)).map((pn) => (
                   <button key={pn} onClick={() => { sfx(); setPaletteName(pn); }}
-                    style={{ flex: 1, padding: "14px 10px 10px", borderRadius: 8, cursor: "pointer", border: paletteName === pn ? `2px solid ${accent}` : `1px solid ${divider}`, background: PALETTES[pn].bg, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    style={{ flex: "1 1 100px", minWidth: 0, padding: "14px 10px 10px", borderRadius: 8, cursor: "pointer", border: paletteName === pn ? `2px solid ${accent}` : `1px solid ${divider}`, background: PALETTES[pn].bg, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                     <div style={{ display: "flex", gap: 4 }}>
                       <span style={{ width: 22, height: 22, borderRadius: 8, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} />
                       <span style={{ width: 22, height: 22, borderRadius: 8, background: accent }} />
@@ -18450,7 +18827,18 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   </button>
                 ))}
               </div>
+              {!(user && user.isPro) && (
+                <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "flex", alignItems: "center", gap: 8 }}>
+                  <ProBadge />
+                  <span>Members also get the Pro theme — <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: "#d4a437", fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-body)", textDecoration: "underline" }}>see plans</button></span>
+                </div>
+              )}
             </Section>
+            {user && user.isPro && (
+              <Section title="Pro backgrounds" footer="The members-only cinematic reel — aurora, nebula, eclipse, DNA. Replaces the standard backdrop while it's on.">
+                <Row label="Pro cinematic reel" desc="Ten exclusive clips, curated for members." control={<Switch on={proReel} onChange={(v) => { sfx(); setProReel(v); }} label="Pro cinematic reel" />} last />
+              </Section>
+            )}
 
             <Section title="Accent color">
               {/* v7.0 redesign: these were full circles — a row of bright
@@ -19891,7 +20279,8 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               <span style={{
                 fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.ink,
                 fontFamily: "var(--cb-body)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>{user.name || (user.email || "").split("@")[0] || "Your profile"}</span>
+                display: "flex", alignItems: "center", gap: 6,
+              }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name || (user.email || "").split("@")[0] || "Your profile"}</span>{user.isPro && <ProBadge />}</span>
               <span style={{
                 fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -20353,6 +20742,19 @@ function App() {
   const [user, setUser] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState("login");
+  // ── Cerebrum Pro (2026-09-15) ──
+  const [proStatus, setProStatus] = useState(null);
+  const [proModalOpen, setProModalOpen] = useState(false);
+  // Members-only cinematic reel toggle. A client-side preference, not a
+  // security boundary: the toggle and the Pro palette are only offered to
+  // Pro accounts, and the server is the authority on who is Pro.
+  const [proReel, setProReel] = useState(() => { try { return localStorage.getItem("cb_pro_reel") === "1"; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem("cb_pro_reel", proReel ? "1" : "0"); } catch {} }, [proReel]);
+  const refreshPro = useCallback(async () => {
+    try { setProStatus(await apiProGet()); } catch { setProStatus(null); }
+  }, []);
+  // Re-pull Pro status whenever the account changes (sign-in/out, grant).
+  useEffect(() => { refreshPro(); }, [user?.id, refreshPro]);
   const [syncReady, setSyncReady] = useState(false);
   const [importPrompt, setImportPrompt] = useState(null);
   const [collections, setCollections] = useState([]);
@@ -20569,6 +20971,55 @@ function App() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Pro checkout return: Stripe redirects back with #pro=success&session_id=
+  // (or #pro=cancelled). The redirect is never trusted — the session is
+  // verified server-side before anything is announced.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let hash = "";
+      try { hash = window.location.hash || ""; } catch { return; }
+      if (!hash.startsWith("#pro=")) return;
+      const params = new URLSearchParams(hash.slice(1));
+      const kind = params.get("pro");
+      try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
+      if (kind === "cancelled") {
+        toast("Checkout cancelled — nothing was charged.");
+        return;
+      }
+      if (kind !== "success") return;
+      try {
+        const r = await apiProPost("verify-session", { session_id: params.get("session_id") || "" });
+        if (cancelled) return;
+        if (r.isPro) {
+          toast("Welcome to Cerebrum Pro.");
+          const u = await apiWhoAmI();
+          if (!cancelled && u) setUser(u);
+          await refreshPro();
+        } else {
+          toast("Payment received — Pro is activating. If it doesn't appear shortly, refresh the page.", { tone: "error" });
+        }
+      } catch (e) {
+        if (!cancelled) toast(e.message || "Couldn't confirm that payment yet.", { tone: "error" });
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Deep components (the answer-footnote quota nudge) open the Pro modal
+  // and the auth dialog through window events instead of prop drilling.
+  useEffect(() => {
+    const openPro = () => setProModalOpen(true);
+    const openAuth = () => { setAuthInitialTab("login"); setAuthOpen(true); };
+    window.addEventListener("cb:open-pro", openPro);
+    window.addEventListener("cb:open-auth", openAuth);
+    return () => {
+      window.removeEventListener("cb:open-pro", openPro);
+      window.removeEventListener("cb:open-auth", openAuth);
+    };
   }, []);
 
   async function signOut() {
@@ -20945,7 +21396,13 @@ function App() {
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
-  const P = PALETTES[paletteName] || PALETTES.Dark;
+  const P = (() => {
+    // The Pro palette is members-only: anyone holding the cookie without a
+    // Pro account (signed out, expired, revoked) falls back to Dark rather
+    // than seeing the members' theme.
+    const name = paletteName === "Pro" && !(user && user.isPro) ? "Dark" : paletteName;
+    return PALETTES[name] || PALETTES.Dark;
+  })();
   // "Mono" isn't a real color swatch — it means "match the current palette's
   // own ink," which is why it's derived from P.dark rather than read out of
   // ACCENTS. Any other named accent (Sage, or a future addition) is a real
@@ -21086,7 +21543,7 @@ function App() {
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setErrorDetail(`empty body · ${elapsedS()}s · ${stamp()}`); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
+      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
@@ -21970,6 +22427,8 @@ function App() {
           ref={filmRef}
           animationMode={animationMode}
           paused={!filmMotion}
+          /* Pro members with the toggle on get the members-only reel. */
+          proReel={!!(user && user.isPro && proReel)}
           /* Opens on the door's clip when the visitor just stepped through,
              so the background frame is retained across the handoff. */
           startAt={enterClip}
@@ -22409,7 +22868,7 @@ function App() {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, turns }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, turns, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, proReel, setProReel }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -22900,6 +23359,13 @@ function App() {
         />
       )}
       {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
+      {proModalOpen && (
+        <ProModal
+          P={P} accent={accent} at={at} user={user} proStatus={proStatus}
+          onClose={() => setProModalOpen(false)}
+          onSignIn={() => { setAuthInitialTab("login"); setAuthOpen(true); }}
+        />
+      )}
       {evidenceTableSources && <EvidenceTableModal P={P} accent={accent} at={at} sources={evidenceTableSources} close={() => setEvidenceTableSources(null)} />}
       {flowchartOpen && (
         <FlowchartStudio
