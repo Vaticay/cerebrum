@@ -29,6 +29,7 @@ import {
   RELEVANCE_FLOOR,
   fingerprintClaim,
   buildExtractiveSynthesis,
+  isWellFormedClaim,
   // NEXT-GEN resilience pipeline (v7.0)
   runStage,
   extractPaperClaims,
@@ -848,6 +849,118 @@ test("synthesis deadline is derived from the global request budget", () => {
   // Waves 2/3 must be budget-gated.
   assert.ok(apiSrc.includes("msLeft() > 6000"), "wave 2 budget gate missing");
   assert.ok(apiSrc.includes("msLeft() > 4000"), "wave 3 budget gate missing");
+});
+
+group("Wave-4 deterministic fallback — 2026-09-15 incident regressions");
+
+// The incident: a weak brief model emitted a damaged "atomic claim" and it
+// shipped verbatim with a citation — "representing a 4-fivefold increase
+// relative to the anterior region (p ConclusionsCollectively, our findings
+// define ...". The integrity gate must reject it; the answer must fall back
+// to the intact regex-extracted sentence.
+const MANGLED_BRIEF_CLAIM =
+  "representing a 4-fivefold increase relative to the anterior region (p " +
+  "ConclusionsCollectively, our findings define a compartmentalized " +
+  "Dismissing-then-Recruiting strategy for microbiome assembly in BSFL, " +
+  "which is associated with the structuring of functional symbiont " +
+  "communities for efficient lignocellulose bioconversion.";
+const CLEAN_ABSTRACT_SENTENCE =
+  "Concurrently, host glycosylation-related genes (C1galt1, GlcAT-P, FUT8/11) " +
+  "were significantly upregulated in the posterior midgut (17-19 TPM), " +
+  "representing a 4- to 5-fold increase relative to the anterior region (p < 0.05).";
+
+test("isWellFormedClaim rejects the mangled brief claim from the incident", () => {
+  assert.equal(isWellFormedClaim(MANGLED_BRIEF_CLAIM), false, "mangled claim passed the gate");
+  assert.equal(isWellFormedClaim("EMBL-1) is able to maintain a part of insect gut biological activity."), false, "unbalanced-paren fragment passed the gate");
+  assert.equal(isWellFormedClaim("representing a 4-fivefold increase relative to the anterior region"), false, "unterminated fragment passed the gate");
+});
+
+test("isWellFormedClaim accepts intact sentences with p-values and quantities", () => {
+  assert.equal(isWellFormedClaim(CLEAN_ABSTRACT_SENTENCE), true, "clean sentence failed the gate");
+  assert.equal(isWellFormedClaim("Crack spacing increased linearly with layer thickness across 34 experiments."), true);
+});
+
+test("damaged brief claims fall back to intact abstract sentences", () => {
+  const paper = {
+    title: "Compartmentalized microbiome assembly in black soldier fly larvae",
+    abstract: CLEAN_ABSTRACT_SENTENCE + " Conclusions: Collectively, our findings define a compartmentalized strategy for microbiome assembly in BSFL.",
+  };
+  const claims = extractPaperClaims(paper, 3, [MANGLED_BRIEF_CLAIM]);
+  assert.ok(claims.length > 0, "no claims extracted at all");
+  for (const c of claims) {
+    assert.doesNotMatch(c, /ConclusionsCollectively/, "mangled brief claim shipped: " + c);
+    assert.doesNotMatch(c, /fivefold/, "mangled fold expression shipped: " + c);
+    assert.ok(isWellFormedClaim(c), "emitted claim fails the integrity gate: " + c);
+  }
+  assert.ok(claims.some((c) => c.includes("4- to 5-fold")), "intact sentence did not survive: " + JSON.stringify(claims));
+});
+
+function incidentPapers() {
+  // 8 PVC-degradation papers first (broad "degradation" vocabulary overlap),
+  // then 4 on-substrate lignocellulose papers — mirrors the incident layout.
+  const papers = [];
+  for (let i = 1; i <= 8; i++) {
+    papers.push({
+      title: "PVC biodegradation by mealworm gut bacteria " + i,
+      journal: "J Hazard Mater",
+      year: "2022",
+      abstract: "We show that PVC film lost " + (10 + i) + "% mass in 30 days in mealworm guts. Depolymerization enzymes were upregulated 3-fold (p < 0.01).",
+    });
+  }
+  for (let i = 9; i <= 12; i++) {
+    papers.push({
+      title: "Lignocellulose conversion by insect gut symbionts " + i,
+      journal: "Biotechnol Biofuels",
+      year: "2023",
+      abstract: "Termite gut symbionts released " + (30 + i) + "% of fermentable sugars from lignocellulose within 48 hours. Cellulase activity rose 5-fold (p < 0.001).",
+    });
+  }
+  return papers;
+}
+const INCIDENT_QUERY = "How does the insect gut microbiome degrade lignocellulose?";
+
+test("every source count in the answer derives from the cited pool", () => {
+  const md = buildExtractiveSynthesis(incidentPapers(), [], { query: INCIDENT_QUERY });
+  assert.ok(md, "expected a synthesis");
+  const disagree = md.match(/across the (\d+) sources/);
+  const conf = md.match(/(\d+) sources point the same way/);
+  assert.ok(disagree, "disagreement source count missing");
+  assert.ok(conf, "confidence source count missing");
+  assert.equal(disagree[1], conf[1], `count mismatch: disagree=${disagree[1]} confidence=${conf[1]}`);
+  assert.equal(disagree[1], "8", "expected the 8 cited sources, got " + disagree[1]);
+  const nums = [...md.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10));
+  for (const n of nums) assert.ok(n >= 1 && n <= 12, `citation [${n}] out of bounds`);
+});
+
+test("drifted-substrate papers cannot dominate a lignocellulose answer", () => {
+  const md = buildExtractiveSynthesis(incidentPapers(), [], { query: INCIDENT_QUERY });
+  assert.ok(md, "expected a synthesis");
+  const cited = [...new Set([...md.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10)))];
+  assert.ok(cited.some((n) => n >= 9), "no lignocellulose paper (9-12) was cited: " + cited.join(","));
+  // The lede ("The short answer") must open on-substrate, not on PVC.
+  const lede = md.split("## What the research shows")[0];
+  assert.doesNotMatch(lede, /PVC film lost/, "lede opens on a drifted PVC finding");
+  assert.ok(/lignocellulose|Cellulase/i.test(lede), "lede carries no on-substrate finding");
+});
+
+test("withheld count is distinguished from retrieved-but-uncited count", () => {
+  const md = buildExtractiveSynthesis(incidentPapers(), [], { query: INCIDENT_QUERY, relevanceGatedOut: 4 });
+  assert.ok(md, "expected a synthesis");
+  assert.ok(/4 of the 12 relevant papers aren't cited in this summary/.test(md), "uncited-count line missing");
+  assert.ok(/4 more papers were found but withheld/.test(md), "relevance-gated line missing");
+});
+
+test("falsification section has no generic filler; honest when empty", () => {
+  const md = buildExtractiveSynthesis(incidentPapers(), [], { query: INCIDENT_QUERY });
+  assert.ok(md, "expected a synthesis");
+  assert.doesNotMatch(md, /well-powered replication/, "generic falsification filler survived");
+  const falsSection = md.split("## What would change this")[1].split("*Drafted directly")[0];
+  assert.ok(/No specific falsification test is derivable/.test(falsSection), "honest empty-falsification line missing");
+});
+
+test("buildFalsificationBullets never emits the generic replication bullet", () => {
+  const bullets = buildFalsificationBullets({ papers: incidentPapers(), verdict: { status: "settled", conflicts: [] }, newestYear: 2023 });
+  assert.ok(!bullets.some((b) => /well-powered replication|direct measurement study finding no effect/.test(b)), "generic bullet emitted: " + JSON.stringify(bullets));
 });
 
 // ══════════════════════════════════════════════════════════════════════════

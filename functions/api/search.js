@@ -4567,8 +4567,9 @@ export function fingerprintClaim(text) {
 }
 
 export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
-  // ctx (optional): { sourcesQueried, relevanceGatedOut, ambiguity } —
+  // ctx (optional): { query, sourcesQueried, relevanceGatedOut, ambiguity } —
   // feeds the computed "How solid is this?" section and the ambiguity note.
+  // `query` powers the substrate-drift demotion (see below).
   // The five H2 sections mirror the AI path's REQUIRED OUTPUT STRUCTURE
   // ("The short answer" / "What the research shows" / "Where researchers
   // disagree" / "How solid is this?" / "What would change this") so a
@@ -4584,11 +4585,50 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     }
     // Preserve 1-based citation indices into the ORIGINAL array ordering —
     // the bibliography is built from the same array in the same order.
-    const pool = (papers || [])
+    let pool = (papers || [])
       .map((p, i) => ({ p, idx: i + 1 }))
       .filter(({ p }) => p && (p.title || p.abstract));
     if (pool.length === 0) return null;
+    /* Substrate-drift demotion (2026-09-15 incident). A lignocellulose
+     * question retrieved PVC/PET-degradation papers on broad "degradation"
+     * vocabulary overlap, and those papers dominated the emitted answer.
+     * When the query names a specific material — a long, distinctive term
+     * like "lignocellulose" — a paper that names a DIFFERENT specific
+     * substrate (a plastic polymer here) without ever naming the query's
+     * material is demoted below papers that stay on substrate. Stable:
+     * relative order is otherwise preserved and citation indices still key
+     * into the original array. This is a soft ordering preference inside
+     * the relevance-gated set, not a second gate — drifted papers can still
+     * be cited, they just can't crowd on-substrate work out of the 8
+     * cited slots or dominate the lede. */
+    const PLASTIC_ACRONYM_RE = /\b(PVC|PET|HDPE|LDPE)\b/;
+    const PLASTIC_POLYMER_RE = /\b(polystyrene|polyethylene|polypropylene|polyurethane|microplastics?)\b/i;
+    const queryMaterials = [...new Set(
+      String((ctx && ctx.query) || "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 8)
+    )];
+    if (queryMaterials.length > 0) {
+      const textOf = (p) => (p.title || "") + " " + (p.abstract || "");
+      const mentionsMaterial = (p) => {
+        const t = textOf(p).toLowerCase();
+        return queryMaterials.some((m) => t.includes(m));
+      };
+      const driftsSubstrate = (p) => {
+        const t = textOf(p);
+        return (PLASTIC_ACRONYM_RE.test(t) || PLASTIC_POLYMER_RE.test(t)) && !mentionsMaterial(p);
+      };
+      const onTopic = [], offTopic = [];
+      for (const it of pool) {
+        it.drifted = driftsSubstrate(it.p);
+        (it.drifted ? offTopic : onTopic).push(it);
+      }
+      if (offTopic.length > 0 && onTopic.length > 0) pool = [...onTopic, ...offTopic];
+    }
     const items = pool.slice(0, 8);
+    // Every count below derives from the CITED pool — the papers whose
+    // claims were actually examined — never from the pre-cap papers array.
+    // The real incident: "Where researchers disagree" said "8 sources"
+    // while "How solid is this?" said "12 sources" for the same answer.
+    const citedPapers = items.map((it) => it.p);
 
     // Per paper: the two most finding-dense abstract sentences, else the title.
     const termSets = [];
@@ -4601,13 +4641,26 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         .sort((a, b) => b.score - a.score);
       const top = ranked.slice(0, 2);
       // Extraction tags ("[Results] …") are stripped here so they can never
-      // reach a citation or the printed summary.
-      it.findings = top.map(({ s }) => stripClaimTags(boldExtractQuantities(tidyExtractSentence(s))));
-      it.findingScores = top.map(({ score }) => score);
+      // reach a citation or the printed summary. The integrity gate runs on
+      // the tidied sentence: a damaged extraction (unbalanced parens from a
+      // mid-parenthetical split, a glued section label) is dropped here and
+      // the paper falls back to its remaining sentences or its title.
+      it.findings = top
+        .map(({ s }) => stripClaimTags(tidyExtractSentence(s)))
+        .filter((s) => s && isWellFormedClaim(s))
+        .map((s) => boldExtractQuantities(s));
+      it.findingScores = top
+        .filter(({ s }) => isWellFormedClaim(stripClaimTags(tidyExtractSentence(s))))
+        .map(({ score }) => score);
       // Prefer brief claims (LLM-extracted, atomic) over regex-picked sentences.
-      const fromBrief = (briefByIdx[it.idx] || []).slice(0, 2);
+      // Damaged brief claims are rejected by the integrity gate — they fall
+      // back to the regex sentences above instead of shipping verbatim.
+      const fromBrief = (briefByIdx[it.idx] || [])
+        .map((t) => stripClaimTags(String(t || "")).trim())
+        .filter((t) => t && isWellFormedClaim(t))
+        .slice(0, 2);
       if (fromBrief.length) {
-        it.findings = fromBrief.map((t) => stripClaimTags(boldExtractQuantities(t)));
+        it.findings = fromBrief.map((t) => boldExtractQuantities(t));
         it.findingScores = fromBrief.map((t) => scoreFindingSentence(t));
       }
       it.titleClaim = extractTitleClaim(it.p.title);
@@ -4641,8 +4694,8 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // they are fallbacks, never lede material when real findings exist.
     const candidates = [];
     for (const it of items) {
-      it.findings.forEach((f, fi) => candidates.push({ text: f, idx: it.idx, score: it.findingScores[fi] }));
-      if (it.titleClaim) candidates.push({ text: it.titleClaim, idx: it.idx, score: -1 });
+      it.findings.forEach((f, fi) => candidates.push({ text: f, idx: it.idx, score: it.findingScores[fi], drifted: !!it.drifted }));
+      if (it.titleClaim) candidates.push({ text: it.titleClaim, idx: it.idx, score: -1, drifted: !!it.drifted });
     }
     candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
 
@@ -4657,7 +4710,19 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // sections below must keep each paper's remaining findings visible.
     const leads = [];
     const usedIdx = new Set();
-    for (const c of candidates) {
+    const claimWords = (s) => String(s || "").split(/\s+/).filter(Boolean).length;
+    // Lede order: on-substrate before drifted, concise before sprawling,
+    // then finding-density. The lede is "the short answer" to the question
+    // asked — a drifted paper's finding must not open it merely because it
+    // scored higher on raw finding-density, and a 70-word mega-sentence
+    // must not open it either. Skipped claims keep their fingerprint
+    // unconsumed, so they can still appear in the theme sections below.
+    const ledeOrder = [...candidates].sort((a, b) =>
+      ((a.drifted ? 1 : 0) - (b.drifted ? 1 : 0)) ||
+      ((claimWords(a.text) > 45 ? 1 : 0) - (claimWords(b.text) > 45 ? 1 : 0)) ||
+      (b.score - a.score) || (a.idx - b.idx)
+    );
+    for (const c of ledeOrder) {
       if (c.score < 0 || usedIdx.has(c.idx)) continue;
       const t = takeClaim(c.text);
       if (!t) continue;
@@ -4771,7 +4836,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // Conflicts are detected over the cited pool with indices remapped to
     // the original array ordering (the brief claims arrive keyed by
     // original index, so they are remapped too).
-    const conflictPapers = items.map((it) => it.p);
+    const conflictPapers = citedPapers;
     const indexMap = items.map((it) => it.idx);
     const poolBrief = [];
     for (const bc of (briefClaims || [])) {
@@ -4798,23 +4863,40 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     }
 
     const gaps = buildEvidenceGaps({
-      papers,
+      papers: citedPapers,
       sourcesQueried: ctx.sourcesQueried || null,
       relevanceGatedOut: ctx.relevanceGatedOut || 0,
     });
-    const conf = buildConfidenceLine(papers, dVerdict);
+    const conf = buildConfidenceLine(citedPapers, dVerdict);
     md += "\n## How solid is this?\n\n" + conf.line + "\n";
+    // The 8-cite cap means relevant papers can go uncited: say so plainly,
+    // with the exact counts, so "withheld" (relevance bar) is never confused
+    // with "retrieved but not cited" (the cap). The frontend labels uncited
+    // bibliography entries as further reading.
+    const uncitedCount = pool.length - items.length;
+    if (uncitedCount > 0) {
+      gaps.unshift(
+        uncitedCount + " of the " + pool.length + " relevant papers aren't cited in this summary — they're listed for further reading."
+      );
+    }
     if (gaps.length > 0) md += "\n" + gaps.map((g) => "- " + g).join("\n") + "\n";
 
-    const years = (papers || [])
+    const years = citedPapers
       .map((p) => Number(p.year))
       .filter((y) => y > 1900 && y <= new Date().getFullYear() + 1);
     const fals = buildFalsificationBullets({
-      papers,
+      papers: citedPapers,
       verdict: { ...dVerdict, conflicts },
       newestYear: years.length ? Math.max(...years) : null,
     });
-    md += "\n## What would change this\n\n" + fals.map((f) => "- " + f).join("\n") + "\n";
+    // Computed bullets only. When nothing specific is derivable, say so
+    // honestly instead of printing a generic "a replication would overturn
+    // this" line that is true of literally any empirical claim.
+    md += "\n## What would change this\n\n" +
+      (fals.length > 0
+        ? fals.map((f) => "- " + f).join("\n")
+        : "*No specific falsification test is derivable from the cited sources — treat the findings above as provisional pending replication.*") +
+      "\n";
 
     md += "\n*Drafted directly from the sources below — Cerebrum's AI providers were " +
       "temporarily unavailable, so this summary was assembled without AI. " +
@@ -4960,11 +5042,50 @@ function claimsOppose(ca, cb) {
 }
 
 // ── Per-paper claim extraction (deterministic) ────────────────────
-// The same finding-sentence machinery buildExtractiveSynthesis uses,
-// factored out so disagreement detection and alignment checking read the
-// same claims the summary was built from. briefTexts (LLM-extracted atomic
-// claims, when the speculative brief succeeded) outrank regex sentences.
+/* Sentence-integrity gate for extractive claims (2026-09-15 incident).
+ *
+ * The deterministic fallback once printed an LLM-extracted "atomic claim"
+ * that was visibly damaged — "representing a 4-fivefold increase relative
+ * to the anterior region (p ConclusionsCollectively, our findings define
+ * a compartmentalized ..." — a weak brief model had dropped the p-value,
+ * glued two abstract sentences together, and left an unbalanced paren.
+ * Brief claims ship with citations attached, so a damaged one is a damaged
+ * cited claim. This gate rejects anything that does not read as one
+ * complete, intact sentence; rejected brief claims fall through to the
+ * regex-extracted abstract sentences, which are mechanical and intact.
+ *
+ * The bar is deliberately structural, not stylistic: balanced parens /
+ * brackets / quotes, terminal punctuation, sane length. A lowercase start
+ * is allowed (the lede capitalizes it); a start on a closing bracket or
+ * punctuation — "(EMBL-1) is able..." with its opening paren lost — is not. */
+export function isWellFormedClaim(text) {
+  const s = String(text || "").trim();
+  if (!s) return false;
+  const words = s.split(/\s+/).filter(Boolean).length;
+  // Four words is the floor: "Diet significantly altered community
+  // composition." (5) and "Larvae showed 24% faster growth." (5) are real
+  // abstract sentences the gate must not eat; below four words a string is
+  // a fragment, not a claim.
+  if (words < 4 || words > 60) return false;
+  if (/^[\s)\]}>".,;:!?]/.test(s)) return false;
+  if (!/[.!?]["'”)\]]?$/.test(s)) return false;
+  const opens = (s.match(/\(/g) || []).length;
+  const closes = (s.match(/\)/g) || []).length;
+  if (opens !== closes) return false;
+  const ob = (s.match(/\[/g) || []).length;
+  const cb = (s.match(/\]/g) || []).length;
+  if (ob !== cb) return false;
+  const dq = (s.match(/"/g) || []).length;
+  if (dq % 2 !== 0) return false;
+  return true;
+}
+
 export function extractPaperClaims(paper, maxClaims = 3, briefTexts = null) {
+  // The same finding-sentence machinery buildExtractiveSynthesis uses,
+  // factored out so disagreement detection and alignment checking read the
+  // same claims the summary was built from. briefTexts (LLM-extracted atomic
+  // claims, when the speculative brief succeeded) outrank regex sentences —
+  // but only when they pass the integrity gate above.
   const out = [];
   const seen = new Set();
   const push = (t) => {
@@ -4976,14 +5097,19 @@ export function extractPaperClaims(paper, maxClaims = 3, briefTexts = null) {
     out.push(text);
   };
   if (Array.isArray(briefTexts)) {
-    for (const t of briefTexts.slice(0, maxClaims)) push(t);
+    // Damaged LLM claims never ship: the integrity gate rejects them here
+    // and the regex sentences below fill the slots instead.
+    for (const t of briefTexts.slice(0, maxClaims)) {
+      if (!isWellFormedClaim(stripClaimTags(String(t || "").trim()))) continue;
+      push(t);
+    }
   }
   if (out.length < maxClaims && paper) {
     const ranked = extractSentences(usableAbstract(paper))
       .map((s) => s.trim())
       .filter((s) => s.length > 20)
       .map((s) => ({ s: tidyExtractSentence(s), score: scoreFindingSentence(s) }))
-      .filter((c) => c.score > 0 && c.s)
+      .filter((c) => c.score > 0 && c.s && isWellFormedClaim(c.s))
       .sort((a, b) => b.score - a.score);
     for (const c of ranked) {
       push(c.s);
@@ -5537,7 +5663,11 @@ export function buildFalsificationBullets({ papers, verdict, newestYear }) {
   if (newestYear && new Date().getFullYear() - newestYear >= 6) {
     bullets.push("A recent study (post-" + newestYear + ") confirming or overturning the pattern — the newest cited source is aging.");
   }
-  bullets.push("A large, well-powered replication that fails to reproduce the headline finding would overturn the core conclusion.");
+  // NOTE (2026-09-15): the old always-on closer — "A large, well-powered
+  // replication that fails to reproduce the headline finding would overturn
+  // the core conclusion" — was removed. It is true of literally any
+  // empirical claim, so it read as filler next to computed bullets. When
+  // nothing specific is derivable the caller prints one honest line instead.
   return bullets.slice(0, 4);
 }
 
@@ -11141,6 +11271,7 @@ export async function onRequest(context) {
         // sections need; ambiguity names the interpretations instead of
         // silently picking one.
         const ext = buildExtractiveSynthesis(extPool, briefClaims, {
+          query: searchQuery,
           sourcesQueried: publicSourcesQueried(),
           relevanceGatedOut,
           ambiguity,
