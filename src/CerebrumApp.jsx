@@ -17135,13 +17135,13 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         {/* -- Masthead: a byline, not a hero. -----------------------------
             Face and name side by side, left aligned. No centered avatar,
             no stat tiles, no pill buttons. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <div style={{ position: "relative", width: 72, height: 72, flexShrink: 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
                 ...avatarSkin(displayName || user?.id), display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 22, fontWeight: 700, fontFamily: "var(--cb-font)",
+                fontSize: 28, fontWeight: 700, fontFamily: "var(--cb-font)",
               }}>{displayInitial}</div>
             ) : (
               <img
@@ -17185,9 +17185,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               />
             ) : (
               <h1 style={{
-                margin: 0, fontSize: 24, fontWeight: 700,
+                margin: 0, fontSize: 28, fontWeight: 800,
                 color: P.ink, fontFamily: "var(--cb-font)",
-                letterSpacing: "-0.02em", lineHeight: 1.1,
+                letterSpacing: "-0.03em", lineHeight: 1.05,
                 display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
               }}><span>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={16} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
             )}
@@ -18200,8 +18200,8 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
             <div style={{ padding: isMobile ? "22px 18px 28px" : "28px 28px 32px" }}>
               {/* Byline: face and name side by side, the same language as
                   your own profile's masthead. No cover, no stat tiles. */}
-              <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                <div style={{ width: 56, height: 56, flexShrink: 0 }}>
+              <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
+                <div style={{ width: 72, height: 72, flexShrink: 0 }}>
                   {u.avatar_base64 ? (
                     <img src={u.avatar_base64} alt={`${displayName}'s photo`} style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface }} />
                   ) : (
@@ -18209,13 +18209,13 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                       width: "100%", height: "100%", borderRadius: "50%",
                       ...avatarSkin(displayName || u.id),
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 22, fontWeight: 700, fontFamily: "var(--cb-font)",
+                      fontSize: 28, fontWeight: 700, fontFamily: "var(--cb-font)",
                     }}>{initial}</div>
                   )}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <h2 style={{ fontSize: 20, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
+                    <h2 style={{ fontSize: 24, fontWeight: 800, color: P.ink, margin: 0, letterSpacing: "-0.03em", fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
                     {(isFounder || isVerified) && <VerifiedCheck size={15} title={isFounder ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}
                     {u.isPro && <ProBadge style={{ fontSize: 10 }} />}
                   </div>
