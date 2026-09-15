@@ -18054,7 +18054,7 @@ function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker }) {
    searches, no saved papers, no collections, no history. A research question
    is often the most sensitive thing anyone types into this product.
    ════════════════════════════════════════════════════════════════════ */
-function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) {
+function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, currentUser }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -18083,6 +18083,31 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
   const initial = displayName.trim().charAt(0).toUpperCase() || "?";
   const isFounder = !!(data && data.badges || []).includes("founder");
   const isVerified = !!(data && data.badges || []).includes("verified");
+
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const toggleVerify = async () => {
+    if (verifyBusy || !u) return;
+    setVerifyBusy(true);
+    try {
+      const grant = !isVerified;
+      await apiDataAction("set-verified", { target_id: u.id, grant });
+      // Update local badges state
+      setData((prev) => {
+        if (!prev) return prev;
+        const badges = [...(prev.badges || [])];
+        if (grant && !badges.includes("verified")) badges.push("verified");
+        if (!grant) {
+          const idx = badges.indexOf("verified");
+          if (idx > -1) badges.splice(idx, 1);
+        }
+        return { ...prev, badges };
+      });
+    } catch (e) {
+      // Silent fail - the button just doesn't change
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
 
   const toggleFollow = async () => {
     if (busy || !u) return;
@@ -18253,6 +18278,23 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                     border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.6,
                   }}
                 >{msgBusy ? "Opening\u2026" : "Message"}</button>
+                {currentUser?.isFounder && !isFounder && (
+                  <button
+                    onClick={toggleVerify}
+                    disabled={verifyBusy}
+                    className="cb-press"
+                    title={isVerified ? "Remove verification from this account" : "Verify this account as an institution or renowned researcher"}
+                    style={{
+                      padding: "12px 20px", minHeight: 48, borderRadius: 100,
+                      cursor: verifyBusy ? "default" : "pointer",
+                      fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
+                      background: isVerified ? withAlpha("#34d399", 0.12) : "transparent",
+                      color: isVerified ? "#34d399" : P.faint,
+                      border: `1px solid ${isVerified ? withAlpha("#34d399", 0.3) : P.line}`,
+                      opacity: verifyBusy ? 0.6 : 1,
+                    }}
+                  >{verifyBusy ? "Saving…" : isVerified ? "✓ Verified" : "Verify account"}</button>
+                )}
               </div>
 
               {/* Saying what a profile does NOT carry is part of the
@@ -24563,7 +24605,7 @@ function App() {
       {viewingProfileId && (
         <PublicProfile
           P={P} accent={accent} at={at} isMobile={isMobile}
-          userId={viewingProfileId}
+          userId={viewingProfileId} currentUser={user}
           onClose={() => setViewingProfileId(null)}
           onMessage={(researcher, threadId) => {
             setViewingProfileId(null);
