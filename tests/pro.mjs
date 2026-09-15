@@ -663,6 +663,76 @@ await test("lifetime list API speaks { email, granted_at }", async () => {
   assert.match(src, /granted_at: r\.pro_granted_at \|\| null/, "listLifetimePros must normalize the column to granted_at");
 });
 
+// ── Behavioral quota edges ──────────────────────────────────────────────
+
+await test("free 14/15 allows one more; 15/15 denies (exact boundary)", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u20", email: "edge@x.com" });
+  const env = envOf(db);
+  const me = { id: "u20", email: "edge@x.com" };
+  for (let i = 0; i < 14; i++) await recordAiAnswer(env, "u20");
+  let gate = await resolveAiGate(env, me);
+  assert.equal(gate.aiUsed, 14);
+  assert.equal(aiSynthesisAllowed(gate), true, "14/15 must still allow AI");
+  await recordAiAnswer(env, "u20");
+  gate = await resolveAiGate(env, me);
+  assert.equal(gate.aiUsed, 15);
+  assert.equal(aiSynthesisAllowed(gate), false, "15/15 must deny AI");
+});
+
+await test("concurrent recordAiAnswer calls never lose increments", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u21", email: "race@x.com" });
+  const env = envOf(db);
+  await Promise.all(Array.from({ length: 20 }, () => recordAiAnswer(env, "u21")));
+  const gate = await resolveAiGate(env, { id: "u21", email: "race@x.com" });
+  assert.equal(gate.aiUsed, 20, "atomic upsert must not drop parallel increments");
+  assert.equal(aiSynthesisAllowed(gate), false, "20/15 must be over the cap");
+});
+
+await test("cached AI answers are gated and charged, never a quota bypass", async () => {
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  const hit = src.indexOf("if (earlyHit && earlyHit.answer && aiSynthesisAllowed)");
+  assert.ok(hit !== -1, "cache-hit serve must require aiSynthesisAllowed");
+  const block = src.slice(hit, hit + 1200);
+  assert.match(block, /await meterAiAnswer\(\)/, "served cache hit must charge the free bucket");
+});
+
+await test("context follow-ups (summary/explain/translate) are gated and metered", async () => {
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  assert.match(src, /const burnsInference = action !== "sources"/, "follow-up burn classification missing");
+  assert.match(src, /if \(burnsInference && !aiSynthesisAllowed\)/, "follow-ups must gate on the Pro gate");
+});
+
+await test("Wave 4 never throws on a missing query: searchQuery is hoisted (regression)", async () => {
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  // The 2026-09-15 incident: searchQuery was block-scoped inside the
+  // fresh-search branch, so Wave 4's no-results path threw ReferenceError
+  // whenever the AI waves were skipped (anonymous gate) or all failed.
+  assert.match(src, /let searchQuery = query;/, "searchQuery must be hoisted to function scope");
+  assert.ok(!src.includes("let searchQuery = resolvedSearchQuery || query;"), "block-scoped shadow must be gone");
+});
+
+await test("lifetime Pro survives EVERY Stripe event type, not just three", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u22", email: "vip2@x.com", plan: "pro", pro_source: "lifetime" });
+  const env = envOf(db);
+  const events = [
+    { id: "evt_20", type: "checkout.session.completed", data: { object: { payment_status: "paid", metadata: { user_id: "u22" }, customer: "cus_22" } } },
+    { id: "evt_21", type: "customer.subscription.created", data: { object: { status: "active", metadata: { user_id: "u22" } } } },
+    { id: "evt_22", type: "customer.subscription.updated", data: { object: { status: "past_due", metadata: { user_id: "u22" } } } },
+    { id: "evt_23", type: "customer.subscription.deleted", data: { object: { metadata: { user_id: "u22" } } } },
+    { id: "evt_24", type: "invoice.paid", data: { object: { customer: "cus_22" } } },
+    { id: "evt_25", type: "invoice.payment_failed", data: { object: { customer: "cus_22" } } },
+  ];
+  for (const e of events) await applyStripeEvent(env, e);
+  const r = db._users.get("u22");
+  assert.equal(r.plan, "pro");
+  assert.equal(r.pro_source, "lifetime");
+  const gate = await resolveAiGate(env, { id: "u22", email: "vip2@x.com" });
+  assert.equal(gate.kind, "pro", "lifetime grant must keep unlimited AI after every webhook");
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
