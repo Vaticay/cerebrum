@@ -5870,7 +5870,8 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           <h1 style={{
             fontSize: isMobile ? "clamp(28px, 8vw, 40px)" : "clamp(36px, 4.5vw, 58px)",
             fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15,
-            color: "#ffffff", margin: "28px 0 0", maxWidth: "20ch",
+            color: "#ffffff", margin: "28px auto 0", maxWidth: "20ch",
+            textAlign: "center",
             textShadow: "0 2px 44px rgba(0,0,0,0.55)",
             textWrap: "balance",
             overflow: "hidden",
