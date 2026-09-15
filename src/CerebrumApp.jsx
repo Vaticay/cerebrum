@@ -7554,15 +7554,26 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 20 }}>
               150 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered, never unlimited — and none of Pro's badge, theme, or members' reels.
             </div>
+            {/* The benefit list follows the selected plan card — a Lite shopper
+               must see Lite's actual benefits, never Pro's unlimited list. */}
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.12em", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+              {(plan === "lite-monthly" || plan === "lite-annual") ? "PRO LITE INCLUDES" : "PRO INCLUDES"}
+            </div>
             <ul style={{ listStyle: "none", margin: "0 0 20px", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-              {[
+              {(plan === "lite-monthly" || plan === "lite-annual" ? [
+                ["150 AI answers every 5 days", "Free plan: 15 every 5 days"],
+                ["30 document reads every 5 days", "Free plan: 3 every 5 days"],
+                ["10 flowchart saves every 5 days", "Free plan: 1 every 5 days"],
+                ["Metered, never unlimited", "Pro removes the meter entirely"],
+                ["No badge, theme, or members' reels", "Those stay Pro-only"],
+              ] : [
                 ["Unlimited AI-synthesized answers", "Free plan: 15 every 5 days"],
                 ["Unlimited document reads", "Free plan: 3 every 5 days"],
                 ["Unlimited flowchart saves", "Free plan: 1 every 5 days"],
                 ["PRO badge on your profile", "Gold, everywhere your name appears"],
                 ["Exclusive Pro theme", "Black-bronze and gold, members only"],
                 ["Members-only cinematic backgrounds", "The aurora, nebula, eclipse and DNA reels"],
-              ].map(([t, d]) => (
+              ]).map(([t, d]) => (
                 <li key={t} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                   <span style={{ color: "#d4a437", marginTop: 1 }}><Icon name="check" size={15} /></span>
                   <span>
@@ -22579,7 +22590,10 @@ function App() {
           if (!cancelled && u) setUser(u);
           await refreshPro();
         } else {
-          toast("Payment received — Pro is activating. If it doesn't appear shortly, refresh the page.", { tone: "error" });
+          const lite = !!(r && (r.isLite || r.tier === "lite"));
+          toast(lite
+            ? "Payment received — Pro Lite is activating. If it doesn't appear shortly, refresh the page."
+            : "Payment received — Pro is activating. If it doesn't appear shortly, refresh the page.", { tone: "error" });
         }
       } catch (e) {
         if (!cancelled) toast(e.message || "Couldn't confirm that payment yet.", { tone: "error" });
