@@ -1866,6 +1866,40 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ ok: true, version }), { status: 200, headers: cors });
     }
 
+    // Founder-only: grant or revoke the "verified" badge for institutions,
+    // famous/renowned researchers, and other accounts Dusty personally
+    // verifies. The badge renders as the green checkmark (VerifiedCheck).
+    // Only the founder (FOUNDER_EMAIL match) can grant this - it cannot be
+    // requested or purchased.
+    if (action === "set-verified") {
+      const founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
+      const userEmail = ((user.email_lower || user.email || "") + "").toLowerCase();
+      if (!founderEmail || userEmail !== founderEmail) {
+        return errRes("Only the owner can verify accounts.", 403, "forbidden", cors);
+      }
+      const targetId = (body.target_id || "").toString().trim();
+      const grant = body.grant !== false; // default true, set false to revoke
+      if (!targetId) return errRes("Missing target user.", 400, "bad_request", cors);
+      // Don't let anyone revoke the founder's own verified badge
+      const targetRow = await env.DB.prepare("SELECT email_lower, email FROM users WHERE id = ?").bind(targetId).first();
+      if (targetRow) {
+        const targetEmail = ((targetRow.email_lower || targetRow.email || "") + "").toLowerCase();
+        if (targetEmail === founderEmail && !grant) {
+          return errRes("Cannot revoke the owner's verification.", 400, "bad_request", cors);
+        }
+      }
+      if (grant) {
+        await env.DB.prepare(
+          "INSERT OR IGNORE INTO accolades (id, user_id, badge_type, granted_at) VALUES (?, ?, ?, ?)"
+        ).bind(newId("acc"), targetId, "verified", Date.now()).run();
+      } else {
+        await env.DB.prepare(
+          "DELETE FROM accolades WHERE user_id = ? AND badge_type = ?"
+        ).bind(targetId, "verified").run();
+      }
+      return new Response(JSON.stringify({ ok: true, granted: grant }), { status: 200, headers: cors });
+    }
+
     return errRes("Unknown resource/action.", 400, "bad_request", cors);
   } catch (e) {
     console.error("Cerebrum data endpoint error:", e);

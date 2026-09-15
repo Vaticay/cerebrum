@@ -9367,6 +9367,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
                   <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`, padding: "4px 11px", borderRadius: 9999, fontFamily: "var(--cb-font)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
                   {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
+                  {typeof t.answerSeconds === "number" && t.answerSeconds > 0 && (
+                    <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                      This was answered in {t.answerSeconds < 10 ? t.answerSeconds.toFixed(1) : Math.round(t.answerSeconds)} second{t.answerSeconds === 1 ? "" : "s"}
+                    </span>
+                  )}
                 {/* Retrieval coverage, from the server's record of which
                     databases actually settled — not a fixed list, and not a
                     guess. Rendered only when the backend supplied it, so an
@@ -17163,7 +17168,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 color: P.ink, fontFamily: "var(--cb-font)",
                 letterSpacing: "-0.02em", lineHeight: 1.1,
                 display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-              }}><span>{displayName}</span>{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
+              }}><span>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={16} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
             )}
             {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
             <div style={{ marginTop: 4, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
@@ -18077,6 +18082,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
   const displayName = (u && u.name) || "Researcher";
   const initial = displayName.trim().charAt(0).toUpperCase() || "?";
   const isFounder = !!(data && data.badges || []).includes("founder");
+  const isVerified = !!(data && data.badges || []).includes("verified");
 
   const toggleFollow = async () => {
     if (busy || !u) return;
@@ -18164,7 +18170,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <h2 style={{ fontSize: 20, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
-                    {isFounder && <VerifiedCheck size={15} />}
+                    {(isFounder || isVerified) && <VerifiedCheck size={15} title={isFounder ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}
                     {u.isPro && <ProBadge style={{ fontSize: 10 }} />}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
@@ -22769,7 +22775,7 @@ function App() {
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setErrorDetail(`empty body · ${elapsedS()}s · ${stamp()}`); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
+      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [], fresh: typewriter,
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
