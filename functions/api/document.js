@@ -196,8 +196,16 @@ export function classifyDocumentError(e) {
   };
 }
 
+// OpenRouter key lookup — accepts the documented OPENROUTER_KEY and the
+// conventional OPENROUTER_API_KEY alias, so a key set under either name is
+// honored. Matches search.js behavior.
+function openRouterKey(env) {
+  return env.OPENROUTER_KEY || env.OPENROUTER_API_KEY || "";
+}
+
 const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000, externalSignal = null) => {
-  if (!env.OPENROUTER_KEY) throw new Error(model + ": no OPENROUTER_KEY configured");
+  const orKey = openRouterKey(env);
+  if (!orKey) throw new Error(model + ": no OPENROUTER_KEY configured");
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
   // If an external signal is provided (e.g., from a shared race controller),
@@ -210,7 +218,7 @@ const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000, extern
   try {
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.OPENROUTER_KEY, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + orKey, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
       body: JSON.stringify({ model, temperature: 0.2, max_tokens: maxTokens, messages }),
       signal: c.signal,
     });
@@ -280,7 +288,7 @@ async function generate(env, messages, maxTokens) {
   } catch (agg) {
     raceController.abort();
     const errList = agg && agg.errors ? agg.errors.map((e) => String((e && e.message) || e)) : [String((agg && agg.message) || agg)];
-    if (env.OPENROUTER_KEY) {
+    if (openRouterKey(env)) {
       try {
         return await callOR(env, "meta-llama/llama-3.2-3b-instruct:free", messages, maxTokens, 25000);
       } catch (e2) {
