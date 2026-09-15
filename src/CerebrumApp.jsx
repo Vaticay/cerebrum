@@ -298,7 +298,7 @@ const ASK_MODE_EXAMPLES = {
   ],
   compare: [
     "mRNA vs protein vaccines: which protection lasts longer?",
-    "SSRIs vs CBT for depression — what does the evidence say?",
+    "SSRIs vs CBT for depression: what does the evidence say?",
   ],
   map: [
     "Who studies quantum error correction, and what's unsettled?",
@@ -360,7 +360,7 @@ async function exportTopPapersExcel(papers, { accent, title, subtitle, filename 
   if (!list.length) return { count: 0 };
   const mod = await import("./exportExcel.js");
   return mod.exportPapersToExcel(list, {
-    title: title || "Cerebrum — Top papers",
+    title: title || "Cerebrum: Top papers",
     subtitle: subtitle || `Exported from Cerebrum · ${new Date().toLocaleDateString()}`,
     filename: filename || "cerebrum-papers.xlsx",
     logoSvg: cerebrumLogoSvg(accent),
@@ -1993,7 +1993,7 @@ function MilestoneCard({ P, accent, at, user, refreshKey }) {
       )}
       <div style={{ alignItems: "center", paddingTop: 16, display: "flex", gap: 6, flexWrap: "wrap" }}>
         {data.items.filter((i) => i.earned).slice(-6).map((i) => (
-          <span key={i.key} title={`${i.label} — ${i.desc}`} style={{
+          <span key={i.key} title={`${i.label}: ${i.desc}`} style={{
             display: "inline-flex", alignItems: "center", gap: 5,
             padding: "5px 11px", borderRadius: RADIUS.pill,
             background: withAlpha(accent, 0.11), color: accent,
@@ -2787,7 +2787,7 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
   /* One honest line about what is in flight. These describe the shape of
      the work; which one is shown depends only on how long it has been,
      which is a fact the client actually has. */
-  const waitingLine = contextual ? "Working with the previous answer — no new literature search" :
+  const waitingLine = contextual ? "Working with the previous answer. No new literature search." :
     seconds < 3 ? "Searching the literature"
     : seconds < 9 ? "Searching the literature. Some databases are slower than others."
     : "Still searching. A few databases are taking their time.";
@@ -3737,7 +3737,7 @@ function StressTest({ turn, P, accent, at, onStress, busy, isMobile }) {
     shifted: { t: "The conclusion moved.", d: "Some claims did not survive the reduced evidence." },
     collapsed: { t: "The conclusion did not survive.", d: "None of the original claims remain supported." },
     "no-baseline": { t: "Re-run complete.", d: "There were no extracted claims from the original answer to compare against." },
-    inconclusive: { t: "Inconclusive — the re-run itself failed.", d: "No papers survived retrieval, or every model was unavailable. This says nothing about the original conclusion; try again in a moment." },
+    inconclusive: { t: "Inconclusive: the re-run itself failed.", d: "No papers survived retrieval, or every model was unavailable. This says nothing about the original conclusion; try again in a moment." },
   }[res.verdict]);
 
   return (
@@ -4697,7 +4697,7 @@ const FILM_MODIFICATIONS =
   "Each clip is a silent excerpt of up to 15 seconds, cut from the highest-resolution master " +
   "its source publishes, at its original speed and frame rate. Every clip ships in two " +
   "renditions: VP9 (.webm), preferred wherever the browser supports it, and H.264 (.mp4) as " +
-  "the universal fallback — both 720p, because full resolution is invisible behind a grade " +
+  "the universal fallback: both 720p, because full resolution is invisible behind a grade " +
   "this dark and costs several times the decode. The cinematic grade (desaturated, contrast " +
   "raised, brightness reduced) is baked into the files rather than applied as a live filter, " +
   "so playback never pays a per-frame shader cost. Portrait clips keep their own orientation " +
@@ -5657,7 +5657,7 @@ function HowItWorksDialog({ onClose, accent, onRunExample }) {
     { n: "1", h: "Ask in plain language",
       b: "A question the way you would ask a colleague. No boolean operators, no field codes, no learning a query syntax first." },
     { n: "2", h: "Cerebrum searches the literature",
-      b: "The question is run against " + SCHOLARLY_SOURCES.length + " scholarly sources — Europe PMC, PubMed, OpenAlex, Crossref, arXiv and the rest — and the results are de-duplicated across them." },
+      b: "The question is run against " + SCHOLARLY_SOURCES.length + " scholarly sources: Europe PMC, PubMed, OpenAlex, Crossref, arXiv and the rest. The results are de-duplicated across them." },
     { n: "3", h: "Every claim carries its source",
       b: "The answer is written from those papers, and each statement is numbered to the paper it came from. Open a citation to see the passage it rests on." },
   ];
@@ -6216,7 +6216,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               color: "rgba(242,244,242,0.9)", margin: "0 0 14px",
             }}>
               A Cerebrum search uses about the same energy as a single AI chat
-              answer — <strong style={{ fontWeight: 650, color: "#ffffff" }}>roughly 0.3&nbsp;Wh</strong> —
+              answer <strong style={{ fontWeight: 650, color: "#ffffff" }}>(roughly 0.3&nbsp;Wh)</strong>,
               and it&rsquo;s the only one you need.
             </p>
             <div style={{
@@ -7167,19 +7167,19 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
           back so "N sources" never looks like papers silently vanished. */}
       {gatedOut > 0 && (
         <div style={{ marginTop: 10, padding: "8px 4px", borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }} className="cb-fade">
-          {gatedOut} additional {gatedOut === 1 ? "paper was" : "papers were"} too tangential to this question to cite — withheld rather than counted.
+          {gatedOut} additional {gatedOut === 1 ? "paper was" : "papers were"} too tangential to this question to cite. Withheld rather than counted.
         </div>
       )}
       </div>
     );
   }
   return (
-    <AnswerSection eyebrow={`Bibliography \u00b7 ${sources.length} source${sources.length === 1 ? "" : "s"}`} P={P} accent={accent}
+    <AnswerSection eyebrow={`Bibliography · ${sources.length} source${sources.length === 1 ? "" : "s"}`} P={P} accent={accent}
       right={controls}>
       {ledger}
       {gatedOut > 0 && (
         <div style={{ marginTop: 10, padding: "8px 4px", borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }} className="cb-fade">
-          {gatedOut} additional {gatedOut === 1 ? "paper was" : "papers were"} too tangential to this question to cite — withheld rather than counted.
+          {gatedOut} additional {gatedOut === 1 ? "paper was" : "papers were"} too tangential to this question to cite. Withheld rather than counted.
         </div>
       )}
     </AnswerSection>
@@ -7496,7 +7496,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>You're Pro.</div>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 6, fontFamily: "var(--cb-font)" }}>
-              {user.proSource === "lifetime" ? "Lifetime member — no billing, ever." : proStatus.billing?.plan === "annual" ? "Annual billing · renews automatically" : proStatus.billing?.plan === "monthly" ? "Monthly billing · renews automatically" : "Active membership"}
+              {user.proSource === "lifetime" ? "Lifetime member. No billing, ever." : proStatus.billing?.plan === "annual" ? "Annual billing · renews automatically" : proStatus.billing?.plan === "monthly" ? "Monthly billing · renews automatically" : "Active membership"}
             </div>
             {proStatus.hasBilling && configured && (
               <button onClick={openPortal} disabled={busy} style={{ marginTop: 18, padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
@@ -7524,10 +7524,10 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 </button>
               )}
               <button onClick={() => upgradeToPlan("monthly")} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
-                {busy ? "Starting…" : `Pro Monthly — ${monthlyAmt}/mo`}
+                {busy ? "Starting…" : `Pro Monthly: ${monthlyAmt}/mo`}
               </button>
               <button onClick={() => upgradeToPlan("annual")} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
-                {busy ? "Starting…" : `Pro Annual — ${annualAmt}/yr`}
+                {busy ? "Starting…" : `Pro Annual: ${annualAmt}/yr`}
               </button>
             </div>
             {error && <div style={{ marginTop: 12, fontSize: FONT_SIZES.small, color: "#e5484d", fontFamily: "var(--cb-font)" }}>{error}</div>}
@@ -7545,14 +7545,14 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
               <div style={{ flex: 1, height: 1, background: P.line }} />
             </div>
             <div style={{ fontSize: FONT_SIZES.small, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10, letterSpacing: "-0.01em" }}>
-              Pro Lite <span style={{ fontWeight: 400, color: P.faint }}>— 10x the free usage</span>
+              Pro Lite <span style={{ fontWeight: 400, color: P.faint }}>(10x the free usage)</span>
             </div>
             <div style={{ display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
               {planCard("lite-monthly", "Lite Monthly", liteMonthlyAmt, "/month", "Billed monthly · cancel anytime")}
               {planCard("lite-annual", "Lite Annual", liteAnnualAmt, "/year", "$3.25/mo billed annually", "LITE VALUE")}
             </div>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 20 }}>
-              150 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered, never unlimited — and none of Pro's badge, theme, or members' reels.
+              150 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered, never unlimited, and none of Pro's badge, theme, or members' reels.
             </div>
             {/* The benefit list follows the selected plan card — a Lite shopper
                must see Lite's actual benefits, never Pro's unlimited list. */}
@@ -7578,7 +7578,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                   <span style={{ color: "#d4a437", marginTop: 1 }}><Icon name="check" size={15} /></span>
                   <span>
                     <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{t}</span>
-                    <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}> — {d}</span>
+                    <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>: {d}</span>
                   </span>
                 </li>
               ))}
@@ -7609,7 +7609,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                       </div>
                     </div>
                     <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "#d4a437", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
-                      {busy ? "Starting secure checkout…" : `Go Pro — ${studentAmt}/mo for 12 months`}
+                      {busy ? "Starting secure checkout…" : `Go Pro: ${studentAmt}/mo for 12 months`}
                     </button>
                   </>
                 ) : studentStep === "code" ? (
@@ -7654,7 +7654,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
               </div>
             ) : (
               <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "#d4a437", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
-                {busy ? "Starting secure checkout…" : `${checkoutVerb} — ${checkoutLabel}`}
+                {busy ? "Starting secure checkout…" : `${checkoutVerb}: ${checkoutLabel}`}
               </button>
             )}
             <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", textAlign: "center" }}>
@@ -7761,13 +7761,13 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   };
 
   const capacityLine = isPro
-    ? (user?.proSource === "lifetime" ? "Lifetime member — unlimited AI answers, document reads and flowcharts. No billing, ever."
+    ? (user?.proSource === "lifetime" ? "Lifetime member: unlimited AI answers, document reads and flowcharts. No billing, ever."
       : proStatus?.billing?.plan === "annual" ? "Annual billing · unlimited AI answers, document reads and flowcharts."
       : proStatus?.billing?.plan === "monthly" ? "Monthly billing · unlimited AI answers, document reads and flowcharts."
       : "Unlimited AI answers, document reads and flowcharts.")
     : isLite
     ? (proStatus?.billing?.plan === "annual" ? "Annual billing · " : proStatus?.billing?.plan === "monthly" ? "Monthly billing · " : "")
-      + "150 AI answers, 30 document reads and 10 flowcharts every 5 days — 10× the free tank."
+      + "150 AI answers, 30 document reads and 10 flowcharts every 5 days: 10 times the free plan."
     : "15 AI answers, 3 document reads and 1 flowchart every 5 days.";
   const tierName = isPro ? "Pro" : isLite ? "Pro Lite" : "Free";
 
@@ -7790,7 +7790,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           {rank === "free" && (
             <Row
               label="Pro Lite"
-              desc="150 AI answers every 5 days — 10× your current limit, plus 30 document reads and 10 flowcharts. $3.99/month or $39/year."
+              desc="150 AI answers every 5 days: 10 times your current limit, plus 30 document reads and 10 flowcharts. $3.99/month or $39/year."
               control={goldBtn("See plans", onOpenPro)}
             />
           )}
@@ -7979,7 +7979,7 @@ const TOUR_STEPS = [
     title: "Ask a question",
     icon: "⌘",
     text: "Type any scientific question into the search bar. Cerebrum queries 15 scholarly databases in parallel, PubMed, OpenAlex, Semantic Scholar, Europe PMC, and more, then synthesizes a fully cited answer from the retrieved evidence. No pre-trained generalization: every claim traces to a real paper.",
-    hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to open the command palette — search or run a command from anywhere.`,
+    hint: `Press ${IS_MAC ? "⌘" : "Ctrl"}+K to open the command palette. Search or run a command from anywhere.`,
   },
   {
     title: "Narrow by evidence type",
@@ -8384,7 +8384,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
   const dot = (n, pt, color, region) => {
     const s = src(n);
     const r = vennDotRadius(s);
-    const label = `[${n}] ${s.title || "Untitled source"}${s.year ? ` · ${s.year}` : ""} — ${regionName(region)}`;
+    const label = `[${n}] ${s.title || "Untitled source"}${s.year ? ` · ${s.year}` : ""}: ${regionName(region)}`;
     const hot = hoverN === n;
     return (
       <g key={`${region}-${n}`} transform={`translate(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`}>
@@ -8452,7 +8452,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }} role="list" aria-label="Papers with no clear stance signal">
               {model.unclear.map((n) => {
                 const s = src(n);
-                const label = `[${n}] ${s.title || "Untitled source"} — no stance signal`;
+                const label = `[${n}] ${s.title || "Untitled source"}: no stance signal`;
                 return (
                   <button key={n} type="button" role="listitem" title={s.title || "Untitled source"} aria-label={label + ". Activate to open the paper."}
                     onClick={() => onOpenPaper(n)}
@@ -8515,7 +8515,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
   return (
     <ModalChrome drawer P={P} label="How this answer was built" eyebrow="Autopsy" title="How this answer was built" accent={accent} onClose={close}>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, margin: "2px 0 6px" }}>
-        The pipeline's own record of this answer — read from the response, not reconstructed.
+        The pipeline's own record of this answer, read from the response, not reconstructed.
       </div>
 
         {/* ── 01 · Retrieval funnel — the hero: one graphic, the counts ── */}
@@ -8584,7 +8584,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
               ))}
             </div>
           ) : (
-            <div style={{ ...monoLine, marginBottom: 16, color: P.faint, fontStyle: "italic" }}>No structured entities detected — treated as a plain research question.</div>
+            <div style={{ ...monoLine, marginBottom: 16, color: P.faint, fontStyle: "italic" }}>No structured entities detected. Treated as a plain research question.</div>
           )}
           <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "0.08em" }}>QUERY RESOLVER</div>
           {resolver ? (
@@ -8649,10 +8649,10 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
           </div>
           <div style={{ ...monoLine, color: P.faint }}>
             {t.synthesisMode === "extractive"
-              ? "Deterministic extraction — no model wrote this text. Every line traces to the numbered papers."
+              ? "Deterministic extraction: no model wrote this text. Every line traces to the numbered papers."
               : t.synthesisMode === "none"
                 ? "No synthesis was produced for this answer."
-                : "A model composed this text from the evidence above. Every claim should trace to a numbered paper — open them to verify."}
+                : "A model composed this text from the evidence above. Every claim should trace to a numbered paper. Open them to verify."}
           </div>
         </AutopsySection>
 
@@ -8893,7 +8893,7 @@ function OpenQuestions({ cards, P, accent }) {
             </div>
           ))}
           <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6 }}>
-            Gaps are read from the answer's own hedging, its fact-check, and the query plan — never invented. An absence of gaps means the literature, as cited, looks settled.
+            Gaps are read from the answer's own hedging, its fact-check, and the query plan. Never invented. An absence of gaps means the literature, as cited, looks settled.
           </div>
         </div>
       )}
@@ -9041,7 +9041,7 @@ function JumpRail({ items, P, accent, onJump, isMobile }) {
   const tabBtn = (it) => (
     <button
       key={it.id} type="button" onClick={() => onJump(it.id)}
-      aria-label={`${it.label}${it.count != null ? ` — ${it.count}` : ""}`}
+      aria-label={`${it.label}${it.count != null ? `, ${it.count}` : ""}`}
       style={{
         display: "inline-flex", alignItems: "center", gap: 6,
         padding: "10px 12px", background: "none", border: "none",
@@ -9185,7 +9185,7 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
   const videosPending = t.videosSettled === false;
   return (
     <AnswerSection
-      eyebrow={`Evidence \u00b7 ${sources.length} source${sources.length === 1 ? "" : "s"} \u00b7 ${videos.length} video${videos.length === 1 ? "" : "s"}`}
+      eyebrow={`Evidence · ${sources.length} source${sources.length === 1 ? "" : "s"} · ${videos.length} video${videos.length === 1 ? "" : "s"}`}
       P={P} accent={accent}
       right={(
         <SegControl value={tab} onChange={setTab} P={P} accent={accent} ariaLabel="Evidence views"
@@ -9422,8 +9422,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       }] : []),
       { divider: true },
       ...(t.answerId ? [
-        { id: "yes", label: "Yes — useful", icon: "thumb-up", hint: vote === "up" ? "Marked" : undefined, onClick: () => castVote("up") },
-        { id: "no", label: "No — missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
+        { id: "yes", label: "Yes, useful", icon: "thumb-up", hint: vote === "up" ? "Marked" : undefined, onClick: () => castVote("up") },
+        { id: "no", label: "No, missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
       ] : []),
       { id: "report", label: "Report a problem", icon: "flag", hint: user ? undefined : "Sign in", onClick: () => { if (user) setShowReport(true); else onRequireAuth(); } },
     ];
@@ -9657,7 +9657,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 />
                 {interactive && t.answer && t.answer.length > 40 && (
                   <ToolChip
-                    title="Flowchart — turn this answer into a diagram"
+                    title="Flowchart: turn this answer into a diagram"
                     label="Diagram"
                     icon="flowchart"
                     accent={accent} P={P}
@@ -9723,7 +9723,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             <>
               <AnswerStateCard kicker="SYNTHESIS UNAVAILABLE" tone="warn"
                 title="Every model is at capacity, so this isn't a written synthesis."
-                body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order — not a synthesized argument."
+                body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>
                 {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
@@ -9809,9 +9809,9 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     ? "No scientific claims to verify."
                     : "Verification didn't produce a result for this answer."}
                 body={t.factCheck && t.factCheck.error
-                  ? "The fact-check is a separate pass over the answer's claims — it didn't produce a result here."
+                  ? "The fact-check is a separate pass over the answer's claims. It didn't produce a result here."
                   : t.responseKind === "no-results" || (t.sources || []).length === 0
-                    ? "This answer makes no claims about the literature — it reports what the search tried and why nothing citable surfaced — so there is nothing to check against sources."
+                    ? "This answer makes no claims about the literature. It reports what the search tried and why nothing citable surfaced, so there is nothing to check against sources."
                     : "The mechanical claim check didn't return a verdict. The answer's citations still point at the papers they came from."}
                 actions={[{ label: "Retry search", onClick: retrySearch }]}
                 P={P} accent={accent} />
@@ -9840,11 +9840,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   : v.status === "divided" ? "DIVIDED"
                   : v.status === "settled" ? "CONSISTENT"
                   : "THIN EVIDENCE";
-                const body = (v && v.summary) || "The cited claims don't split into two camps — the literature, as cited, reads as settled or too thin to divide.";
+                const body = (v && v.summary) || "The cited claims don't split into two camps. The literature, as cited, reads as settled or too thin to divide.";
                 return (
                   <AnswerStateCard kicker={kicker}
                     title={v && v.status === "divided"
-                      ? "The sources genuinely split — see the flashpoints below."
+                      ? "The sources genuinely split. See the flashpoints below."
                       : v && v.status === "settled"
                         ? "No clear disagreement surfaced."
                         : "No clear disagreement surfaced."}
@@ -9875,7 +9875,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: withAlpha(STATUS.warn, 0.5), fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", fontWeight: 700 }}>vs</div>
                 <div style={{ padding: "12px 14px", background: withAlpha(STATUS.warn, 0.05), borderRadius: 8, border: `1px solid ${withAlpha(STATUS.warn, 0.14)}` }}>
                   <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-font)", marginBottom: 6 }}>[{c.idxB}]</div>
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{renderFlashpointClaim(c.claimB || "—", P)}</div>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{renderFlashpointClaim(c.claimB || "Not stated", P)}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceB ? renderCleanTitle(c.sourceB) : ""}</div>
                 </div>
               </div>
@@ -10401,7 +10401,7 @@ function extractMethodology(abstract) {
     /\bsample\s+(?:size|of)\s+(?:of\s+)?([\d,]+)/i,
     /\b([\d,]+)\s+(?:studies|trials|articles)\s+(?:were\s+)?(?:included|analyzed|reviewed)\b/i,
   ];
-  let sampleSize = "—";
+  let sampleSize = "Not reported";
   for (const re of sizePatterns) {
     const m = text.match(re);
     if (m) { sampleSize = "n = " + m[1].replace(/,/g, ","); break; }
@@ -10412,7 +10412,7 @@ function extractMethodology(abstract) {
     /\b(?:primary\s+(?:outcome|endpoint|measure)[s]?:?\s*)(.*?)(?:\.|$)/i,
     /\b(?:measured|assessed|evaluated|examined)\s+(.*?)(?:\.|$)/i,
   ];
-  let keyMetric = "—";
+  let keyMetric = "Not reported";
   for (const re of metricPatterns) {
     const m = text.match(re);
     if (m && m[1]) {
@@ -10429,7 +10429,7 @@ function extractMethodology(abstract) {
     /\bCI\s*[:=]?\s*[\d.]+-[\d.]+/gi,
     /\b95%\s*CI\s*[:,]?\s*[\d.]+\s*[-–]\s*[\d.]+/gi,
   ];
-  let pValue = "—";
+  let pValue = "Not reported";
   for (const re of pPatterns) {
     const m = text.match(re);
     if (m) { pValue = m[0].trim(); break; }
@@ -10638,7 +10638,7 @@ function NetworkGraphBody({ P, accent, sources, compact = false }) {
           <line key={i} x1={nodes[a].x} y1={nodes[a].y} x2={nodes[b].x} y2={nodes[b].y} stroke={P.line2 || P.line} strokeWidth={strength >= 1 ? 1.4 : 0.8} opacity={strength >= 1 ? 0.5 : 0.25} />
         ))}
         {nodes.map((node, i) => {
-          const label = `${node.s.title || "Untitled source"}${node.s.journal ? ` — ${node.s.journal}` : ""}${node.s.relevance ? ` · ${node.s.relevance}% relevance` : ""}`;
+          const label = `${node.s.title || "Untitled source"}${node.s.journal ? `: ${node.s.journal}` : ""}${node.s.relevance ? ` · ${node.s.relevance}% relevance` : ""}`;
           return (
             <g
               key={i}
@@ -10662,7 +10662,7 @@ function NetworkGraphBody({ P, accent, sources, compact = false }) {
       <div style={{ padding: compact ? "8px 0 0" : "0 0 4px", minHeight: 40 }}>
         {hoverIdx !== null && nodes[hoverIdx] ? (
           <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5 }}>
-            <strong style={{ color: P.ink }}>{nodes[hoverIdx].s.title}</strong>{nodes[hoverIdx].s.journal ? ` — ${nodes[hoverIdx].s.journal}` : ""}{nodes[hoverIdx].s.relevance ? ` · ${nodes[hoverIdx].s.relevance}% relevance` : ""}
+            <strong style={{ color: P.ink }}>{nodes[hoverIdx].s.title}</strong>{nodes[hoverIdx].s.journal ? `: ${nodes[hoverIdx].s.journal}` : ""}{nodes[hoverIdx].s.relevance ? ` · ${nodes[hoverIdx].s.relevance}% relevance` : ""}
           </div>
         ) : (
           <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
@@ -10932,8 +10932,8 @@ function EvidenceTableInline({ sources, P, accent, onOpenPaper }) {
                       border: `1px solid ${r.design.rank >= 5 ? withAlpha(accent, 0.3) : P.line}` }}>{r.design.label}</span>
                   ) : <span style={{ color: P.faint }}>—</span>}
                 </td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", fontWeight: 600 }}>{r.n != null ? r.n.toLocaleString() : <span style={{ color: P.faint }}>—</span>}</td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", color: P.ink2 }}>{r.year || <span style={{ color: P.faint }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", fontWeight: 600 }}>{r.n != null ? r.n.toLocaleString() : <span style={{ color: P.faint }}>Not reported</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", color: P.ink2 }}>{r.year || <span style={{ color: P.faint }}>Unknown</span>}</td>
               </tr>
             ))}
           </tbody>
@@ -10959,7 +10959,7 @@ function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
     return (
       <AnswerSection eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}>
         <AnswerStateCard kicker="NOTHING TO COMPARE" title="No studies to compare."
-          body="The comparison tools need cited studies to work with — this answer cites none."
+          body="The comparison tools need cited studies to work with. This answer cites none."
           P={P} accent={accent} />
       </AnswerSection>
     );
@@ -10974,7 +10974,7 @@ function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
       )).reduce((acc, el, i) => i === 0 ? [el] : [...acc, <span key={"s" + i} aria-hidden="true" style={{ color: P.line, margin: "0 2px" }}>/</span>, el], [])}>
       {!evOpen && (
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.7 }}>
-          {sources.length} cited {sources.length === 1 ? "study" : "studies"} underpin this answer — compare them as a table, a co-citation network, or the arc of the literature over time.
+          {sources.length} cited {sources.length === 1 ? "study" : "studies"} underpin this answer. Compare them as a table, a co-citation network, or the arc of the literature over time.
         </div>
       )}
       {evOpen === "table" && <EvidenceTableInline sources={sources} P={P} accent={accent} onOpenPaper={onOpenPaper} />}
@@ -11789,7 +11789,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   const remainingMs = Math.max(0, resetsAt - now);
 
   const fmtRemaining = (ms) => {
-    if (ms == null) return "—";
+    if (ms == null) return "Not reported";
     if (ms <= 0) return "refilling…";
     const m = Math.floor(ms / 60000);
     const d = Math.floor(m / 1440);
@@ -11832,8 +11832,8 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
     const state = unlimited ? "unlimited" : left === 0 ? "empty" : pct >= 80 ? "low" : "ok";
     const fill = state === "empty" ? "#e5484d" : state === "low" ? "#e8a13c" : "linear-gradient(90deg,#d4a437,#f2d67c)";
     const stateLine = state === "unlimited" ? "No cap. No counting."
-      : state === "empty" ? `Empty — refills in ${fmtRemaining(remainingMs)}`
-      : state === "low" ? `${left} remaining — running low`
+      : state === "empty" ? `Empty. Refills in ${fmtRemaining(remainingMs)}`
+      : state === "low" ? `${left} remaining. Running low.`
       : `${left} remaining`;
     /* The three permitted upgrade moments: the Usage tab itself (the
        concrete-gain line below), the ~80% threshold, and the exhaustion
@@ -11885,7 +11885,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
     if (id === tier) return <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>;
     return (
       <button onClick={onOpenPro} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: id === "pro" ? "#d4a437" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
-        {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : "Downgrade"}
+        {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : "Switch to Free"}
       </button>
     );
   };
@@ -11901,25 +11901,25 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       </div>
       <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 8, fontFamily: "var(--cb-font)" }}>
         {isPro
-          ? "No meters, no refills — everything is unlimited."
+          ? "No limits. Everything is unlimited."
           : <>Everything below refills <strong style={{ color: P.ink }}>{refillDate}{refillTime ? ` at ${refillTime}` : ""}</strong> ({fmtRemaining(remainingMs)} left in this period).</>}
       </div>
 
       <div style={{ marginTop: 12 }}>
         <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : q?.cap}
-          sub={isPro ? null : isLite ? "Pro removes the meter entirely — unlimited answers." : "Pro Lite gives you 150 answers per 5 days — 10× your current limit."}
-          upgrade={isLite ? "Go Pro — unlimited answers" : "Get Lite — 150 answers per 5 days"} />
+          sub={isPro ? null : isLite ? "Pro has no limits: unlimited answers." : "Pro Lite gives you 150 answers per 5 days, 10 times your current limit."}
+          upgrade={isLite ? "Go Pro: unlimited answers" : "Get Lite: 150 answers per 5 days"} />
         <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : dq?.cap}
-          sub={isPro ? null : isLite ? "Pro removes the meter entirely — unlimited reads." : "Pro Lite gives you 30 reads per 5 days — 10× your current limit."}
-          upgrade={isLite ? "Go Pro — unlimited reads" : "Get Lite — 30 reads per 5 days"} />
+          sub={isPro ? null : isLite ? "Pro has no limits: unlimited reads." : "Pro Lite gives you 30 reads per 5 days, 10 times your current limit."}
+          upgrade={isLite ? "Go Pro: unlimited reads" : "Get Lite: 30 reads per 5 days"} />
         <Gauge label="FLOWCHARTS" used={fq?.used || 0} cap={isPro ? null : fq?.cap}
-          sub={isPro ? null : isLite ? "Pro removes the meter entirely — unlimited flowcharts." : "Pro Lite gives you 10 flowcharts per 5 days — 10× your current limit."}
-          upgrade={isLite ? "Go Pro — unlimited flowcharts" : "Get Lite — 10 flowcharts per 5 days"} />
+          sub={isPro ? null : isLite ? "Pro has no limits: unlimited flowcharts." : "Pro Lite gives you 10 flowcharts per 5 days, 10 times your current limit."}
+          upgrade={isLite ? "Go Pro: unlimited flowcharts" : "Get Lite: 10 flowcharts per 5 days"} />
       </div>
 
-      <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>The three rungs</h2>
+      <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>Compare plans</h2>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>
-        Lite is a bigger tank, not a smaller Pro — Pro is the only rung without a meter.
+        Pro Lite raises your limits. Pro removes them completely.
       </div>
       <div className="cb-usage-table-desktop" style={{ border: `1px solid ${P.line}`, borderRadius: 12, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--cb-font)" }}>
@@ -11973,9 +11973,9 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
                 {current && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>}
               </div>
               <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4, fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>
-                <span>AI answers — <strong style={{ color: P.ink, fontWeight: 700 }}>{t.ai}</strong></span>
-                <span>Document reads — <strong style={{ color: P.ink, fontWeight: 700 }}>{t.docs}</strong></span>
-                <span>Flowcharts — <strong style={{ color: P.ink, fontWeight: 700 }}>{t.flow}</strong></span>
+                <span>AI answers: <strong style={{ color: P.ink, fontWeight: 700 }}>{t.ai}</strong></span>
+                <span>Document reads: <strong style={{ color: P.ink, fontWeight: 700 }}>{t.docs}</strong></span>
+                <span>Flowcharts: <strong style={{ color: P.ink, fontWeight: 700 }}>{t.flow}</strong></span>
               </div>
               <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{t.price}</div>
               <div style={{ marginTop: 10 }}>{tierAction(t.id)}</div>
@@ -11987,24 +11987,24 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       {!isPro && (
         <div style={{ marginTop: 32, border: "1px solid rgba(212,175,55,0.35)", borderRadius: 12, padding: "24px 22px", background: P.dark ? "rgba(212,175,55,0.05)" : "rgba(212,175,55,0.08)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>The deep end.</span>
+            <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>Pro</span>
             <ProBadge />
           </div>
           <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
-            Pro removes the meter entirely — unlimited AI answers, document reads, and flowcharts — plus the gold badge, the exclusive black-bronze theme, and the members-only cinematic reels.
+            Pro gives you unlimited AI answers, document reads, and flowcharts, plus the gold badge, the black and bronze theme, and members-only cinematic reels.
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap", alignItems: "center" }}>
             <button onClick={onOpenPro} style={{ padding: "12px 26px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-              Go Pro — $20/mo · $144/yr
+              Go Pro: $20/mo or $144/yr
             </button>
             {!isLite && (
               <button onClick={onOpenPro} style={{ padding: "12px 20px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                Or start smaller — Lite {liteMonthly}/mo · $39/yr
+                Or start with Lite: {liteMonthly}/mo or $39/yr
               </button>
             )}
             {isLite && (
               <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                You're on Lite — a bigger tank. Pro removes the meter entirely.
+                You're on Pro Lite. Pro removes all limits.
               </span>
             )}
           </div>
@@ -12012,7 +12012,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       )}
       {isPro && (
         <div style={{ marginTop: 32, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", textAlign: "center" }}>
-          Pro member — this page is just the view. Nothing to count.
+          Pro includes unlimited AI answers, document reads, and flowcharts.
         </div>
       )}
     </div>
@@ -12629,7 +12629,7 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
     return <rect x="3" y="4" width="34" height="16" rx={isAccent ? 8 : 4} fill={isAccent ? accent : withAlpha(accent, 0.10)} stroke={isAccent ? accent : P.faint} strokeWidth={1.4} />;
   })();
   return (
-    <button type="button" onClick={onClick} title={`Add ${t.name} — click to drop it on the canvas`}
+    <button type="button" onClick={onClick} title={`Add ${t.name}: click to drop it on the canvas`}
       aria-label={`Add ${t.name} node`}
       style={{
         display: "flex", flexDirection: isMobile ? "row" : "column", alignItems: "center", gap: isMobile ? 7 : 5,
@@ -12923,7 +12923,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
   const selSource = selNode && selNode.type === "evidence" && typeof selNode.sourceIdx === "number" ? sources?.[selNode.sourceIdx] : null;
 
   const hint = tool === "connect"
-    ? (pendingFrom ? "Now click the target node — the arrow lands there. Esc cancels." : "Click the node the arrow starts from.")
+    ? (pendingFrom ? "Now click the target node. The arrow lands there. Esc cancels." : "Click the node the arrow starts from.")
     : "Drag nodes to move · scroll to zoom · drag the canvas to pan · double-click a node to edit it.";
 
   const studioBtn = (label, onClick, opts = {}) => (
@@ -13013,7 +13013,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
               {[["select", "Select", "cursor"], ["connect", "Connect", "link"]].map(([key, label, icon]) => {
                 const on = tool === key;
                 return (
-                  <button key={key} type="button" aria-pressed={on} title={key === "connect" ? "Connect — click a source node, then a target" : "Select and drag nodes"}
+                  <button key={key} type="button" aria-pressed={on} title={key === "connect" ? "Connect: click a source node, then a target" : "Select and drag nodes"}
                     onClick={() => { setTool(key); setPendingFrom(null); }}
                     style={{
                       display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 9999,
@@ -13043,7 +13043,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                   background: P.bg, border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
                   boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
                 }}>
-                  {[["SVG", "Vector — scales forever", doExportSVG], ["PNG", "Image — 2× resolution", doExportPNG], ["Markdown", "Text outline", doExportMD]].map(([fmt, desc, fn]) => (
+                  {[["SVG", "Vector: scales forever", doExportSVG], ["PNG", "Image: 2\u00d7 resolution", doExportPNG], ["Markdown", "Text outline", doExportMD]].map(([fmt, desc, fn]) => (
                     <button key={fmt} type="button" onClick={() => { setExportOpen(false); fn(); }}
                       style={{ display: "flex", alignItems: "baseline", gap: 10, width: "100%", textAlign: "left", padding: "9px 11px", borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--cb-font)" }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
@@ -14323,7 +14323,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
               {busy ? "Sending…" : "Send sign-in code"}
             </button>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 14, lineHeight: 1.6 }}>
-              Saved articles, collections, and history stay local unless you sign in — see <a href="/privacy" style={{ color: P.faint, borderBottom: `1px dotted ${P.faint}`, textDecoration: "none" }}>Privacy</a> for exactly what that means.
+              Saved articles, collections, and history stay local unless you sign in. See <a href="/privacy" style={{ color: P.faint, borderBottom: `1px dotted ${P.faint}`, textDecoration: "none" }}>Privacy</a> for exactly what that means.
             </div>
           </form>
         ) : (
@@ -15074,7 +15074,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
                 animation: "cbHuddleRing 2s ease-in-out infinite",
               }}>{(name || "?").trim().charAt(0).toUpperCase()}</div>
               <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: "#fff" }}>Calling {name}…</div>
-              <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(255,255,255,0.6)" }}>Ringing on Cerebrum — they'll see it if they're online.</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(255,255,255,0.6)" }}>Ringing on Cerebrum. They'll see it if they're online.</div>
               <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Back to chat</button>
             </>) : status === "connecting" ? (<>
               <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
@@ -15944,7 +15944,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             <div style={{ padding: "14px 24px 18px", borderTop: `1px solid ${P.line}` }}>
               {activeThread.blocked ? (
                 <div style={{ textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, padding: "8px 0" }}>
-                  You've blocked {activeThread.name} — unblock above to send a message.
+                  You've blocked {activeThread.name}. Unblock above to send a message.
                 </div>
               ) : (
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -17217,9 +17217,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
      language criterion behind it (the tooltip). An unexplained badge is
      decoration; an explained one is trust. */
   const MARKER_TITLES = {
-    founder: "Founder — built Cerebrum",
-    verified: "Verified — this account's identity was confirmed",
-    early_adopter: "Early adopter — here since the public beta",
+    founder: "Founder: built Cerebrum",
+    verified: "Verified: this account's identity was confirmed",
+    early_adopter: "Early adopter: here since the public beta",
   };
   const markers = [
     ...BADGE_ORDER.filter((k) => rawBadges.includes(k)),
@@ -17248,7 +17248,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
   // 16px floor on every typed field: anything smaller makes iOS Safari
   // zoom the page on focus, which breaks the edit layout.
-  const inputStyle = { width: "100%", padding: "9px 12px", fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)" };
+  const inputStyle = { width: "100%", padding: "10px 2px", fontSize: 16, border: "none", borderBottom: `1px solid ${P.line2}`, borderRadius: 0, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
 
   // The ledger, newest first.
   const ledger = [...(history || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -17351,7 +17351,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     return d.toLocaleDateString(undefined, opts);
   };
 
-  const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
 
   // Membership rank for the identity-level membership row below: derived
   // the same way as the account menu and the Settings card, from
@@ -17382,32 +17382,23 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           from the workspace) so the name never slides under the button. */}
       <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 72px" : "18px 28px 96px" }}>
 
-        {/* ── Identity header: editorial, left-aligned. ──────────────────
-            No banner, no badge pills, no stat row. A profile reads human
-            when identity is a deliberate choice for this product — name,
-            markers, and the work itself — not the centered-avatar →
-            stats → tabs template stack. */}
-        <div style={{
-          display: "flex", gap: isMobile ? 16 : 20, alignItems: "flex-start",
-        }}>
-          <div style={{ position: "relative", width: 96, height: 96, flexShrink: 0 }}>
+        {/* -- Masthead: a byline, not a hero. -----------------------------
+            Face and name side by side, left aligned. No centered avatar,
+            no stat tiles, no pill buttons. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
                 ...avatarSkin(displayName || user?.id), display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: isMobile ? 28 : 32, fontWeight: 700, fontFamily: "var(--cb-font)",
-                boxShadow: `0 0 0 3px ${P.surface}, 0 0 0 4px ${withAlpha(accent, 0.35)}`,
+                fontSize: 22, fontWeight: 700, fontFamily: "var(--cb-font)",
               }}>{displayInitial}</div>
             ) : (
               <img
                 src={profile.avatar_base64}
-                alt={`${displayName}'s avatar`}
+                alt={`${displayName}'s photo`}
                 onError={() => setAvatarFailed(true)}
-                style={{
-                  width: "100%", height: "100%", borderRadius: "50%", display: "block",
-                  objectFit: "cover", background: P.surface,
-                  boxShadow: `0 0 0 3px ${P.surface}, 0 0 0 4px ${withAlpha(accent, 0.35)}`,
-                }}
+                style={{ width: "100%", height: "100%", borderRadius: "50%", display: "block", objectFit: "cover", background: P.surface }}
               />
             )}
             <button
@@ -17417,94 +17408,77 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               aria-label="Change photo"
               title="Change photo"
               style={{
-                position: "absolute", bottom: -2, right: -2, width: 44, height: 44, borderRadius: "50%",
+                position: "absolute", bottom: -4, right: -4, width: 30, height: 30, borderRadius: "50%",
                 display: "flex", alignItems: "center", justifyContent: "center", cursor: avatarSaving ? "default" : "pointer",
                 background: P.raised, color: P.ink2, border: `1px solid ${P.line2}`,
                 opacity: avatarSaving ? 0.6 : 1,
               }}
             >
-              {avatarSaving ? <Icon name="refresh" size={16} className="cb-spin" /> : <Icon name="camera" size={16} />}
+              {avatarSaving ? <Icon name="refresh" size={13} className="cb-spin" /> : <Icon name="camera" size={13} />}
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
-            {/* Upload progress: a thin bar under the avatar. The upload is
-                a single request, so this is indeterminate — but a visible
-                bar beats a silent spinner for "did it take my photo?" */}
             {avatarSaving && (
-              <div style={{
-                position: "absolute", left: 8, right: 8, bottom: -8, height: 3,
-                borderRadius: 2, background: P.line, overflow: "hidden",
-              }}>
+              <div style={{ position: "absolute", left: 6, right: 6, bottom: -7, height: 3, borderRadius: 2, background: P.line, overflow: "hidden" }}>
                 <div className="cb-indeterminate-bar" style={{ height: "100%", width: "40%", borderRadius: 2, background: accent }} />
               </div>
             )}
           </div>
 
-          <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ minWidth: 0 }}>
-                {editing ? (
-                  <input
-                    value={profile.name || ""}
-                    onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
-                    placeholder={displayName}
-                    aria-label="Your name"
-                    style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: isMobile ? 28 : 34, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.03em", outline: "none" }}
-                  />
-                ) : (
-                  <h1 style={{
-                    margin: 0, fontSize: isMobile ? 28 : 34, fontWeight: 700,
-                    color: P.ink, fontFamily: "var(--cb-font)",
-                    letterSpacing: "-0.03em", lineHeight: 1.05,
-                    display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-                  }}><span>{displayName}</span>{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
-                )}
-                {/* Markers are a quiet line under the name — text, not a wall. */}
-                {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
-                <div style={{ marginTop: markers.length > 0 && !editing ? 6 : 8, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                  {displayUsername}
-                </div>
-              </div>
-              {/* Edit lives top-right — the convention. */}
-              <button
-                onClick={() => setEditing((v) => !v)}
-                style={{
-                  flexShrink: 0, padding: "12px 18px", borderRadius: 100, cursor: "pointer",
-                  fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
-                  background: editing ? accent : "transparent",
-                  color: editing ? at : P.ink,
-                  border: editing ? "none" : `1px solid ${P.line2}`,
-                }}
-              >{editing ? "Done" : "Edit profile"}</button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {editing ? (
+              <input
+                value={profile.name || ""}
+                onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
+                placeholder={displayName}
+                aria-label="Your name"
+                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: 24, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em", outline: "none" }}
+              />
+            ) : (
+              <h1 style={{
+                margin: 0, fontSize: 24, fontWeight: 700,
+                color: P.ink, fontFamily: "var(--cb-font)",
+                letterSpacing: "-0.02em", lineHeight: 1.1,
+                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+              }}><span>{displayName}</span>{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
+            )}
+            {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
+            <div style={{ marginTop: 4, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
+              {displayUsername}
             </div>
           </div>
+
+          <button
+            onClick={() => setEditing((v) => !v)}
+            style={{
+              flexShrink: 0, background: "none", border: "none", cursor: "pointer",
+              padding: "12px 6px", fontSize: FONT_SIZES.small, fontWeight: 600,
+              fontFamily: "var(--cb-font)", color: accent,
+            }}
+          >{editing ? "Done" : "Edit"}</button>
         </div>
 
-        {/* Bio, context and links — the social-profile order: who, then what
-            they're about. In edit mode the bio edits inline, where it
-            lives; the heavier fields (degree, affiliation, links) stay in
-            the focused form below. */}
+        {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 10 }}>{avatarError}</div>}
+
+        {/* Standing, bio and links: one quiet block under the byline. */}
         <div style={{ marginTop: 14 }}>
           {interests.length > 0 && !editing && (
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-              <span style={{ ...eyebrow, letterSpacing: "0.1em", marginRight: 10 }}>Research interests</span>
-              {interests.join(" · ")}
+              Interested in {interests.join(", ")}
             </div>
           )}
 
           {!editing && contextLine && (
-            <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
+            <div style={{ marginTop: 8, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
           )}
           {!editing && !contextLine && (
             <button
               type="button" onClick={() => setEditing(true)}
-              style={{ marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
+              style={{ marginTop: 8, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
             >
               <Icon name="edit" size={12} /> Add your degree and institution
             </button>
           )}
 
-          {/* Bio: inline in edit mode, autosaved by the same debounced
-              sync as everything else — one save model, no guessing. */}
           {editing ? (
             <div style={{ marginTop: 12, maxWidth: 620 }}>
               <textarea
@@ -17514,9 +17488,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 placeholder="What do you work on? One or two sentences is plenty."
                 rows={3}
                 style={{
-                  width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 8,
-                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-                  border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+                  width: "100%", resize: "vertical", padding: "10px 2px",
+                  background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`,
+                  color: P.ink, outline: "none",
                   fontSize: 16, fontFamily: "var(--cb-font)", lineHeight: 1.6,
                 }}
               />
@@ -17529,72 +17503,59 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </div>
           ) : (
             profile.bio && (
-              <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "12px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
+              <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "10px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
             )
           )}
           {!editing && (profile.link_site || profile.link_orcid || profile.link_scholar) && (
-            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 10 }}>
               {[["link", "Website", profile.link_site], ["check", "ORCID", profile.link_orcid], ["bookOpen", "Scholar", profile.link_scholar]]
                 .filter(([, , href]) => !!href)
-                .map(([icon, label, href]) => (
-                  <a key={label} href={safeHref(href)} target="_blank" rel="noopener noreferrer nofollow" style={{
-                    display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
-                    color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
-                    borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
-                  }}><Icon name={icon} size={12} /> {label}</a>
+                .map(([icon, label, href], i) => (
+                  <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    {i > 0 && <span aria-hidden="true" style={{ color: P.faint }}>{"·"}</span>}
+                    <a href={safeHref(href)} target="_blank" rel="noopener noreferrer nofollow" style={{
+                      display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
+                      color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
+                      borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
+                    }}><Icon name={icon} size={12} /> {label}</a>
+                  </span>
                 ))}
             </div>
           )}
         </div>
 
-        {/* No hero stat row. Counts live on the sections they describe —
-            "Library · 128", not a dashboard. (HN: stat walls read as
-            metagaming — "they do things to make number go up.") */}
-
-        {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 12 }}>{avatarError}</div>}
-
-        {/* ── Work stats ─────────────────────────────────────────────────
-            The tappable totals: investigations run, papers saved,
-            collections built. Each jumps to its tab. */}
-        {profileStats.length > 0 && (
-          <div role="list" aria-label="Research totals" style={{ display: "flex", gap: isMobile ? 24 : 30, marginTop: 18, flexWrap: "wrap" }}>
+        {/* -- Ledger: plan and work, as rows. --------------------------------
+            One ruled block. A number sits next to the thing it counts;
+            nothing floats in tiles. */}
+        {!editing && (
+          <div style={{ marginTop: 22, borderTop: `1px solid ${P.line}` }} role="list" aria-label="Plan and work">
+            <button onClick={onOpenPro} role="listitem" className="cb-row" style={{
+              display: "flex", alignItems: "center", gap: 12, width: "100%",
+              background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
+              padding: "13px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44,
+            }}>
+              <span style={{ fontSize: FONT_SIZES.small, color: P.faint, width: 108, flexShrink: 0 }}>Plan</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink }}>{pTierName}</span>
+                <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1 }}>{pUsage}</span>
+              </span>
+              <span aria-hidden="true" style={{ color: P.faint, fontSize: 18, lineHeight: 1, flexShrink: 0 }}>{"›"}</span>
+            </button>
             {profileStats.map((s) => (
-              <button key={s.id} role="listitem" onClick={() => setTab(s.id)} style={{
-                background: "none", border: "none", padding: "6px 0", cursor: "pointer",
-                display: "flex", alignItems: "baseline", gap: 7, minHeight: 44,
-                fontFamily: "var(--cb-font)",
+              <button key={s.id} role="listitem" onClick={() => setTab(s.id)} className="cb-row" style={{
+                display: "flex", alignItems: "baseline", gap: 12, width: "100%",
+                background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
+                padding: "13px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44,
               }}>
-                <span style={{ fontSize: isMobile ? 19 : 21, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
-                <span style={{ fontSize: FONT_SIZES.small, color: P.faint }}>{s.label}</span>
+                <span style={{ flex: 1, fontSize: FONT_SIZES.small, color: P.faint }}>{s.label}</span>
+                <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
               </button>
             ))}
           </div>
         )}
 
-        {/* ── Membership ───────────────────────────────────────────────
-            Identity-level, not an ad: one quiet row stating the rank and
-            what it carries, opening the same Pro dialog the account menu
-            and Settings membership section use. Free users see exact
-            numbers, never a nag. */}
-        {!editing && (
-          <section aria-label="Membership" style={{ marginTop: 24 }}>
-            <button onClick={onOpenPro} className="cb-row" style={{
-              display: "flex", alignItems: "center", gap: 12, width: "100%",
-              background: "transparent", border: "none", borderTop: `1px solid ${P.line}`,
-              padding: "14px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)",
-            }}>
-              <TierBadge tier={pRank} />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>{pTierName}</span>
-                <span style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 1 }}>{pUsage}</span>
-              </span>
-              <span aria-hidden="true" style={{ color: P.faint, fontSize: 20, lineHeight: 1, flexShrink: 0 }}>›</span>
-            </button>
-          </section>
-        )}
-
         {editing && (
-          <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px dashed ${P.line2}`, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
+          <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
             {/* No cover picker: the banner is gone. No bio field: it edits
                 inline, where it lives. What remains are the interdependent
                 fields (degree, affiliation) and the lists — the focused
@@ -17709,85 +17670,78 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </div>
         )}
 
-        {/* ── Pinned shelf ───────────────────────────────────────────
-            The profile's signature: up to four landmark papers, pinned in
-            the user's chosen order. Letterboxd's "Four Favorites" is the
-            most forum-praised profile pattern found — identity through
-            taste, not metadata. */}
+        {/* -- Pinned papers ---------------------------------------------------
+            A numbered reading list, not cards. The papers that say who
+            this researcher is, in their chosen order. */}
         {(pinnedPapers.length > 0 || editing) && (
           <section aria-label="Pinned papers" style={{ marginTop: 30 }}>
-            <div style={{ ...eyebrow, marginBottom: 12 }}>Pinned</div>
+            <div style={{ ...eyebrow, marginBottom: 6 }}>Pinned papers</div>
             {pinnedPapers.length === 0 ? (
-              <p style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, margin: 0, maxWidth: 520 }}>
-                Pin up to four papers that define your work. They'll live here,
-                at the top of your profile — pin them from your library below.
+              <p style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, margin: "8px 0 0", maxWidth: 520 }}>
+                Pin up to four papers that define your work. They stay at the top of your profile. Pin them from your library below.
               </p>
             ) : (
-              <div style={{
-                display: "grid", gap: 10,
-                gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-              }}>
-                {pinnedPapers.map((sv) => {
+              <ol style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                {pinnedPapers.map((sv, idx) => {
                   const key = paperKey(sv);
                   return (
-                    <div key={key} style={{
-                      position: "relative", padding: "14px 14px 12px",
-                      borderRadius: 10, background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
-                      border: `1px solid ${P.line}`,
-                    }}>
-                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45, paddingRight: editing ? 24 : 0 }}>
-                        {renderCleanTitle(sv.title)}
-                      </div>
-                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                        {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                    <li key={key} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "12px 0", borderTop: idx > 0 ? `1px solid ${P.line}` : "none" }}>
+                      <span aria-hidden="true" style={{ flexShrink: 0, fontSize: FONT_SIZES.small, color: P.faint, fontVariantNumeric: "tabular-nums", fontFamily: "var(--cb-font)" }}>{idx + 1}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                          {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                        </div>
                       </div>
                       {editing && (
-                        <button
-                          type="button"
-                          onClick={() => togglePin(key)}
-                          disabled={pinSaving}
-                          aria-label={`Unpin ${renderCleanTitle(sv.title)}`}
-                          title="Unpin"
-                          style={{
-                            position: "absolute", top: 8, right: 8, width: 24, height: 24,
-                            borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                            background: "transparent", border: "none", cursor: "pointer",
-                            color: P.faint, fontSize: 14, lineHeight: 1,
-                          }}
-                        >×</button>
+                        <button type="button" onClick={() => togglePin(key)} disabled={pinSaving} aria-label={`Unpin ${renderCleanTitle(sv.title)}`} style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", padding: "10px 4px", opacity: pinSaving ? 0.5 : 1 }}>
+                          Remove
+                        </button>
                       )}
-                    </div>
+                    </li>
                   );
                 })}
-              </div>
+              </ol>
             )}
           </section>
         )}
 
-        {/* ── Profile tabs ───────────────────────────────────────────────
-            The social grammar: identity above, sticky tabs, scannable lists
-            below. Counts live on the tabs; Investigations leads — it's the
-            core loop and the freshest content. */}
+        {/* -- Chapters ----------------------------------------------------------
+            Text, not pills. The sections are chapters of one document;
+            the bar pins so they stay reachable while scrolling. */}
         <div ref={tabSentinelRef} aria-hidden="true" style={{ height: 0 }} />
-        <div style={{
+        <nav aria-label="Profile sections" style={{
           position: "sticky", top: 0, zIndex: 30, background: P.bg,
           margin: isMobile ? "30px -18px 0" : "34px -28px 0",
-          padding: isMobile ? "10px 18px 0" : "12px 28px 0",
+          padding: isMobile ? "0 18px" : "0 28px",
           /* The mobile hamburger is fixed at top:14 left:14 (38px). When
-             the bar pins, ease the tabs right so the first tab never slides
+             the bar pins, ease the chapters right so the first never slides
              underneath it. */
           paddingLeft: isMobile && tabsStuck ? 64 : undefined,
           transition: "padding-left 180ms ease",
-          borderBottom: tabsStuck ? `1px solid ${P.line}` : "none",
+          borderTop: `1px solid ${P.line}`,
+          borderBottom: `1px solid ${P.line}`,
         }}>
-          <SegControl value={tab} onChange={setTab} P={P} accent={accent} ariaLabel="Profile sections"
-            options={[
-              { id: "investigations", label: `Investigations · ${ledger.length}` },
-              { id: "library", label: `Library · ${(saved || []).length}` },
-              { id: "collections", label: `Collections · ${collectionCounts.length}` },
-            ]} />
-        </div>
-
+          <div style={{ display: "flex", gap: isMobile ? 22 : 28 }} role="tablist" aria-label="Profile sections">
+            {[
+              { id: "investigations", label: "Investigations", n: ledger.length },
+              { id: "library", label: "Library", n: (saved || []).length },
+              { id: "collections", label: "Collections", n: collectionCounts.length },
+            ].map((c) => {
+              const on = tab === c.id;
+              return (
+                <button key={c.id} role="tab" aria-selected={on} onClick={() => setTab(c.id)} style={{
+                  background: "none", border: "none", padding: "13px 0 11px", cursor: "pointer",
+                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+                  fontWeight: on ? 700 : 500, color: on ? P.ink : P.faint,
+                  borderBottom: `2px solid ${on ? accent : "transparent"}`, marginBottom: -1, minHeight: 44,
+                }}>
+                  {c.label} <span style={{ color: P.faint, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{c.n}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
         <div role="tabpanel" aria-label={tab === "investigations" ? "Investigations" : tab === "library" ? "Saved papers" : "Collections"}>
         {tab === "library" && (
         <section aria-label="Saved papers" style={{ marginTop: 18 }}>
@@ -17795,7 +17749,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             <div style={{ marginTop: 18 }}>
               <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
                 title="Nothing on the shelf yet"
-                body="Save a paper from any answer and it lands here, with the investigation that found it — your personal collection of the research that matters to you."
+                body="Save a paper from any answer and it lands here, next to the investigation that found it."
                 isMobile={isMobile} />
             </div>
           ) : (
@@ -17874,18 +17828,11 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
         {tab === "investigations" && (
         <section aria-label="Investigations" style={{ marginTop: 6 }}>
-          {/* The activity strip lives here now, always visible — the shape
-              of a diary, not a disclosure to hunt for. */}
-          {(history || []).length >= 3 && (
-            <div style={{ padding: "16px 0 2px" }}>
-              <FieldRidge history={history} accent={accent} P={P} />
-            </div>
-          )}
           {ledger.length === 0 ? (
             <div style={{ marginTop: 18 }}>
               <WorkspaceEmpty P={P} accent={accent} icon="search"
                 title="No investigations yet"
-                body="Every question you ask becomes an investigation — the thread, the papers it surfaced, and what you saved from it. Ask a question from the search tab and the trail starts here."
+                body="Every question you ask becomes an investigation: the thread, the papers it surfaced, and what you saved from it. Ask a question from the search tab and the trail starts here."
                 isMobile={isMobile} />
             </div>
           ) : (
@@ -18098,7 +18045,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           {trimmed.length < 2 && (
             <div style={{ padding: "18px 14px 8px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
               <div style={{ fontWeight: 700, color: P.ink, marginBottom: 6, fontSize: FONT_SIZES.small }}>Find a researcher you already know</div>
-              Type their name or @username above. Cerebrum keeps people findable only by search — there's no public directory to scroll — so your profile stays yours until you share it. You control whether you're findable at all in Settings → Notifications &amp; data.
+              Type their name or @username above. Cerebrum keeps people findable only by search. There's no public directory to scroll, so your profile stays yours until you share it. You control whether you're findable at all in Settings → Notifications &amp; data.
             </div>
           )}
           {trimmed.length >= 2 && loading && results.length === 0 && (
@@ -18106,7 +18053,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           )}
           {trimmed.length >= 2 && !loading && results.length === 0 && (
             <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
-              Nobody matches that — they may not be on Cerebrum yet, or they've chosen not to be findable. Double-check the spelling, or try their @username.
+              Nobody matches that. They may not be on Cerebrum yet, or they've chosen not to be findable. Double-check the spelling, or try their @username.
             </div>
           )}
           {/* Commit 74 — the founder's card, pinned above everything.
@@ -18474,156 +18421,117 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
             </div>
           )}
           {!loading && !error && u && (
-            <>
-              {/* No banner, anywhere. A profile is a document about a person,
-                  not a billboard: the same editorial identity header as your
-                  own profile — avatar, name, markers, context — with the
-                  relationship buttons in a row beneath it. */}
-              <div style={{ padding: isMobile ? "20px 18px 24px" : "24px 24px 28px" }}>
-                <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                  <div style={{ width: isMobile ? 64 : 72, height: isMobile ? 64 : 72, flexShrink: 0 }}>
-                    {u.avatar_base64 ? (
-                      <img
-                        src={u.avatar_base64}
-                        alt={`${displayName}'s avatar`}
-                        style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface, boxShadow: `0 0 0 3px ${P.surface}, 0 0 0 4px ${withAlpha(accent, 0.35)}` }}
-                      />
-                    ) : (
-                      <div style={{
-                        width: "100%", height: "100%", borderRadius: "50%",
-                        ...avatarSkin(displayName || u.id),
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: isMobile ? 26 : 28, fontWeight: 700, fontFamily: "var(--cb-font)",
-                        boxShadow: `0 0 0 3px ${P.surface}, 0 0 0 4px ${withAlpha(accent, 0.35)}`,
-                      }}>{initial}</div>
+            <div style={{ padding: isMobile ? "22px 18px 28px" : "28px 28px 32px" }}>
+              {/* Byline: face and name side by side, the same language as
+                  your own profile's masthead. No cover, no stat tiles. */}
+              <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                <div style={{ width: 56, height: 56, flexShrink: 0 }}>
+                  {u.avatar_base64 ? (
+                    <img src={u.avatar_base64} alt={`${displayName}'s photo`} style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface }} />
+                  ) : (
+                    <div style={{
+                      width: "100%", height: "100%", borderRadius: "50%",
+                      ...avatarSkin(displayName || u.id),
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 22, fontWeight: 700, fontFamily: "var(--cb-font)",
+                    }}>{initial}</div>
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <h2 style={{ fontSize: 20, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
+                    {isFounder && <VerifiedCheck size={15} />}
+                    {u.isPro && <ProBadge style={{ fontSize: 10 }} />}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>@{u.username}</span>
+                    {data.followsMe && (
+                      <span style={{
+                        fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
+                        background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)",
+                        padding: "2px 8px", borderRadius: RADIUS.pill,
+                      }}>Follows you</span>
                     )}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                      <h2 style={{ fontSize: isMobile ? 21 : 24, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
-                      {isFounder && <VerifiedCheck size={16} />}
-                      {u.isPro && <ProBadge style={{ fontSize: 11 }} />}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)" }}>@{u.username}</span>
-                      {/* "Follows you" is the one piece of relationship context
-                          worth surfacing before you decide to follow back, and
-                          it is information the viewer is already entitled to —
-                          it is about their own account, not a third party's. */}
-                      {data.followsMe && (
-                        <span style={{
-                          fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
-                          background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)",
-                          padding: "2px 8px", borderRadius: RADIUS.pill,
-                        }}>Follows you</span>
-                      )}
-                    </div>
-                  </div>
                 </div>
+              </div>
 
-                <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-                  <button
-                    onClick={toggleFollow}
-                    disabled={busy}
-                    className="cb-press"
-                    style={{
-                      padding: "9px 20px", minHeight: 44, borderRadius: 100, cursor: busy ? "default" : "pointer",
-                      fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
-                      opacity: busy ? 0.6 : 1,
-                      background: data.isFollowing ? "transparent" : accent,
-                      color: data.isFollowing ? P.ink2 : at,
-                      border: data.isFollowing ? `1px solid ${P.line2}` : "none",
-                    }}
-                  >{data.isFollowing ? "Following" : "Follow"}</button>
-                  <button
-                    onClick={message}
-                    disabled={msgBusy || !data.canMessage}
-                    className="cb-press"
-                    title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
-                    style={{
-                      padding: "9px 18px", minHeight: 44, borderRadius: 100,
-                      cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
-                      fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
-                      background: "transparent", color: data.canMessage ? P.ink2 : P.faint,
-                      border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.65,
-                    }}
-                  >{msgBusy ? "Opening…" : "Message"}</button>
+              {(data.badges || []).filter((b) => b !== "founder").length > 0 && (
+                <div style={{ marginTop: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+                  {(data.badges || []).filter((b) => b !== "founder").map((b) => String(b).replace(/[_-]+/g, " ")).join(" · ")}
                 </div>
+              )}
 
-                {/* Identity (name, username, follows-you) is already stated
-                    in the editorial header above — the profile's body
-                    starts at the bio. */}
-                {u.bio && (
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.65, marginTop: 12, whiteSpace: "pre-wrap" }}>{u.bio}</div>
-                )}
+              {context && (
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>{context}</div>
+              )}
 
-                {context && (
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>{context}</div>
-                )}
+              {u.bio && (
+                <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "12px 0 0", whiteSpace: "pre-wrap" }}>{u.bio}</p>
+              )}
 
-                {links.length > 0 && (
-                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
-                    {links.map((l) => (
+              {links.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12 }}>
+                  {links.map((l, i) => (
+                    <span key={l.label} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      {i > 0 && <span aria-hidden="true" style={{ color: P.faint }}>{"·"}</span>}
                       <a
-                        key={l.label}
                         href={safeHref(l.href)}
                         target="_blank"
-                        // noopener/noreferrer on every outbound link a person
-                        // put on their own profile: without it the destination
-                        // gets a referrer naming this app and a handle on the
-                        // opener window.
                         rel="noopener noreferrer nofollow ugc"
                         style={{
-                          display: "inline-flex", alignItems: "center", gap: 6,
                           fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2,
                           textDecoration: "none", borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
                         }}
-                      ><Icon name={l.icon} size={12} />{l.label}</a>
-                    ))}
-                  </div>
-                )}
-
-                <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", gap: 20 }}>
-                  {[
-                    { label: "Followers", value: data.followers || 0 },
-                    { label: "Following", value: data.followingCount || 0 },
-                  ].map((s) => (
-                    <div key={s.label} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                      <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>{s.value}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>{s.label}</span>
-                    </div>
+                      >{l.label}</a>
+                    </span>
                   ))}
                 </div>
+              )}
 
-                {(data.badges || []).length > 0 && (
-                  <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14 }}>
-                    {data.badges.map((b) => (
-                      <span key={b} style={{
-                        fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
-                        border: `1px solid ${P.line}`, padding: "3px 9px", borderRadius: RADIUS.pill,
-                        textTransform: "capitalize",
-                      }}>{String(b).replace(/[_-]+/g, " ")}</span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Saying what a profile does NOT carry is part of the
-                    product, not a disclaimer. Someone deciding how much to
-                    put on their own profile is choosing based on what they
-                    think other people can see. */}
-                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, marginTop: 18, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
-                  Cerebrum profiles never show what someone searched for, saved, or read. Follower counts don't open into lists.
-                </div>
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                <span style={{ color: P.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{data.followers || 0}</span>
+                {" "}followers{" · "}
+                <span style={{ color: P.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{data.followingCount || 0}</span>
+                {" "}following
               </div>
-            </>
-          )}
-        </div>
 
-        <div style={{ padding: "12px 18px", borderTop: `1px solid ${P.line}`, display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
-          <button onClick={onClose} style={{
-            background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer",
-            padding: "7px 16px", borderRadius: RADIUS.pill, fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
-          }}>Close</button>
+              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                <button
+                  onClick={toggleFollow}
+                  disabled={busy}
+                  className="cb-press"
+                  style={{
+                    flex: 1, padding: "12px 20px", minHeight: 48, borderRadius: 100, cursor: busy ? "default" : "pointer",
+                    fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
+                    opacity: busy ? 0.6 : 1,
+                    background: data.isFollowing ? "transparent" : accent,
+                    color: data.isFollowing ? P.ink2 : at,
+                    border: data.isFollowing ? `1px solid ${P.line2}` : "none",
+                  }}
+                >{data.isFollowing ? "Following" : "Follow"}</button>
+                <button
+                  onClick={message}
+                  disabled={msgBusy || !data.canMessage}
+                  className="cb-press"
+                  title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
+                  style={{
+                    padding: "12px 20px", minHeight: 48, borderRadius: 100,
+                    cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
+                    fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
+                    background: "transparent", color: data.canMessage ? P.ink2 : P.faint,
+                    border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.6,
+                  }}
+                >{msgBusy ? "Opening\u2026" : "Message"}</button>
+              </div>
+
+              {/* Saying what a profile does NOT carry is part of the
+                  product, not a disclaimer. */}
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, marginTop: 18 }}>
+                Profiles never show what someone searched, saved, or read. Follower counts do not open into lists.
+              </div>
+            </div>
+          )}
         </div>
     </Dialog>
   );
@@ -18730,13 +18638,13 @@ const NOTEBOOK_TABS = [
    no real claims — so a researcher without a PDF at hand can still watch
    Document Mode work end to end. */
 const SAMPLE_DOCUMENT = [
-  "SAMPLE PAPER — for trying Document Mode, not a real publication.",
+  "SAMPLE PAPER: for trying Document Mode, not a real publication.",
   "",
   "Brief exposure to urban green space restores directed attention:",
   "a randomized crossover trial (excerpt)",
   "",
   "Abstract",
-  "Directed attention — the capacity to focus while ignoring distraction —",
+  "Directed attention: the capacity to focus while ignoring distraction,",
   "fatigues with sustained use and recovers with rest. Attention Restoration",
   "Theory predicts that natural environments restore it more effectively",
   "than urban ones. We tested whether even brief exposure to urban green",
@@ -19152,8 +19060,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   {docIsPro
                     ? "Pro: unlimited document reads."
                     : docLeft > 0
-                      ? `${docLeft} of ${docCap} free document reads left — refills every 5 days.`
-                      : "You've used your 3 free document reads for these 5 days — Pro reads unlimited."}
+                      ? `${docLeft} of ${docCap} free document reads left. Refills every 5 days.`
+                      : "You've used your 3 free document reads for these 5 days. Pro reads are unlimited."}
                 </div>
               )}
             </div>
@@ -19209,7 +19117,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
                       const hasLimitations = !!(summary.limitations && summary.limitations.trim());
                       if (!hasFindings && !hasLimitations) {
-                        return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time — it's all in the summary.</div>;
+                        return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time. Its all in the summary.</div>;
                       }
                       return (
                         <>
@@ -19227,7 +19135,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     const field = tabDef && tabDef[2];
                     const content = field && summary[field] && summary[field].trim();
                     if (!content) {
-                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? docTabOptions.find((o) => o.id === rightTab)?.label : "section"} — see Executive Summary for the full analysis.</div>;
+                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? docTabOptions.find((o) => o.id === rightTab)?.label : "section"}. See Executive Summary for the full analysis.</div>;
                     }
                     return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
                   })()}
@@ -19362,8 +19270,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   {docIsPro
                     ? "Pro: unlimited document reads."
                     : docLeft > 0
-                      ? `${docLeft} of ${docCap} free document reads left — refills every 5 days.`
-                      : "You've used your 3 free document reads for these 5 days — Pro reads unlimited."}
+                      ? `${docLeft} of ${docCap} free document reads left. Refills every 5 days.`
+                      : "You've used your 3 free document reads for these 5 days. Pro reads are unlimited."}
                 </div>
               )}
             </div>
@@ -19415,7 +19323,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
                       const hasLimitations = !!(summary.limitations && summary.limitations.trim());
                       if (!hasFindings && !hasLimitations) {
-                        return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time — it's all in the summary.</div>;
+                        return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time. Its all in the summary.</div>;
                       }
                       return (
                         <>
@@ -19433,7 +19341,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     const field = tabDef && tabDef[2];
                     const content = field && summary[field] && summary[field].trim();
                     if (!content) {
-                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? tabDef[1] : "section"} — see Executive Summary for the full analysis.</div>;
+                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? tabDef[1] : "section"}. See Executive Summary for the full analysis.</div>;
                     }
                     return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
                   })()}
@@ -19653,7 +19561,7 @@ function ConfigStatus({ P, accent }) {
   }
   if (state.status === "missing") {
     return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "10px 0", lineHeight: 1.6 }}>
-      /api/config isn't answering — functions/api/config.js may not be deployed yet.
+      /api/config isn't answering. It may not be deployed yet.
     </div>;
   }
   if (state.status !== "ready" || !state.data) {
@@ -19689,7 +19597,7 @@ function ConfigStatus({ P, accent }) {
           border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, background: withAlpha(STATUS.bad, 0.08),
           fontSize: FONT_SIZES.caption, color: P.ink, lineHeight: 1.6, fontFamily: "var(--cb-font)",
         }}>
-          <strong>{padded.map((v) => v.name).join(", ")}</strong> {padded.length === 1 ? "has" : "have"} a space or newline around the value. That is invisible in the Cloudflare dashboard and will fail every request — re-paste without the trailing character.
+          <strong>{padded.map((v) => v.name).join(", ")}</strong> {padded.length === 1 ? "has" : "have"} a space or newline around the value. That is invisible in the Cloudflare dashboard and will fail every request. Re-paste without the trailing character.
         </div>
       )}
 
@@ -20229,7 +20137,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       }}>{founderStatus.configured ? "Configured" : "Missing"}</span>
                     }
                   />
-                  <Row label="This account" desc={founderStatus.yourEmail || "—"} />
+                  <Row label="This account" desc={founderStatus.yourEmail || "Not available"} />
                   <Row
                     label="Match"
                     desc={founderStatus.matchedUser ? `Resolves to @${founderStatus.matchedUser}` : "No account matches that address"}
@@ -20299,7 +20207,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               {!(user && user.isPro) && (
                 <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 }}>
                   <ProBadge />
-                  <span>Members also get the Pro theme — <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: "#d4a437", fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
+                  <span>Members also get the Pro theme. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: "#d4a437", fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
                 </div>
               )}
             </Section>
@@ -20457,7 +20365,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 (`lastAnimModeRef`) never passed into this component, which
                 threw a ReferenceError the instant anyone touched it. One
                 control, one place, no crash. */}
-            <Section title="Motion" footer="Off quiets every animated surface — backgrounds, the search instrument, video crossfades, entrance effects. Your device's Reduce Motion setting is honored automatically either way.">
+            <Section title="Motion" footer="Off quiets every animated surface: backgrounds, the search instrument, video crossfades, entrance effects. Your device's Reduce Motion setting is honored automatically either way.">
               <Row label="Motion" desc="Backgrounds, the search instrument, and entrance effects" control={
                 <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
               } last={animationMode === "off"} />
@@ -20479,7 +20387,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             {/* The Pro palette stays with the Theme picker on Appearance —
                 the cinematic reel is a backdrop behavior, so it lives here
                 with the rest of the backdrop controls. */}
-            <Section title="Pro backgrounds" footer="The members-only cinematic reel — aurora, nebula, eclipse, DNA. Replaces the standard backdrop while it's on.">
+            <Section title="Pro backgrounds" footer="The members-only cinematic reel: aurora, nebula, eclipse, DNA. Replaces the standard backdrop while it's on.">
               {user && user.isPro ? (
                 <Row label="Pro cinematic reel" desc="Ten exclusive clips, curated for members." control={<Switch on={proReel} onChange={(v) => { sfx(); setProReel(v); }} label="Pro cinematic reel" />} last />
               ) : (
@@ -20512,7 +20420,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             {/* Wave 3 — the old "Storage" section's Clear-all-data row used
                 the same inline Delete/Cancel expander pattern as the other
                 destructive confirmations. It is a Dialog sheet now. */}
-            <Section title="Erase" footer="Wipes everything Cerebrum keeps in this browser — conversations, saved articles and preferences. Your account and anything on our servers are untouched.">
+            <Section title="Erase" footer="Wipes everything Cerebrum keeps in this browser: conversations, saved articles and preferences. Your account and anything on our servers are untouched.">
               <Row label="Clear all data" destructive onClick={() => setClearOpen(true)} last />
             </Section>
 
@@ -20679,7 +20587,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             Permanently delete your account and all its data — email, library, history, everything on our servers.
           </p>
           <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
-            Immediately, and for good. If you have an active subscription, cancel it in the billing portal first — deletion doesn't stop billing.
+            Immediately, and for good. If you have an active subscription, cancel it in the billing portal first. Deletion doesn't stop billing.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
             <button onClick={() => setDeleteOpen(false)} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my account</button>
@@ -22037,7 +21945,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
               That's completely fine
             </h2>
             <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 20px" }}>
-              Cerebrum can't be used without agreeing to these terms — that isn't a pressure tactic, it's just what the agreement is for. Nothing has been stored, and you can come back any time. If something in the documents is the reason you said no, {link("mailto:dusty@askcerebrum.org", "tell us which part")} — that's genuinely useful feedback.
+              Cerebrum can't be used without agreeing to these terms. That isn't a pressure tactic, it's just what the agreement is for. Nothing has been stored, and you can come back any time. If something in the documents is the reason you said no, {link("mailto:dusty@askcerebrum.org", "tell us which part")}. That's genuinely useful feedback.
             </p>
             <button onClick={() => setDeclined(false)} className="cb-press" style={{
               width: "100%", padding: "12px 18px", borderRadius: 100, cursor: "pointer",
@@ -22577,7 +22485,7 @@ function App() {
       const kind = params.get("pro");
       try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
       if (kind === "cancelled") {
-        toast("Checkout cancelled — nothing was charged.");
+        toast("Checkout cancelled. Nothing was charged.");
         return;
       }
       if (kind !== "success") return;
@@ -22592,8 +22500,8 @@ function App() {
         } else {
           const lite = !!(r && (r.isLite || r.tier === "lite"));
           toast(lite
-            ? "Payment received — Pro Lite is activating. If it doesn't appear shortly, refresh the page."
-            : "Payment received — Pro is activating. If it doesn't appear shortly, refresh the page.", { tone: "error" });
+            ? "Payment received. Pro Lite is activating. If it doesn't appear shortly, refresh the page."
+            : "Payment received. Pro is activating. If it doesn't appear shortly, refresh the page.", { tone: "error" });
         }
       } catch (e) {
         if (!cancelled) toast(e.message || "Couldn't confirm that payment yet.", { tone: "error" });
@@ -22667,7 +22575,7 @@ function App() {
   const exportInvestigation = useCallback((h) => {
     const lines = [
       `Investigation: ${h.title || "Untitled"}`,
-      `Date: ${h.ts ? new Date(h.ts).toLocaleString() : "—"}`,
+      `Date: ${h.ts ? new Date(h.ts).toLocaleString() : "Unknown"}`,
       "",
     ];
     (h.turns || []).forEach((t, i) => {
@@ -22706,16 +22614,16 @@ function App() {
      their own titles; the search view shows the latest question when one
      exists. Resets whenever the view or thread changes. */
   useEffect(() => {
-    const base = "Cerebrum — Free Scientific Literature Search";
+    const base = "Cerebrum · Free Scientific Literature Search";
     let t = base;
     if (view === "search" && turns.length > 0) {
       const q = String(turns[turns.length - 1].q || "").trim().replace(/\s+/g, " ");
-      if (q) t = (q.length > 70 ? q.slice(0, 67) + "…" : q) + " — Cerebrum";
-    } else if (view === "profile") t = "Profile — Cerebrum";
-    else if (view === "settings") t = "Settings — Cerebrum";
-    else if (view === "trending") t = "Trending in research — Cerebrum";
-    else if (view === "usage") t = "Usage — Cerebrum";
-    else if (view === "inbox") t = "Messages — Cerebrum";
+      if (q) t = (q.length > 70 ? q.slice(0, 67) + "…" : q) + " · Cerebrum";
+    } else if (view === "profile") t = "Profile · Cerebrum";
+    else if (view === "settings") t = "Settings · Cerebrum";
+    else if (view === "trending") t = "Trending in research · Cerebrum";
+    else if (view === "usage") t = "Usage · Cerebrum";
+    else if (view === "inbox") t = "Messages · Cerebrum";
     if (document.title !== t) document.title = t;
   }, [view, turns]);
   // Aborts the in-flight /api/search (+videos) request when a new question
@@ -24368,7 +24276,7 @@ function App() {
                   centres its lines inside a shrink-to-fit box. */}
               {/* One compact trust line instead of a paragraph plus a name row. */}
               <div style={{ width: "100%", maxWidth: 640, fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 28 : 72) : (isMobile ? 22 : 44), marginBottom: 4, lineHeight: 1.5, padding: "0 16px" }}>
-                Every question goes to 15 public research databases — Europe PMC, PubMed, OpenAlex, Crossref, Semantic Scholar, arXiv, and 9 more.
+                Every question goes to 15 public research databases: Europe PMC, PubMed, OpenAlex, Crossref, Semantic Scholar, arXiv, and 9 more.
               </div>
             </Reveal>
           ) : (
@@ -24596,7 +24504,7 @@ function App() {
           <WorkspacePage
             P={P} accent={accent} isMobile={isMobile} wide
             title="Flowcharts" count={flowcharts.length}
-            description="Diagrams you've built in Flowchart Studio — processes, decisions and evidence maps. They live in your browser, like everything else here."
+            description="Diagrams you've built in Flowchart Studio: processes, decisions and evidence maps. They live in your browser, like everything else here."
             actions={(
               <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setFlowchartOpen({ title: "Untitled flowchart", chartId: null }); }}>New flowchart</UIButton>
             )}
