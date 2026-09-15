@@ -535,7 +535,7 @@ async function handleFlowchartAllow(request, env, cors) {
     return json({ ok: true, allowed: true, pro: true, used: 0, cap: null }, 200, cors);
   }
   // Free accounts get FREE_FLOWCHARTS_PER_MONTH new charts per quota period
-  // (Lite 30). The allowance check and the increment are ONE atomic consume:
+  // (Lite 10). The allowance check and the increment are ONE atomic consume:
   // concurrent saves can never overshoot the cap.
   const cap = capsForTier(tier).flowcharts;
   const consumed = await consumeFlowchart(env, user.id, cap);
@@ -543,8 +543,8 @@ async function handleFlowchartAllow(request, env, cors) {
     return json({
       ok: true, allowed: false, used: consumed.used, cap, tier,
       message: tier === "lite"
-        ? "You've used your 30 Lite flowcharts for these 5 days. Pro saves unlimited flowcharts."
-        : "Free accounts can save 1 flowchart every 5 days. Lite saves 30 — Pro saves unlimited.",
+        ? "You've used your 10 Lite flowcharts for these 5 days. Pro saves unlimited flowcharts."
+        : "Free accounts can save 1 flowchart every 5 days. Lite saves 10 — Pro saves unlimited.",
     }, 200, cors);
   }
   return json({ ok: true, allowed: true, used: consumed.used, cap, tier }, 200, cors);

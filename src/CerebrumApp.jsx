@@ -7755,7 +7755,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
       : proStatus?.billing?.plan === "monthly" ? "Monthly billing · unlimited AI answers, document reads and flowcharts."
       : "Unlimited AI answers, document reads and flowcharts.")
     : isLite
-    ? (proStatus?.billing?.plan === "lite-annual" ? "Annual billing · " : proStatus?.billing?.plan === "lite-monthly" ? "Monthly billing · " : "")
+    ? (proStatus?.billing?.plan === "annual" ? "Annual billing · " : proStatus?.billing?.plan === "monthly" ? "Monthly billing · " : "")
       + "150 AI answers, 30 document reads and 10 flowcharts every 5 days — 10× the free tank."
     : "15 AI answers, 3 document reads and 1 flowchart every 5 days.";
   const tierName = isPro ? "Pro" : isLite ? "Pro Lite" : "Free";
