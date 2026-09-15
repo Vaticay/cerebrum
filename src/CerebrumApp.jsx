@@ -913,6 +913,10 @@ function Icon({ name, size = 17, className, style }) {
     case "external": return <svg {...common}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg>;
     case "chevronDown": return <svg {...common}><path d="M6 9l6 6 6-6" /></svg>;
     case "chevronRight": return <svg {...common}><path d="M9 6l6 6-6 6" /></svg>;
+    case "chevronLeft": return <svg {...common}><path d="M15 6l-6 6 6-6" /></svg>;
+    case "arrowUpRight": return <svg {...common}><path d="M7 17L17 7M7 7h10v10" /></svg>;
+    case "trash": return <svg {...common}><path d="M3 6h18" /><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" /></svg>;
+    case "download": return <svg {...common}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><path d="M7 10l5 5 5-5" /><path d="M12 15V3" /></svg>;
     // Commit 92 — the evidence table's toolbar button.
     case "table": return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>;
     // Commit 87 — used by EvidenceFilter's disclosure trigger.
@@ -4781,6 +4785,11 @@ const FILM_SCENES = {
    picture on screen. Checked against the file, not assumed. */
 const FILM_POSTER_CLIP = "/assets/cinematic/science-14.mp4";
 
+/* Wave 1 — Document Mode's film: the door's opening clip, so stepping
+   from the intro into a document keeps the same frame. The scrim does
+   the legibility work; the clip just has to be calm. */
+const DOC_FILM_SRC = "/assets/cinematic/science-14.mp4";
+
 /* Motion on a phone is opt-in, and the choice survives a reload — a
    preference someone has to set on every visit is not a preference. */
 const FILM_OPT_IN_KEY = "cb_film_motion";
@@ -4837,6 +4846,340 @@ function filmPoster(src) {
   const base = String(src || "").split("/").pop().replace(/\.(mp4|webm)$/i, "");
   return base ? "/assets/cinematic/posters/" + base + ".jpg" : FILM_POSTER;
 }
+
+/* VP9-first delivery, owned by the one shared video layer (it used to live
+   inside the reel effect). Every clip ships as science-NN.mp4 (H.264 — the
+   universal fallback) and science-NN.webm (VP9 — same baked grade, better
+   quality at roughly half the bytes). The clip lists keep the .mp4 paths
+   because FILM_SCENES is keyed by them; only the element's src is remapped,
+   and only when this browser can actually play VP9.
+
+   iOS gets H.264 unconditionally. Its hardware decoder eats H.264 for
+   breakfast, while canPlayType('video/webm; codecs="vp9"') has claimed VP9
+   support on iOS releases that then fail to decode it — a phone that
+   reports "maybe" and plays nothing. Support is probed once per session. */
+let __filmVp9OK = null;
+let __filmIosH264 = null;
+function filmBestFile(el, mp4) {
+  if (__filmIosH264 === null) {
+    try {
+      const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+      __filmIosH264 = /iPad|iPhone|iPod/.test(ua) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    } catch { __filmIosH264 = false; }
+  }
+  if (__filmIosH264) return mp4;
+  if (__filmVp9OK === null) {
+    try { __filmVp9OK = !!el.canPlayType && el.canPlayType('video/webm; codecs="vp9"') !== ""; }
+    catch { __filmVp9OK = false; }
+  }
+  return __filmVp9OK ? String(mp4).replace(/\.mp4$/i, ".webm") : mp4;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FilmLayer — the ONE video-layer primitive.
+
+   Every background video in the app (intro door, home background, Pro
+   reel, Document Mode) renders through this. It owns the whole
+   Mobile-Safari contract from DESIGN_RESEARCH §5, so no call site keeps
+   an ad-hoc <video>:
+
+     - muted-inline setup: JSX muted/autoPlay/playsInline +
+       webkit-playsinline, AND ref-reinforced
+       video.muted = true; video.defaultMuted = true before play()
+     - play() promise catch: on rejection (Low Power Mode et al) the
+       layer settles on the poster — never a blank layer, and with no
+       controls attribute there is no native play icon either
+     - stall guard: no canplay within stallMs -> hold the poster, fire
+       onStalled
+     - visibilitychange: pause when hidden; on foreground re-run the
+       muted-inline play sequence while the layer is meant to play
+     - poster-first fade-in: the video's opacity transition runs only
+       after canplay — never an empty gray plane
+     - transform/opacity animation only (opacity, on the video)
+
+   Two ways to drive it:
+
+     declarative (Document Mode): pass src/poster/active/visible and the
+     layer loads the clip and plays it.
+
+     imperative (CinematicFilm's two-slot reel): pass no src and drive
+     the slot API from the ref — loadClip / preloadClip / unload /
+     guardedPlay / playNow / pause / setVisible / setZ / snapHide /
+     isPaused. The reel keeps its dip-free-dissolve orchestration (zIndex
+     staging, delayed outgoing pause, warm preloads); this layer owns
+     everything the <video> element itself does, including pausing the
+     outgoing video after the crossfade.
+   ════════════════════════════════════════════════════════════════ */
+const FilmLayer = forwardRef(function FilmLayer({
+  src = null, poster = null,
+  active = true, visible = true,
+  loop = true, preload = "metadata",
+  fadeMs = 2200, objectPosition = "50% 50%",
+  pinned = true, dim = 0, dimColor = "#0b0d10",
+  className = "", style = {},
+  manageVisibility = true, stallMs = 9000,
+  onLoadedData, onError, onReady, onStalled,
+  onAutoplayBlocked, onPlaybackChange, onPlayState,
+}, ref) {
+  const vref = useRef(null);
+  const layerRef = useRef(null);
+  const [posterUrl, setPosterUrl] = useState(poster || null);
+  const readyRef = useRef(false);
+  const srcRef = useRef(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const visibleTargetRef = useRef(!!visible);
+  const stallRef = useRef(0);
+  const notifiedRef = useRef(false);
+  const playingRef = useRef(null);
+  const reduceMotion = cbMotionOff();
+
+  /* Callbacks are read through refs: a fresh callback identity must never
+     restart a reel or reload a clip. */
+  const onLoadedDataRef = useRef(onLoadedData); onLoadedDataRef.current = onLoadedData;
+  const onErrorRef = useRef(onError); onErrorRef.current = onError;
+  const onReadyRef = useRef(onReady); onReadyRef.current = onReady;
+  const onStalledRef = useRef(onStalled); onStalledRef.current = onStalled;
+  const onAutoplayBlockedRef = useRef(onAutoplayBlocked); onAutoplayBlockedRef.current = onAutoplayBlocked;
+  const onPlaybackChangeRef = useRef(onPlaybackChange); onPlaybackChangeRef.current = onPlaybackChange;
+  const onPlayStateRef = useRef(onPlayState); onPlayStateRef.current = onPlayState;
+
+  const declarative = src != null;
+
+  /* The single funnel for the video's opacity: on only when the layer
+     wants to be seen AND there are usable frames to show. Before canplay
+     the poster layer beneath holds the frame — poster-first, always. */
+  const applyVisibility = () => {
+    const el = vref.current;
+    if (!el) return;
+    try { el.style.opacity = (visibleTargetRef.current && readyRef.current) ? "1" : "0"; } catch {}
+  };
+
+  /* The muted-inline play sequence (§5). The IDL properties are reinforced
+     on the element before every play() — React's muted JSX attribute sets
+     the content attribute, which iOS ignores. */
+  const guardedPlay = () => {
+    const el = vref.current;
+    if (!el || !activeRef.current) return;
+    try {
+      el.muted = true;
+      el.defaultMuted = true;
+      const p = el.play();
+      if (p && p.catch) p.catch((err) => {
+        /* Rejected (Low Power Mode, data-saver vetoes): settle on the
+           poster. The video never left opacity 0, so there is no blank
+           layer — and with no controls attribute, no native play icon. */
+        if (!notifiedRef.current) {
+          notifiedRef.current = true;
+          try { if (onAutoplayBlockedRef.current) onAutoplayBlockedRef.current(err); } catch {}
+        }
+      });
+    } catch {}
+  };
+
+  const pause = () => { try { if (vref.current) vref.current.pause(); } catch {} };
+
+  /* Load a clip and run the full guarded sequence — or, with
+     preloadOnly, buffer it into a hidden slot without playing (the
+     reel warms the next clip while the current one holds the screen). */
+  const loadClip = (clipSrc, opts = {}) => {
+    const el = vref.current;
+    if (!el || !clipSrc) return;
+    const { objectPosition: pos, preloadOnly = false } = opts;
+    const file = filmBestFile(el, clipSrc);
+    let sameFile = false;
+    try { sameFile = el.getAttribute("src") === file; } catch {}
+    if (sameFile && srcRef.current === clipSrc) {
+      /* Already on this clip (a warmed preload promoted to current, or a
+         resume re-issuing play): do not tear down the decoder, restart
+         the stall clock, or touch ready state — just make sure it plays. */
+      if (!preloadOnly) guardedPlay();
+      return;
+    }
+    srcRef.current = clipSrc;
+    readyRef.current = false;
+    clearTimeout(stallRef.current);
+    /* The poster always matches the clip being loaded: a clip that fails
+       to decode leaves its own graded still behind, never a gray plane. */
+    setPosterUrl(filmPoster(clipSrc));
+    if (pos) { try { el.style.objectPosition = pos; } catch {} }
+    if (preloadOnly) { try { el.preload = "auto"; } catch {} }
+    try { el.src = file; el.load(); } catch {}
+    stallRef.current = setTimeout(() => {
+      /* Stall guard: never playable -> hold the poster. The video stays
+         at opacity 0 over its poster layer; the parent may move to
+         another source via onStalled. */
+      if (!readyRef.current) {
+        try { if (onStalledRef.current) onStalledRef.current(clipSrc); } catch {}
+      }
+    }, stallMs);
+    if (!preloadOnly) guardedPlay();
+  };
+
+  /* Leave no dead src behind: a clip that 404s must unload so a later
+     load takes the normal path instead of fading up black. */
+  const unload = () => {
+    const el = vref.current;
+    if (!el) return;
+    clearTimeout(stallRef.current);
+    readyRef.current = false;
+    srcRef.current = null;
+    visibleTargetRef.current = false;
+    try { el.removeAttribute("src"); el.load(); } catch {}
+    applyVisibility();
+  };
+
+  /* Element listeners, mounted once. canplay is the poster's release:
+     only usable media data lets the video fade up. */
+  useEffect(() => {
+    const el = vref.current;
+    if (!el) return;
+    const onCanPlay = () => {
+      clearTimeout(stallRef.current);
+      readyRef.current = true;
+      applyVisibility();
+      try { if (onReadyRef.current) onReadyRef.current(); } catch {}
+    };
+    const onLd = () => { try { if (onLoadedDataRef.current) onLoadedDataRef.current(); } catch {} };
+    const onErr = () => {
+      clearTimeout(stallRef.current);
+      try { if (onErrorRef.current) onErrorRef.current(); } catch {}
+    };
+    const onPS = () => {
+      try { if (onPlayStateRef.current) onPlayStateRef.current(); } catch {}
+      let playing = false;
+      try { playing = !el.paused; } catch {}
+      if (playingRef.current !== playing) {
+        playingRef.current = playing;
+        try { if (onPlaybackChangeRef.current) onPlaybackChangeRef.current(playing); } catch {}
+      }
+    };
+    el.addEventListener("canplay", onCanPlay);
+    el.addEventListener("loadeddata", onLd);
+    el.addEventListener("error", onErr);
+    el.addEventListener("play", onPS);
+    el.addEventListener("playing", onPS);
+    el.addEventListener("pause", onPS);
+    return () => {
+      clearTimeout(stallRef.current);
+      el.removeEventListener("canplay", onCanPlay);
+      el.removeEventListener("loadeddata", onLd);
+      el.removeEventListener("error", onErr);
+      el.removeEventListener("play", onPS);
+      el.removeEventListener("playing", onPS);
+      el.removeEventListener("pause", onPS);
+    };
+  }, []);
+
+  /* Declarative drive: a src prop means the parent is not driving the
+     slot API — the layer loads the clip itself. */
+  useEffect(() => {
+    if (!declarative) return;
+    loadClip(src, { objectPosition });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src, declarative]);
+  useEffect(() => {
+    if (!declarative) return;
+    visibleTargetRef.current = !!visible;
+    applyVisibility();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, declarative]);
+  useEffect(() => {
+    if (!declarative) return;
+    if (!active) pause();
+    else if (srcRef.current) guardedPlay();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, declarative]);
+
+  /* The visibility contract (§5): pause the decoder the moment the tab
+     hides; on foreground, re-run the muted-inline play sequence rather
+     than assuming playback resumed. The reel passes
+     manageVisibility={false} and runs its own (it also has timers to
+     restart); everyone else gets this. */
+  useEffect(() => {
+    if (!manageVisibility) return;
+    const onVis = () => {
+      const el = vref.current;
+      if (!el) return;
+      if (document.hidden) { try { el.pause(); } catch {} }
+      else if (activeRef.current && visibleTargetRef.current && srcRef.current) guardedPlay();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [manageVisibility]);
+
+  /* The slot API for the reel: everything the old code did by touching
+     the <video> directly, now behind named operations. */
+  useImperativeHandle(ref, () => ({
+    loadClip: (s, opts) => loadClip(s, opts),
+    preloadClip: (s, opts) => loadClip(s, { ...(opts || {}), preloadOnly: true }),
+    unload: () => unload(),
+    guardedPlay: () => guardedPlay(),
+    /* Gesture-context playback: runs inside the tap's own window, the one
+       place iOS Low Power Mode honours play(). */
+    playNow: () => { notifiedRef.current = false; guardedPlay(); return true; },
+    pause: () => pause(),
+    setVisible: (v) => { visibleTargetRef.current = !!v; applyVisibility(); },
+    /* zIndex staging for the dip-free dissolve: the incoming slot rises
+       above the outgoing while it fades in over it. */
+    setZ: (z) => { try { if (layerRef.current) layerRef.current.style.zIndex = String(z); } catch {} },
+    /* After the crossfade the outgoing slot is fully covered: drop it
+       instantly (no second fade) and pause its decoder — this is the
+       "pause offscreen video after crossfades" half of the contract. */
+    snapHide: () => {
+      visibleTargetRef.current = false;
+      const el = vref.current;
+      if (!el) return;
+      try {
+        const t = el.style.transition;
+        el.style.transition = "none";
+        el.style.opacity = "0";
+        void el.offsetWidth;
+        el.style.transition = t;
+      } catch {}
+    },
+    isPaused: () => { try { return !vref.current || vref.current.paused; } catch { return true; } },
+  }));
+
+  const wrapStyle = {
+    position: pinned ? "fixed" : "absolute",
+    inset: 0,
+    overflow: "hidden",
+    pointerEvents: "none",
+    ...style,
+  };
+  return (
+    <div ref={layerRef} className={"cb-film-layer " + className} aria-hidden="true" style={wrapStyle}>
+      {/* Poster beneath the video, always: first paint, blocked reel,
+          and the frames before a decoder produces a picture — a graded
+          still, never a gray plane. */}
+      <div className="cb-film-layer-poster" style={posterUrl ? { backgroundImage: `url("${posterUrl}")` } : undefined} />
+      <video
+        ref={vref}
+        className="cb-film-layer-video"
+        muted
+        autoPlay
+        loop={loop}
+        playsInline
+        webkit-playsinline="true"
+        disablePictureInPicture
+        preload={preload}
+        poster={posterUrl || undefined}
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{
+          objectPosition,
+          opacity: 0,
+          transition: reduceMotion ? "none" : `opacity ${fadeMs}ms var(--cb-ease)`,
+        }}
+      />
+      {dim > 0 && (
+        <div className="cb-film-layer-dim" style={{ background: dimColor, opacity: dim }} />
+      )}
+    </div>
+  );
+});
 
 /* forwardRef: the parent's "Play background" control must be able to call
    play() synchronously inside the tap's own gesture window. iOS Low Power
@@ -4911,17 +5254,171 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
   /* Last reported playback state — the parent only re-renders on change. */
   const playingNotifiedRef = useRef(null);
 
+  /* ── Reel orchestration, component-level ──
+     Every callback the two FilmLayer slots call (onLoadedData, onError,
+     onAutoplayBlocked, onPlaybackChange) is read through the layer's own
+     callback refs, so these plain functions can live here at component
+     level and the reel effect below stays keyed on `blocked` alone: a
+     fresh parent render never tears down and restarts the reel. The
+     layer owns everything the <video> element itself does (muted-inline
+     setup, play() promise, stall guard, poster-first fade); what stays
+     here is the reel's own orchestration — shuffle order, dip-free
+     dissolve, warm preloads. */
+
+  const slotsOf = () => [aRef.current, bRef.current];
+
+  /* Object-position is decided once per mount rather than per frame: the
+     crop only changes when the window's aspect ratio does, and a resize
+     listener writing inline styles onto a playing video is a repaint
+     nobody asked for. */
+  const narrow = typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(max-width: 760px)").matches : false;
+  const framePos = (src) => {
+    const scene = FILM_SCENES[src];
+    if (!scene) return "50% 50%";
+    return (narrow ? (scene.posMobile || scene.pos) : scene.pos) || "50% 50%";
+  };
+
+  /* The single source of truth for "is footage actually moving": the
+     current slot's own paused flag, sampled on every play-state event
+     and whenever the reel is deliberately stopped. The parent's labels
+     (footer toggle, tap-to-play pill) derive from this — never from
+     intent flags — so they cannot claim "paused" while the picture moves.
+     The outgoing slot is paused 2.4s after every dissolve, but by then
+     curRef already points at the incoming slot, so that pause never
+     flips this to false mid-transition. */
+  const reportPlaying = () => {
+    const f = playbackCbRef.current;
+    if (!f) return;
+    let playing = false;
+    try { playing = !slotsOf()[curRef.current].isPaused(); } catch {}
+    if (playingNotifiedRef.current !== playing) {
+      playingNotifiedRef.current = playing;
+      try { f(playing); } catch {}
+    }
+  };
+  const onSlotPlayState = () => reportPlaying();
+
+  const stop = () => {
+    clearTimeout(timerRef.current);
+    clearTimeout(fadeRef.current);
+    for (const slot of slotsOf()) { try { if (slot) slot.pause(); } catch {} }
+  };
+
+  /* Which slot is buffering the clip after next, if any. */
+  const preloadingRef = useRef(null);
+
+  const onSlotAutoplayBlocked = (err) => {
+    /* A rejected play while the reel is supposed to be running is the
+       signature of an autoplay policy (Low Power Mode on iOS): the file
+       and decoder are fine, the phone just vetoed a programmatic start.
+       Tell the parent once so it can offer a tap-to-play affordance — a
+       still poster with no explanation reads as "clips aren't playing".
+       A later successful play clears the flag via playNow. */
+    if (!autoplayNotifiedRef.current && autoplayCbRef.current) {
+      autoplayNotifiedRef.current = true;
+      try { autoplayCbRef.current(err); } catch {}
+    }
+  };
+
+  /* The play path, through the slot. The layer owns the muted-inline
+     sequence, the play() promise, and the poster-first fade; the reel
+     owns when the dissolve starts. */
+  const playSlot = (slot, src) => {
+    if (!slot || !src) return;
+    if (preloadingRef.current === slot) preloadingRef.current = null;
+    slot.loadClip(src, { objectPosition: framePos(src) });
+  };
+
+  const onSlotError = (slot) => {
+    if (!slot) return;
+    if (preloadingRef.current === slot) {
+      /* A preload that 404s stays silent: the upcoming cycle() requests
+         the same file through the play path and advances past it there.
+         Leave no dead src behind so cycle time takes the normal load
+         path instead of fading up black. */
+      preloadingRef.current = null;
+      missRef.current++;
+      slot.unload();
+      return;
+    }
+    /* One unplayable clip must not take the backdrop down with it. */
+    if (++missRef.current < orderRef.current.length) {
+      idxRef.current = (idxRef.current + 1) % orderRef.current.length;
+      playSlot(slot, orderRef.current[idxRef.current]);
+    } else {
+      /* The whole reel failed — no codec, blocked assets, an offline
+         cache miss. Leave the poster frame visible rather than fading
+         to the bare ground: a still graded frame is a better backdrop
+         than a gradient, and it costs nothing once decoding has been
+         abandoned. */
+      stop();
+      slot.setVisible(true);
+    }
+  };
+
+  /* Buffer the clip after next into the free slot without playing it.
+     Called once the outgoing clip's fade has finished — setting src
+     earlier would unload the clip mid-dissolve and kill the fade. */
+  const preloadInto = (slot, src) => {
+    if (!slot || !src) return;
+    preloadingRef.current = slot;
+    /* At most the next clip is ever buffered: both slots start at
+       preload="none" so nothing else fetches until it is a slot's turn. */
+    slot.preloadClip(src, { objectPosition: framePos(src) });
+  };
+
+  const cycle = () => {
+    const slots = slotsOf();
+    const next = 1 - curRef.current;
+    const incoming = slots[next];
+    const outgoing = slots[curRef.current];
+    if (!incoming || !outgoing) return;
+    idxRef.current = (idxRef.current + 1) % orderRef.current.length;
+    /* Dip-free dissolve. The old code faded the outgoing to 0 at the same
+       moment it faded the incoming to 1: mid-transition the two opacities
+       summed below 1 and the black ground showed through — the visible
+       "black fade" between clips. Now the outgoing stays fully opaque
+       underneath while the incoming fades up OVER it (staged above via
+       zIndex), so the frame is always fully covered and brightness never
+       dips. Once the incoming is opaque, the outgoing is taken out
+       instantly — invisible, because it is completely hidden behind. */
+    incoming.setZ(2);
+    outgoing.setZ(1);
+    playSlot(incoming, orderRef.current[idxRef.current]);
+    /* Poster-first: the incoming slot's own layer holds its graded still
+       until canplay, then runs the fade — the old code faded the video
+       element itself up over bytes that were still arriving. */
+    incoming.setVisible(true);
+    report(orderRef.current[idxRef.current]);
+    curRef.current = next;
+    /* Stop decoding the clip nobody can see. The delay clears the 2.2s
+       dissolve; pausing immediately would freeze the outgoing frame
+       mid-fade. */
+    fadeRef.current = setTimeout(() => {
+      try { outgoing.pause(); } catch {}
+      /* Fully covered: hide without a transition so there is no second
+         fade — then buffer the clip after next so the following dissolve
+         starts from a warm decoder. The incoming clip used to begin
+         loading at the exact moment its 2.2s fade started — fading up
+         over bytes that were still arriving was the visible hitch on
+         every transition. */
+      try { outgoing.snapHide(); } catch {}
+      preloadInto(outgoing, orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
+    }, 2400);
+    timerRef.current = setTimeout(cycle, holdMsRef.current);
+  };
+
   /* Gesture-context playback for the parent's Play control (see the
-     forwardRef note above). Returns true when a play was issued. */
+     forwardRef note above). Returns true when a play was issued. The
+     slot re-runs the muted-inline sequence inside the tap's own gesture
+     window — the one place iOS Low Power Mode honours it. */
   useImperativeHandle(ref, () => ({
     playNow: () => {
-      const els = [aRef.current, bRef.current];
-      const el = els[curRef.current];
-      if (!el) return false;
+      const slot = slotsOf()[curRef.current];
+      if (!slot) return false;
       try {
-        el.muted = true; el.defaultMuted = true;
-        const p = el.play();
-        if (p && p.catch) p.catch(() => {});
+        slot.playNow();
         autoplayNotifiedRef.current = false;
         return true;
       } catch { return false; }
@@ -4929,55 +5426,8 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
   }), []);
 
   useEffect(() => {
-    const els = [aRef.current, bRef.current];
-    if (!els[0] || !els[1]) return;
-
-    /* The single source of truth for "is footage actually moving": the
-       current element's own paused flag, sampled on every play-state event
-       and whenever the reel is deliberately stopped. The parent's labels
-       (footer toggle, tap-to-play pill) derive from this — never from
-       intent flags — so they cannot claim "paused" while the picture moves.
-       The outgoing element is paused 2.4s after every dissolve, but by
-       then curRef already points at the incoming element, so that pause
-       never flips this to false mid-transition. */
-    const reportPlaying = () => {
-      const f = playbackCbRef.current;
-      if (!f) return;
-      let playing = false;
-      try { playing = !els[curRef.current].paused; } catch {}
-      if (playingNotifiedRef.current !== playing) {
-        playingNotifiedRef.current = playing;
-        try { f(playing); } catch {}
-      }
-    };
-    const onPlayState = () => reportPlaying();
-
-    /* Mobile Safari only honours autoplay when the muted IDL *property* is
-       true. React's `muted` JSX attribute sets the content attribute, which
-       iOS ignores — the classic silent-autoplay failure that leaves phones
-       on a black backdrop while desktop plays fine. Set the property
-       directly, once, on both elements. */
-    for (const el of els) {
-      try { el.muted = true; el.defaultMuted = true; } catch {}
-    }
-
-    /* Object-position is decided once per mount rather than per frame:
-       the crop only changes when the window's aspect ratio does, and a
-       resize listener writing inline styles onto a playing video is a
-       repaint nobody asked for. */
-    const narrow = typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(max-width: 760px)").matches : false;
-    const framePos = (src) => {
-      const scene = FILM_SCENES[src];
-      if (!scene) return "50% 50%";
-      return (narrow ? (scene.posMobile || scene.pos) : scene.pos) || "50% 50%";
-    };
-
-    const stop = () => {
-      clearTimeout(timerRef.current);
-      clearTimeout(fadeRef.current);
-      for (const el of els) { try { el.pause(); } catch {} }
-    };
+    const slots = slotsOf();
+    if (!slots[0] || !slots[1]) return;
 
     if (blocked) {
       stop();
@@ -4985,258 +5435,101 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
          background" flips to "Play background" instead of lying. */
       reportPlaying();
       /* The still IS a frame of a real clip, so the centered title card
-         above it is still describing what is on screen. */
+         above it is still describing what is on screen. The clip's graded
+         still shows with no decoding at all — each slot carries its own
+         poster layer now, so the old separate backdrop div is gone. */
       report(FILM_POSTER_CLIP);
-      /* The poster attribute alone paints nothing until a source is set,
-         so a blocked reel used to fall through to the flat gradient. This
-         shows the graded still instead: the same frame the reel would have
-         opened on, at the same brightness, with no decoding at all. */
-      els[0].style.opacity = "1";
+      slots[curRef.current].setVisible(true);
+      slots[1 - curRef.current].setVisible(false);
       return;
     }
 
-    /* Which element is buffering the clip after next, if any. A preload
-       that 404s must stay silent: the upcoming cycle() requests the same
-       file through play() and advances past it there. Letting the play
-       path run inside a preload would start hidden playback mid-buffer. */
-    let preloadingEl = null;
-
-    /* VP9-first delivery. Every clip ships as science-NN.mp4 (H.264 — the
-       universal fallback) and science-NN.webm (VP9 — same baked grade,
-       better quality at roughly half the bytes). The clip lists keep the
-       .mp4 paths because FILM_SCENES is keyed by them; only the element's
-       src is remapped, and only when this browser can actually play VP9.
-       The onerror path below still skips a bad file, whatever its
-       container. Support is probed once per session. */
-    let vp9OK = null;
-    let iosH264 = null;
-    const filmFile = (el, mp4) => {
-      /* iOS gets H.264 unconditionally. Its hardware decoder eats H.264
-         for breakfast, while canPlayType('video/webm; codecs="vp9"') has
-         claimed VP9 support on iOS releases that then fail to decode it —
-         a phone that reports "maybe" and plays nothing. */
-      if (iosH264 === null) {
-        try {
-          const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
-          iosH264 = /iPad|iPhone|iPod/.test(ua) ||
-            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-        } catch { iosH264 = false; }
-      }
-      if (iosH264) return mp4;
-      if (vp9OK === null) {
-        try { vp9OK = !!el.canPlayType && el.canPlayType('video/webm; codecs="vp9"') !== ""; }
-        catch { vp9OK = false; }
-      }
-      return vp9OK ? mp4.replace(/\.mp4$/i, ".webm") : mp4;
-    };
-
-    const play = (el, src) => {
-      /* A clip that loads clears the miss counter. Without this the count
-         only ever climbs: a long session that skips a handful of absent
-         files over an hour would eventually cross the give-up threshold
-         and stop a reel that was working perfectly well. */
-      el.onloadeddata = () => { missRef.current = 0; };
-      el.onerror = () => {
-        if (preloadingEl === el) {
-          preloadingEl = null;
-          missRef.current++;
-          /* Leave no dead src behind: at cycle time play() must take the
-             normal load path so a missing file is skipped instead of
-             fading up black. */
-          el.removeAttribute("src");
-          try { el.load(); } catch {}
-          return;
-        }
-        /* One unplayable clip must not take the backdrop down with it. */
-        if (++missRef.current < orderRef.current.length) {
-          idxRef.current = (idxRef.current + 1) % orderRef.current.length;
-          play(el, orderRef.current[idxRef.current]);
-        } else {
-          /* The whole reel failed — no codec, blocked assets, an offline
-             cache miss. Leave the poster frame visible rather than fading
-             to the bare ground: a still graded frame is a better backdrop
-             than a gradient, and it costs nothing once decoding has been
-             abandoned. */
-          stop();
-          el.style.opacity = "1";
-        }
-      };
-      el.style.objectPosition = framePos(src);
-      /* The poster always matches the clip being loaded: the intro never
-         opens onto black, and a clip that fails to decode leaves its own
-         graded still behind rather than a neighbour's frame. */
-      try { el.poster = filmPoster(src); } catch {}
-      /* src stays the .mp4 key for framePos above; the element loads the
-         best rendition this browser can play. */
-      const file = filmFile(el, src);
-      if (el.getAttribute("src") !== file) { el.src = file; el.load(); }
-      if (preloadingEl === el) preloadingEl = null;
-      const p = el.play();
-      if (p && p.catch) p.catch((err) => {
-        /* A rejected play while the reel is supposed to be running is the
-           signature of an autoplay policy (Low Power Mode on iOS): the file
-           and decoder are fine, the phone just vetoed a programmatic start.
-           Tell the parent once so it can offer a tap-to-play affordance —
-           a still poster with no explanation reads as "clips aren't
-           playing". A later successful play clears the flag via playNow. */
-        if (!autoplayNotifiedRef.current && autoplayCbRef.current) {
-          autoplayNotifiedRef.current = true;
-          try { autoplayCbRef.current(err); } catch {}
-        }
-      });
-    };
-
-    /* Buffer src into el without playing it. Called once the outgoing
-       clip's fade has finished — setting src earlier would unload the
-       clip mid-dissolve and kill the fade. */
-    const preloadInto = (el, src) => {
-      const file = filmFile(el, src);
-      if (!file || el.getAttribute("src") === file) return;
-      preloadingEl = el;
-      /* At most the next clip is ever buffered: this element is the one
-         preload in flight, and both elements start at preload="none" so
-         nothing else fetches until it is this element's turn. */
-      el.preload = "auto";
-      el.poster = filmPoster(src);
-      el.src = file;
-      try { el.load(); } catch {}
-    };
-
-    const cycle = () => {
-      const next = 1 - curRef.current;
-      const incoming = els[next];
-      const outgoing = els[curRef.current];
-      idxRef.current = (idxRef.current + 1) % orderRef.current.length;
-      /* Dip-free dissolve. The old code faded the outgoing to 0 at the same
-         moment it faded the incoming to 1: mid-transition the two opacities
-         summed below 1 and the black ground showed through — the visible
-         "black fade" between clips. Now the outgoing stays fully opaque
-         underneath while the incoming fades up OVER it (staged above via
-         zIndex), so the frame is always fully covered and brightness never
-         dips. Once the incoming is opaque, the outgoing is taken out
-         instantly — invisible, because it is completely hidden behind. */
-      incoming.style.zIndex = "2";
-      outgoing.style.zIndex = "1";
-      play(incoming, orderRef.current[idxRef.current]);
-      incoming.style.opacity = "1";
-      report(orderRef.current[idxRef.current]);
-      curRef.current = next;
-      /* Stop decoding the clip nobody can see. The delay clears the 2.2s
-         dissolve; pausing immediately would freeze the outgoing frame
-         mid-fade. */
-      fadeRef.current = setTimeout(() => {
-        try { outgoing.pause(); } catch {}
-        /* Fully covered: remove without a transition so there is no second
-           fade, then restore the transition for the next dissolve. */
-        outgoing.style.transition = "none";
-        outgoing.style.opacity = "0";
-        void outgoing.offsetWidth;
-        outgoing.style.transition = "";
-        /* The element is free now: buffer the clip after next so the
-           following dissolve starts from a warm decoder. The incoming clip
-           used to begin loading at the exact moment its 2.2s fade started —
-           fading up over bytes that were still arriving was the visible
-           hitch on every transition. */
-        preloadInto(outgoing, orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
-      }, 2400);
-      timerRef.current = setTimeout(cycle, holdMsRef.current);
-    };
-
-    play(els[curRef.current], orderRef.current[idxRef.current]);
-    els[curRef.current].style.zIndex = "2";
-    els[1 - curRef.current].style.zIndex = "1";
-    els[curRef.current].style.opacity = "1";
+    slots[curRef.current].setZ(2);
+    slots[1 - curRef.current].setZ(1);
+    playSlot(slots[curRef.current], orderRef.current[idxRef.current]);
+    slots[curRef.current].setVisible(true);
+    slots[1 - curRef.current].setVisible(false);
     report(orderRef.current[idxRef.current]);
-    /* Playback truth lives on the elements from here on. */
-    for (const el of els) {
-      el.addEventListener("play", onPlayState);
-      el.addEventListener("playing", onPlayState);
-      el.addEventListener("pause", onPlayState);
-    }
+    /* Playback truth lives on the slots from here on (each layer reports
+       play/playing/pause through onPlaybackChange). */
     reportPlaying();
-    /* Warm the very first dissolve too: the hidden element buffers clip
+    /* Warm the very first dissolve too: the hidden slot buffers clip
        #2 during the opening hold instead of cold-fetching at cycle time. */
-    preloadInto(els[1 - curRef.current], orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
+    preloadInto(slots[1 - curRef.current], orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
     timerRef.current = setTimeout(cycle, holdMsRef.current);
 
-    const onVis = () => { if (document.hidden) stop(); else { const p = els[curRef.current].play(); if (p && p.catch) p.catch(() => {}); timerRef.current = setTimeout(cycle, holdMsRef.current); } };
+    /* The reel runs its own visibility contract (the layers' is disabled
+       via manageVisibility={false}): pause the decoders the moment the
+       tab hides; on foreground re-run the muted-inline play sequence and
+       restart the cycle timer. */
+    const onVis = () => {
+      if (document.hidden) stop();
+      else {
+        try { slots[curRef.current].guardedPlay(); } catch {}
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(cycle, holdMsRef.current);
+      }
+    };
     document.addEventListener("visibilitychange", onVis);
     /* Autoplay-policy recovery. iOS Low Power Mode rejects programmatic
-       play() (NotAllowedError) while honouring the same call from a real
-       user gesture — so the first tap, touch-end or keypress anywhere
-       retries the current clip. A visitor whose phone silently vetoed
-       autoplay gets footage on their first interaction instead of a still
-       poster for the whole visit. One paused-check per gesture, so this is
-       a no-op while the reel is running, and it only exists while the reel
-       wants to play: the effect re-runs and removes these listeners the
-       moment `blocked` flips true. */
+       play() but honours the identical call issued from a real
+       touch/click handler. So when the first user gesture arrives, retry
+       playback and — if this reel was started while blocked by policy —
+       kick the cycle timer so the reel advances instead of sitting on
+       its first frame forever. */
     const tryResume = () => {
-      if (document.hidden) return;
-      const el = els[curRef.current];
-      if (el && el.paused) {
-        try {
-          const p = el.play();
-          if (p && p.catch) p.catch(() => {});
-        } catch {}
-      }
+      try { slots[curRef.current].guardedPlay(); } catch {}
+      reportPlaying();
+      if (!timerRef.current) timerRef.current = setTimeout(cycle, holdMsRef.current);
     };
     window.addEventListener("pointerdown", tryResume);
     window.addEventListener("touchend", tryResume);
-    window.addEventListener("keydown", tryResume);
     return () => {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pointerdown", tryResume);
       window.removeEventListener("touchend", tryResume);
-      window.removeEventListener("keydown", tryResume);
-      for (const el of els) {
-        el.removeEventListener("play", onPlayState);
-        el.removeEventListener("playing", onPlayState);
-        el.removeEventListener("pause", onPlayState);
-      }
-      stop();
+      clearTimeout(timerRef.current);
+      clearTimeout(fadeRef.current);
+      for (const slot of slots) { try { if (slot) slot.pause(); } catch {} }
+      /* Mobile Safari keeps decoding a detached <video> in the
+         background, burning battery on a backdrop nobody can see. */
+      for (const slot of slots) { try { if (slot) slot.unload(); } catch {} }
     };
   }, [blocked, proReel]);
 
-  /* There is no CSS filter here any more, and that is the whole fix for
-     the stutter.
-
-     The grade used to be `grayscale(30%) contrast(115%) brightness(0.6)`
-     applied to a full-viewport <video>. A filter on a video layer makes the
-     browser push every decoded frame through a shader pass before it can
-     composite it — about two million pixels, twenty-four times a second,
-     for the entire life of the page — and then any backdrop-filter above it
-     has to re-blur that result as well. On integrated graphics that is the
-     difference between a smooth page and a page that hitches.
-
-     The grade is baked into the files instead, by the same ffmpeg pass that
-     cuts them: the exact CSS matrix, in the CSS order, so the picture is
-     unchanged. What is left here is a plain <video> the compositor can hand
-     straight to the screen.
-
-     `intensity` still dims the room, but as the opacity of one solid layer
-     — a compositor-thread property, no rasterisation — rather than by
-     re-grading every frame. */
-  const vid = {
-    position: "absolute", top: "50%", left: "50%",
-    width: "100%", height: "100%", objectFit: "cover",
-    transform: "translate(-50%, -50%)",
-    opacity: 0,
-    transition: "opacity 2.2s var(--cb-ease)",
-    pointerEvents: "none",
-  };
-
   return (
     <div className="cb-film" aria-hidden="true">
-      {/* First-paint ground: the poster of the reel's opening clip, behind
-          the videos. While the reel plays it is always covered; when the
-          reel is blocked (reduced motion, metered connection, paused) or a
-          decoder has not produced a frame yet, this is what shows — a
-          graded still, never black. */}
-      <div className="cb-film-poster" style={{
-        backgroundImage: `url(${filmPoster(orderRef.current[idxRef.current])})`,
-      }} />
-      <video ref={aRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={filmPoster(FILM_POSTER_CLIP)} />
-      <video ref={bRef} style={vid} className="cb-film-clip" muted loop playsInline preload="none" poster={filmPoster(FILM_POSTER_CLIP)} />
+      {/* Two crossfading slots of the one shared video layer. The layer
+         owns the muted-inline setup, the play() promise, the stall guard,
+         and the poster-first fade; the reel staggers the slots for the
+         dip-free dissolve. `intensity` dims the room as the opacity of one
+         solid layer — a compositor-thread property — rather than by
+         re-grading every frame (the grade is baked into the files by the
+         same ffmpeg pass that cuts them). */}
+      <FilmLayer
+        ref={aRef}
+        pinned={false}
+        manageVisibility={false}
+        preload="none"
+        fadeMs={2200}
+        poster={filmPoster(orderRef.current[idxRef.current])}
+        onLoadedData={() => { missRef.current = 0; }}
+        onError={() => onSlotError(aRef.current)}
+        onAutoplayBlocked={onSlotAutoplayBlocked}
+        onPlaybackChange={onSlotPlayState}
+      />
+      <FilmLayer
+        ref={bRef}
+        pinned={false}
+        manageVisibility={false}
+        preload="none"
+        fadeMs={2200}
+        poster={filmPoster(orderRef.current[idxRef.current])}
+        onLoadedData={() => { missRef.current = 0; }}
+        onError={() => onSlotError(bRef.current)}
+        onAutoplayBlocked={onSlotAutoplayBlocked}
+        onPlaybackChange={onSlotPlayState}
+      />
       {/* Cinematic vignette: clear in the middle, falling off to darkness at
           the frame edges. It focuses the eye on the interface floating over
           the footage and keeps bright clips from washing out the edges. */}
@@ -14549,7 +14842,9 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
   const wrapStyle = minimized
     ? {
         position: "fixed", zIndex: 300, cursor: "pointer",
-        bottom: isMobile ? 96 : 24, right: 20,
+        // Mobile: sits above the back-to-top circle (bottom 88px + 44px tall
+        // when a search has started), so the two never overlap.
+        bottom: isMobile ? 156 : 24, right: 20,
         width: bubbleSize.width, height: bubbleSize.height,
         borderRadius: 16, overflow: "hidden", background: "#0b0b0d",
         border: "1px solid rgba(255,255,255,0.16)", boxShadow: "0 14px 40px rgba(0,0,0,0.5)",
@@ -18049,7 +18344,7 @@ const SAMPLE_DOCUMENT = [
   "blinding, which is unavoidable when the intervention is a park.",
 ].join("\n");
 
-function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged }) {
+function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
   // away whatever the person pasted.
@@ -18212,259 +18507,531 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
 
   const paneBase = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
   const inputBg = P.dark ? "rgba(255,255,255,0.03)" : "#fff";
+  /* Wave 1 — mobile short labels for the result tabs: four full labels
+     never fit 360px. The tab row also scrolls instead of clipping (see
+     .cb-doc-tabs in the CSS). */
+  const docTabOptions = NOTEBOOK_TABS.map(([key, label]) => ({
+    id: key,
+    label: isMobile
+      ? ({ summary: "Summary", methodology: "Methods", findings: "Findings", qa: "Q&A" }[key] || label)
+      : label,
+  }));
   const dimBtnBg = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   return (
-    /* Commit 99 — Document Mode was the last nav item still living in a
-       full-screen `position: fixed; inset: 0; z-index: 300` overlay. Commit
-       88 promoted History, Saved, Collections and Network Search out of
-       modals and into real pages; this one was missed, and it is the worst
-       of the set to leave behind, because the overlay paints over the entire
-       sidebar. A person who clicked Document Mode lost the nav rail
-       completely, and pressing any nav item did nothing — verified: with it
-       open, Settings and Trending both left the view where it was. The only
-       way out was a close button in its own header, and Escape. That is a
-       dead end in the primary navigation, and it is the same report as
-       "document mode doesn't work when I click on it."
+    /* Commit 99 — Document Mode is a page in the app shell, not an
+       overlay; `asPage` keeps the modal form available for the command
+       palette, which opens it deliberately as an interruption.
 
-       It is a page now, laid out in the app shell alongside the others, so
-       the sidebar stays and you can leave the way you arrived. `asPage`
-       keeps the modal form available for the command palette, which opens it
-       deliberately as an interruption. */
+       Wave 1 — the page form is rebuilt on the film-layer model: the
+       root is transparent and full-height, ONE FilmLayer fills it (the
+       workspace reel unmounts while this view is open, so two background
+       decoders never run on the same screen), a single scrim veils the
+       footage — the only layer whose background opacity is tuned — and
+       the content flows as one continuous page above it. No fixed
+       heights, no internal scroll regions, no 48%-of-the-screen split:
+       on a phone the whole page is one vertical reflow. */
     <div
       {...(asPage ? { role: "region", "aria-label": "Document Mode" } : { role: "dialog", "aria-modal": "true", "aria-label": "Document Mode" })}
       style={asPage
-        ? { display: "flex", flexDirection: "column", minHeight: 0, height: "calc(100dvh - 96px)", background: P.bg, paddingTop: isMobile ? 56 : 0 }
+        ? {
+            position: "relative", display: "flex", flexDirection: "column",
+            minHeight: "100vh", minHeight: "100svh",
+            background: "transparent", overflow: "clip",
+          }
         : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "14px 16px" : "16px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Icon name="bookOpen" size={18} style={{ color: accent }} />
-          <div>
-            {/* Commit 99 — a page needs a real heading, not a styled div, or
-                a screen reader and the browser's own outline see a page with
-                no title. The description said "Deep summarization and Q&A over
-                one document", which names the technique rather than the job.
-                A person arrives here holding a PDF. */}
-            <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", margin: 0, letterSpacing: "-0.01em" }}>Document Mode</h1>
-            {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
+      {asPage && (
+        <>
+          <FilmLayer
+            src={DOC_FILM_SRC}
+            pinned={false}
+            preload="metadata"
+            fadeMs={2200}
+            /* filmOK mirrors the workspace reel's own rule (reduced
+               motion, Save-Data, animation off, low-memory devices): when
+               it is false the layer holds the clip's graded still and
+               decodes nothing. */
+            active={filmOK}
+          />
+          {/* The scrim: the ONLY layer in this stack whose background
+              opacity is tuned. It veils the footage so text stays crisp;
+              the reader card below is the established near-opaque
+              readingPanel surface, not another veil. */}
+          <div aria-hidden="true" style={{
+            position: "absolute", inset: 0, pointerEvents: "none",
+            background: P.bg, opacity: P.dark ? 0.82 : 0.92,
+          }} />
+        </>
+      )}
+
+      {asPage ? (
+        /* ── Compact toolbar: the page's real heading (Commit 99) and one
+            44px close control. It scrolls with the page — the sidebar is
+            the way out on a long read — and carries safe-area padding at
+            the top edge. ── */
+        <div style={{
+          position: "relative", zIndex: 1, display: "flex", alignItems: "center",
+          justifyContent: "space-between", gap: 12, flexShrink: 0,
+          padding: isMobile ? "14px 16px" : "18px 24px",
+          paddingTop: `max(${isMobile ? 14 : 18}px, env(safe-area-inset-top))`,
+          borderBottom: `1px solid ${P.line}`,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <Icon name="bookOpen" size={18} style={{ color: accent, flexShrink: 0 }} />
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", margin: 0, letterSpacing: "-0.01em" }}>Document Mode</h1>
+              {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
+            </div>
           </div>
+          <button onClick={close} aria-label="Close Document Mode" style={{
+            width: 44, height: 44, minWidth: 44, borderRadius: "50%", background: "none",
+            border: `1px solid ${P.line}`, color: P.faint, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}><Icon name="close" size={20} /></button>
         </div>
-        <button onClick={close} aria-label="Close Document Mode" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="close" size={20} /></button>
-      </div>
-
-      <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
-        {/* LEFT PANE — the source, tabbed between pasting text directly and
-            loading it from a file. Only one sub-view renders at a time now
-            instead of stacking the dropzone above the textarea always. */}
-        <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
-          <div style={{ marginBottom: 14, flexShrink: 0 }}>
-            <SegControl value={leftTab} onChange={setLeftTab} P={P} accent={accent} ariaLabel="Document source"
-              options={[{ id: "paste", label: "Paste text" }, { id: "upload", label: "Upload a file" }]} />
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "14px 16px" : "16px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Icon name="bookOpen" size={18} style={{ color: accent }} />
+            <div>
+              <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-display)", margin: 0, letterSpacing: "-0.01em" }}>Document Mode</h1>
+              {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
+            </div>
           </div>
+          <button onClick={close} aria-label="Close Document Mode" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="close" size={20} /></button>
+        </div>
+      )}
 
-          {leftTab === "upload" ? (
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={onDrop}
-              onClick={() => fileInputRef.current?.click()}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
-              role="button"
-              tabIndex={0}
-              aria-label="Drop a document file or press Enter to browse"
-              style={{
-                flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
-                border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "18px 16px", textAlign: "center", cursor: "pointer",
-                background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "all 150ms ease", minHeight: isMobile ? 140 : 240,
-              }}
-            >
-              <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,text/plain,application/pdf" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
-              {extractingPdf ? (<>
-                <div style={{ width: 24, height: 24, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600, marginTop: 6 }}>Extracting text from PDF…</div>
-              </>) : (<>
-                <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
-                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a file here, or click to browse</div>
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 260 }}>PDF, plain text, or Markdown. PDF text is extracted right in your browser — nothing is uploaded just to read it. Scanned/image-only PDFs have no text to extract; paste the text directly for those.</div>
-              </>)}
+      {asPage ? (
+        /* ── The page: one centered container, source and reader stacked
+            on mobile, two columns on desktop — all in normal flow, so the
+            page scrolls instead of trapping scroll inside panes. ── */
+        <div style={{
+          position: "relative", zIndex: 1, flex: 1, width: "100%", maxWidth: 1120,
+          margin: "0 auto", padding: isMobile ? "20px 16px" : "28px 24px",
+          paddingBottom: `max(${isMobile ? 40 : 64}px, env(safe-area-inset-bottom))`,
+          display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 5fr) minmax(0, 7fr)",
+          gap: isMobile ? 32 : 40, alignItems: "start",
+        }}>
+          {/* SOURCE — the document, tabbed between pasting text and
+              loading it from a file. */}
+          <section aria-label="Document source" style={{ minWidth: 0 }}>
+            <div style={{ marginBottom: 14 }}>
+              <SegControl value={leftTab} onChange={setLeftTab} P={P} accent={accent} ariaLabel="Document source"
+                options={[{ id: "paste", label: "Paste text" }, { id: "upload", label: "Upload a file" }]} />
             </div>
-          ) : (
-            <textarea
-              value={documentText}
-              onChange={(e) => setDocumentText(e.target.value)}
-              aria-label="Paste the full text of a paper, report, or document" placeholder="Paste the full text of a paper, report, or document here…"
-              style={{
-                flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
-                background: inputBg, color: P.ink, fontFamily: "var(--cb-body)", fontSize: FONT_SIZES.small, lineHeight: 1.6, minHeight: isMobile ? 140 : 240,
-              }}
-            />
-          )}
-          <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexShrink: 0, gap: 12 }}>
-            {/* Commit 64 — a bare character count told a reader nothing they
-                could act on. Words and an approximate read time are the units
-                people actually think in, and the count no longer implies a
-                limit is being approached: long documents are analyzed with a
-                visible note rather than refused. */}
-            <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {(() => {
-                const t = documentText.trim();
-                if (!t) return <span>Paste a paper, report, or any long document</span>;
-                const words = t.split(/\s+/).length;
-                const mins = Math.max(1, Math.round(words / 220));
-                return <>
-                  <span>{words.toLocaleString()} words</span>
-                  <span style={{ opacity: 0.5 }}>·</span>
-                  <span>~{mins} min read</span>
-                </>;
-              })()}
+
+            {leftTab === "upload" ? (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
+                role="button"
+                tabIndex={0}
+                aria-label="Drop a document file or press Enter to browse"
+                style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
+                  border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "28px 16px", textAlign: "center", cursor: "pointer",
+                  background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "all 150ms ease", minHeight: 220,
+                }}
+              >
+                <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,text/plain,application/pdf" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
+                {extractingPdf ? (<>
+                  <div style={{ width: 24, height: 24, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600, marginTop: 6 }}>Extracting text from PDF…</div>
+                </>) : (<>
+                  <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a file here, or click to browse</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 260 }}>PDF, plain text, or Markdown. PDF text is extracted right in your browser — nothing is uploaded just to read it. Scanned/image-only PDFs have no text to extract; paste the text directly for those.</div>
+                </>)}
+              </div>
+            ) : (
+              /* 16px: anything smaller makes iOS Safari zoom the page on
+                 focus, which used to throw the whole layout sideways. */
+              <textarea
+                value={documentText}
+                onChange={(e) => setDocumentText(e.target.value)}
+                aria-label="Paste the full text of a paper, report, or document" placeholder="Paste the full text of a paper, report, or document here…"
+                style={{
+                  width: "100%", resize: "vertical", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
+                  background: inputBg, color: P.ink, fontFamily: "var(--cb-body)", fontSize: 16, lineHeight: 1.6, minHeight: 220,
+                }}
+              />
+            )}
+            <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, flexWrap: "wrap" }}>
+              {/* Commit 64 — a bare character count told a reader nothing
+                  they could act on. Words and an approximate read time are
+                  the units people actually think in. */}
+              <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {(() => {
+                  const t = documentText.trim();
+                  if (!t) return <span>Paste a paper, report, or any long document</span>;
+                  const words = t.split(/\s+/).length;
+                  const mins = Math.max(1, Math.round(words / 220));
+                  return <>
+                    <span>{words.toLocaleString()} words</span>
+                    <span style={{ opacity: 0.5 }}>·</span>
+                    <span>~{mins} min read</span>
+                  </>;
+                })()}
+              </div>
+              <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
+                {!documentText.trim() && !analyzing && (
+                  <button
+                    onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
+                    title="Load a short sample paper to try Document Mode"
+                    style={{
+                      minHeight: 44, padding: "10px 16px", borderRadius: 100, cursor: "pointer",
+                      background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small,
+                      border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-body)",
+                    }}
+                  >Try a sample</button>
+                )}
+                <button
+                  onClick={analyze}
+                  disabled={!documentText.trim() || analyzing}
+                  title={!documentText.trim() ? "Paste or upload a document first" : "Analyze this document"}
+                  style={{
+                    minHeight: 44, padding: "10px 20px", borderRadius: 100, border: (!documentText.trim() || analyzing) ? `1px dashed ${P.line2}` : "none",
+                    cursor: (!documentText.trim() || analyzing) ? "default" : "pointer",
+                    background: (!documentText.trim() || analyzing) ? "transparent" : accent,
+                    color: (!documentText.trim() || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
+                    opacity: (!documentText.trim() || analyzing) ? 0.75 : 1,
+                  }}
+                >{analyzing ? "Reading it…" : "Read this document"}</button>
+                {analyzing && (
+                  <button
+                    onClick={cancelAnalyze}
+                    title="Stop the analysis"
+                    style={{
+                      minHeight: 44, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`,
+                      cursor: "pointer", background: "transparent", color: P.ink2,
+                      fontWeight: 600, fontSize: FONT_SIZES.small, flexShrink: 0,
+                    }}
+                  >Cancel</button>
+                )}
+              </div>
+              {(docIsPro || docCap != null) && (
+                <div style={{ flexBasis: "100%", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+                  {docIsPro
+                    ? "Pro: unlimited document reads."
+                    : docLeft > 0
+                      ? `${docLeft} of ${docCap} free document reads left — refills every 5 days.`
+                      : "You've used your 3 free document reads for these 5 days — Pro reads unlimited."}
+                </div>
+              )}
             </div>
-            <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-              {/* No paper at hand shouldn't mean the feature is
-                  un-triable: a labeled sample loads into the composer so
-                  the whole flow can be watched end to end. */}
-              {!documentText.trim() && !analyzing && (
+            {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
+          </section>
+
+          {/* READER — the analysis. The one controlled near-opaque reading
+              surface on this page (the established readingPanel), so the
+              results read crisply while the footage breathes around it. */}
+          <section aria-label="Document analysis" style={{ minWidth: 0 }}>
+            {!summary && !analyzing && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint, padding: isMobile ? "32px 8px" : "64px 16px", textAlign: "center" }}>
+                <span aria-hidden="true" style={{
+                  width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, marginBottom: 4,
+                }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
+                <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink }}>Read a paper with me</div>
+                <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, lineHeight: 1.6, color: P.ink2 }}>
+                  Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
+                </div>
                 <button
                   onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
-                  title="Load a short sample paper to try Document Mode"
                   style={{
-                    padding: "10px 16px", borderRadius: 100, cursor: "pointer",
-                    background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small,
-                    border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-body)",
+                    marginTop: 10, minHeight: 44, padding: "8px 18px", borderRadius: 100, cursor: "pointer",
+                    background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`,
+                    color: accent, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
                   }}
-                >Try a sample</button>
-              )}
-              <button
-                onClick={analyze}
-                disabled={!documentText.trim() || analyzing}
-                title={!documentText.trim() ? "Paste or upload a document first" : "Analyze this document"}
+                >No paper handy? Try the sample</button>
+              </div>
+            )}
+            {analyzing && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: isMobile ? "8px 0" : "16px 0" }}>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Reading the document…</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
+                <Skeleton P={P} accent={accent} />
+              </div>
+            )}
+            {summary && (
+              <div style={{
+                background: P.dark ? "rgba(15,17,21,0.94)" : "rgba(250,251,249,0.97)",
+                borderRadius: 16, padding: isMobile ? 18 : 28, border: `1px solid ${P.line}`,
+              }}>
+                <div className="cb-doc-tabs" style={{ marginBottom: 14 }}>
+                  <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
+                    options={docTabOptions} />
+                </div>
+                {/* .cb-doc-reader: long URLs, DOIs, tables and media cannot
+                    overflow the card on a 360px screen. */}
+                <div className="cb-doc-reader">
+                  {rightTab !== "qa" && (() => {
+                    const tabDef = NOTEBOOK_TABS.find((t) => t[0] === rightTab);
+                    if (rightTab === "findings") {
+                      const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
+                      const hasLimitations = !!(summary.limitations && summary.limitations.trim());
+                      if (!hasFindings && !hasLimitations) {
+                        return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time — it's all in the summary.</div>;
+                      }
+                      return (
+                        <>
+                          {hasFindings && (<>
+                            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginBottom: 10 }}>Key Findings</div>
+                            {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
+                          </>)}
+                          {hasLimitations && (<>
+                            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
+                            {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
+                          </>)}
+                        </>
+                      );
+                    }
+                    const field = tabDef && tabDef[2];
+                    const content = field && summary[field] && summary[field].trim();
+                    if (!content) {
+                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? docTabOptions.find((o) => o.id === rightTab)?.label : "section"} — see Executive Summary for the full analysis.</div>;
+                    }
+                    return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
+                  })()}
+                  {rightTab === "qa" && (
+                    <>
+                      {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
+                      {qaHistory.map((h, i) => (
+                        <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
+                          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
+                          {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>Working on the answer…</div>}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 8, paddingTop: 14, marginTop: 14, borderTop: `1px solid ${P.line}` }}>
+                  <input
+                    value={qaQuery}
+                    onChange={(e) => setQaQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
+                    placeholder="Ask a question about this document…"
+                    aria-label="Ask a question about this document"
+                    disabled={qaBusy}
+                    style={{ flex: 1, minWidth: 0, minHeight: 44, padding: "10px 13px", fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-body)" }}
+                  />
+                  <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask" style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0 }}><Icon name="send" size={15} /></button>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+          {/* LEFT PANE — the source, tabbed between pasting text directly and
+              loading it from a file. Only one sub-view renders at a time now
+              instead of stacking the dropzone above the textarea always. */}
+          <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
+            <div style={{ marginBottom: 14, flexShrink: 0 }}>
+              <SegControl value={leftTab} onChange={setLeftTab} P={P} accent={accent} ariaLabel="Document source"
+                options={[{ id: "paste", label: "Paste text" }, { id: "upload", label: "Upload a file" }]} />
+            </div>
+
+            {leftTab === "upload" ? (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
+                role="button"
+                tabIndex={0}
+                aria-label="Drop a document file or press Enter to browse"
                 style={{
-                  padding: "10px 20px", borderRadius: 100, border: (!documentText.trim() || analyzing) ? `1px dashed ${P.line2}` : "none",
-                  cursor: (!documentText.trim() || analyzing) ? "default" : "pointer",
-                  background: (!documentText.trim() || analyzing) ? "transparent" : accent,
-                  color: (!documentText.trim() || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
-                  opacity: (!documentText.trim() || analyzing) ? 0.75 : 1,
+                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
+                  border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "18px 16px", textAlign: "center", cursor: "pointer",
+                  background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "all 150ms ease", minHeight: isMobile ? 140 : 240,
                 }}
-              >{analyzing ? "Reading it…" : "Read this document"}</button>
-              {analyzing && (
+              >
+                <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,text/plain,application/pdf" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
+                {extractingPdf ? (<>
+                  <div style={{ width: 24, height: 24, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600, marginTop: 6 }}>Extracting text from PDF…</div>
+                </>) : (<>
+                  <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a file here, or click to browse</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 260 }}>PDF, plain text, or Markdown. PDF text is extracted right in your browser — nothing is uploaded just to read it. Scanned/image-only PDFs have no text to extract; paste the text directly for those.</div>
+                </>)}
+              </div>
+            ) : (
+              <textarea
+                value={documentText}
+                onChange={(e) => setDocumentText(e.target.value)}
+                aria-label="Paste the full text of a paper, report, or document" placeholder="Paste the full text of a paper, report, or document here…"
+                style={{
+                  flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
+                  background: inputBg, color: P.ink, fontFamily: "var(--cb-body)", fontSize: 16, lineHeight: 1.6, minHeight: isMobile ? 140 : 240,
+                }}
+              />
+            )}
+            <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexShrink: 0, gap: 12 }}>
+              <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {(() => {
+                  const t = documentText.trim();
+                  if (!t) return <span>Paste a paper, report, or any long document</span>;
+                  const words = t.split(/\s+/).length;
+                  const mins = Math.max(1, Math.round(words / 220));
+                  return <>
+                    <span>{words.toLocaleString()} words</span>
+                    <span style={{ opacity: 0.5 }}>·</span>
+                    <span>~{mins} min read</span>
+                  </>;
+                })()}
+              </div>
+              <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                {!documentText.trim() && !analyzing && (
+                  <button
+                    onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
+                    title="Load a short sample paper to try Document Mode"
+                    style={{
+                      padding: "10px 16px", borderRadius: 100, cursor: "pointer",
+                      background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small,
+                      border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-body)",
+                    }}
+                  >Try a sample</button>
+                )}
                 <button
-                  onClick={cancelAnalyze}
-                  title="Stop the analysis"
+                  onClick={analyze}
+                  disabled={!documentText.trim() || analyzing}
+                  title={!documentText.trim() ? "Paste or upload a document first" : "Analyze this document"}
                   style={{
-                    padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`,
-                    cursor: "pointer", background: "transparent", color: P.ink2,
-                    fontWeight: 600, fontSize: FONT_SIZES.small, flexShrink: 0,
+                    padding: "10px 20px", borderRadius: 100, border: (!documentText.trim() || analyzing) ? `1px dashed ${P.line2}` : "none",
+                    cursor: (!documentText.trim() || analyzing) ? "default" : "pointer",
+                    background: (!documentText.trim() || analyzing) ? "transparent" : accent,
+                    color: (!documentText.trim() || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
+                    opacity: (!documentText.trim() || analyzing) ? 0.75 : 1,
                   }}
-                >Cancel</button>
+                >{analyzing ? "Reading it…" : "Read this document"}</button>
+                {analyzing && (
+                  <button
+                    onClick={cancelAnalyze}
+                    title="Stop the analysis"
+                    style={{
+                      padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`,
+                      cursor: "pointer", background: "transparent", color: P.ink2,
+                      fontWeight: 600, fontSize: FONT_SIZES.small, flexShrink: 0,
+                    }}
+                  >Cancel</button>
+                )}
+              </div>
+              {(docIsPro || docCap != null) && (
+                <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+                  {docIsPro
+                    ? "Pro: unlimited document reads."
+                    : docLeft > 0
+                      ? `${docLeft} of ${docCap} free document reads left — refills every 5 days.`
+                      : "You've used your 3 free document reads for these 5 days — Pro reads unlimited."}
+                </div>
               )}
             </div>
-            {(docIsPro || docCap != null) && (
-              <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-                {docIsPro
-                  ? "Pro: unlimited document reads."
-                  : docLeft > 0
-                    ? `${docLeft} of ${docCap} free document reads left — refills every 5 days.`
-                    : "You've used your 3 free document reads for these 5 days — Pro reads unlimited."}
+            {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
+          </div>
+
+          {/* RIGHT PANE — the analysis, tabbed across the sections the backend
+              actually returns (see NOTEBOOK_TABS above) plus a dedicated
+              Follow-up Q&A tab so a running conversation doesn't crowd out
+              the summary itself. */}
+          <div style={{ ...paneBase, padding: 20 }}>
+            {!summary && !analyzing && (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint }}>
+                <span aria-hidden="true" style={{
+                  width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, marginBottom: 4,
+                }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
+                <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink }}>Read a paper with me</div>
+                <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, textAlign: "center", lineHeight: 1.6, color: P.ink2 }}>
+                  Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
+                </div>
+                <button
+                  onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
+                  style={{
+                    marginTop: 10, padding: "8px 18px", borderRadius: 100, cursor: "pointer",
+                    background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`,
+                    color: accent, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
+                  }}
+                >No paper handy? Try the sample</button>
+              </div>
+            )}
+            {analyzing && (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Reading the document…</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
+                <Skeleton P={P} accent={accent} />
+              </div>
+            )}
+            {summary && (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div className="cb-doc-tabs" style={{ marginBottom: 14, flexShrink: 0 }}>
+                  <SegControl value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
+                    options={NOTEBOOK_TABS.map(([key, label]) => ({ id: key, label }))} />
+                </div>
+                <div className="cb-doc-reader" style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
+                  {rightTab !== "qa" && (() => {
+                    const tabDef = NOTEBOOK_TABS.find((t) => t[0] === rightTab);
+                    if (rightTab === "findings") {
+                      const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
+                      const hasLimitations = !!(summary.limitations && summary.limitations.trim());
+                      if (!hasFindings && !hasLimitations) {
+                        return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time — it's all in the summary.</div>;
+                      }
+                      return (
+                        <>
+                          {hasFindings && (<>
+                            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginBottom: 10 }}>Key Findings</div>
+                            {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
+                          </>)}
+                          {hasLimitations && (<>
+                            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
+                            {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
+                          </>)}
+                        </>
+                      );
+                    }
+                    const field = tabDef && tabDef[2];
+                    const content = field && summary[field] && summary[field].trim();
+                    if (!content) {
+                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? tabDef[1] : "section"} — see Executive Summary for the full analysis.</div>;
+                    }
+                    return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
+                  })()}
+                  {rightTab === "qa" && (
+                    <>
+                      {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
+                      {qaHistory.map((h, i) => (
+                        <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
+                          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
+                          {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>Working on the answer…</div>}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 8, paddingTop: 14, borderTop: `1px solid ${P.line}`, flexShrink: 0 }}>
+                  <input
+                    value={qaQuery}
+                    onChange={(e) => setQaQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
+                    placeholder="Ask a question about this document…"
+                    aria-label="Ask a question about this document"
+                    disabled={qaBusy}
+                    style={{ flex: 1, padding: "10px 13px", fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-body)" }}
+                  />
+                  <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask" style={{ width: 38, height: 38, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0 }}><Icon name="send" size={15} /></button>
+                </div>
               </div>
             )}
           </div>
-          {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
         </div>
-
-        {/* RIGHT PANE — the analysis, tabbed across the sections the backend
-            actually returns (see NOTEBOOK_TABS above) plus a dedicated
-            Follow-up Q&A tab so a running conversation doesn't crowd out
-            the summary itself. */}
-        <div style={{ ...paneBase, padding: 20 }}>
-          {!summary && !analyzing && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint }}>
-              <span aria-hidden="true" style={{
-                width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-                background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, marginBottom: 4,
-              }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
-              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink }}>Read a paper with me</div>
-              <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, textAlign: "center", lineHeight: 1.6, color: P.ink2 }}>
-                Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
-              </div>
-              <button
-                onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
-                style={{
-                  marginTop: 10, padding: "8px 18px", borderRadius: 100, cursor: "pointer",
-                  background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`,
-                  color: accent, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-body)",
-                }}
-              >No paper handy? Try the sample</button>
-            </div>
-          )}
-          {analyzing && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Reading the document…</div>
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
-              <Skeleton P={P} accent={accent} />
-            </div>
-          )}
-          {summary && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <div style={{ marginBottom: 14, flexShrink: 0 }}>
-                <SegControl value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
-                  options={NOTEBOOK_TABS.map(([key, label]) => ({ id: key, label }))} />
-              </div>
-              <div style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-                {rightTab !== "qa" && (() => {
-                  const tabDef = NOTEBOOK_TABS.find((t) => t[0] === rightTab);
-                  if (rightTab === "findings") {
-                    const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
-                    const hasLimitations = !!(summary.limitations && summary.limitations.trim());
-                    if (!hasFindings && !hasLimitations) {
-                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time — it's all in the summary.</div>;
-                    }
-                    return (
-                      <>
-                        {hasFindings && (<>
-                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginBottom: 10 }}>Key Findings</div>
-                          {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
-                        </>)}
-                        {hasLimitations && (<>
-                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-body)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
-                          {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
-                        </>)}
-                      </>
-                    );
-                  }
-                  const field = tabDef && tabDef[2];
-                  const content = field && summary[field] && summary[field].trim();
-                  if (!content) {
-                    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? tabDef[1] : "section"} — see Executive Summary for the full analysis.</div>;
-                  }
-                  return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
-                })()}
-                {rightTab === "qa" && (
-                  <>
-                    {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
-                    {qaHistory.map((h, i) => (
-                      <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
-                        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
-                        {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>Working on the answer…</div>}
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-              <div style={{ display: "flex", gap: 8, paddingTop: 14, borderTop: `1px solid ${P.line}`, flexShrink: 0 }}>
-                <input
-                  value={qaQuery}
-                  onChange={(e) => setQaQuery(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
-                  placeholder="Ask a question about this document…"
-                  aria-label="Ask a question about this document"
-                  disabled={qaBusy}
-                  style={{ flex: 1, padding: "10px 13px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-body)" }}
-                />
-                <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask" style={{ width: 38, height: 38, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0 }}><Icon name="send" size={15} /></button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -18752,7 +19319,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // Commit 75 — founder diagnostics. Loaded only on the Account tab.
   const [founderStatus, setFounderStatus] = useState(null);
   useEffect(() => {
-    if (tab !== "account" || !user) return;
+    // Founder's eyes only (Dusty's standing order): non-founder accounts
+    // never even ask the server for owner status.
+    if (tab !== "account" || !user || !user.isFounder) return;
     let dead = false;
     apiDataGet("founder-status").then((d) => { if (!dead && d) setFounderStatus(d); });
     return () => { dead = true; };
@@ -19167,11 +19736,15 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   that does nothing but add attack surface is not a feature. */}
               {/* Commit 75 — the founder badge depends on a Cloudflare
                   environment variable, and an env var is not part of a git
-                  push. That is the failure this panel exists to make
-                  visible, in the app, instead of over a screenshot. It
-                  renders for everyone, because "not configured" is exactly
-                  the state the operator needs to see. */}
-              {founderStatus && (
+                  push. This panel exists to make that failure visible in the
+                  app instead of over a screenshot. Per Dusty's standing order
+                  (2026-09-15), it renders ONLY on the founder account —
+                  nobody else ever sees owner verification, not even the
+                  "not configured" state. */}
+              {/* Owner verification panel: the founder's eyes only. Dusty's standing
+                  order — nobody else ever sees this section, including the
+                  "not configured" state. The operator IS the founder account. */}
+              {user.isFounder && founderStatus && (
                 <Section
                   title="Owner verification"
                   footer={
@@ -21017,41 +21590,22 @@ function useDynamicFavicon({ accent, busy, unread }) {
       const { accent: ac, busy: bz, unread: un } = stateRef.current;
       const mark = ac || "#34d399";
       ctx.clearRect(0, 0, S, S);
-      // deep-ink tile
-      const tile = ctx.createLinearGradient(0, 0, S, S);
-      tile.addColorStop(0, "#1d2129");
-      tile.addColorStop(0.55, "#11141a");
-      tile.addColorStop(1, "#0a0c10");
+      // flat deep-ink tile — solid, no gradients, no lift, no glow.
+      // The mark carries the icon; effects don't.
       rr(0, 0, S, S, 15);
-      ctx.fillStyle = tile;
+      ctx.fillStyle = "#10141a";
       ctx.fill();
-      // emerald lift
-      const lift = ctx.createRadialGradient(S * 0.32, S * 0.2, 2, S * 0.32, S * 0.2, S * 0.95);
-      lift.addColorStop(0, "rgba(16,185,129,0.38)");
-      lift.addColorStop(0.55, "rgba(16,185,129,0.08)");
-      lift.addColorStop(1, "rgba(16,185,129,0)");
-      rr(0, 0, S, S, 15);
-      ctx.fillStyle = lift;
-      ctx.fill();
-      // hairline top-light
-      rr(1, 1, S - 2, S - 2, 14);
-      ctx.strokeStyle = "rgba(255,255,255,0.12)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      // brain mark in the user's accent
+      // brain mark in the user's accent, flat
       ctx.save();
       ctx.translate(8, 9);
       ctx.scale(2, 2);
       ctx.strokeStyle = mark;
-      ctx.lineWidth = 3.2;
+      ctx.lineWidth = 4.6;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.shadowColor = mark;
-      ctx.shadowBlur = 6;
       ctx.stroke(new Path2D(FAVICON_BRAIN_L));
       ctx.stroke(new Path2D(FAVICON_BRAIN_R));
       ctx.restore();
-      ctx.shadowBlur = 0;
       // sweeping activity arc while a search is in flight
       if (bz && !reduceMotion()) {
         const a0 = ((t || 0) / 900) * Math.PI * 2;
@@ -21060,10 +21614,7 @@ function useDynamicFavicon({ accent, busy, unread }) {
         ctx.strokeStyle = mark;
         ctx.lineWidth = 3;
         ctx.lineCap = "round";
-        ctx.shadowColor = mark;
-        ctx.shadowBlur = 8;
         ctx.stroke();
-        ctx.shadowBlur = 0;
       }
       // unread inbox badge
       const badge = liveFaviconBadge(un);
@@ -22846,8 +23397,12 @@ function App() {
 
           Intensity drops once an investigation is underway: the reel is a
           front door, and a bright cut behind a paragraph someone is reading
-          is a distraction, not atmosphere. */}
-      {filmBlocked(animationMode, false) ? (
+          is a distraction, not atmosphere.
+
+          Document Mode runs its own single FilmLayer (see DOC_FILM_SRC
+          below): the workspace reel unmounts while the document is open so
+          two background decoders never run on the same screen. */}
+      {view !== "document" && (filmBlocked(animationMode, false) ? (
         <CerebrumFieldCanvas
           accent={accent}
           P={P}
@@ -22883,7 +23438,7 @@ function App() {
               : 1
           }
         />
-      )}
+      ))}
       <div style={S.grain} />
       {opening && <InvestigationOpening accent={accent} animationMode={animationMode} />}
       {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
@@ -23322,7 +23877,11 @@ function App() {
       )}
       {view === "document" && (
         <Reveal style={S.pageView} deps={[view]}>
-          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro} />
+          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro}
+            /* The document page runs its own single FilmLayer; mirror the
+               workspace reel's rule so reduced motion / Save-Data /
+               animation-off / low-memory hold the graded still instead. */
+            filmOK={!filmBlocked(animationMode, false)} />
         </Reveal>
       )}
       {/* ══════════════════════════════════════════════════════════
@@ -23899,6 +24458,11 @@ function App() {
    springs. Everything slow, intentional, precise.
    ════════════════════════════════════════════════════════════════ */
 const CSS = `
+/* ════════════════════════════════════════════════════════════════════
+   VISUAL SYSTEM — the one-paragraph direction every surface serves.
+
+   Cerebrum is editorial dark, nature-documentary cinematic: deep-black ink over real full-bleed footage, one grotesque typeface in disciplined weights, a single centered container with generous whitespace, and one deliberate motion language — slow dissolves, no travel. The answer thread is the page; everything else — evidence, bibliography, tools — is a subordinate depth layer reached by scroll, never a competing grid. No decorative gradients, no glassmorphism, no badges, no sparkle, no invented numbers: every pixel serves the question-to-evidence trail.
+   ════════════════════════════════════════════════════════════════════ */
 :root {
   /* ══════════════════════════════════════════════════════════════
      The typeface is the tell — so there is only one.
@@ -24158,15 +24722,37 @@ summary::-webkit-details-marker { display: none; }
    The hero is the instrument now. These are the only new selectors; the
    rest of the intro's styling stays inline, in this screen's own
    convention. */
-.cb-film-poster {
+/* ── FilmLayer: the one shared video-layer primitive ──
+   Every background video (intro door, home, Pro reel, Document Mode)
+   renders through the FilmLayer component. The poster is a real layer
+   beneath the video — never a gray plane. The video fades in only after
+   usable media data (canplay); before that the poster holds. Only
+   opacity is ever animated on these layers. */
+.cb-film-layer { overflow: hidden; pointer-events: none; }
+.cb-film-layer-poster {
   position: absolute; inset: 0;
   background-size: cover; background-position: center; background-repeat: no-repeat;
-  /* The reel always covers this while it is playing — the dip-free
-     dissolve keeps one clip fully opaque at all times. This layer exists
-     for first paint, for the blocked reel (reduced motion, metered
-     connection, paused), and for the frames before a decoder produces a
-     picture: a graded still, never black. */
 }
+.cb-film-layer-video {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  opacity: 0;
+  /* The cross-dissolve's property. Promoting opacity alone is cheap;
+     the inline style carries the actual duration per use. */
+  will-change: opacity;
+}
+.cb-film-layer-dim { position: absolute; inset: 0; pointer-events: none; }
+/* ── Document Mode reader (§9) ──
+   Reflowed reading surface: media can never force horizontal scroll,
+   long tokens (DOIs, URLs) wrap instead of overflowing their column. */
+.cb-doc-reader img, .cb-doc-reader video { max-width: 100%; height: auto; }
+.cb-doc-reader pre { max-width: 100%; overflow-x: auto; }
+.cb-doc-reader table { display: block; max-width: 100%; overflow-x: auto; }
+.cb-doc-reader a { overflow-wrap: anywhere; }
+/* Reader touch targets: the segmented tabs are shared chrome, so the
+   44px rule lands here, scoped to the document page, rather than in
+   the shared component. */
+.cb-doc-page .cb-seg button { min-height: 44px; }
 /* The outline-chip CTA gets the same keyboard ring as the primary. */
 .cb-intro-chip:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 999px; }
 
@@ -25015,10 +25601,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
      interface above never drags the video surface into the same paint. */
   contain: strict;
   transform: translateZ(0);
-  background:
-    radial-gradient(120% 90% at 72% 16%, rgba(163,184,153,0.16), transparent 58%),
-    radial-gradient(90% 70% at 16% 92%, rgba(120,150,170,0.10), transparent 60%),
-    #0b0d10;
+  /* Wave 1 — the decorative gradient ground is gone. Each FilmLayer slot
+     carries its own poster layer now, so the ground behind them only
+     shows in the first paint before React mounts — a flat near-black,
+     not a gradient. (Visual system: no decorative gradients.) */
+  background: #0b0d10;
 }
 /* There used to be a slow scale drift on the clip here, and it was the
    single most expensive thing on the page. Animating a transform on a
@@ -25029,9 +25616,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    stutter reported here. The footage already moves on its own; it did
    not need help.
 
-   Promoting opacity stays, because the cross-dissolve does still animate
-   it and promoting that one property is cheap. */
-.cb-film-clip { will-change: opacity; }
+   Opacity is the one animated property, and it lives on
+   .cb-film-layer-video (the FilmLayer primitive) now — promoted there,
+   because the cross-dissolve still animates it and promoting that one
+   property is cheap. */
 /* Cinematic vignette over the reel: transparent in the middle so the footage
    breathes, falling off to smoked darkness at the frame edges. Pure CSS, no
    paint cost beyond the single gradient layer, and it sits under the dim so
@@ -25066,7 +25654,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    a drifting one, and no dissolves — the component has already stopped
    loading clips by then, so this only governs what is on screen. */
 @media (prefers-reduced-motion: reduce) {
-  .cb-film-clip { animation: none !important; transition: none !important; }
+  .cb-film-layer-video { animation: none !important; transition: none !important; }
 }
 
 .cb-glass-panel {
@@ -25875,6 +26463,11 @@ button, a {
     text-align: left;
     padding: 0 !important;
   }
+
+  /* 9 · Document Mode reader tabs: four tabs never fit 360px side by
+     side, so the tab row scrolls horizontally instead of clipping. */
+  .cb-doc-tabs .cb-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .cb-doc-tabs .cb-seg::-webkit-scrollbar { display: none; }
 }
 
 `;
