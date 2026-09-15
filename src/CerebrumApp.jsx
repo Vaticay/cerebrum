@@ -5868,14 +5868,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             </span>
           </div>
           <h1 style={{
-            fontSize: isMobile ? "clamp(24px, 7vw, 34px)" : "clamp(28px, 3.6vw, 46px)",
-            fontWeight: 560, letterSpacing: "0.01em", lineHeight: 1.38,
-            color: "#ffffff", margin: "28px 0 0", maxWidth: "36ch",
+            fontSize: isMobile ? "clamp(28px, 8vw, 40px)" : "clamp(36px, 4.5vw, 58px)",
+            fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15,
+            color: "#ffffff", margin: "28px 0 0", maxWidth: "20ch",
             textShadow: "0 2px 44px rgba(0,0,0,0.55)",
             textWrap: "balance",
+            overflow: "hidden",
           }}>
-            <span className={animate ? "cb-focus-in" : undefined}
-              style={{ display: "block", ...(animate ? { animationDelay: "0.8s" } : null) }}>There&rsquo;s a world behind your question.</span>
+            <span className={animate ? "cb-masked-reveal" : undefined}
+              style={{ display: "block", ...(animate ? { animationDelay: "0.7s" } : null) }}>There&rsquo;s a world behind your question.</span>
           </h1>
           <p className={animate ? "cb-focus-in cb-hero-slogan" : "cb-hero-slogan"} style={{
             margin: "26px 0 0", maxWidth: "52ch",
@@ -17289,7 +17290,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink }}>{pTierName}</span>
                 <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1 }}>{pUsage}</span>
               </span>
-              <span aria-hidden="true" style={{ color: P.faint, fontSize: 18, lineHeight: 1, flexShrink: 0 }}>{"›"}</span>
+
             </button>
             {profileStats.map((s) => (
               <button key={s.id} role="listitem" onClick={() => setTab(s.id)} className="cb-row" style={{
@@ -25102,6 +25103,18 @@ summary::-webkit-details-marker { display: none; }
      leave iOS compositing the layer soft. This matches the v43 rule
      documented elsewhere in this file. */
   to   { opacity: 1; filter: none; }
+}
+/* Masked line reveal: the premium title-sequence pattern. Text rises from
+   110% (fully masked by overflow:hidden parent) to 0 on a crafted
+   cubic-bezier — slow start, fast middle, smooth landing. Small movement,
+   transform-only, 60fps. */
+@keyframes cbMaskedRise {
+  from { transform: translateY(110%); }
+  to   { transform: translateY(0); }
+}
+.cb-masked-reveal {
+  animation: cbMaskedRise 1.1s cubic-bezier(0.65, 0, 0.35, 1) both;
+  will-change: transform;
 }
 .cb-focus-in {
   animation: cbFocusIn 1.15s var(--cb-ease-out) both;

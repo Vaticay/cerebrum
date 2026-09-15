@@ -1,11 +1,11 @@
 /**
  * Intro title-card regression tests.
  *
- * The cinematic intro is a quiet sci-fi title card, not an information
- * stack: full-bleed footage first, then a slow focus-pull sequence —
- * kicker → title → slogan → single CTA — each layer resolving from soft
- * blur to sharp, like a lens finding focus. Type is small and tracked,
- * monumental through restraint.
+ * The cinematic intro is a monumental title card, not an information
+ * stack: full-bleed footage first, then a choreographed sequence —
+ * kicker → title → slogan → single CTA. The title uses a masked line
+ * reveal (premium title-sequence pattern), heavy weight, tight tracking.
+ * Type is monumental through scale and motion craft.
  *
  * These tests lock the invariants that broke in earlier shipped intros:
  *
@@ -140,8 +140,8 @@ await test("focus-pull keyframes exist and resolve blur to sharp", () => {
   assert.ok(!kf.includes("translate"), "focus-pull must not move the type");
 });
 
-await test("hero text uses the focus-pull entrance", () => {
-  assert.ok(src.includes('"cb-focus-in"'), "cb-focus-in not applied to hero text");
+await test("hero text uses a premium entrance (focus-pull or masked reveal)", () => {
+  assert.ok(src.includes('"cb-focus-in"') || src.includes('"cb-masked-reveal"'), "no premium entrance applied to hero text");
 });
 
 await test("old fade-and-rise entrance is fully gone", () => {
@@ -149,11 +149,11 @@ await test("old fade-and-rise entrance is fully gone", () => {
   assert.ok(!src.includes("cbTitleIn"), "cbTitleIn keyframes still referenced");
 });
 
-await test("title type is small, light, and tracked — not a display face", () => {
-  assert.ok(src.includes('clamp(28px, 3.6vw, 46px)'), "desktop title scale not the quiet size");
-  assert.ok(src.includes('clamp(24px, 7vw, 34px)'), "mobile title scale not the quiet size");
-  assert.ok(!src.includes("clamp(58px, 8.6vw, 118px)"), "old oversized desktop title still present");
-  assert.ok(!src.includes("clamp(46px, 13.5vw, 78px)"), "old oversized mobile title still present");
+await test("title type is monumental — masked reveal, heavy weight, tight tracking", () => {
+  assert.ok(src.includes('clamp(36px, 4.5vw, 58px)'), "desktop title not at monumental scale");
+  assert.ok(src.includes('clamp(28px, 8vw, 40px)'), "mobile title not at monumental scale");
+  assert.ok(src.includes("cb-masked-reveal"), "masked line reveal not applied");
+  assert.ok(src.includes("@keyframes cbMaskedRise"), "masked rise keyframes missing");
 });
 
 await test("kicker is tiny tracked caps", () => {
