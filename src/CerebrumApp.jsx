@@ -5757,20 +5757,9 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
     playEnterThoom();
     if (animationMode === "off" || reduced) { onEnter(payload, !!submit, clip); return; }
     setLeaving(true);
-    // Iris close: circle(0) -> circle(full) at click point, 600ms expo-out
-    const veil = document.querySelector(".cb-iris-veil");
-    if (veil) {
-      const r = irisEndRadius(cx, cy);
-      veil.animate(
-        [
-          { clipPath: `circle(0px at ${cx}px ${cy}px)` },
-          { clipPath: `circle(${r}px at ${cx}px ${cy}px)` },
-        ],
-        { duration: 600, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" }
-      );
-    }
+    // Iris disabled (hotfix): veil divs removed due to black screen
     clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, clip), 620);
+    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, clip), 380);
   };
 
   /* One container, used by the header, the hero and the footer, so the
@@ -6246,8 +6235,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           onRunExample={(q) => { setHowOpen(false); go(q, true); }}
         />
       )}
-      {/* Iris veil for the enter transition. WAAPI animates clip-path in go(). */}
-      <div aria-hidden="true" className="cb-iris-veil" />
+
     </div>
   );
 }
@@ -22047,29 +22035,10 @@ function App() {
   /* Iris open: when the visitor steps through, a veil starts covering the
      viewport and irises open from the click point. */
   const [irisOpen, setIrisOpen] = useState(false);
+  /* Iris open disabled (hotfix): veil divs removed due to black screen.
+     The effect is a no-op. */
   useEffect(() => {
-    if (!entered || !lastEnterClick) return;
-    const { x, y } = lastEnterClick;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    setIrisOpen(true);
-    const raf = requestAnimationFrame(() => {
-      const veil = document.querySelector(".cb-iris-veil-app");
-      if (veil) {
-        const r = irisEndRadius(x, y);
-        veil.style.clipPath = `circle(${r}px at ${x}px ${y}px)`;
-        const anim = veil.animate(
-          [
-            { clipPath: `circle(${r}px at ${x}px ${y}px)` },
-            { clipPath: `circle(0px at ${x}px ${y}px)` },
-          ],
-          { duration: 850, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" }
-        );
-        anim.onfinish = () => setIrisOpen(false);
-      } else {
-        setIrisOpen(false);
-      }
-    });
-    return () => cancelAnimationFrame(raf);
+    setIrisOpen(false);
   }, [entered]);
   /* The handoff bridge: the clip that was on screen when the visitor
      stepped through the door. The workspace's film opens on it (startAt)
@@ -23783,8 +23752,7 @@ function App() {
           backgroundImage: `url("${filmPoster(enterClip)}")`,
         }} />
       )}
-      {/* Iris open veil: covers viewport on enter, irises open from click point. */}
-      {irisOpen && <div aria-hidden="true" className="cb-iris-veil-app" />}
+
       {updateReady && <VersionBanner P={P} accent={accent} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
       {/* ── The field, at application level ──────────────────────────────
