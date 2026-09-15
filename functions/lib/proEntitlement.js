@@ -28,10 +28,140 @@ export const FREE_AI_ANSWERS_PER_MONTH = 15;
 export const PRO_PLANS = {
   monthly: { label: "Pro Monthly", usd: 20, interval: "month" },
   annual: { label: "Pro Annual", usd: 144, interval: "year", perMonth: 12 },
+  // Student perk: the monthly price with the STRIPE_COUPON_STUDENT coupon
+  // (60.05% off, repeating 12 months) applied — $7.99/mo for 12 months, then
+  // the subscription renews at the standard monthly price automatically.
+  student: { label: "Pro Student", usd: 7.99, interval: "month", couponMonths: 12 },
 };
 
 export function isValidProPlan(plan) {
-  return plan === "monthly" || plan === "annual";
+  return plan === "monthly" || plan === "annual" || plan === "student";
+}
+
+// ── Student verification ────────────────────────────────────────────────
+
+// Academic domains accepted for the student perk. Kept intentionally short:
+// .edu covers US colleges; ac.uk covers UK universities. Expand deliberately.
+const STUDENT_DOMAIN_SUFFIXES = [".edu", ".ac.uk"];
+
+export function isStudentEmail(email) {
+  const addr = String(email || "").trim().toLowerCase();
+  const at = addr.lastIndexOf("@");
+  if (at < 1 || at === addr.length - 1) return false;
+  if (addr.length > 254 || /\s/.test(addr)) return false;
+  const domain = addr.slice(at);
+  return STUDENT_DOMAIN_SUFFIXES.some((suf) => domain === suf || domain.endsWith(suf));
+}
+
+export const STUDENT_CODE_TTL_MS = 15 * 60 * 1000;
+export const STUDENT_CODE_MAX_ATTEMPTS = 5;
+
+async function sha256Hex(str) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function newStudentCode() {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (const byte of bytes) out += String(byte % 10);
+  return out;
+}
+
+export function newStudentSalt() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Issue (or re-issue) a verification code for a student's .edu email. Any
+// previous unverified code for this user+email is replaced; a verified or
+// consumed email can never be re-issued (UNIQUE(email) enforces one discount
+// per academic email, and the verified check enforces one per account).
+export async function issueStudentCode(env, userId, email) {
+  await ensureProTables(env);
+  const addr = normalizeEmail(email);
+  const now = Date.now();
+  const existing = await env.DB.prepare(
+    "SELECT id, verified_at, used_at FROM student_verifications WHERE email = ?"
+  ).bind(addr).first();
+  if (existing && (existing.verified_at || existing.used_at)) {
+    return { ok: false, reason: "already_verified" };
+  }
+  const alreadyVerifiedForUser = await env.DB.prepare(
+    "SELECT id FROM student_verifications WHERE user_id = ? AND verified_at IS NOT NULL AND used_at IS NULL"
+  ).bind(userId).first();
+  if (alreadyVerifiedForUser) {
+    return { ok: false, reason: "user_already_verified" };
+  }
+  await env.DB.prepare(
+    "DELETE FROM student_verifications WHERE user_id = ? AND email = ? AND verified_at IS NULL"
+  ).bind(userId, addr).run();
+  const code = newStudentCode();
+  const salt = newStudentSalt();
+  const id = `stu_${salt.slice(0, 12)}`;
+  try {
+    await env.DB.prepare(
+      "INSERT INTO student_verifications (id, user_id, email, code_hash, code_salt, attempts, expires_at, created_at) " +
+        "VALUES (?, ?, ?, ?, ?, 0, ?, ?)"
+    ).bind(id, userId, addr, await sha256Hex(salt + ":" + code), salt, now + STUDENT_CODE_TTL_MS, now).run();
+  } catch {
+    // Another account holds this email (UNIQUE race) — same opaque outcome.
+    return { ok: false, reason: "already_verified" };
+  }
+  return { ok: true, code, id };
+}
+
+export async function checkStudentCode(env, userId, email, code) {
+  await ensureProTables(env);
+  const addr = normalizeEmail(email);
+  const now = Date.now();
+  const row = await env.DB.prepare(
+    "SELECT id, code_hash, code_salt, attempts, expires_at, verified_at FROM student_verifications " +
+      "WHERE user_id = ? AND email = ?"
+  ).bind(userId, addr).first();
+  if (!row || row.verified_at) return { ok: false, reason: "no_pending_code" };
+  if (row.expires_at <= now) {
+    await env.DB.prepare("DELETE FROM student_verifications WHERE id = ?").bind(row.id).run();
+    return { ok: false, reason: "expired" };
+  }
+  if (row.attempts >= STUDENT_CODE_MAX_ATTEMPTS) {
+    await env.DB.prepare("DELETE FROM student_verifications WHERE id = ?").bind(row.id).run();
+    return { ok: false, reason: "too_many_attempts" };
+  }
+  const guess = await sha256Hex(row.code_salt + ":" + String(code || "").trim());
+  if (guess !== row.code_hash) {
+    await env.DB.prepare(
+      "UPDATE student_verifications SET attempts = attempts + 1 WHERE id = ?"
+    ).bind(row.id).run();
+    return { ok: false, reason: "wrong_code" };
+  }
+  await env.DB.prepare(
+    "UPDATE student_verifications SET verified_at = ? WHERE id = ?"
+  ).bind(now, row.id).run();
+  return { ok: true };
+}
+
+// Fetch the caller's verified, unused student verification (for checkout).
+export async function getUsableStudentVerification(env, userId) {
+  await ensureProTables(env);
+  return await env.DB.prepare(
+    "SELECT id, email, verified_at FROM student_verifications " +
+      "WHERE user_id = ? AND verified_at IS NOT NULL AND used_at IS NULL " +
+      "ORDER BY verified_at DESC LIMIT 1"
+  ).bind(userId).first();
+}
+
+// Single-use: mark the verification consumed only if still unused. Returns
+// true when this call actually consumed it (conditional UPDATE ⇒ the
+// check-and-consume is atomic under SQLite's write serialization).
+export async function consumeStudentVerification(env, verificationId) {
+  await ensureProTables(env);
+  const res = await env.DB.prepare(
+    "UPDATE student_verifications SET used_at = ? WHERE id = ? AND used_at IS NULL"
+  ).bind(Date.now(), verificationId).run();
+  return (res.meta.changes || 0) > 0;
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────
@@ -50,6 +180,19 @@ export async function ensureProTables(env) {
     "CREATE TABLE IF NOT EXISTS stripe_events (" +
       "event_id TEXT PRIMARY KEY, " +
       "received_at INTEGER NOT NULL)"
+  );
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS student_verifications (" +
+      "id TEXT PRIMARY KEY, " +
+      "user_id TEXT NOT NULL, " +
+      "email TEXT NOT NULL UNIQUE, " +
+      "code_hash TEXT NOT NULL, " +
+      "code_salt TEXT NOT NULL, " +
+      "attempts INTEGER NOT NULL DEFAULT 0, " +
+      "expires_at INTEGER NOT NULL, " +
+      "verified_at INTEGER, " +
+      "used_at INTEGER, " +
+      "created_at INTEGER NOT NULL)"
   );
   _proTablesEnsured = true;
 }
@@ -448,8 +591,10 @@ export function priceIdForPlan(env, plan) {
 
 // Pure builder: Checkout Session params for a plan. The price ID is resolved
 // server-side from the plan enum — a client can never choose its own price.
-export function buildCheckoutParams({ userId, email, customerId, priceId, plan, origin }) {
-  return {
+// An optional couponId (the student perk) is applied as a subscription
+// discount; it comes from env, never from the client.
+export function buildCheckoutParams({ userId, email, customerId, priceId, plan, origin, couponId }) {
+  const params = {
     mode: "subscription",
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": 1,
@@ -463,4 +608,6 @@ export function buildCheckoutParams({ userId, email, customerId, priceId, plan, 
     success_url: origin + "/#pro=success&session_id={CHECKOUT_SESSION_ID}",
     cancel_url: origin + "/#pro=cancelled",
   };
+  if (couponId) params["discounts[0][coupon]"] = couponId;
+  return params;
 }

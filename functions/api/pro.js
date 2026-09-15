@@ -4,6 +4,8 @@
 //   POST /api/pro {action:"create-checkout"}   → Stripe Checkout Session URL (signed in)
 //   POST /api/pro {action:"create-portal"}     → Stripe Customer Portal URL (signed in)
 //   POST /api/pro {action:"verify-session"}    → close the paid-but-webhook-pending gap
+//   POST /api/pro {action:"student-request-code"} → 6-digit code to a .edu email (signed in)
+//   POST /api/pro {action:"student-verify-code"}  → confirm the code (signed in)
 //   POST /api/pro {action:"grant"|"revoke"}   → founder-only lifetime Pro
 //   POST /api/pro + Stripe-Signature header    → Stripe webhook (signature is the auth)
 //
@@ -25,6 +27,8 @@ import {
   grantLifetimePro, revokeLifetimePro, listLifetimePros,
   stripeRequest, priceIdForPlan, buildCheckoutParams,
   intervalToPlan, subscriptionInterval,
+  isStudentEmail, issueStudentCode, checkStudentCode,
+  getUsableStudentVerification, consumeStudentVerification,
 } from "../lib/proEntitlement.js";
 
 function isBillingConfigured(env) {
@@ -52,6 +56,11 @@ function publicPlans() {
   return {
     monthly: { usd: PRO_PLANS.monthly.usd, interval: "month", label: "Pro Monthly" },
     annual: { usd: PRO_PLANS.annual.usd, interval: "year", label: "Pro Annual", perMonth: 12 },
+    student: {
+      usd: PRO_PLANS.student.usd, interval: "month", label: "Pro Student",
+      couponMonths: PRO_PLANS.student.couponMonths,
+      note: "Verified college students only. $7.99/mo for 12 months, then renews at the standard monthly price.",
+    },
     freeAiCap: FREE_AI_ANSWERS_PER_MONTH,
   };
 }
@@ -113,12 +122,37 @@ async function handleCreateCheckout(request, env, cors, body) {
 
   const plan = body && body.plan;
   if (!isValidProPlan(plan)) {
-    return errorResponse(400, "invalid_plan", "Choose a plan: monthly or annual.", cors);
+    return errorResponse(400, "invalid_plan", "Choose a plan: monthly, annual, or student.", cors);
   }
   if (!isBillingConfigured(env)) {
     return errorResponse(503, "billing_not_configured", "Checkout isn't switched on yet.", cors);
   }
-  const priceId = priceIdForPlan(env, plan);
+  // Student perk: the monthly price with the student coupon applied. Requires
+  // a verified, unused .edu verification bound to this account. The coupon
+  // (60.05% off, repeating 12 months) comes from env — never from the client.
+  let priceId = priceIdForPlan(env, plan);
+  let couponId = null;
+  let studentVerificationId = null;
+  if (plan === "student") {
+    priceId = env.STRIPE_PRICE_MONTHLY || "";
+    couponId = env.STRIPE_COUPON_STUDENT || "";
+    if (!couponId) {
+      return errorResponse(503, "billing_not_configured", "The student plan isn't switched on yet.", cors);
+    }
+    const verification = await getUsableStudentVerification(env, user.id);
+    if (!verification) {
+      return errorResponse(403, "student_not_verified",
+        "Verify your student email first — the discount unlocks after verification.", cors);
+    }
+    studentVerificationId = verification.id;
+    // Consume first (atomic conditional UPDATE: exactly one request wins a
+    // race). If Stripe then fails, the verification is released below.
+    const consumed = await consumeStudentVerification(env, studentVerificationId);
+    if (!consumed) {
+      return errorResponse(409, "verification_used",
+        "That verification was already used. Request a new code if you need one.", cors);
+    }
+  }
   if (!priceId) {
     return errorResponse(503, "billing_not_configured", "That plan has no price configured.", cors);
   }
@@ -129,11 +163,21 @@ async function handleCreateCheckout(request, env, cors, body) {
     const session = await stripeRequest(env, "POST", "/checkout/sessions",
       buildCheckoutParams({
         userId: user.id, email: user.email, customerId,
-        priceId, plan, origin,
+        priceId, plan, origin, couponId,
       }));
     if (!session || !session.url) throw new Error("stripe_error: no checkout url");
     return json({ url: session.url }, 200, cors);
   } catch (e) {
+    // Release the student verification so a Stripe failure doesn't burn the
+    // one-time discount. Only this request could have consumed it (the
+    // conditional UPDATE above), so clearing used_at is safe.
+    if (studentVerificationId) {
+      try {
+        await env.DB.prepare(
+          "UPDATE student_verifications SET used_at = NULL WHERE id = ?"
+        ).bind(studentVerificationId).run();
+      } catch { /* best effort; the row stays consumed rather than corrupt */ }
+    }
     const msg = String((e && e.message) || "");
     if (msg.startsWith("stripe_not_configured") || msg.startsWith("stripe_error")) {
       console.error("pro checkout:", msg.slice(0, 200));
@@ -213,6 +257,103 @@ async function handleVerifySession(request, env, cors, body) {
     console.error("pro verify-session:", String((e && e.message) || e).slice(0, 200));
     return errorResponse(502, "verify_failed", "Couldn't confirm that payment yet. It usually lands within a minute.", cors);
   }
+}
+
+// ── Student verification ────────────────────────────────────────────────
+// The college perk: $7.99/mo for 12 months, verified through a 6-digit code
+// sent to the student's academic email via Resend (same sender as sign-in
+// codes). One verified discount per account, one per academic email, codes
+// expire in 15 minutes and die after 5 wrong guesses.
+
+async function sendStudentCodeEmail(env, email, code) {
+  if (!env.RESEND_API_KEY) {
+    console.error("student-verify: RESEND_API_KEY is not configured — cannot deliver verification codes");
+    return false;
+  }
+  const from = env.RESEND_FROM || "Cerebrum <noreply@askcerebrum.org>";
+  const html = `<div style="background:#040508;padding:48px 24px;font-family:'Space Grotesk','Segoe UI',Helvetica,Arial,sans-serif;">
+  <div style="max-width:420px;margin:0 auto;">
+    <div style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;margin-bottom:32px;">Cerebrum&#8482;</div>
+    <div style="background:#0c0e14;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:32px;">
+      <div style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-bottom:18px;">Your student verification code</div>
+      <div style="font-size:38px;font-weight:700;letter-spacing:0.18em;color:#ffffff;font-family:'Space Grotesk',monospace;margin-bottom:18px;">${code}</div>
+      <div style="font-size:14px;line-height:1.6;color:rgba(255,255,255,0.7);">Enter this in Cerebrum to unlock the student price — $7.99/mo for 12 months. This code expires in 15 minutes and can only be used once. If you didn't request this, you can safely ignore this email.</div>
+    </div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:24px;line-height:1.6;">Cerebrum is a research instrument that searches real scholarly databases. This is an automated message — replies aren't monitored.</div>
+  </div>
+</div>`;
+  try {
+    const { fetchWithTimeout } = await import("../lib/resilience.js");
+    const res = await fetchWithTimeout("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: email, subject: "Your Cerebrum student verification code", html }),
+    }, 12000);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "<unreadable response body>");
+      console.error("student code email rejected by Resend:", res.status, detail);
+    }
+    return res.ok;
+  } catch (e) {
+    console.error("student code email threw:", e);
+    return false;
+  }
+}
+
+async function handleStudentRequestCode(request, env, cors, body) {
+  let user = null;
+  try { user = await getSessionUser(request, env); } catch { user = null; }
+  if (!user) return unauthorized(cors);
+  const rlKey = await privacyKey("pro-student-code", user.id, env);
+  if (!(await checkRateLimit(env, rlKey, 5, 3600000))) return tooManyRequests(cors, 3600);
+  const email = body && typeof body.email === "string" ? body.email.trim() : "";
+  if (!isStudentEmail(email)) {
+    return errorResponse(400, "not_student_email",
+      "That doesn't look like a college email — it needs to end in .edu (or .ac.uk).", cors);
+  }
+  if (!isBillingConfigured(env)) {
+    return errorResponse(503, "billing_not_configured", "Checkout isn't switched on yet.", cors);
+  }
+  const issued = await issueStudentCode(env, user.id, email);
+  if (!issued.ok) {
+    if (issued.reason === "already_verified") {
+      return errorResponse(409, "already_verified",
+        "That email already has its student discount — one per student email.", cors);
+    }
+    return errorResponse(409, "already_verified",
+      "This account already has a verified student discount — one per account.", cors);
+  }
+  const sent = await sendStudentCodeEmail(env, normalizeEmail(email), issued.code);
+  if (!sent) {
+    return errorResponse(502, "code_send_failed",
+      "Couldn't send the code. Check the address and try again in a moment.", cors);
+  }
+  return json({ ok: true, sentTo: normalizeEmail(email) }, 200, cors);
+}
+
+async function handleStudentVerifyCode(request, env, cors, body) {
+  let user = null;
+  try { user = await getSessionUser(request, env); } catch { user = null; }
+  if (!user) return unauthorized(cors);
+  const rlKey = await privacyKey("pro-student-verify", user.id, env);
+  if (!(await checkRateLimit(env, rlKey, 10, 60000))) return tooManyRequests(cors, 60);
+  const email = body && typeof body.email === "string" ? body.email.trim() : "";
+  const code = body && typeof body.code === "string" ? body.code.trim() : "";
+  if (!isStudentEmail(email) || !/^\d{6}$/.test(code)) {
+    return errorResponse(400, "invalid_code", "Enter the 6-digit code we sent to your college email.", cors);
+  }
+  const result = await checkStudentCode(env, user.id, email, code);
+  if (!result.ok) {
+    const messages = {
+      expired: "That code expired — request a fresh one.",
+      too_many_attempts: "Too many wrong tries — request a fresh code.",
+      wrong_code: "That code doesn't match — check and try again.",
+      no_pending_code: "No active code for that email — request one first.",
+    };
+    const status = result.reason === "wrong_code" ? 400 : 410;
+    return errorResponse(status, result.reason, messages[result.reason] || "Verification failed.", cors);
+  }
+  return json({ ok: true, verified: true }, 200, cors);
 }
 
 // ── POST: grant / revoke (founder only) ───────────────────────────────────
@@ -325,6 +466,8 @@ export async function onRequest(context) {
     case "create-checkout": return handleCreateCheckout(request, env, cors, parsed.body);
     case "create-portal": return handleCreatePortal(request, env, cors);
     case "verify-session": return handleVerifySession(request, env, cors, parsed.body);
+    case "student-request-code": return handleStudentRequestCode(request, env, cors, parsed.body);
+    case "student-verify-code": return handleStudentVerifyCode(request, env, cors, parsed.body);
     case "grant": return handleGrant(request, env, cors, parsed.body);
     case "revoke": return handleRevoke(request, env, cors, parsed.body);
     case "list-lifetime": return handleListLifetime(request, env, cors);

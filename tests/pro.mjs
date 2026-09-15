@@ -34,6 +34,12 @@ import {
   listLifetimePros,
   priceIdForPlan,
   buildCheckoutParams,
+  isStudentEmail,
+  issueStudentCode,
+  checkStudentCode,
+  getUsableStudentVerification,
+  consumeStudentVerification,
+  PRO_PLANS,
 } from "../functions/lib/proEntitlement.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,11 +66,15 @@ function mockDB() {
   const users = new Map();
   const usage = new Map();
   const events = new Set();
+  // student_verifications: id -> row; email uniqueness enforced like D1.
+  const student = new Map();
+  const studentByEmail = new Map();
   const norm = (s) => s.replace(/\s+/g, " ").trim();
   return {
     _users: users,
     _usage: usage,
     _events: events,
+    _student: student,
     addUser(row) {
       users.set(row.id, {
         plan: null, pro_source: null, pro_granted_at: null, pro_interval: null,
@@ -99,6 +109,32 @@ function mockDB() {
               const n = (usage.get(k) || 0) + 1;
               usage.set(k, n);
               return { ai_answers: n };
+            }
+            if (q.startsWith("SELECT id, verified_at, used_at FROM student_verifications WHERE email = ?")) {
+              const id = studentByEmail.get(args[0]);
+              const r = id && student.get(id);
+              return r ? { id: r.id, verified_at: r.verified_at, used_at: r.used_at } : null;
+            }
+            if (q.startsWith("SELECT id FROM student_verifications WHERE user_id = ? AND verified_at IS NOT NULL AND used_at IS NULL")) {
+              for (const r of student.values()) {
+                if (r.user_id === args[0] && r.verified_at != null && r.used_at == null) return { id: r.id };
+              }
+              return null;
+            }
+            if (q.startsWith("SELECT id, code_hash, code_salt, attempts, expires_at, verified_at FROM student_verifications WHERE user_id = ? AND email = ?")) {
+              const id = studentByEmail.get(args[1]);
+              const r = id && student.get(id);
+              if (!r || r.user_id !== args[0]) return null;
+              return { id: r.id, code_hash: r.code_hash, code_salt: r.code_salt, attempts: r.attempts, expires_at: r.expires_at, verified_at: r.verified_at };
+            }
+            if (q.startsWith("SELECT id, email, verified_at FROM student_verifications WHERE user_id = ? AND verified_at IS NOT NULL AND used_at IS NULL")) {
+              let best = null;
+              for (const r of student.values()) {
+                if (r.user_id === args[0] && r.verified_at != null && r.used_at == null) {
+                  if (!best || r.verified_at > best.verified_at) best = r;
+                }
+              }
+              return best ? { id: best.id, email: best.email, verified_at: best.verified_at } : null;
             }
             throw new Error("mockDB.first: unhandled: " + q.slice(0, 80));
           };
@@ -145,6 +181,46 @@ function mockDB() {
               const added = !events.has(args[0]);
               events.add(args[0]);
               return { meta: { changes: added ? 1 : 0 } };
+            }
+            if (q.startsWith("DELETE FROM student_verifications WHERE user_id = ? AND email = ? AND verified_at IS NULL")) {
+              const id = studentByEmail.get(args[1]);
+              const r = id && student.get(id);
+              if (r && r.user_id === args[0] && r.verified_at == null) {
+                student.delete(id); studentByEmail.delete(args[1]);
+                return { meta: { changes: 1 } };
+              }
+              return { meta: { changes: 0 } };
+            }
+            if (q.startsWith("DELETE FROM student_verifications WHERE id = ?")) {
+              const r = student.get(args[0]);
+              if (r) { student.delete(args[0]); studentByEmail.delete(r.email); }
+              return { meta: { changes: r ? 1 : 0 } };
+            }
+            if (q.startsWith("INSERT INTO student_verifications (id, user_id, email, code_hash, code_salt, attempts, expires_at, created_at)")) {
+              if (studentByEmail.has(args[2])) throw new Error("UNIQUE constraint failed: student_verifications.email");
+              const row = { id: args[0], user_id: args[1], email: args[2], code_hash: args[3], code_salt: args[4], attempts: 0, expires_at: args[5], verified_at: null, used_at: null, created_at: args[6] };
+              student.set(args[0], row); studentByEmail.set(args[2], args[0]);
+              return { meta: { changes: 1 } };
+            }
+            if (q.startsWith("UPDATE student_verifications SET attempts = attempts + 1 WHERE id = ?")) {
+              const r = student.get(args[0]);
+              if (r) r.attempts++;
+              return { meta: { changes: r ? 1 : 0 } };
+            }
+            if (q.startsWith("UPDATE student_verifications SET verified_at = ? WHERE id = ?")) {
+              const r = student.get(args[1]);
+              if (r) r.verified_at = args[0];
+              return { meta: { changes: r ? 1 : 0 } };
+            }
+            if (q.startsWith("UPDATE student_verifications SET used_at = ? WHERE id = ? AND used_at IS NULL")) {
+              const r = student.get(args[1]);
+              if (r && r.used_at == null) { r.used_at = args[0]; return { meta: { changes: 1 } }; }
+              return { meta: { changes: 0 } };
+            }
+            if (q.startsWith("UPDATE student_verifications SET used_at = NULL WHERE id = ?")) {
+              const r = student.get(args[0]);
+              if (r) r.used_at = null;
+              return { meta: { changes: r ? 1 : 0 } };
             }
             throw new Error("mockDB.run: unhandled: " + q.slice(0, 80));
           };
@@ -731,6 +807,116 @@ await test("lifetime Pro survives EVERY Stripe event type, not just three", asyn
   assert.equal(r.pro_source, "lifetime");
   const gate = await resolveAiGate(env, { id: "u22", email: "vip2@x.com" });
   assert.equal(gate.kind, "pro", "lifetime grant must keep unlimited AI after every webhook");
+});
+
+// ── Student perk (2026-09-15) ─────────────────────────────────────────────
+// $7.99/mo for 12 months for verified college students: a Stripe coupon
+// (60.05% off the $20 monthly price, repeating 12 months) applied at
+// checkout, gated behind a 6-digit code sent to a .edu/.ac.uk email.
+
+await test("student plan is in the closed plan enum", () => {
+  assert.ok(isValidProPlan("student"));
+  assert.equal(PRO_PLANS.student.usd, 7.99);
+  assert.equal(PRO_PLANS.student.couponMonths, 12);
+  assert.equal(PRO_PLANS.student.interval, "month");
+});
+
+await test("student coupon math: 60.05% off $20 is $7.99", () => {
+  // The Stripe coupon lH69uzQn is percent_off=60.05, repeating 12 months.
+  assert.equal(Math.round(2000 * (1 - 0.6005)), 799);
+});
+
+await test("isStudentEmail accepts academic domains only", () => {
+  assert.ok(isStudentEmail("kid@stanford.edu"));
+  assert.ok(isStudentEmail("kid@mail.harvard.edu"));
+  assert.ok(isStudentEmail("KID@OX.AC.UK"));
+  assert.ok(!isStudentEmail("kid@gmail.com"));
+  assert.ok(!isStudentEmail("kid@edu.com"));
+  assert.ok(!isStudentEmail("kid@fakeedu"));
+  assert.ok(!isStudentEmail("not-an-email"));
+  assert.ok(!isStudentEmail(""));
+  assert.ok(!isStudentEmail(null));
+});
+
+await test("checkout params apply the student coupon only when given", () => {
+  const withCoupon = buildCheckoutParams({
+    userId: "u1", email: "a@b.c", customerId: "cus_1",
+    priceId: "price_m", plan: "student", origin: "https://x", couponId: "lH69uzQn",
+  });
+  assert.equal(withCoupon["discounts[0][coupon]"], "lH69uzQn");
+  assert.equal(withCoupon["line_items[0][price]"], "price_m");
+  assert.equal(withCoupon["metadata[plan]"], "student");
+  const plain = buildCheckoutParams({
+    userId: "u1", email: "a@b.c", customerId: "cus_1",
+    priceId: "price_m", plan: "monthly", origin: "https://x",
+  });
+  assert.ok(!("discounts[0][coupon]" in plain), "no coupon key without a coupon");
+});
+
+await test("student verification: issue → wrong code → right code → consume once", async () => {
+  const db = mockDB();
+  const env = envOf(db);
+  const issued = await issueStudentCode(env, "u30", "kid@mit.edu");
+  assert.ok(issued.ok, "issue should succeed");
+  assert.match(issued.code, /^\d{6}$/);
+
+  const wrong = await checkStudentCode(env, "u30", "kid@mit.edu", "000000");
+  assert.ok(!wrong.ok && wrong.reason === "wrong_code");
+  const row = db._student.get(db._student.keys().next().value);
+  assert.equal(row.attempts, 1, "wrong guess increments attempts");
+
+  const right = await checkStudentCode(env, "u30", "kid@mit.edu", issued.code);
+  assert.ok(right.ok, "correct code verifies");
+
+  const usable = await getUsableStudentVerification(env, "u30");
+  assert.ok(usable && usable.email === "kid@mit.edu");
+
+  assert.ok(await consumeStudentVerification(env, usable.id), "first consume wins");
+  assert.ok(!(await consumeStudentVerification(env, usable.id)), "second consume loses");
+  assert.equal(await getUsableStudentVerification(env, "u30"), null, "consumed verification is no longer usable");
+});
+
+await test("student verification: one discount per account and per email", async () => {
+  const db = mockDB();
+  const env = envOf(db);
+  const a = await issueStudentCode(env, "u31", "a@college.edu");
+  assert.ok(a.ok);
+  assert.ok((await checkStudentCode(env, "u31", "a@college.edu", a.code)).ok);
+
+  // Same account, different email → blocked (one per account).
+  const b = await issueStudentCode(env, "u31", "b@college.edu");
+  assert.ok(!b.ok && b.reason === "user_already_verified");
+
+  // Same email, different account → blocked (one per academic email).
+  const c = await issueStudentCode(env, "u32", "a@college.edu");
+  assert.ok(!c.ok && c.reason === "already_verified");
+});
+
+await test("student verification: codes die after 5 wrong guesses", async () => {
+  const db = mockDB();
+  const env = envOf(db);
+  const issued = await issueStudentCode(env, "u33", "c@college.edu");
+  assert.ok(issued.ok);
+  for (let i = 0; i < 5; i++) {
+    const r = await checkStudentCode(env, "u33", "c@college.edu", "000000");
+    assert.equal(r.reason, "wrong_code");
+  }
+  const dead = await checkStudentCode(env, "u33", "c@college.edu", "000000");
+  assert.equal(dead.reason, "too_many_attempts");
+  assert.equal(db._student.size, 0, "burned code row is deleted");
+});
+
+await test("student verification: re-issue replaces the pending code", async () => {
+  const db = mockDB();
+  const env = envOf(db);
+  const first = await issueStudentCode(env, "u34", "d@college.edu");
+  assert.ok(first.ok);
+  const second = await issueStudentCode(env, "u34", "d@college.edu");
+  assert.ok(second.ok, "re-issue before verification is allowed");
+  const stale = await checkStudentCode(env, "u34", "d@college.edu", first.code);
+  assert.ok(!stale.ok, "the old code no longer verifies");
+  const fresh = await checkStudentCode(env, "u34", "d@college.edu", second.code);
+  assert.ok(fresh.ok, "the new code verifies");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

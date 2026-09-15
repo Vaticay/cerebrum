@@ -6981,6 +6981,11 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
   const [plan, setPlan] = useState("annual");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Student verification state: email → code → verified → checkout.
+  const [studentEmail, setStudentEmail] = useState("");
+  const [studentCode, setStudentCode] = useState("");
+  const [studentStep, setStudentStep] = useState("email"); // email | code | verified
+  const [studentBusy, setStudentBusy] = useState(false);
   const trapRef = useRef(null);
   useEffect(() => { if (trapRef.current) trapRef.current.focus(); }, []);
   useEffect(() => {
@@ -6993,6 +6998,30 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
   const plans = proStatus?.plans || {};
   const monthlyAmt = plans.monthly && plans.monthly.usd != null ? `$${plans.monthly.usd}` : "$20";
   const annualAmt = plans.annual && plans.annual.usd != null ? `$${plans.annual.usd}` : "$144";
+  const studentAmt = plans.student && plans.student.usd != null ? `$${plans.student.usd}` : "$7.99";
+
+  const sendStudentCode = async () => {
+    if (studentBusy) return;
+    setStudentBusy(true); setError("");
+    try {
+      await apiProPost("student-request-code", { email: studentEmail });
+      setStudentStep("code");
+    } catch (e) {
+      setError(e.message || "Couldn't send the code. Try again?");
+    }
+    setStudentBusy(false);
+  };
+  const verifyStudentCode = async () => {
+    if (studentBusy) return;
+    setStudentBusy(true); setError("");
+    try {
+      await apiProPost("student-verify-code", { email: studentEmail, code: studentCode });
+      setStudentStep("verified");
+    } catch (e) {
+      setError(e.message || "Couldn't verify that code. Try again?");
+    }
+    setStudentBusy(false);
+  };
 
   const startCheckout = async () => {
     if (busy) return;
@@ -7081,6 +7110,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
               {planCard("monthly", "Monthly", monthlyAmt, "/month", "Billed monthly · cancel anytime")}
               {planCard("annual", "Annual", annualAmt, "/year", "$12/mo billed annually · two months free", "BEST VALUE")}
+              {planCard("student", "Student", studentAmt, "/month", "College email required · 12 months, then $20/mo", "STUDENT")}
             </div>
             <ul style={{ listStyle: "none", margin: "0 0 20px", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
               {[
@@ -7106,6 +7136,66 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             ) : !configured ? (
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-body)", textAlign: "center", padding: "12px", border: `1px dashed ${P.line2}`, borderRadius: 10 }}>
                 Checkout opens soon — billing is still being wired up. Your free 15 AI answers a month keep working meanwhile.
+              </div>
+            ) : plan === "student" ? (
+              /* Student checkout is gated behind .edu verification: email →
+                 6-digit code → verified → Stripe checkout with the student
+                 coupon ($7.99/mo for 12 months, then the standard rate). */
+              <div style={{ border: `1px solid ${P.line}`, borderRadius: 10, padding: 16, background: P.surface }}>
+                {studentStep === "verified" ? (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                      <span style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", flexShrink: 0 }}>
+                        <Icon name="check" size={16} />
+                      </span>
+                      <div>
+                        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)" }}>Student status verified</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>{studentEmail} · one-time discount, applied at checkout</div>
+                      </div>
+                    </div>
+                    <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-body)" }}>
+                      {busy ? "Starting secure checkout…" : `Go Pro — ${studentAmt}/mo for 12 months`}
+                    </button>
+                  </>
+                ) : studentStep === "code" ? (
+                  <>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)", marginBottom: 4 }}>Check your college inbox</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 12 }}>
+                      We sent a 6-digit code to <span style={{ color: P.ink, fontWeight: 600 }}>{studentEmail}</span>. It expires in 15 minutes.
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={studentCode} onChange={(e) => setStudentCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        onKeyDown={(e) => { if (e.key === "Enter") verifyStudentCode(); }}
+                        placeholder="000000" inputMode="numeric" autoComplete="one-time-code"
+                        style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.body, letterSpacing: "0.3em", textAlign: "center", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, fontFamily: "var(--cb-body)" }} />
+                      <button onClick={verifyStudentCode} disabled={studentBusy || studentCode.length !== 6}
+                        style={{ padding: "12px 20px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: studentBusy || studentCode.length !== 6 ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: studentBusy || studentCode.length !== 6 ? "default" : "pointer", fontFamily: "var(--cb-body)", flexShrink: 0 }}>
+                        {studentBusy ? "…" : "Verify"}
+                      </button>
+                    </div>
+                    <button onClick={() => { setStudentStep("email"); setStudentCode(""); setError(""); }}
+                      style={{ marginTop: 10, background: "none", border: "none", color: P.faint, fontSize: FONT_SIZES.caption, cursor: "pointer", fontFamily: "var(--cb-body)", textDecoration: "underline" }}>
+                      Use a different email
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)", marginBottom: 4 }}>Verify you're a student</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 12 }}>
+                      Enter your college email (.edu or .ac.uk) and we'll send a verification code. The discount is one per student.
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={studentEmail} onChange={(e) => setStudentEmail(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") sendStudentCode(); }}
+                        placeholder="you@university.edu" type="email" autoComplete="email"
+                        style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.small, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, fontFamily: "var(--cb-body)" }} />
+                      <button onClick={sendStudentCode} disabled={studentBusy || !studentEmail.includes("@")}
+                        style={{ padding: "12px 20px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: studentBusy || !studentEmail.includes("@") ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: studentBusy || !studentEmail.includes("@") ? "default" : "pointer", fontFamily: "var(--cb-body)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                        {studentBusy ? "Sending…" : "Send code"}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-body)" }}>
