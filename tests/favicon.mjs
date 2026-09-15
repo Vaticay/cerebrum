@@ -80,11 +80,12 @@ t("brain paths mirror the Mark logo paths exactly", () => {
   assert.ok(appSrc.includes(`FAVICON_BRAIN_R = "${right}"`), "right hemisphere path drifted from the logo");
 });
 
-t("modern favicon.svg present (layered tile + bloom)", () => {
+t("flat favicon.svg present (solid mark, no gradients, no bloom, transparent)", () => {
   const svg = readFileSync(join(root, "public/favicon.svg"), "utf8");
-  assert.match(svg, /cb-tile/);
-  assert.match(svg, /cb-bloom/);
   assert.match(svg, /viewBox="0 0 64 64"/);
+  assert.ok(!/linearGradient|radialGradient/.test(svg), "favicon must not use gradients");
+  assert.ok(!/cb-bloom|feGaussianBlur|shadow/.test(svg), "favicon must not use bloom/glow filters");
+  assert.ok(!/<rect/.test(svg), "favicon must not paint a background tile");
 });
 
 t("png fallbacks exist: 32px + apple-touch-icon 180px", () => {
