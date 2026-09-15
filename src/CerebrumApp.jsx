@@ -4517,8 +4517,8 @@ function useIsMobile() {
    A slot whose file is missing is skipped automatically, so the reel
    survives a partial upload. */
 const FILM_CLIPS_LANDSCAPE = [
-  "/assets/cinematic/science-01.mp4", // Microorganisms under a microscope — turek
-  "/assets/cinematic/science-02.mp4", // Microscopic cells in motion — Rony Way
+  "/assets/cinematic/science-59.mp4", // Seedling planting, hands in soil (replaces 01)
+  "/assets/cinematic/science-60.mp4", // Deer grazing in a meadow (replaces 02)
   "/assets/cinematic/science-03.mp4", // Seedling growth timelapse — David Roberts
   "/assets/cinematic/science-04.mp4", // Sunlit green leaves — Pexels contributor
   /* science-05 (Forest canopy, Matthias Groeneveld) is the one portrait
@@ -4538,7 +4538,7 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-10.mp4", // Volcanic eruption at sunset — Gylfi Gylfason
   "/assets/cinematic/science-11.mp4", // Greenland icebergs — Mikhail Nilov
   "/assets/cinematic/science-13.mp4", // Coral aquarium — Pexels contributor
-  "/assets/cinematic/science-14.mp4", // Neuronal image-volume reconstruction — Economo, Clack et al.
+  "/assets/cinematic/science-61.mp4", // Desert mesas at dusk (replaces 14)
   "/assets/cinematic/science-15.mp4", // Laboratory sample work — Pexels contributor
   "/assets/cinematic/science-16.mp4", // Plasma globe — Mathias De Rivo
   /* Both ESO clips are out of the reel — 18 (laser beams over Paranal) and
@@ -4562,9 +4562,9 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-22.mp4", // Droplets on a leaf — K
   "/assets/cinematic/science-27.mp4", // Waterfall and river rapids — Ryan Klaus
   "/assets/cinematic/science-29.mp4", // Ant colony entrance — Eclipse Chasers
-  "/assets/cinematic/science-30.mp4", // Flowing freshwater — Pexels contributor; see source page
+  "/assets/cinematic/science-62.mp4", // Ocean waves at sunset (replaces 30)
   "/assets/cinematic/science-31.mp4", // Ocean waves at rocks — Peter Fowler
-  "/assets/cinematic/science-32.mp4", // Clear quartz crystal — Monstera Production
+  "/assets/cinematic/science-63.mp4", // Volcano eruption at night (replaces 32)
   "/assets/cinematic/science-33.mp4", // Volcanic lava in slow motion — Anoop A Nair
   "/assets/cinematic/science-34.mp4", // Ferrofluid spikes under a magnet — Film Composite
   "/assets/cinematic/science-36.mp4", // Soap bubble freezing, macro — Aaron Burden
@@ -4573,9 +4573,9 @@ const FILM_CLIPS_LANDSCAPE = [
   "/assets/cinematic/science-42.mp4", // Rotating Earth and Sun — Endiae Genius
   "/assets/cinematic/science-43.mp4", // Starry night sky — Pexels contributor
   "/assets/cinematic/science-45.mp4", // Milky Way over beach — Luz Calor Som
-  "/assets/cinematic/science-47.mp4", // Night thunderstorm — Kmeel.com Videos
+  "/assets/cinematic/science-65.mp4", // Mountain ridge at sunrise (replaces 47)
   "/assets/cinematic/science-48.mp4", // Thunderclouds from below — Magda Ehlers
-  "/assets/cinematic/science-49.mp4", // Dark thunderstorm — Pixabay
+  "/assets/cinematic/science-66.mp4", // Volcanic crater lake aerial (replaces 49)
   "/assets/cinematic/science-51.mp4", // Lunar eclipse — Tom Fisk
   "/assets/cinematic/science-52.mp4", // Lunar eclipse close-up — Tom Fisk
   "/assets/cinematic/science-53.mp4", // Sharks and marine life — Ruvim M
@@ -4585,8 +4585,8 @@ const FILM_CLIPS_LANDSCAPE = [
 /* Portrait. Used when the window is taller than it is wide — a phone held
    upright, and nothing else. */
 const FILM_CLIPS_PORTRAIT = [
-  "/assets/cinematic/science-24.mp4", // Coral reef close-up — JUN HO LEE
-  "/assets/cinematic/science-25.mp4", // Yellowstone geyser — Rec Everywhere
+  "/assets/cinematic/science-24.mp4",
+  "/assets/cinematic/science-25.mp4",
   "/assets/cinematic/science-28.mp4", // Butterfly feeding on a flower — Hao Le
 ];
 
@@ -4604,10 +4604,10 @@ const FILM_CLIPS_PRO_LANDSCAPE = [
   "/assets/cinematic/science-40.mp4", // Glowing blue DNA strand — Pressmaster
   "/assets/cinematic/science-41.mp4", // Sun illuminating Earth's surface — Ingrid
   "/assets/cinematic/science-44.mp4", // Milky Way over mountain lake — Dmitry Varennikov
-  "/assets/cinematic/science-46.mp4", // Lightning strikes over ocean — Tom Fisk
+  "/assets/cinematic/science-64.mp4", // Aurora borealis, red and green (replaces 46)
   "/assets/cinematic/science-50.mp4", // Orange lunar eclipse — Kindel Media
   "/assets/cinematic/science-54.mp4", // Grayscale cloud timelapse — CESAR A RAMIREZ VALLEJO TRAPHITHO
-  "/assets/cinematic/science-55.mp4", // Moody sky over hill — CESAR A RAMIREZ VALLEJO TRAPHITHO
+  "/assets/cinematic/science-67.mp4", // Lava flow aerial at night (replaces 55)
 ];
 const FILM_CLIPS_PRO_PORTRAIT = [
   "/assets/cinematic/science-57.mp4", // Moon behind clouds — ren lavsad
@@ -4638,8 +4638,6 @@ const FILM_HOLD_MS = 11000;
    lists only the clips it is legally forced to list is a strange thing to
    put in front of researchers. */
 const FILM_CREDITS = [
-  { n: "01", title: "Microorganisms under a microscope", credit: "turek", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/footage-of-microscopic-organisms-8739082/" },
-  { n: "02", title: "Microscopic cells in motion", credit: "Rony Way", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/microscopic-view-of-bacteria-or-cells-in-motion-38533119/" },
   { n: "03", title: "Seedling growth timelapse", credit: "David Roberts", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/time-lapse-of-seedlings-8522207/" },
   { n: "04", title: "Sunlit green leaves", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/sunlight-filtering-through-green-leaves-in-forest-32208331/" },
   { n: "07", title: "Laboratory reaction", credit: "cottonbro studio", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/chemistry-laboratorio-6208946/" },
@@ -4649,7 +4647,6 @@ const FILM_CREDITS = [
   { n: "11", title: "Greenland icebergs", credit: "Mikhail Nilov", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/drone-footage-of-glaciers-at-greenland-8318618/" },
   { n: "12", title: "Jellyfish", credit: "Chris Munnik (2)", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-group-of-jellyfish-swimming-underwater-at-display-in-an-aquarium-3297378/" },
   { n: "13", title: "Coral aquarium", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-fish-tank-with-coral-and-fish-9406677/" },
-  { n: "14", title: "Neuronal image-volume reconstruction", credit: "Michael N Economo, Nathan G Clack and colleagues", license: "CC0", licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/", source: "https://elifesciences.org/articles/10566#video1" },
   { n: "15", title: "Laboratory sample work", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/scientists-working-in-a-lab-8852423/" },
   { n: "16", title: "Plasma globe", credit: "Mathias De Rivo", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-footage-of-a-plasma-ball-6738879/" },
   { n: "20", title: "Earth night lights rotating globe", credit: "NASA Scientific Visualization Studio; NASA Earth Observatory / NASA-NOAA Suomi NPP data", license: "NASA media-use guidelines", licenseUrl: "https://www.nasa.gov/nasa-brand-center/images-and-media/", source: "https://svs.gsfc.nasa.gov/30878/" },
@@ -4660,15 +4657,38 @@ const FILM_CREDITS = [
   { n: "27", title: "Waterfall and river rapids", credit: "Ryan Klaus", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-river-with-a-waterfall-and-a-boat-24837086/" },
   { n: "28", title: "Butterfly feeding on a flower", credit: "Hao Le", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/macro-shot-of-butterfly-on-a-flower-38759167/" },
   { n: "29", title: "Ant colony entrance", credit: "Eclipse Chasers", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ant-colony-26727295/" },
-  { n: "30", title: "Flowing freshwater", credit: "Pexels contributor; see source page", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-video-of-flowing-water-5963378/" },
   { n: "31", title: "Ocean waves at rocks", credit: "Peter Fowler", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ocean-waves-video-1093652/" },
-  { n: "32", title: "Clear quartz crystal", credit: "Monstera Production", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-video-of-a-clear-quartz-crystal-7792946/" },
   { n: "33", title: "Volcanic lava in slow motion", credit: "Anoop A Nair", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/lava-in-volcano-in-slow-motion-13438865/" },
   { n: "34", title: "Ferrofluid spikes under a magnet", credit: "Film Composite", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/inky-16296848/" },
   { n: "35", title: "Northern lights timelapse", credit: "T Honkamies", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/northern-lights-timelapse-28492331/" },
   { n: "36", title: "Soap bubble freezing, macro", credit: "Aaron Burden", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-macro-footage-of-a-water-bubble-slowly-freezing-on-a-cold-winter-s-day-2478688/" },
   { n: "37", title: "Nebula field with stars", credit: "Adis Resic", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/stunning-cosmic-nebula-with-stars-in-deep-space-31084223/" },
   { n: "38", title: "Ants on a tiny white flower", credit: "Vung Nguyen", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ants-on-tiny-white-flower-18275131/" },
+  { n: "59", title: "Planting seedlings by hand", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "60", title: "Deer grazing in a meadow", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "61", title: "Desert mesas at dusk", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "62", title: "Ocean waves at sunset", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "63", title: "Volcano eruption at night", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "64", title: "Aurora borealis, red and green", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "65", title: "Mountain ridge at sunrise", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "66", title: "Volcanic crater lake from the air", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "67", title: "Lava flow aerial at night", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "39", title: "DNA helix animation", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "40", title: "DNA strand of particles", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "41", title: "Earth at night, city lights", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "42", title: "Rotating Earth", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "43", title: "Milky Way over mountains", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "44", title: "Mountain lake under stars", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "45", title: "Starry night sky", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "48", title: "Lightning bolt in storm clouds", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "50", title: "Harvest moon rising", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "51", title: "Total lunar eclipse", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "52", title: "Partial lunar eclipse", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "53", title: "Shark swimming", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "54", title: "Storm clouds, monochrome timelapse", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "56", title: "Ink dispersing in water", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "57", title: "Moon behind clouds", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
+  { n: "58", title: "Ice cave interior", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
 ];
 
 /* What was done to the footage. Stated once, plainly, because "adapted"
@@ -4727,8 +4747,7 @@ function FilmCreditsDialog({ onClose, accent }) {
                 <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.4, marginBottom: 3 }}>{c.title}</div>
                 <div style={{ fontSize: 12, color: "rgba(242,244,242,0.62)", lineHeight: 1.55 }}>
                   {c.credit}
-                  {" · "}
-                  <a href={safeHref(c.source)} target="_blank" rel="noopener noreferrer" style={link}>Source</a>
+                  {c.source ? (<>{" · "}<a href={safeHref(c.source)} target="_blank" rel="noopener noreferrer" style={link}>Source</a></>) : null}
                   {" · "}
                   {c.licenseUrl
                     ? <a href={safeHref(c.licenseUrl)} target="_blank" rel="noopener noreferrer" style={link}>{c.license}</a>
@@ -4773,9 +4792,7 @@ function FilmCreditsDialog({ onClose, accent }) {
    the 4:3 and 1.9:1 clips, where the crop is real and the subject can end
    up behind the headline. */
 const FILM_SCENES = {
-  "/assets/cinematic/science-01.mp4": { subject: "Microbiology", question: "What can scientists learn by watching microorganisms move?", pos: "55% 50%" },
-  "/assets/cinematic/science-02.mp4": { subject: "Cell biology", question: "How do single cells move without muscles?" },
-  "/assets/cinematic/science-03.mp4": { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "58% 55%", posMobile: "50% 62%" },
+      "/assets/cinematic/science-03.mp4": { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "58% 55%", posMobile: "50% 62%" },
   "/assets/cinematic/science-04.mp4": { subject: "Plant science", question: "How efficient is photosynthesis compared with a solar panel?" },
   "/assets/cinematic/science-07.mp4": { subject: "Chemistry", question: "What makes a chemical reaction speed up or stall?", pos: "50% 42%" },
   "/assets/cinematic/science-08.mp4": { subject: "Fluid dynamics", question: "Why does a drop of dye spread through water the way it does?", pos: "50% 45%" },
@@ -4784,37 +4801,59 @@ const FILM_SCENES = {
   "/assets/cinematic/science-11.mp4": { subject: "Glaciology", question: "How fast is the Greenland ice sheet losing mass?" },
   "/assets/cinematic/science-12.mp4": { subject: "Marine biology", question: "How do jellyfish move without a brain?" },
   "/assets/cinematic/science-13.mp4": { subject: "Marine biology", question: "What makes coral bleach, and can it recover?", pos: "50% 45%" },
-  "/assets/cinematic/science-14.mp4": { subject: "Neuroscience", question: "How do researchers trace a single neuron across a whole brain?", pos: "55% 45%" },
-  "/assets/cinematic/science-15.mp4": { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
+    "/assets/cinematic/science-15.mp4": { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
   "/assets/cinematic/science-16.mp4": { subject: "Physics", question: "What is plasma, and where does it occur naturally?" },
   "/assets/cinematic/science-20.mp4": { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
   "/assets/cinematic/science-21.mp4": { subject: "Mycology", question: "How do fungi move nutrients through a forest?" },
   "/assets/cinematic/science-22.mp4": { subject: "Plant science", question: "Why does water bead up on some leaves and not others?" },
   "/assets/cinematic/science-24.mp4": { subject: "Marine biology", question: "What lives on a coral reef besides the coral?" },
   "/assets/cinematic/science-25.mp4": { subject: "Geothermal science", question: "What makes a geyser erupt on a schedule?" },
-  "/assets/cinematic/science-27.mp4": { subject: "Hydrology", question: "How does flowing water reshape the rock beneath it?" },
+      "/assets/cinematic/science-27.mp4": { subject: "Hydrology", question: "How does flowing water reshape the rock beneath it?" },
   "/assets/cinematic/science-28.mp4": { subject: "Entomology", question: "How do pollinators find the flowers they visit?" },
   "/assets/cinematic/science-29.mp4": { subject: "Entomology", question: "How does an ant colony make decisions without a leader?" },
-  "/assets/cinematic/science-30.mp4": { subject: "Hydrology", question: "What is actually dissolved in fresh water, and how is it measured?" },
-  "/assets/cinematic/science-31.mp4": { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
-  "/assets/cinematic/science-32.mp4": { subject: "Mineralogy", question: "How do crystals grow into such regular shapes?" },
-  "/assets/cinematic/science-33.mp4": { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
+    "/assets/cinematic/science-31.mp4": { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
+    "/assets/cinematic/science-33.mp4": { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
   "/assets/cinematic/science-34.mp4": { subject: "Physics", question: "How does a magnetic field sculpt a liquid into spikes?" },
   "/assets/cinematic/science-35.mp4": { subject: "Atmospheric science", question: "What paints the aurora's curtains of light across the sky?" },
   "/assets/cinematic/science-36.mp4": { subject: "Thermodynamics", question: "What decides the exact moment water becomes ice?" },
   "/assets/cinematic/science-37.mp4": { subject: "Astronomy", question: "What is a nebula made of, and how are stars born inside one?" },
   "/assets/cinematic/science-38.mp4": { subject: "Entomology", question: "How do ants coordinate without a leader or words?" },
+  "/assets/cinematic/science-59.mp4": { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "50% 55%" },
+  "/assets/cinematic/science-60.mp4": { subject: "Zoology", question: "How do grazing animals shape a grassland?", pos: "50% 45%" },
+  "/assets/cinematic/science-61.mp4": { subject: "Geology", question: "What sculpted these desert mesas?", pos: "50% 40%" },
+  "/assets/cinematic/science-62.mp4": { subject: "Oceanography", question: "How do waves carry energy across an ocean?", pos: "50% 50%" },
+  "/assets/cinematic/science-63.mp4": { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?", pos: "50% 45%" },
+  "/assets/cinematic/science-64.mp4": { subject: "Atmospheric science", question: "What paints the aurora\u2019s curtains of light across the sky?", pos: "50% 40%" },
+  "/assets/cinematic/science-65.mp4": { subject: "Earth science", question: "How does elevation reshape climate, light, and life?", pos: "50% 45%" },
+  "/assets/cinematic/science-66.mp4": { subject: "Volcanology", question: "How does a lake form inside a volcano\u2019s crater?", pos: "50% 50%" },
+  "/assets/cinematic/science-67.mp4": { subject: "Volcanology", question: "What drives lava fountains hundreds of meters into the air?", pos: "50% 50%" },
+  "/assets/cinematic/science-39.mp4": { subject: "Genetics", question: "How does DNA store the instructions for a cell?" },
+  "/assets/cinematic/science-40.mp4": { subject: "Genetics", question: "What does DNA look like at the molecular scale?" },
+  "/assets/cinematic/science-41.mp4": { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
+  "/assets/cinematic/science-42.mp4": { subject: "Planetary science", question: "How does Earth\u2019s rotation shape its climate?" },
+  "/assets/cinematic/science-43.mp4": { subject: "Astronomy", question: "How many stars are in the Milky Way?" },
+  "/assets/cinematic/science-44.mp4": { subject: "Astronomy", question: "Why do some mountain lakes mirror the night sky?" },
+  "/assets/cinematic/science-45.mp4": { subject: "Astronomy", question: "How dark does the sky get far from city lights?" },
+  "/assets/cinematic/science-48.mp4": { subject: "Atmospheric science", question: "What triggers a lightning strike?" },
+  "/assets/cinematic/science-50.mp4": { subject: "Astronomy", question: "Why does the Moon look bigger near the horizon?" },
+  "/assets/cinematic/science-51.mp4": { subject: "Astronomy", question: "What turns the Moon red during a lunar eclipse?" },
+  "/assets/cinematic/science-52.mp4": { subject: "Astronomy", question: "What is happening during a partial lunar eclipse?" },
+  "/assets/cinematic/science-53.mp4": { subject: "Marine biology", question: "How do sharks sense prey they cannot see?" },
+  "/assets/cinematic/science-54.mp4": { subject: "Atmospheric science", question: "How do storm clouds build into thunderheads?" },
+  "/assets/cinematic/science-56.mp4": { subject: "Fluid dynamics", question: "Why does ink bloom into smoke-like tendrils in water?" },
+  "/assets/cinematic/science-57.mp4": { subject: "Astronomy", question: "Why does the Moon glow through thin cloud?" },
+  "/assets/cinematic/science-58.mp4": { subject: "Glaciology", question: "How do ice caves form inside glaciers?" },
 };
 
 /* The poster is a frame of this clip, so when the reel is blocked and the
    still is all anyone sees, the prompt on screen is the prompt for the
    picture on screen. Checked against the file, not assumed. */
-const FILM_POSTER_CLIP = "/assets/cinematic/science-14.mp4";
+const FILM_POSTER_CLIP = "/assets/cinematic/science-61.mp4";
 
 /* Wave 1 — Document Mode's film: the door's opening clip, so stepping
    from the intro into a document keeps the same frame. The scrim does
    the legibility work; the clip just has to be calm. */
-const DOC_FILM_SRC = "/assets/cinematic/science-14.mp4";
+const DOC_FILM_SRC = "/assets/cinematic/science-66.mp4";
 
 /* Motion on a phone is opt-in, and the choice survives a reload — a
    preference someone has to set on every visit is not a preference. */
