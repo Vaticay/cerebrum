@@ -763,21 +763,20 @@ const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888" };
 // hero wordmark's responsive clamp()) are left as literals on purpose: they
 // answer to their own unique layout, not to a shared metadata/heading scale.
 const FONT_SIZES = {
-  // Second readability pass (Commit 43) — the first pass (Commit 40) nudged
-  // the smallest sizes up by half a point and lifted secondary-text
-  // contrast; still reported as too small/hard to read in real use, so this
-  // round moves every size in the scale up a full step rather than another
-  // half-point nudge, on the theory that half a point was simply too
-  // conservative a correction the first time.
-  micro: 11,        // footnotes, superscripts, smallest badges
-  caption: 12,      // metadata labels, timestamps, byline text
-  small: 13,        // secondary text, form inputs, chips, tab labels
-  body: 15,         // primary body copy
-  subhead: 17,      // card titles, list items, modal subheads
-  heading: 18,      // component/section headings
-  sectionHead: 20,  // markdown-rendered answer section headers
-  display: 24,      // headline callouts, mobile hero titles
-  hero: 34,         // desktop hero titles, prominent stat numbers
+  // The 6-role editorial scale (DESIGN_RESEARCH.md §7.1): every size in
+  // the product maps to one of these roles. Near-duplicates were merged
+  // (micro 11→caption 12, subhead 17→title 18; sectionHead 20 is gone).
+  // Mono-for-data is a treatment, not a second family — tabular numerals
+  // in --cb-font (standing law: one unified typeface). Weight contract
+  // (§11): body 450–500, controls/labels 600, headings 650–700.
+  caption: 12,      // caption/meta — timestamps, metadata, badges, eyebrows
+  label: 13,        // label/control — form inputs, chips, tab labels, buttons
+  body: 15,         // body — primary prose everywhere, 45–75ch, leading 1.5–1.65
+  title: 18,        // title — section headings, ledes, card titles
+  display: 24,      // display — mastheads, callouts, mobile hero titles
+  hero: 34,         // display, large step — desktop hero titles, stat numbers
+  // Legacy aliases — new code uses the six role names above.
+  micro: 12, small: 13, subhead: 18, heading: 18,
 };
 
 // v31: the wordmark's animated emerald→sky→indigo gradient (this constant
@@ -1233,6 +1232,30 @@ function usePrefersReducedMotion() {
     };
   }, []);
   return reduced;
+}
+
+/* The canonical motion gate (DESIGN_RESEARCH.md §6.2): the OS
+ * prefers-reduced-motion signal OR the in-product motion toggle
+ * (Settings → Sound & motion → Motion: Off, which writes cb_anim2=off
+ * and is read back through cbMotionOff()). Reactive to both — the media
+ * query's own change events and the "cb:anim" event the App dispatches
+ * whenever the animationMode cookie is written, plus a body class
+ * (body.cb-motion-off) that mirrors the reduced-motion CSS kills for
+ * stylesheet-driven motion the media query can't reach.
+ *
+ * Use this — not usePrefersReducedMotion() alone — everywhere a
+ * component chooses between an animated and a static presentation, so
+ * the toggle actually quiets the search instrument, video crossfades
+ * and entrance effects instead of only the OS setting doing it. */
+function useReducedMotion() {
+  const osReduced = usePrefersReducedMotion();
+  const [appOff, setAppOff] = useState(() => cbMotionOff());
+  useEffect(() => {
+    const onChg = () => setAppOff(cbMotionOff());
+    window.addEventListener("cb:anim", onChg);
+    return () => window.removeEventListener("cb:anim", onChg);
+  }, []);
+  return osReduced || appOff;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -2602,7 +2625,7 @@ function SignalComposer({
      shows values that are actually in force. */
   evidenceLabel = "all",
 }) {
-  const reduced = usePrefersReducedMotion();
+  const reduced = useReducedMotion();
   const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
   const placeholder = isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder;
   const entities = useMemo(() => parseQueryEntities(input), [input]);
@@ -2748,7 +2771,7 @@ function SignalComposer({
 function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contextual = false, videosLocated = false }) {
   const startRef = useRef(performance.now());
   const [elapsed, setElapsed] = useState(0);
-  const reduced = usePrefersReducedMotion();
+  const reduced = useReducedMotion();
 
   useEffect(() => {
     if (done) return undefined;
@@ -2800,9 +2823,13 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
     );
   }
   const live = !reduced && !done;
+  /* Under reduced motion the instrument is determinate, not looping: the
+     parked arc is a static marker, the entrance rise is skipped, and the
+     elapsed clock + waiting line carry the feedback (paired, never motion
+     alone). The done state keeps its quiet drift when motion is allowed. */
 
   return (
-    <div className="cb-room" style={{ "--cb-acc": accent }} aria-live="polite" aria-atomic="true">
+    <div className="cb-room" style={{ "--cb-acc": accent, ...(reduced ? { animation: "none" } : null) }} aria-live="polite" aria-atomic="true">
       {/* The question, catalogued as a specimen label. */}
       <div className="cb-room-kicker">Query / Specimen</div>
       <h2 className="cb-room-q">{q}</h2>
@@ -2845,11 +2872,14 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
               </g>
             </>
           )}
-          {/* parked arc for reduced motion / done: a quiet marker at the top */}
+          {/* parked arc for reduced motion / done: a quiet marker at the top.
+              Static under reduced motion — the elapsed clock is the
+              progress signal, not the loop. */}
           {(reduced || done) && (
             <circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="2"
               strokeDasharray="26 716" strokeLinecap="round" opacity="0.7"
-              transform="rotate(-90 160 160)" className="cb-tx-arc" />
+              transform="rotate(-90 160 160)" className="cb-tx-arc"
+              style={reduced ? { animation: "none" } : undefined} />
           )}
         </svg>
         {SCHOLARLY_SOURCES.map((s, i) => (
@@ -3303,7 +3333,7 @@ function h2Block(text, key, P, accent) {
 }
 
 function h3Block(text, key, P) {
-  return <h4 key={key} style={{ fontSize: 19, fontWeight: 700, color: P.ink, margin: "32px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>{text}</h4>;
+  return <h4 key={key} style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, margin: "32px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>{text}</h4>;
 }
 
 /* Bring a source into view without moving the reader.
@@ -3338,7 +3368,7 @@ function revealSource(n, accent) {
 
     if (scroller && scroller !== document.body) {
       const target = el.offsetTop - scroller.clientHeight / 2 + el.offsetHeight / 2;
-      const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const reduced = cbMotionOff();
       scroller.scrollTo({ top: Math.max(0, target), behavior: reduced ? "auto" : "smooth" });
     }
 
@@ -3856,6 +3886,13 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
     .trim();
 
+  /* The lede: the first real paragraph the synthesis speaks sets in the
+     title role — the editorial inhale before the detail. Tracked with a
+     flag (not pi === 0) because the first block is often a header, and
+     applied inline: the stylesheet's :first-child rule can never beat the
+     paragraph's own inline fontSize. */
+  let ledeUsed = false;
+
   return clean.split(/\n{2,}/).map((para, pi) => {
     // Markdown headers
     const h2 = para.match(/^##\s+(.+)$/);
@@ -3991,7 +4028,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       return (
         <ul key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: 17, lineHeight: 1.75, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-font)", fontWeight: 450 }}>
+            <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-font)", fontWeight: 500 }}>
               <span style={{ position: "absolute", left: -12, top: "0.55em", width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.7 }} />
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
             </li>
@@ -4008,7 +4045,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       return (
         <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: 17, lineHeight: 1.75, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-font)", fontWeight: 450, counterIncrement: "cb-list" }}>
+            <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-font)", fontWeight: 500, counterIncrement: "cb-list" }}>
               <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", opacity: 0.8 }}>{ii + 1}.</span>
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
             </li>
@@ -4029,17 +4066,20 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     // "##" text. Safe to strip unconditionally here since real headers
     // never reach this branch in the first place.
     const paraClean = stripStrayHashes(para);
+    const isLede = !ledeUsed;
+    ledeUsed = true;
     return (
     <p key={pi} style={{
-      /* The reading surface.
-         17.5px with a 1.75 leading and NO negative tracking. The old
-         settings (16px, -0.008em) were tuned for a dense UI, which is
-         what an answer read like; long-form prose wants a touch more
-         size and air, and negative tracking on reading text is simply
-         wrong. Set in Inter Tight like everything else — hierarchy here
-         comes from measure and rhythm, not a second typeface. */
-      fontSize: 17.5, lineHeight: 1.75, margin: "0 0 22px", color: P.ink,
-      letterSpacing: "0", fontFamily: "var(--cb-font)", fontWeight: 450,
+      /* The reading surface — the body role, ruthlessly (§7.1): 15px,
+         1.6 leading, weight 500 (the "thicker text" law, inside the
+         450–500 body contract). The lede (first paragraph) sets in the
+         title role instead: 18px, 1.55 leading. No negative tracking on
+         reading text. Hierarchy comes from measure and rhythm, not a
+         second size. */
+      fontSize: isLede ? FONT_SIZES.title : FONT_SIZES.body,
+      lineHeight: isLede ? 1.55 : 1.6,
+      margin: "0 0 22px", color: P.ink,
+      letterSpacing: "0", fontFamily: "var(--cb-font)", fontWeight: 500,
       fontOpticalSizing: "auto",
       /* Long unbreakable tokens (DOIs, URLs, chemical names) otherwise
          force horizontal overflow at phone widths. Normal prose still
@@ -4103,7 +4143,10 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
         }}
         style={{
           display: "inline-flex", alignItems: "center",
-          fontSize: 11, color: P.ink, verticalAlign: "baseline",
+          /* Caption role with tabular numerals — the mono-for-data
+             treatment in the one unified typeface. */
+          fontSize: FONT_SIZES.caption, fontVariantNumeric: "tabular-nums",
+          color: P.ink, verticalAlign: "baseline",
           textDecoration: "none", fontWeight: 600,
           fontFamily: "var(--cb-font)",
           /* Commit 87 — "minutes 2 ." The renderer strips the space BEFORE
@@ -5673,7 +5716,7 @@ function SourcesDialog({ onClose, accent }) {
 
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const isMobile = useIsMobile();
-  const reduced = usePrefersReducedMotion();
+  const reduced = useReducedMotion();
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -5809,7 +5852,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   }, [animate]);
 
   return (
-    <div id="cb-intro-wrap" className={leaving ? "cb-intro-leaving" : undefined} style={{
+    <div id="cb-intro-wrap" className={[leaving ? "cb-intro-leaving" : "", reduced && !leaving ? "cb-intro-still" : ""].filter(Boolean).join(" ") || undefined} style={{
       minHeight: "100dvh", position: "relative",
       /* overflow-x only. `overflow: hidden` here was clipping the page to
          one viewport, so on a short window — a laptop with the browser
@@ -7118,6 +7161,13 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
      numeral is already doing that job. Export keeps it. */
   const formatted = formatCitation(source, style, index).replace(/^\s*\d+\.\s+/, "");
   const domain = source.url ? source.url.replace(/^https?:\/\//, "").replace(/^www\./, "").slice(0, 42) : "";
+  /* The DOI is the paper's permanent address (§9.1: every displayed
+     citation carries a working DOI that reaches the paper). Normalized
+     the same way sourceKey() does, so doi.org URLs and bare DOIs both
+     resolve to one canonical link. */
+  const doi = String(source.doi || source.DOI || "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
+  const doiHref = /^10\.\d{4,9}\//.test(doi) ? "https://doi.org/" + doi : null;
   return (
     <li id={alphaAnchor ? `ref-alpha-${alphaAnchor}` : `ref-${index}`}
       className="cb-fade cb-bibentry"
@@ -7164,12 +7214,20 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
             .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
             .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
         )}
-        {(citeLabel || source.type || domain) && (
+        {(citeLabel || source.type || domain || doiHref) && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--cb-font)", flexWrap: "wrap", paddingLeft: "1.2em" }}>
             {source.type && <span style={{ fontWeight: 600, color: P.ink2 }}>{source.type}</span>}
-            {source.type && (citeLabel || domain) && <span style={{ opacity: 0.4 }}>·</span>}
+            {source.type && (citeLabel || domain || doiHref) && <span style={{ opacity: 0.4 }}>·</span>}
             {citeLabel && <span>{citeLabel}</span>}
-            {citeLabel && domain && <span style={{ opacity: 0.4 }}>·</span>}
+            {citeLabel && (domain || doiHref) && <span style={{ opacity: 0.4 }}>·</span>}
+            {doiHref && (
+              <a href={doiHref} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                title="Open this paper via DOI"
+                style={{ color: accent, textDecoration: "none", overflowWrap: "anywhere", wordBreak: "break-word", fontVariantNumeric: "tabular-nums" }}>
+                doi:{doi}
+              </a>
+            )}
+            {doiHref && domain && <span style={{ opacity: 0.4 }}>·</span>}
             {domain && (
               <a href={safeHref(source.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
                 style={{ color: accent, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, maxWidth: "min(260px, 100%)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -9126,7 +9184,7 @@ function stripFallbackChrome(text) {
    stays mounted under the iframe and the iframe fades in OVER it, so the
    player never shows a black flash while the embed loads. */
 function EvidenceVideoModal({ P, accent, video, close }) {
-  const reduced = usePrefersReducedMotion();
+  const reduced = useReducedMotion();
   const [ready, setReady] = useState(false);
   const ytId = getYouTubeId(video);
   const poster = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : (video.thumbnail || null);
@@ -9199,7 +9257,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const [evTab, setEvTab] = useState("biblio");
   const [listenOpen, setListenOpen] = useState(false);
   const [openVideo, setOpenVideo] = useState(null);
-  const reducedMotion = usePrefersReducedMotion();
+  const reducedMotion = useReducedMotion();
   const answerTopRef = useRef(null);
   const bandSectionRef = useRef(null);
   const fcSectionRef = useRef(null);
@@ -9401,7 +9459,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 10, marginBottom: 18, paddingBottom: 14, borderBottom: `1px solid ${P.line}` }}>
             {t.sources && t.sources.length > 0 ? (
               <div>
-                <div style={{ fontFamily: "var(--cb-font)", fontSize: 9, letterSpacing: "0.22em", color: P.faint, textTransform: "uppercase", marginBottom: 7 }}>Synthesized answer</div>
+                {/* The answer card's eyebrow — same role treatment as every
+                    Eyebrow in the product (caption, tracked caps), not a
+                    one-off 9px stack. */}
+                <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", color: P.faint, textTransform: "uppercase", marginBottom: 7 }}>Synthesized answer</div>
                 <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
                   <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`, padding: "4px 11px", borderRadius: 9999, fontFamily: "var(--cb-font)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
                   {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
@@ -10893,6 +10954,12 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
   const [loaded, setLoaded] = useState(false);
   const timer = useRef(null);
   const reduced = usePrefersReducedMotion();
+  /* The in-product Motion toggle (Settings → Sound & motion → Off) joins
+     the OS signal: either one parks the hover preview and the transitions.
+     The literal usePrefersReducedMotion() line above stays verbatim —
+     tests/answer-experience.mjs pins this call site — so `still` is the
+     effective flag the component actually branches on. */
+  const still = reduced || useReducedMotion();
   const finePointer = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: fine)").matches;
   // Immediate poster: derive hqdefault from the YouTube id when the video
   // carries one (the backend already sends them) — the poster is on screen
@@ -10901,7 +10968,7 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
   const ytId = getYouTubeId(v) || v.id;
   const poster = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : (v.thumbnail || null);
   const startPreview = () => {
-    if (!finePointer || reduced || !ytId) return;
+    if (!finePointer || still || !ytId) return;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setPreview(true), 380);
   };
@@ -10915,7 +10982,7 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
     <div style={{ flex: "0 0 auto", width: 240, scrollSnapAlign: "start" }}>
       <button type="button" onClick={() => onOpen(v)} aria-label={`Play: ${v.title || "video"}`}
         onMouseEnter={startPreview} onMouseLeave={stopPreview} onFocus={startPreview} onBlur={stopPreview}
-        style={{ display: "block", width: "100%", padding: 0, background: "#0a0c10", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: 8, overflow: "hidden", cursor: "pointer", textAlign: "left", transition: reduced ? "none" : "border-color 0.2s ease, transform 0.2s ease" }}
+        style={{ display: "block", width: "100%", padding: 0, background: "#0a0c10", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: 8, overflow: "hidden", cursor: "pointer", textAlign: "left", transition: still ? "none" : "border-color 0.2s ease, transform 0.2s ease" }}
         onMouseOver={(e) => { e.currentTarget.style.borderColor = withAlpha(accent, 0.6); }}
         onMouseOut={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}>
         <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: "#0a0c10", overflow: "hidden" }}>
@@ -10931,7 +10998,7 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
             <iframe src={`https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=0&rel=0&playsinline=1`}
               title="" tabIndex={-1} aria-hidden="true"
               onLoad={() => setLoaded(true)}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", pointerEvents: "none", opacity: loaded ? 1 : 0, transition: reduced ? "none" : "opacity 0.45s ease" }} />
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", pointerEvents: "none", opacity: loaded ? 1 : 0, transition: still ? "none" : "opacity 0.45s ease" }} />
           )}
           {!preview && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.18)" }}>
@@ -11630,23 +11697,46 @@ function WorkspaceEmpty({ P, accent, icon, title, body, action, isMobile = false
 // comparison and the Pro pitch sit below the gauges — promotion without
 // obstruction. Deliberately not a card grid: three gauge rails, one spec
 // table, one editorial banner.
+/* ── Quota grid (client mirror of functions/lib/proEntitlement.js) ──
+ * The backend anchors quota periods to the epoch, not to signup:
+ * FREE_QUOTA_PERIOD_DAYS = 5, QUOTA_PERIOD_MS = 5·24·3600·1000,
+ * periodKey(now) = "p" + floor(now / QUOTA_PERIOD_MS). So the reset is
+ * always the next grid boundary — computable exactly, client-side, with
+ * no fetch. The server's resetsInMs is kept as validation/fallback: if
+ * it disagrees with the grid by more than five minutes, the server wins
+ * (its clock is authoritative) — otherwise the grid does. */
+const QUOTA_PERIOD_MS = 5 * 24 * 3600 * 1000;
+function cbQuotaResetsAt(now = Date.now()) {
+  return (Math.floor(now / QUOTA_PERIOD_MS) + 1) * QUOTA_PERIOD_MS;
+}
+
 function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
-  // Anchor the refill countdown to the moment this status snapshot arrived,
-  // so the ticking clock doesn't drift as the component re-renders.
+  /* Above every early return: hooks can't be conditional. */
+  const motionOff = useReducedMotion();
+  // The refill countdown follows the backend's fixed 5-day epoch grid —
+  // the boundary is computable exactly, so the ticking clock can't drift
+  // as the component re-renders. The server's own resetsInMs (anchored to
+  // the moment this snapshot arrived) stays as validation: if it
+  // disagrees with the grid by more than five minutes, the server is
+  // authoritative and wins.
   const fetchedAtRef = useRef(Date.now());
   const prevStatusRef = useRef(proStatus);
   if (prevStatusRef.current !== proStatus) {
     prevStatusRef.current = proStatus;
     fetchedAtRef.current = Date.now();
   }
-  const periodMs = proStatus?.quotaPeriod?.resetsInMs;
-  const resetsAt = periodMs != null ? fetchedAtRef.current + periodMs : null;
-  const remainingMs = resetsAt != null ? Math.max(0, resetsAt - now) : null;
+  const gridResetsAt = cbQuotaResetsAt(now);
+  const serverResetsInMs = proStatus?.quotaPeriod?.resetsInMs;
+  const serverResetsAt = serverResetsInMs != null ? fetchedAtRef.current + serverResetsInMs : null;
+  const resetsAt = serverResetsAt != null && Math.abs(serverResetsAt - gridResetsAt) > 5 * 60 * 1000
+    ? serverResetsAt
+    : gridResetsAt;
+  const remainingMs = Math.max(0, resetsAt - now);
 
   const fmtRemaining = (ms) => {
     if (ms == null) return "—";
@@ -11659,21 +11749,17 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
     if (h > 0) return `${h}h ${mm}m`;
     return `${mm}m`;
   };
-  const refillDate = resetsAt != null
-    ? new Date(resetsAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
-    : "—";
-  const refillTime = resetsAt != null
-    ? new Date(resetsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
-    : "";
+  const refillDate = new Date(resetsAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const refillTime = new Date(resetsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
   if (!user) {
     return (
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 20px", textAlign: "center" }}>
-        <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>Usage</div>
+        <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>Usage</div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
           Sign in to see your meters — AI answers, document reads, and flowcharts, with exact refill times.
         </div>
-        <button onClick={() => onOpenAuth && onOpenAuth("signin")} style={{ marginTop: 20, padding: "12px 28px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#fff", background: accent, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+        <button onClick={() => onOpenAuth && onOpenAuth("signin")} style={{ marginTop: 20, padding: "12px 28px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: "#fff", background: accent, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
           Sign in
         </button>
       </div>
@@ -11689,7 +11775,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   const fq = proStatus?.flowcharts;
   const liteMonthly = plans["lite-monthly"]?.usd != null ? `$${plans["lite-monthly"].usd}` : "$3.99";
 
-  const Gauge = ({ label, used, cap, sub }) => {
+  const Gauge = ({ label, used, cap, sub, upgrade }) => {
     const unlimited = cap == null;
     const pct = unlimited ? 100 : cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
     const left = unlimited ? null : Math.max(0, cap - used);
@@ -11699,39 +11785,56 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       : state === "empty" ? `Empty — refills in ${fmtRemaining(remainingMs)}`
       : state === "low" ? `${left} remaining — running low`
       : `${left} remaining`;
+    /* The three permitted upgrade moments: the Usage tab itself (the
+       concrete-gain line below), the ~80% threshold, and the exhaustion
+       moment. Nothing here nags — the meter is the message, the button
+       is the door. */
+    const showUpgrade = (state === "low" || state === "empty") && upgrade && !unlimited;
     return (
       <div style={{ padding: "18px 0", borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.12em", color: P.faint, fontFamily: "var(--cb-font)" }}>{label}</span>
-          <span style={{ fontSize: FONT_SIZES.heading, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>
-            {unlimited ? "Unlimited" : <>{used}<span style={{ color: P.faint, fontWeight: 400 }}> / {cap}</span></>}
+          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, fontFamily: "var(--cb-font)" }}>{label}</span>
+          <span style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>
+            {unlimited ? "Unlimited" : <>{used}<span style={{ color: P.faint, fontWeight: 500 }}> / {cap}</span></>}
           </span>
         </div>
         <div style={{ position: "relative", marginTop: 12, height: 8, borderRadius: 999, background: P.raised, overflow: "hidden" }} role="progressbar" aria-valuenow={unlimited ? undefined : used} aria-valuemax={unlimited ? undefined : cap} aria-label={`${label} usage`}>
           {!unlimited && (
-            <div style={{ position: "absolute", inset: 0, width: `${pct}%`, borderRadius: 999, background: fill, transition: "width 400ms ease" }} />
+            <div style={{ position: "absolute", inset: 0, width: `${pct}%`, borderRadius: 999, background: fill, transition: motionOff ? "none" : "width 400ms ease" }} />
           )}
           {unlimited && (
             <div style={{ position: "absolute", inset: 0, borderRadius: 999, background: "linear-gradient(90deg,#d4a437,#f2d67c)", opacity: 0.85 }} />
           )}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: state === "ok" || state === "unlimited" ? 400 : 700, color: state === "empty" ? "#e5484d" : state === "low" ? "#e8a13c" : P.faint, fontFamily: "var(--cb-font)" }}>{stateLine}</span>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: state === "ok" || state === "unlimited" ? 500 : 600, color: state === "empty" ? "#e5484d" : state === "low" ? "#e8a13c" : P.faint, fontFamily: "var(--cb-font)" }}>{stateLine}</span>
           {sub && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{sub}</span>}
         </div>
+        {showUpgrade && (
+          <button onClick={onOpenPro} style={{
+            marginTop: 10, minHeight: 44, padding: "10px 20px", borderRadius: 999,
+            border: state === "empty" ? "none" : `1px solid ${withAlpha("#d4a437", 0.55)}`,
+            background: state === "empty" ? "#e5484d" : "transparent",
+            color: state === "empty" ? "#fff" : P.ink,
+            fontSize: FONT_SIZES.label, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer",
+          }}>{upgrade}</button>
+        )}
       </div>
     );
   };
 
+  /* Sacred tier facts — the numbers below are the product's own:
+     Free 15 / 3 / 1, Lite 150 / 30 / 10, Pro unlimited.
+     Prices: Lite $3.99/mo · $39/yr, Pro $20/mo · $144/yr. */
   const tiers = [
     { id: "free", name: "Free", ai: "15", docs: "3", flow: "1", price: "$0" },
-    { id: "lite", name: "Lite", ai: "150", docs: "30", flow: "10", price: `${liteMonthly}/mo` },
-    { id: "pro", name: "Pro", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "$20/mo" },
+    { id: "lite", name: "Lite", ai: "150", docs: "30", flow: "10", price: "$3.99/mo · $39/yr" },
+    { id: "pro", name: "Pro", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "$20/mo · $144/yr" },
   ];
   const tierAction = (id) => {
     if (id === tier) return <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>;
     return (
-      <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: id === "pro" ? "#d4a437" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+      <button onClick={onOpenPro} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: id === "pro" ? "#d4a437" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
         {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : "Downgrade"}
       </button>
     );
@@ -11740,7 +11843,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 20px 64px" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>Usage</h1>
+        <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>Usage</h1>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: isPro ? "#d4a437" : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
           {isPro && <ProBadge style={{ fontSize: 10 }} />}
           {isPro ? "Pro" : isLite ? "Pro Lite" : "Free"}
@@ -11753,16 +11856,22 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : q?.cap} sub={isLite ? "10x the free tank" : undefined} />
-        <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : dq?.cap} sub={isLite ? "10x the free tank" : undefined} />
-        <Gauge label="FLOWCHART SAVES" used={fq?.used || 0} cap={isPro ? null : fq?.cap} sub={isLite ? "10x the free tank" : undefined} />
+        <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : q?.cap}
+          sub={isPro ? null : isLite ? "Pro removes the meter entirely — unlimited answers." : "Pro Lite gives you 150 answers per 5 days — 10× your current limit."}
+          upgrade={isLite ? "Go Pro — unlimited answers" : "Get Lite — 150 answers per 5 days"} />
+        <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : dq?.cap}
+          sub={isPro ? null : isLite ? "Pro removes the meter entirely — unlimited reads." : "Pro Lite gives you 30 reads per 5 days — 10× your current limit."}
+          upgrade={isLite ? "Go Pro — unlimited reads" : "Get Lite — 30 reads per 5 days"} />
+        <Gauge label="FLOWCHARTS" used={fq?.used || 0} cap={isPro ? null : fq?.cap}
+          sub={isPro ? null : isLite ? "Pro removes the meter entirely — unlimited flowcharts." : "Pro Lite gives you 10 flowcharts per 5 days — 10× your current limit."}
+          upgrade={isLite ? "Go Pro — unlimited flowcharts" : "Get Lite — 10 flowcharts per 5 days"} />
       </div>
 
-      <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>The three rungs</h2>
+      <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>The three rungs</h2>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>
         Lite is a bigger tank, not a smaller Pro — Pro is the only rung without a meter.
       </div>
-      <div style={{ border: `1px solid ${P.line}`, borderRadius: 12, overflow: "hidden" }}>
+      <div className="cb-usage-table-desktop" style={{ border: `1px solid ${P.line}`, borderRadius: 12, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--cb-font)" }}>
           <thead>
             <tr>
@@ -11775,7 +11884,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
             </tr>
           </thead>
           <tbody>
-            {[["AI answers", "ai"], ["Document reads", "docs"], ["Flowchart saves", "flow"]].map(([label, key]) => (
+            {[["AI answers", "ai"], ["Document reads", "docs"], ["Flowcharts", "flow"]].map(([label, key]) => (
               <tr key={key}>
                 <td style={{ padding: "10px 14px", fontSize: FONT_SIZES.small, color: P.ink2, borderBottom: `1px solid ${P.line}` }}>{label}</td>
                 {tiers.map((t) => (
@@ -11795,23 +11904,52 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
           </tbody>
         </table>
       </div>
+      {/* 360px: the four-column table becomes three stacked tier cards —
+         nothing clips, no sideways scroll, every control keeps its
+         44px target. Desktop never sees this. */}
+      <div className="cb-usage-cards">
+        {tiers.map((t) => {
+          const current = t.id === tier;
+          return (
+            <div key={t.id} style={{
+              border: current ? "1px solid rgba(212,175,55,0.6)" : `1px solid ${P.line}`,
+              borderRadius: 12, padding: "16px 16px 18px",
+              background: current ? withAlpha("#d4af37", 0.05) : "transparent",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
+                  {t.id === "pro" && <ProBadge style={{ fontSize: 9 }} />}{t.name}
+                </span>
+                {current && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>}
+              </div>
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4, fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>
+                <span>AI answers — <strong style={{ color: P.ink, fontWeight: 700 }}>{t.ai}</strong></span>
+                <span>Document reads — <strong style={{ color: P.ink, fontWeight: 700 }}>{t.docs}</strong></span>
+                <span>Flowcharts — <strong style={{ color: P.ink, fontWeight: 700 }}>{t.flow}</strong></span>
+              </div>
+              <div style={{ marginTop: 10, fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{t.price}</div>
+              <div style={{ marginTop: 10 }}>{tierAction(t.id)}</div>
+            </div>
+          );
+        })}
+      </div>
 
       {!isPro && (
         <div style={{ marginTop: 32, border: "1px solid rgba(212,175,55,0.35)", borderRadius: 12, padding: "24px 22px", background: P.dark ? "rgba(212,175,55,0.05)" : "rgba(212,175,55,0.08)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <span style={{ fontSize: FONT_SIZES.body, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>The deep end.</span>
+            <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>The deep end.</span>
             <ProBadge />
           </div>
           <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
             Pro removes the meter entirely — unlimited AI answers, document reads, and flowcharts — plus the gold badge, the exclusive black-bronze theme, and the members-only cinematic reels.
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={onOpenPro} style={{ padding: "12px 26px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-              Go Pro — $20/mo
+            <button onClick={onOpenPro} style={{ padding: "12px 26px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              Go Pro — $20/mo · $144/yr
             </button>
             {!isLite && (
-              <button onClick={onOpenPro} style={{ padding: "12px 20px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                Or start smaller — Lite {liteMonthly}/mo
+              <button onClick={onOpenPro} style={{ padding: "12px 20px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                Or start smaller — Lite {liteMonthly}/mo · $39/yr
               </button>
             )}
             {isLite && (
@@ -16403,7 +16541,9 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
             key={String(id)} ref={(el) => { btnRefs.current[id] = el; }}
             role="tab" aria-selected={on} onClick={() => onChange(id)}
             style={{
-              padding: small ? "9px 12px 11px" : "10px 15px 12px",
+              /* 44px touch targets: the tab bar must never clip or crowd
+                 at 360px, and a tab smaller than a fingertip is a miss. */
+              padding: small ? "12px 12px 14px" : "12px 16px 14px",
               border: "none", background: "none", cursor: "pointer",
               color: on ? P.ink : P.faint,
               fontSize: small ? FONT_SIZES.caption : FONT_SIZES.small,
@@ -19438,7 +19578,7 @@ function ConfigStatus({ P, accent }) {
       )}
 
       <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {[["Database", bindings.DB], ["Workers AI", bindings.AI], ["Shared rate limit", bindings.RATE_LIMIT_KV]].map(([label, ok]) => (
+        {[["Database", bindings.DB], ["Workers AI", bindings.AI], ["Shared rate limit", bindings.RATE_LIMIT_D1]].map(([label, ok]) => (
           <span key={label} style={{
             display: "inline-flex", alignItems: "center", gap: 7, fontSize: FONT_SIZES.caption,
             padding: "5px 11px", borderRadius: RADIUS.pill, fontFamily: "var(--cb-font)",
@@ -20201,8 +20341,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 (`lastAnimModeRef`) never passed into this component, which
                 threw a ReferenceError the instant anyone touched it. One
                 control, one place, no crash. */}
-            <Section title="Motion" footer="Off kills the background entirely.">
-              <Row label="Background animation" desc="Particles and entrance effects" control={
+            <Section title="Motion" footer="Off quiets every animated surface — backgrounds, the search instrument, video crossfades, entrance effects. Your device's Reduce Motion setting is honored automatically either way.">
+              <Row label="Motion" desc="Backgrounds, the search instrument, and entrance effects" control={
                 <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
               } last={animationMode === "off"} />
               {/* v6.9: was cookie-persisted and threaded all the way down into
@@ -21000,7 +21140,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     qDot: { width: 4, height: 4, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${withAlpha(accent, 0.5)}` },
     headline: {
-      fontWeight: 600, fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero,
+      fontWeight: 650, fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero,
       lineHeight: 1.25, marginBottom: isMobile ? 28 : 40,
       color: P.ink, letterSpacing: "-0.03em",
       fontFamily: "var(--cb-font)",
@@ -23211,7 +23351,18 @@ function App() {
     // a boolean keeps one long-lived interval that actually gets to finish.
   }, [userId, huddleOpen]);
 
-  useEffect(() => { setCookie("cb_anim2", animationMode); }, [animationMode]);
+  useEffect(() => {
+    setCookie("cb_anim2", animationMode);
+    /* The motion toggle's broadcast: useReducedMotion() listeners re-read
+       cbMotionOff() on "cb:anim", and body.cb-motion-off mirrors the
+       prefers-reduced-motion CSS kills for stylesheet-driven motion the
+       media query can't reach (search-instrument loops, entrance
+       effects). setCookie already busted the cbMotionOff cache above. */
+    try {
+      document.body.classList.toggle("cb-motion-off", animationMode === "off");
+      window.dispatchEvent(new CustomEvent("cb:anim"));
+    } catch {}
+  }, [animationMode]);
   useEffect(() => { const t = setTimeout(() => setCookie("cb_animS", String(animSpeed)), 500); return () => clearTimeout(t); }, [animSpeed]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
   useEffect(() => { setCookie("cb_accent", accentName); }, [accentName]);
@@ -25144,6 +25295,13 @@ summary::-webkit-details-marker { display: none; }
 @media (hover: none), (pointer: coarse) {
   .cb-focus-in { animation: none; filter: none; opacity: 1; }
 }
+/* The reduced-motion door (§6.2): the poster frame is already there
+   (filmBlocked mounts the graded still instead of the reel), and the
+   chrome arrives on one short opacity crossfade — composed, dramatic,
+   zero travel. No blur, no rise: the in-product Off toggle and the OS
+   setting both land here through useReducedMotion(). */
+@keyframes cbIntroStillIn { from { opacity: 0; } to { opacity: 1; } }
+.cb-intro-still .cb-intro-chrome { animation: cbIntroStillIn 0.7s ease both; }
 /* The opening beat: near-black holds briefly, then lifts over two and a
    half seconds to reveal the footage underneath. Opacity only — the veil
    never touches layout or the video elements. */
@@ -25622,6 +25780,22 @@ summary::-webkit-details-marker { display: none; }
   .cb-tx-comet, .cb-tx-ping, .cb-tx-inner-orbit,
   .cb-tx-clock, .cb-tx-dot, .cb-tx-state { animation: none; }
 }
+/* The in-product motion toggle (Settings → Sound & motion → Off) applies
+   the same kills via body.cb-motion-off, for stylesheet-driven motion the
+   OS media query can't reach. Components gate their own motion through
+   useReducedMotion(); this is the backstop for the loops above. */
+body.cb-motion-off .cb-room,
+body.cb-motion-off .cb-tx-arc,
+body.cb-motion-off .cb-room-milestone,
+body.cb-motion-off .cb-tx-comet,
+body.cb-motion-off .cb-tx-ping,
+body.cb-motion-off .cb-tx-inner-orbit,
+body.cb-motion-off .cb-tx-clock,
+body.cb-motion-off .cb-tx-dot,
+body.cb-motion-off .cb-tx-state,
+body.cb-motion-off .cb-trace-chip,
+body.cb-motion-off .cb-focus-in,
+body.cb-motion-off .cb-title-veil { animation: none !important; }
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
    The sweep is a radar, not a progress bar — indeterminate by design,
@@ -25800,10 +25974,18 @@ summary::-webkit-details-marker { display: none; }
    touch pointers have no hover, so it stays visible there instead of
    being unreachable. Both conditions are listed: some touch laptops
    report a coarse pointer but still hover, and some touch phones report
-   hover:none without the coarse tag. */
+   hover:none without the coarse tag. The visual stays compact but the
+   hit area extends to 44px — a fingertip target, not a hover easter egg. */
 @media (hover: none), (pointer: coarse) {
   .cb-bibentry-copy { opacity: 1 !important; }
 }
+.cb-bibentry-copy { position: relative; }
+.cb-bibentry-copy::after {
+  content: ""; position: absolute; inset: -9px; /* 26px visual → 44px hit */
+}
+/* The in-product motion toggle parks the readhead sweep too, not only
+   the OS setting. */
+body.cb-motion-off .cb-readhead-marker { animation: none !important; left: 0; }
 
 /* ── Global button physics: subtle, no bounce ── */
 button {
@@ -26199,10 +26381,11 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 /* ── Answer content typography — premium scientific reading experience ── */
 .cb-answer-enter p { margin: 0 0 1em; }
 .cb-answer-enter p:last-child { margin-bottom: 0; }
-/* Innovation refinement: the answer opens with a lede. When the first
-   thing the synthesis says is a paragraph (not a header), it sets
-   slightly larger — the editorial inhale before the detail. */
-.cb-answer-body > p:first-child { font-size: 1.07em; line-height: 1.82; }
+/* Innovation refinement: the answer opens with a lede. The first real
+   paragraph sets in the title role via renderAnswer's lede flag (inline —
+   a stylesheet :first-child rule can never beat the paragraph's own
+   inline fontSize). The measure below keeps sustained prose at 45–75ch. */
+.cb-answer-body { max-width: 68ch; }
 .cb-answer-enter strong { font-weight: 650; }
 .cb-answer-enter em { font-style: italic; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 {
@@ -26222,10 +26405,13 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
      no space there; renderAnswer strips it). Tightening the box to hug its
      own digits closes the gap without making the badge harder to hit: the
      tap target is padded, not the glyph box, and it still reads as a
-     distinct chip rather than superscript text. */
+     distinct chip rather than superscript text.
+     Wave 4: caption role + tabular numerals — the mono-for-data treatment
+     in the one unified typeface. */
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 0; height: 16px;
-  font-size: 10px; font-weight: 700; font-family: var(--cb-font);
+  font-size: 12px; font-weight: 700; font-family: var(--cb-font);
+  font-variant-numeric: tabular-nums;
   text-decoration: none;
   border-radius: 4px;
   vertical-align: super;
@@ -26735,6 +26921,9 @@ button, a {
 /* The "More" anchor keeps its own stacking level so the dropdown always
    paints above the tab buttons beside it. */
 .cb-jumpmore { position: relative; z-index: 40; }
+/* Usage tiers: desktop gets the comparison table; the stacked card list
+   only appears inside the 480px query below. */
+.cb-usage-cards { display: none; }
 
 @media (max-width: 480px) {
 
@@ -26824,6 +27013,12 @@ button, a {
      side, so the tab row scrolls horizontally instead of clipping. */
   .cb-doc-tabs .cb-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
   .cb-doc-tabs .cb-seg::-webkit-scrollbar { display: none; }
+
+  /* 10 · Usage tiers: the four-column comparison table becomes three
+     stacked tier cards at phone widths — nothing clips, no sideways
+     scroll, every control keeps its 44px target. */
+  .cb-usage-table-desktop { display: none; }
+  .cb-usage-cards { display: flex; flex-direction: column; gap: 12px; }
 }
 
 `;

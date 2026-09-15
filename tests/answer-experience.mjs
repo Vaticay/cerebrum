@@ -133,7 +133,7 @@ group("Jump rail — sticky, unified type, live status, touch-safe");
 await test("JumpRail is sticky with unified-type labels and real statuses", () => {
   assert.match(appSrc, /function JumpRail/, "JumpRail missing");
   assert.match(appSrc, /position: "sticky"/, "rail is not sticky");
-  assert.match(appSrc, /var\(--cb-body\)/, "rail labels are not on the unified body face");
+  assert.match(appSrc, /var\(--cb-font\)/, "rail labels are not on the unified typeface");
   assert.ok(!/var\(--cb-mono\)/.test(appSrc), "mono token still referenced");
 });
 
