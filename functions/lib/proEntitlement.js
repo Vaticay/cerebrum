@@ -28,21 +28,69 @@ export const FREE_AI_ANSWERS_PER_MONTH = 15;
 export const FREE_DOC_READS_PER_MONTH = 3;
 export const FREE_FLOWCHARTS_PER_MONTH = 1;
 
+// ── Pro Lite ──────────────────────────────────────────────────────────────
+// The middle rung, set by Dusty (2026-09-15): $3.99/mo or $39/yr for 10x
+// the free usage. Metered, never unlimited, and none of Pro's perks (no PRO
+// badge, no exclusive theme, no Pro reel). It is a bigger tank, not a
+// smaller Pro — the upsell to full Pro stays intact.
+export const LITE_AI_ANSWERS = 150;
+export const LITE_DOC_READS = 30;
+export const LITE_FLOWCHARTS = 10;
+
+export function isLiteRow(row) {
+  return !!row && row.plan === "lite";
+}
+
+// "pro" | "lite" | "free" — the single tier readout for a user row.
+export function tierOfRow(row) {
+  if (isProRow(row)) return "pro";
+  if (isLiteRow(row)) return "lite";
+  return "free";
+}
+
+// Per-quota-period caps for a tier. Pro is Infinity (unlimited).
+export function capsForTier(tier) {
+  if (tier === "pro") return { ai: Infinity, docs: Infinity, flowcharts: Infinity };
+  if (tier === "lite") return { ai: LITE_AI_ANSWERS, docs: LITE_DOC_READS, flowcharts: LITE_FLOWCHARTS };
+  return { ai: FREE_AI_ANSWERS_PER_MONTH, docs: FREE_DOC_READS_PER_MONTH, flowcharts: FREE_FLOWCHARTS_PER_MONTH };
+}
+
+// Checkout plan name → paid tier. Student rides the monthly price with a
+// coupon but grants full Pro.
+export function tierForCheckoutPlan(plan) {
+  if (plan === "lite-monthly" || plan === "lite-annual") return "lite";
+  return "pro";
+}
+
+// Stripe price ID → paid tier, for webhook events that only carry a price.
+// Unknown IDs return null (the caller falls back to the row's existing tier,
+// then to "pro" to preserve the pre-Lite behavior).
+export function tierForPriceId(env, priceId) {
+  if (!priceId) return null;
+  if (priceId === env.STRIPE_PRICE_LITE_MONTHLY || priceId === env.STRIPE_PRICE_LITE_ANNUAL) return "lite";
+  if (priceId === env.STRIPE_PRICE_MONTHLY || priceId === env.STRIPE_PRICE_ANNUAL) return "pro";
+  return null;
+}
+
 // Display metadata for the two paid plans. The actual money lives in Stripe
 // Price objects; these IDs come from env (STRIPE_PRICE_MONTHLY /
 // STRIPE_PRICE_ANNUAL) and are whitelisted server-side — the client only ever
 // sends "monthly" | "annual", never a price ID.
 export const PRO_PLANS = {
-  monthly: { label: "Pro Monthly", usd: 20, interval: "month" },
-  annual: { label: "Pro Annual", usd: 144, interval: "year", perMonth: 12 },
+  monthly: { label: "Pro Monthly", usd: 20, interval: "month", tier: "pro" },
+  annual: { label: "Pro Annual", usd: 144, interval: "year", perMonth: 12, tier: "pro" },
   // Student perk: the monthly price with the STRIPE_COUPON_STUDENT coupon
   // (60.05% off, repeating 12 months) applied — $7.99/mo for 12 months, then
   // the subscription renews at the standard monthly price automatically.
-  student: { label: "Pro Student", usd: 7.99, interval: "month", couponMonths: 12 },
+  student: { label: "Pro Student", usd: 7.99, interval: "month", couponMonths: 12, tier: "pro" },
+  // Pro Lite: the middle rung — 10x free usage, metered, no Pro perks.
+  "lite-monthly": { label: "Lite Monthly", usd: 3.99, interval: "month", tier: "lite" },
+  "lite-annual": { label: "Lite Annual", usd: 39, interval: "year", perMonth: 3.25, tier: "lite" },
 };
 
 export function isValidProPlan(plan) {
-  return plan === "monthly" || plan === "annual" || plan === "student";
+  return plan === "monthly" || plan === "annual" || plan === "student" ||
+    plan === "lite-monthly" || plan === "lite-annual";
 }
 
 // ── Student verification ────────────────────────────────────────────────
@@ -300,7 +348,8 @@ export function intervalToPlan(interval) {
 // The single choke point for "may this caller burn AI inference?".
 // Returns { kind, userId, aiUsed, aiCap, proSource } where kind is one of:
 //   "pro"       — unlimited AI synthesis
-//   "free"      — AI synthesis until aiUsed >= aiCap this month
+//   "lite"      — AI synthesis until aiUsed >= aiCap this quota period (150)
+//   "free"      — AI synthesis until aiUsed >= aiCap this quota period (15)
 //   "anonymous" — no AI synthesis (no identity to meter)
 export async function resolveAiGate(env, sessionUser) {
   const base = {
@@ -321,6 +370,9 @@ export async function resolveAiGate(env, sessionUser) {
       proSource: row.pro_source || "subscription",
     };
   }
+  // Lite is metered like free, at 10x the caps. It shares the same
+  // pro_usage buckets — only the ceiling differs.
+  const lite = isLiteRow(row);
   let used = 0;
   try {
     await ensureProTables(env);
@@ -331,13 +383,20 @@ export async function resolveAiGate(env, sessionUser) {
   } catch {
     used = 0;
   }
-  return { ...base, kind: "free", userId: sessionUser.id, aiUsed: used };
+  return {
+    ...base,
+    kind: lite ? "lite" : "free",
+    userId: sessionUser.id,
+    aiUsed: used,
+    aiCap: lite ? LITE_AI_ANSWERS : FREE_AI_ANSWERS_PER_MONTH,
+    proSource: lite ? row.pro_source || "subscription" : null,
+  };
 }
 
 export function aiSynthesisAllowed(gate) {
   if (!gate) return false;
   if (gate.kind === "pro") return true;
-  if (gate.kind === "free") return gate.aiUsed < gate.aiCap;
+  if (gate.kind === "free" || gate.kind === "lite") return gate.aiUsed < gate.aiCap;
   return false;
 }
 
@@ -486,18 +545,21 @@ export async function applyStripeEvent(env, event) {
     ).bind(customerId).first();
     return r ? r.id : null;
   };
-  const grantSubscriptionPro = async (userId, interval) => {
+  const grantSubscriptionPro = async (userId, interval, tier) => {
     if (!userId) return { applied: false, reason: "no-user" };
+    // tier is "pro" or "lite" — which paid rung the money bought. Unknown
+    // defaults to "pro" to preserve the pre-Lite behavior exactly.
+    const paidTier = tier === "lite" ? "lite" : "pro";
     // The pro_source guard is the lifetime-protection clause: a row the
     // founder granted by hand is never overwritten by billing events.
     // COALESCE keeps a known interval when an event arrives without one
     // (checkout.session.completed fires before subscription.created).
     await env.DB.prepare(
-      "UPDATE users SET plan = 'pro', pro_source = 'subscription', " +
+      "UPDATE users SET plan = ?, pro_source = 'subscription', " +
         "pro_interval = COALESCE(?, pro_interval) WHERE id = ? " +
         "AND (pro_source IS NULL OR pro_source = 'subscription')"
-    ).bind(interval || null, userId).run();
-    return { applied: true, action: "grant", userId };
+    ).bind(paidTier, interval || null, userId).run();
+    return { applied: true, action: "grant", tier: paidTier, userId };
   };
   const revokeSubscriptionPro = async (userId) => {
     if (!userId) return { applied: false, reason: "no-user" };
@@ -519,9 +581,10 @@ export async function applyStripeEvent(env, event) {
       // Money moved (payment_status=paid) → grant immediately; the
       // subscription.created event that follows confirms it. This closes the
       // "paid but webhook hasn't arrived" gap alongside the client-side
-      // verify-session check.
+      // verify-session check. The tier comes from the checkout metadata the
+      // server itself wrote — the client never chooses it.
       if (userId && obj.payment_status === "paid") {
-        return grantSubscriptionPro(userId);
+        return grantSubscriptionPro(userId, null, tierForCheckoutPlan(obj.metadata && obj.metadata.plan));
       }
       return { applied: !!userId, action: "link-customer", userId };
     }
@@ -531,7 +594,8 @@ export async function applyStripeEvent(env, event) {
         (obj.metadata && obj.metadata.user_id) ||
         (await userIdByCustomer(typeof obj.customer === "string" ? obj.customer : null));
       const t = subscriptionTransition(obj.status);
-      if (t === "grant") return grantSubscriptionPro(userId, subscriptionInterval(obj));
+      const tier = tierForCheckoutPlan(obj.metadata && obj.metadata.plan);
+      if (t === "grant") return grantSubscriptionPro(userId, subscriptionInterval(obj), tier);
       if (t === "revoke") return revokeSubscriptionPro(userId);
       return { applied: false, reason: "status-ignored", status: obj.status };
     }
@@ -544,17 +608,35 @@ export async function applyStripeEvent(env, event) {
     case "invoice.paid":
     case "invoice.payment_succeeded": {
       // Renewal safety net: if a subscription webhook was ever missed, a
-      // successful invoice payment re-asserts Pro. Both event names are
-      // handled — API versions differ on which one fires.
+      // successful invoice payment re-asserts the paid tier. Both event
+      // names are handled — API versions differ on which one fires.
+      // The tier comes from the invoice's price (Lite renewals must not
+      // mint Pro). Fallbacks preserve the pre-Lite behavior: the row's
+      // existing paid tier, then "pro".
       const customerId = typeof obj.customer === "string" ? obj.customer : null;
       const userId = await userIdByCustomer(customerId);
       if (!userId) return { applied: false, reason: "no-user" };
+      let tier = null;
+      try {
+        const lines = obj.lines && Array.isArray(obj.lines.data) ? obj.lines.data : [];
+        const priceId = lines.length && lines[0].price
+          ? (typeof lines[0].price === "string" ? lines[0].price : lines[0].price.id)
+          : null;
+        tier = tierForPriceId(env, priceId);
+      } catch { tier = null; }
+      if (!tier) {
+        const existing = await env.DB.prepare(
+          "SELECT plan FROM users WHERE id = ?"
+        ).bind(userId).first().catch(() => null);
+        if (existing && (existing.plan === "lite" || existing.plan === "pro")) tier = existing.plan;
+      }
+      if (!tier) tier = "pro";
       await env.DB.prepare(
-        "UPDATE users SET plan = 'pro', pro_source = 'subscription', " +
+        "UPDATE users SET plan = ?, pro_source = 'subscription', " +
           "pro_interval = COALESCE(?, pro_interval) " +
           "WHERE id = ? AND (pro_source IS NULL OR pro_source = 'subscription')"
-      ).bind(subscriptionInterval(obj), userId).run();
-      return { applied: true, action: "grant", userId };
+      ).bind(tier, subscriptionInterval(obj), userId).run();
+      return { applied: true, action: "grant", tier, userId };
     }
     case "invoice.payment_failed": {
       // Grace: Stripe retries automatically. Access stays until the
@@ -678,6 +760,8 @@ export async function stripeRequest(env, method, path, params) {
 export function priceIdForPlan(env, plan) {
   if (plan === "monthly") return env.STRIPE_PRICE_MONTHLY || "";
   if (plan === "annual") return env.STRIPE_PRICE_ANNUAL || "";
+  if (plan === "lite-monthly") return env.STRIPE_PRICE_LITE_MONTHLY || "";
+  if (plan === "lite-annual") return env.STRIPE_PRICE_LITE_ANNUAL || "";
   return "";
 }
 

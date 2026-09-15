@@ -929,6 +929,7 @@ function Icon({ name, size = 17, className, style }) {
     case "edit": return <svg {...common}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>;
     case "link": return <svg {...common}><path d="M9.5 14.5l5-5" /><path d="M13.5 6l1.3-1.3a3.6 3.6 0 015 5L18.5 11" /><path d="M10.5 18l-1.3 1.3a3.6 3.6 0 01-5-5L5.5 13" /></svg>;
     case "chart": return <svg {...common}><path d="M3 3v18h18" /><path d="M7 17v-5M12 17V8M17 17v-9" /></svg>;
+    case "gauge": return <svg {...common}><path d="M4.5 19a9 9 0 1115 0" /><path d="M12 15l4.5-4.5" /><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none" /></svg>;
     case "shield": return <svg {...common}><path d="M12 2.5l8 3.2v5.8c0 5.2-3.4 8.9-8 10.3-4.6-1.4-8-5.1-8-10.3V5.7z" /></svg>;
     case "brain": return <svg {...common}><circle cx="12" cy="5.2" r="1.9" /><circle cx="5.7" cy="16" r="1.9" /><circle cx="18.3" cy="16" r="1.9" /><path d="M12 7.1v3.3M12 10.4L7.1 14.4M12 10.4l4.9 4" /></svg>;
     case "partial": return <svg {...common}><path d="M4 13c1.6-2.6 3.2-2.6 4.8 0s3.2 2.6 4.8 0 3.2-2.6 4.8 0" /></svg>;
@@ -6999,6 +7000,14 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
   const monthlyAmt = plans.monthly && plans.monthly.usd != null ? `$${plans.monthly.usd}` : "$20";
   const annualAmt = plans.annual && plans.annual.usd != null ? `$${plans.annual.usd}` : "$144";
   const studentAmt = plans.student && plans.student.usd != null ? `$${plans.student.usd}` : "$7.99";
+  const liteMonthlyAmt = plans["lite-monthly"] && plans["lite-monthly"].usd != null ? `$${plans["lite-monthly"].usd}` : "$3.99";
+  const liteAnnualAmt = plans["lite-annual"] && plans["lite-annual"].usd != null ? `$${plans["lite-annual"].usd}` : "$39";
+  const isLitePlan = plan === "lite-monthly" || plan === "lite-annual";
+  const checkoutLabel = plan === "annual" ? `${annualAmt}/year`
+    : plan === "monthly" ? `${monthlyAmt}/month`
+    : plan === "lite-annual" ? `${liteAnnualAmt}/year`
+    : `${liteMonthlyAmt}/month`;
+  const checkoutVerb = isLitePlan ? "Go Lite" : "Go Pro";
 
   const sendStudentCode = async () => {
     if (studentBusy) return;
@@ -7028,6 +7037,18 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
     setBusy(true); setError("");
     try {
       const r = await apiProPost("create-checkout", { plan });
+      window.location.href = r.url;
+    } catch (e) {
+      setError(e.message || "Couldn't start checkout. Try again?");
+      setBusy(false);
+    }
+  };
+  // Direct plan checkout (used by the Lite → Pro upgrade buttons).
+  const upgradeToPlan = async (planId) => {
+    if (busy) return;
+    setBusy(true); setError("");
+    try {
+      const r = await apiProPost("create-checkout", { plan: planId });
       window.location.href = r.url;
     } catch (e) {
       setError(e.message || "Couldn't start checkout. Try again?");
@@ -7105,12 +7126,54 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             )}
             {error && <div style={{ marginTop: 12, fontSize: FONT_SIZES.small, color: "#e5484d", fontFamily: "var(--cb-body)" }}>{error}</div>}
           </div>
+        ) : proStatus?.isLite ? (
+          <div style={{ textAlign: "center", padding: "12px 0 4px" }}>
+            <div style={{ width: 52, height: 52, borderRadius: "50%", margin: "0 auto 14px", display: "flex", alignItems: "center", justifyContent: "center", background: P.raised, color: P.ink, border: `1px solid ${P.line2}` }}>
+              <Icon name="check" size={24} />
+            </div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-body)" }}>You're Lite.</div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 6, fontFamily: "var(--cb-body)" }}>
+              150 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered — never unlimited.
+            </div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-body)" }}>
+              Want the deep end? Pro is unlimited on all three, plus the badge, theme, and members' reels.
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 18, flexWrap: "wrap" }}>
+              {proStatus.hasBilling && configured && (
+                <button onClick={openPortal} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                  {busy ? "Opening…" : "Manage subscription"}
+                </button>
+              )}
+              <button onClick={() => upgradeToPlan("monthly")} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-body)" }}>
+                {busy ? "Starting…" : `Pro Monthly — ${monthlyAmt}/mo`}
+              </button>
+              <button onClick={() => upgradeToPlan("annual")} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-body)" }}>
+                {busy ? "Starting…" : `Pro Annual — ${annualAmt}/yr`}
+              </button>
+            </div>
+            {error && <div style={{ marginTop: 12, fontSize: FONT_SIZES.small, color: "#e5484d", fontFamily: "var(--cb-body)" }}>{error}</div>}
+          </div>
         ) : (
           <>
             <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
               {planCard("monthly", "Monthly", monthlyAmt, "/month", "Billed monthly · cancel anytime")}
               {planCard("annual", "Annual", annualAmt, "/year", "$12/mo billed annually · two months free", "BEST VALUE")}
               {planCard("student", "Student", studentAmt, "/month", "College email required · 12 months, then $20/mo", "STUDENT")}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "2px 0 14px" }}>
+              <div style={{ flex: 1, height: 1, background: P.line }} />
+              <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.12em", color: P.faint, fontFamily: "var(--cb-body)" }}>OR START SMALLER</span>
+              <div style={{ flex: 1, height: 1, background: P.line }} />
+            </div>
+            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-body)", marginBottom: 10, letterSpacing: "-0.01em" }}>
+              Pro Lite <span style={{ fontWeight: 400, color: P.faint }}>— 10x the free usage</span>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+              {planCard("lite-monthly", "Lite Monthly", liteMonthlyAmt, "/month", "Billed monthly · cancel anytime")}
+              {planCard("lite-annual", "Lite Annual", liteAnnualAmt, "/year", "$3.25/mo billed annually", "LITE VALUE")}
+            </div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 20 }}>
+              150 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered, never unlimited — and none of Pro's badge, theme, or members' reels.
             </div>
             <ul style={{ listStyle: "none", margin: "0 0 20px", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
               {[
@@ -7137,7 +7200,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
               </button>
             ) : !configured ? (
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-body)", textAlign: "center", padding: "12px", border: `1px dashed ${P.line2}`, borderRadius: 10 }}>
-                Checkout opens soon — billing is still being wired up. Your free 15 AI answers a month keep working meanwhile.
+                Checkout opens soon — billing is still being wired up. Your free 15 AI answers every 5 days keep working meanwhile.
               </div>
             ) : plan === "student" ? (
               /* Student checkout is gated behind .edu verification: email →
@@ -7201,7 +7264,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
               </div>
             ) : (
               <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-body)" }}>
-                {busy ? "Starting secure checkout…" : `Go Pro — ${plan === "annual" ? `${annualAmt}/year` : `${monthlyAmt}/month`}`}
+                {busy ? "Starting secure checkout…" : `${checkoutVerb} — ${checkoutLabel}`}
               </button>
             )}
             <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-body)", textAlign: "center" }}>
@@ -7233,8 +7296,40 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   const pct = q && q.cap ? Math.min(100, Math.round((q.used / q.cap) * 100)) : 0;
   const dq = proStatus?.docReads;
   const fq = proStatus?.flowcharts;
+  const isLite = !!proStatus?.isLite;
+  const meterRows = (cta) => (
+    <>
+      <Row
+        label="AI answers"
+        desc={q ? `${q.used} of ${q.cap} used · refills every 5 days` : "—"}
+        control={
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {q && q.cap && (
+              <div style={{ width: 110, maxWidth: "100%", height: 6, borderRadius: 999, background: P.raised, overflow: "hidden", flexShrink: 1, minWidth: 70 }} aria-hidden="true">
+                <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: pct >= 100 ? "#e5484d" : "linear-gradient(90deg,#d4a437,#f2d67c)", transition: "width 300ms ease" }} />
+              </div>
+            )}
+            {cta}
+          </div>
+        }
+      />
+      <Row
+        label="Document reads"
+        desc={dq ? `${dq.used} of ${dq.cap} used · refills every 5 days` : "—"}
+        control={cta}
+      />
+      <Row
+        label="Flowcharts"
+        desc={fq ? `${fq.used} of ${fq.cap} saved · refills every 5 days` : "—"}
+        control={<span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Pro saves unlimited</span>}
+        last />
+    </>
+  );
+  const goProBtn = (
+    <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", flexShrink: 0 }}>Go Pro</button>
+  );
   return (
-    <Section title="Cerebrum Pro" footer={user?.isPro ? undefined : "Free accounts get 15 AI answers, 3 document reads and 1 flowchart every 5 days. Pro is unlimited on all three."}>
+    <Section title={isLite ? "Pro Lite" : "Cerebrum Pro"} footer={user?.isPro ? undefined : "Free accounts get 15 AI answers, 3 document reads and 1 flowchart every 5 days. Pro is unlimited on all three."}>
       {!user ? (
         <Row label="Go further with Pro" desc="Unlimited AI answers, document reads and flowcharts, the PRO badge, an exclusive theme and cinematic backgrounds."
           control={<button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>See plans</button>} last />
@@ -7248,33 +7343,21 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
             </button>
           ) : null}
           last />
-      ) : (
+      ) : isLite ? (
         <>
-        <Row
-          label="AI answers this month"
-          desc={q ? `${q.used} of ${q.cap} free AI answers used · refills every 5 days` : "Free plan · 15 AI answers every 5 days"}
-          control={
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              {q && (
-                <div style={{ width: 110, maxWidth: "100%", height: 6, borderRadius: 999, background: P.raised, overflow: "hidden", flexShrink: 1, minWidth: 70 }} aria-hidden="true">
-                  <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: pct >= 100 ? "#e5484d" : "linear-gradient(90deg,#d4a437,#f2d67c)", transition: "width 300ms ease" }} />
-                </div>
-              )}
-              <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", flexShrink: 0 }}>Go Pro</button>
-            </div>
-          }
-        />
-        <Row
-          label="Document reads this month"
-          desc={dq ? `${dq.used} of ${dq.cap} free document reads used · refills every 5 days` : "Free plan · 3 document reads every 5 days"}
-          control={<button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", flexShrink: 0 }}>Go Pro</button>}
-        />
-        <Row
-          label="Flowcharts this month"
-          desc={fq ? `${fq.used} of ${fq.cap} free flowchart saved · refills every 5 days` : "Free plan · 1 flowchart every 5 days"}
-          control={<span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Pro saves unlimited</span>}
-          last />
+          <Row
+            label="Pro Lite"
+            desc={proStatus?.billing?.plan === "lite-annual" ? "Annual billing · renews automatically" : proStatus?.billing?.plan === "lite-monthly" ? "Monthly billing · renews automatically" : "Active membership · 10x the free usage, metered"}
+            control={proStatus?.hasBilling && proStatus?.proConfigured ? (
+              <button onClick={openPortal} disabled={portalBusy} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                {portalBusy ? "Opening…" : "Manage subscription"}
+              </button>
+            ) : null}
+          />
+          {meterRows(goProBtn)}
         </>
+      ) : (
+        meterRows(goProBtn)
       )}
     </Section>
   );
@@ -11256,6 +11339,214 @@ function WorkspaceEmpty({ P, accent, icon, title, body, action, isMobile = false
       <div style={{ position: "relative", fontSize: isMobile ? 17 : 19, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em" }}>{title}</div>
       <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 8, maxWidth: 400, fontFamily: "var(--cb-body)" }}>{body}</div>
       {action && <div style={{ marginTop: 18 }}>{action}</div>}
+    </div>
+  );
+}
+
+// ── Usage view ────────────────────────────────────────────────────────────
+// Signed-in metered tiers (Free / Lite) get an instrument readout: used,
+// remaining, cap, and the exact refill moment for each bucket, with
+// near-limit and exhausted states. Pro sees its unlimited state. The tier
+// comparison and the Pro pitch sit below the gauges — promotion without
+// obstruction. Deliberately not a card grid: three gauge rails, one spec
+// table, one editorial banner.
+function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  // Anchor the refill countdown to the moment this status snapshot arrived,
+  // so the ticking clock doesn't drift as the component re-renders.
+  const fetchedAtRef = useRef(Date.now());
+  const prevStatusRef = useRef(proStatus);
+  if (prevStatusRef.current !== proStatus) {
+    prevStatusRef.current = proStatus;
+    fetchedAtRef.current = Date.now();
+  }
+  const periodMs = proStatus?.quotaPeriod?.resetsInMs;
+  const resetsAt = periodMs != null ? fetchedAtRef.current + periodMs : null;
+  const remainingMs = resetsAt != null ? Math.max(0, resetsAt - now) : null;
+
+  const fmtRemaining = (ms) => {
+    if (ms == null) return "—";
+    if (ms <= 0) return "refilling…";
+    const m = Math.floor(ms / 60000);
+    const d = Math.floor(m / 1440);
+    const h = Math.floor((m % 1440) / 60);
+    const mm = m % 60;
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${mm}m`;
+    return `${mm}m`;
+  };
+  const refillDate = resetsAt != null
+    ? new Date(resetsAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+    : "—";
+  const refillTime = resetsAt != null
+    ? new Date(resetsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : "";
+
+  if (!user) {
+    return (
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 20px", textAlign: "center" }}>
+        <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em" }}>Usage</div>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-body)" }}>
+          Sign in to see your meters — AI answers, document reads, and flowcharts, with exact refill times.
+        </div>
+        <button onClick={() => onOpenAuth && onOpenAuth("signin")} style={{ marginTop: 20, padding: "12px 28px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#fff", background: accent, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+          Sign in
+        </button>
+      </div>
+    );
+  }
+
+  const tier = proStatus?.tier || "free";
+  const isPro = tier === "pro";
+  const isLite = tier === "lite";
+  const plans = proStatus?.plans || {};
+  const q = proStatus?.quota;
+  const dq = proStatus?.docReads;
+  const fq = proStatus?.flowcharts;
+  const liteMonthly = plans["lite-monthly"]?.usd != null ? `$${plans["lite-monthly"].usd}` : "$3.99";
+
+  const Gauge = ({ label, used, cap, sub }) => {
+    const unlimited = cap == null;
+    const pct = unlimited ? 100 : cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+    const left = unlimited ? null : Math.max(0, cap - used);
+    const state = unlimited ? "unlimited" : left === 0 ? "empty" : pct >= 80 ? "low" : "ok";
+    const fill = state === "empty" ? "#e5484d" : state === "low" ? "#e8a13c" : "linear-gradient(90deg,#d4a437,#f2d67c)";
+    const stateLine = state === "unlimited" ? "No cap. No counting."
+      : state === "empty" ? `Empty — refills in ${fmtRemaining(remainingMs)}`
+      : state === "low" ? `${left} remaining — running low`
+      : `${left} remaining`;
+    return (
+      <div style={{ padding: "18px 0", borderBottom: `1px solid ${P.line}` }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.12em", color: P.faint, fontFamily: "var(--cb-body)" }}>{label}</span>
+          <span style={{ fontSize: FONT_SIZES.heading, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em" }}>
+            {unlimited ? "Unlimited" : <>{used}<span style={{ color: P.faint, fontWeight: 400 }}> / {cap}</span></>}
+          </span>
+        </div>
+        <div style={{ position: "relative", marginTop: 12, height: 8, borderRadius: 999, background: P.raised, overflow: "hidden" }} role="progressbar" aria-valuenow={unlimited ? undefined : used} aria-valuemax={unlimited ? undefined : cap} aria-label={`${label} usage`}>
+          {!unlimited && (
+            <div style={{ position: "absolute", inset: 0, width: `${pct}%`, borderRadius: 999, background: fill, transition: "width 400ms ease" }} />
+          )}
+          {unlimited && (
+            <div style={{ position: "absolute", inset: 0, borderRadius: 999, background: "linear-gradient(90deg,#d4a437,#f2d67c)", opacity: 0.85 }} />
+          )}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: state === "ok" || state === "unlimited" ? 400 : 700, color: state === "empty" ? "#e5484d" : state === "low" ? "#e8a13c" : P.faint, fontFamily: "var(--cb-body)" }}>{stateLine}</span>
+          {sub && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>{sub}</span>}
+        </div>
+      </div>
+    );
+  };
+
+  const tiers = [
+    { id: "free", name: "Free", ai: "15", docs: "3", flow: "1", price: "$0" },
+    { id: "lite", name: "Lite", ai: "150", docs: "30", flow: "10", price: `${liteMonthly}/mo` },
+    { id: "pro", name: "Pro", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "$20/mo" },
+  ];
+  const tierAction = (id) => {
+    if (id === tier) return <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-body)" }}>Current plan</span>;
+    return (
+      <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: id === "pro" ? "linear-gradient(135deg,#f2d67c,#d4a437)" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap" }}>
+        {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : "Downgrade"}
+      </button>
+    );
+  };
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 20px 64px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.02em" }}>Usage</h1>
+        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: isPro ? "#d4a437" : P.ink2, fontFamily: "var(--cb-body)", display: "inline-flex", alignItems: "center", gap: 8 }}>
+          {isPro && <ProBadge style={{ fontSize: 10 }} />}
+          {isPro ? "Pro" : isLite ? "Pro Lite" : "Free"}
+        </span>
+      </div>
+      <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 8, fontFamily: "var(--cb-body)" }}>
+        {isPro
+          ? "No meters, no refills — everything is unlimited."
+          : <>Everything below refills <strong style={{ color: P.ink }}>{refillDate}{refillTime ? ` at ${refillTime}` : ""}</strong> ({fmtRemaining(remainingMs)} left in this period).</>}
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : q?.cap} sub={isLite ? "10x the free tank" : undefined} />
+        <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : dq?.cap} sub={isLite ? "10x the free tank" : undefined} />
+        <Gauge label="FLOWCHART SAVES" used={fq?.used || 0} cap={isPro ? null : fq?.cap} sub={isLite ? "10x the free tank" : undefined} />
+      </div>
+
+      <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>The three rungs</h2>
+      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)", marginBottom: 12 }}>
+        Lite is a bigger tank, not a smaller Pro — Pro is the only rung without a meter.
+      </div>
+      <div style={{ border: `1px solid ${P.line}`, borderRadius: 12, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--cb-body)" }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left", padding: "12px 14px", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.08em", color: P.faint, borderBottom: `1px solid ${P.line}` }}></th>
+              {tiers.map((t) => (
+                <th key={t.id} style={{ textAlign: "center", padding: "12px 8px", fontSize: FONT_SIZES.small, fontWeight: 800, color: t.id === tier ? P.ink : P.ink2, borderBottom: `1px solid ${P.line}`, background: t.id === tier ? withAlpha("#d4af37", 0.06) : "transparent" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{t.id === "pro" && <ProBadge style={{ fontSize: 9 }} />}{t.name}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[["AI answers", "ai"], ["Document reads", "docs"], ["Flowchart saves", "flow"]].map(([label, key]) => (
+              <tr key={key}>
+                <td style={{ padding: "10px 14px", fontSize: FONT_SIZES.small, color: P.ink2, borderBottom: `1px solid ${P.line}` }}>{label}</td>
+                {tiers.map((t) => (
+                  <td key={t.id} style={{ padding: "10px 8px", fontSize: FONT_SIZES.small, fontWeight: t.id === tier ? 800 : 400, color: P.ink, textAlign: "center", borderBottom: `1px solid ${P.line}`, background: t.id === tier ? withAlpha("#d4af37", 0.06) : "transparent" }}>{t[key]}</td>
+                ))}
+              </tr>
+            ))}
+            <tr>
+              <td style={{ padding: "12px 14px", fontSize: FONT_SIZES.small, color: P.ink2 }}>Price</td>
+              {tiers.map((t) => (
+                <td key={t.id} style={{ padding: "12px 8px", textAlign: "center", background: t.id === tier ? withAlpha("#d4af37", 0.06) : "transparent" }}>
+                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{t.price}</div>
+                  {tierAction(t.id)}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {!isPro && (
+        <div style={{ marginTop: 32, border: "1px solid rgba(212,175,55,0.35)", borderRadius: 12, padding: "24px 22px", background: P.dark ? "rgba(212,175,55,0.05)" : "rgba(212,175,55,0.08)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: FONT_SIZES.body, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-display)", letterSpacing: "-0.01em" }}>The deep end.</span>
+            <ProBadge />
+          </div>
+          <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-body)", lineHeight: 1.6 }}>
+            Pro removes the meter entirely — unlimited AI answers, document reads, and flowcharts — plus the gold badge, the exclusive black-bronze theme, and the members-only cinematic reels.
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap", alignItems: "center" }}>
+            <button onClick={onOpenPro} style={{ padding: "12px 26px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+              Go Pro — $20/mo
+            </button>
+            {!isLite && (
+              <button onClick={onOpenPro} style={{ padding: "12px 20px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-body)" }}>
+                Or start smaller — Lite {liteMonthly}/mo
+              </button>
+            )}
+            {isLite && (
+              <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-body)" }}>
+                You're on Lite — a bigger tank. Pro removes the meter entirely.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      {isPro && (
+        <div style={{ marginTop: 32, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-body)", textAlign: "center" }}>
+          Pro member — this page is just the view. Nothing to count.
+        </div>
+      )}
     </div>
   );
 }
@@ -20263,6 +20554,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
       ["investigations", "Investigations", "history", history.length || null],
       ["library", "Library", "bookmark", saved.length || null],
       ...(user ? [["collections", "Collections", "folder", (collections && collections.length) || null]] : []),
+      ...(user ? [["usage", "Usage", "gauge", null]] : []),
     ] },
     ...(user ? [{ label: "People", items: [
       ["inbox", "Inbox", "mail", threads.filter((t) => t.unread).length || null],
@@ -21265,6 +21557,7 @@ function App() {
     } else if (view === "profile") t = "Profile — Cerebrum";
     else if (view === "settings") t = "Settings — Cerebrum";
     else if (view === "trending") t = "Trending in research — Cerebrum";
+    else if (view === "usage") t = "Usage — Cerebrum";
     else if (view === "inbox") t = "Messages — Cerebrum";
     if (document.title !== t) document.title = t;
   }, [view, turns]);
@@ -22198,6 +22491,7 @@ function App() {
          dialog form deliberately — there, interrupting you is correct. */
       case "investigations": setView("investigations"); break;
       case "library": setView("library"); break;
+      case "usage": if (user) setView("usage"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "collections": if (user) setView("collections"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "settings": setSettingsInitialTab("answers"); setView("settings"); break;
       case "people": if (user) setView("people"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
@@ -23018,6 +23312,9 @@ function App() {
       )}
       {view === "trending" && (
         <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} onAsk={(q) => { setView("search"); ask(q); }} /></Reveal>
+      )}
+      {view === "usage" && (
+        <Reveal style={S.pageView} deps={[view]}><UsageView P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={() => setProModalOpen(true)} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} /></Reveal>
       )}
       {/* Commit 99 — Document Mode, as a destination. See NotebookMode's own
           comment for why it stopped being an overlay. */}

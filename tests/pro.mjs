@@ -18,6 +18,14 @@ import {
   FREE_AI_ANSWERS_PER_MONTH,
   FREE_DOC_READS_PER_MONTH,
   FREE_FLOWCHARTS_PER_MONTH,
+  LITE_AI_ANSWERS,
+  LITE_DOC_READS,
+  LITE_FLOWCHARTS,
+  isLiteRow,
+  tierOfRow,
+  capsForTier,
+  tierForCheckoutPlan,
+  tierForPriceId,
   FREE_QUOTA_PERIOD_DAYS,
   periodKey,
   quotaResetsInMs,
@@ -121,6 +129,10 @@ function mockDB() {
               for (const [id, r] of users) if (r.stripe_customer_id === args[0]) return { id };
               return null;
             }
+            if (q.startsWith("SELECT plan FROM users WHERE id = ?")) {
+              const r = users.get(args[0]);
+              return r ? { plan: r.plan } : null;
+            }
             if (q.startsWith("SELECT id, plan, pro_source FROM users WHERE email_lower = ?")) {
               for (const [id, r] of users) if (r.email_lower === args[0]) return { id, plan: r.plan, pro_source: r.pro_source };
               return null;
@@ -182,11 +194,11 @@ function mockDB() {
             throw new Error("mockDB.all: unhandled: " + q.slice(0, 80));
           };
           const run = async () => {
-            if (q === "UPDATE users SET plan = 'pro', pro_source = 'subscription', pro_interval = COALESCE(?, pro_interval) WHERE id = ? AND (pro_source IS NULL OR pro_source = 'subscription')") {
-              const r = users.get(args[1]);
+            if (q === "UPDATE users SET plan = ?, pro_source = 'subscription', pro_interval = COALESCE(?, pro_interval) WHERE id = ? AND (pro_source IS NULL OR pro_source = 'subscription')") {
+              const r = users.get(args[2]);
               if (r && (r.pro_source == null || r.pro_source === "subscription")) {
-                r.plan = "pro"; r.pro_source = "subscription";
-                if (args[0] != null) r.pro_interval = args[0];
+                r.plan = args[0]; r.pro_source = "subscription";
+                if (args[1] != null) r.pro_interval = args[1];
               }
               return { meta: { changes: 1 } };
             }
@@ -304,9 +316,12 @@ await test("quotaResetsInMs counts down to the next 5-day boundary", () => {
   assert.equal(quotaResetsInMs(boundary), fiveDaysMs);
 });
 
-await test("plan enum is closed: monthly | annual only", () => {
+await test("plan enum is closed: monthly | annual | student | lite-* only", () => {
   assert.ok(isValidProPlan("monthly"));
   assert.ok(isValidProPlan("annual"));
+  assert.ok(isValidProPlan("student"));
+  assert.ok(isValidProPlan("lite-monthly"));
+  assert.ok(isValidProPlan("lite-annual"));
   assert.ok(!isValidProPlan("price_123"));
   assert.ok(!isValidProPlan(""));
   assert.ok(!isValidProPlan(null));
@@ -440,6 +455,123 @@ await test("isProRow only trusts plan='pro'", () => {
   assert.ok(!isProRow({ plan: "free" }));
   assert.ok(!isProRow({ plan: null }));
   assert.ok(!isProRow(null));
+});
+
+// ── Pro Lite ──────────────────────────────────────────────────────────────
+
+await test("lite tier helpers: isLiteRow, tierOfRow, capsForTier", () => {
+  assert.ok(isLiteRow({ plan: "lite" }));
+  assert.ok(!isLiteRow({ plan: "pro" }));
+  assert.ok(!isLiteRow({}));
+  assert.ok(!isLiteRow(null));
+  assert.equal(tierOfRow({ plan: "lite" }), "lite");
+  assert.equal(tierOfRow({ plan: "pro" }), "pro");
+  assert.equal(tierOfRow({ plan: null }), "free");
+  assert.equal(tierOfRow(null), "free");
+  assert.deepEqual(capsForTier("lite"), { ai: LITE_AI_ANSWERS, docs: LITE_DOC_READS, flowcharts: LITE_FLOWCHARTS });
+  assert.equal(LITE_AI_ANSWERS, 150);
+  assert.equal(LITE_DOC_READS, 30);
+  assert.equal(LITE_FLOWCHARTS, 10);
+  assert.equal(capsForTier("pro").ai, Infinity);
+  assert.equal(capsForTier("free").ai, FREE_AI_ANSWERS_PER_MONTH);
+});
+
+await test("checkout plan names map to the right paid tier", () => {
+  assert.equal(tierForCheckoutPlan("lite-monthly"), "lite");
+  assert.equal(tierForCheckoutPlan("lite-annual"), "lite");
+  assert.equal(tierForCheckoutPlan("monthly"), "pro");
+  assert.equal(tierForCheckoutPlan("annual"), "pro");
+  assert.equal(tierForCheckoutPlan("student"), "pro");
+  // Fail-safe default: an unknown plan name can never mint Lite.
+  assert.equal(tierForCheckoutPlan("junk"), "pro");
+});
+
+await test("lite price IDs resolve server-side from env, never from the client", () => {
+  const env = {
+    STRIPE_PRICE_LITE_MONTHLY: "price_lm", STRIPE_PRICE_LITE_ANNUAL: "price_la",
+    STRIPE_PRICE_MONTHLY: "price_m", STRIPE_PRICE_ANNUAL: "price_a",
+  };
+  assert.equal(priceIdForPlan(env, "lite-monthly"), "price_lm");
+  assert.equal(priceIdForPlan(env, "lite-annual"), "price_la");
+  assert.equal(priceIdForPlan({}, "lite-monthly"), "");
+  assert.equal(tierForPriceId(env, "price_lm"), "lite");
+  assert.equal(tierForPriceId(env, "price_la"), "lite");
+  assert.equal(tierForPriceId(env, "price_m"), "pro");
+  assert.equal(tierForPriceId(env, "price_a"), "pro");
+  assert.equal(tierForPriceId(env, "price_unknown"), null);
+  assert.equal(tierForPriceId(env, null), null);
+});
+
+await test("lite user meters at 150 AI answers, cap enforced", async () => {
+  const db = mockDB();
+  db.addUser({ id: "uL", email: "lite@x.com", plan: "lite", pro_source: "subscription" });
+  const env = envOf(db);
+  const me = { id: "uL", email: "lite@x.com" };
+  let gate = await resolveAiGate(env, me);
+  assert.equal(gate.kind, "lite");
+  assert.equal(gate.aiCap, 150);
+  assert.equal(gate.proSource, "subscription");
+  assert.equal(aiSynthesisAllowed(gate), true);
+  for (let i = 0; i < 150; i++) await recordAiAnswer(env, "uL");
+  gate = await resolveAiGate(env, me);
+  assert.equal(gate.aiUsed, 150);
+  assert.equal(aiSynthesisAllowed(gate), false);
+});
+
+await test("lite never mints pro perks: isProRow stays false", () => {
+  assert.ok(!isProRow({ plan: "lite" }));
+});
+
+await test("webhook: lite checkout grants plan='lite', never pro", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u10", email: "litebuyer@x.com" });
+  const out = await applyStripeEvent(envOf(db), {
+    id: "evt_L1", type: "checkout.session.completed",
+    data: { object: { payment_status: "paid", customer: "cus_L", metadata: { user_id: "u10", plan: "lite-monthly" } } },
+  });
+  assert.equal(out.applied, true);
+  assert.equal(out.tier, "lite");
+  assert.equal(db._users.get("u10").plan, "lite");
+  assert.equal(db._users.get("u10").pro_source, "subscription");
+});
+
+await test("webhook: lite subscription.created grants lite with interval", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u11", email: "litesub@x.com" });
+  const out = await applyStripeEvent(envOf(db), {
+    id: "evt_L2", type: "customer.subscription.created",
+    data: { object: {
+      customer: "cus_L2", status: "active", metadata: { user_id: "u11", plan: "lite-annual" },
+      items: { data: [{ price: { recurring: { interval: "year" } } }] },
+    } },
+  });
+  assert.equal(out.applied, true);
+  const r = db._users.get("u11");
+  assert.equal(r.plan, "lite");
+  assert.equal(r.pro_interval, "year");
+});
+
+await test("webhook: invoice.paid with a lite price re-asserts lite, not pro", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u12", email: "literenew@x.com", stripe_customer_id: "cus_L3" });
+  const env = { DB: db, STRIPE_PRICE_LITE_MONTHLY: "price_lm" };
+  const out = await applyStripeEvent(env, {
+    id: "evt_L3", type: "invoice.paid",
+    data: { object: { customer: "cus_L3", lines: { data: [{ price: { id: "price_lm" } }] } } },
+  });
+  assert.equal(out.applied, true);
+  assert.equal(out.tier, "lite");
+  assert.equal(db._users.get("u12").plan, "lite");
+});
+
+await test("webhook: subscription.deleted revokes lite too", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u13", email: "litecancel@x.com", plan: "lite", pro_source: "subscription", stripe_customer_id: "cus_L4" });
+  await applyStripeEvent(envOf(db), {
+    id: "evt_L4", type: "customer.subscription.deleted",
+    data: { object: { customer: "cus_L4", metadata: {} } },
+  });
+  assert.equal(db._users.get("u13").plan, null);
 });
 
 // ── Webhook → entitlement transitions ─────────────────────────────────────

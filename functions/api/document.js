@@ -382,15 +382,18 @@ export async function onRequest(context) {
       return errRes("Sign in to analyze documents.", 401, "auth_required", cors);
     }
     const docGate = await proLib.resolveAiGate(env, docUser);
-    // Pro (paid or lifetime) reads unlimited documents. Everyone else draws
-    // from the monthly free bucket.
-    const docPro = docGate.kind === "pro";
+    // Pro (paid or lifetime) reads unlimited documents. Lite and free draw
+    // from their metered buckets — 30 and 3 reads per 5-day period.
+    const docTier = docGate.kind === "pro" ? "pro" : docGate.kind === "lite" ? "lite" : "free";
+    const docCap = docTier === "pro" ? null : proLib.capsForTier(docTier).docs;
     let docUsed = 0;
-    if (!docPro) {
+    if (docCap !== null) {
       docUsed = await proLib.getDocReads(env, docUser.id);
-      if (docUsed >= proLib.FREE_DOC_READS_PER_MONTH) {
+      if (docUsed >= docCap) {
         return errRes(
-          "You've used your 3 free document reads for these 5 days. Cerebrum Pro reads unlimited documents.",
+          docTier === "lite"
+            ? "You've used your 30 Lite document reads for these 5 days. Pro reads unlimited documents."
+            : "You've used your 3 free document reads for these 5 days. Lite reads 30 — Pro reads unlimited.",
           402,
           "doc_quota_exhausted",
           cors
@@ -399,13 +402,13 @@ export async function onRequest(context) {
     }
     const docQuota = () => ({
       used: docUsed,
-      cap: docPro ? null : proLib.FREE_DOC_READS_PER_MONTH,
+      cap: docCap,
     });
     // A failed analysis burns nothing: the read is only recorded after the
     // provider returns. Best-effort like search.js — a failed increment must
     // never fail the analysis itself.
     const meterDocRead = async () => {
-      if (!docPro && docUser) {
+      if (docCap !== null && docUser) {
         try { docUsed = await proLib.recordDocRead(env, docUser.id); } catch {}
       }
     };

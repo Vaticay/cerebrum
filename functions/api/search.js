@@ -8300,10 +8300,11 @@ export async function onRequest(context) {
       // default, so the extractive fallback answers instead of inference.
     }
     const aiSynthesisAllowed = proLib ? proLib.aiSynthesisAllowed(aiGate) : false;
-    // Consume one AI answer from a free account's monthly bucket. Best-effort
-    // by design: a failed increment must never fail the search itself.
+    // Consume one AI answer from a metered account's bucket (free or Lite).
+    // Best-effort by design: a failed increment must never fail the search
+    // itself.
     const meterAiAnswer = async () => {
-      if (proLib && aiGate.kind === "free" && aiGate.userId) {
+      if (proLib && (aiGate.kind === "free" || aiGate.kind === "lite") && aiGate.userId) {
         try { aiGate.aiUsed = await proLib.recordAiAnswer(env, aiGate.userId); } catch {}
       }
     };
@@ -8315,7 +8316,7 @@ export async function onRequest(context) {
       cap: aiGate.kind === "pro" ? null : aiGate.aiCap,
       gated: aiSynthesisAllowed
         ? null
-        : aiGate.kind === "anonymous" ? "signin-required" : "free-cap",
+        : aiGate.kind === "anonymous" ? "signin-required" : aiGate.kind === "lite" ? "lite-cap" : "free-cap",
     });
 
     // ════════════════════════════════════════════════════════════════

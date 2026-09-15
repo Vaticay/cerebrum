@@ -21,8 +21,9 @@ import { checkRateLimit } from "../lib/rateLimit.js";
 import { getSessionUser } from "../lib/authHelpers.js";
 import {
   FREE_AI_ANSWERS_PER_MONTH, FREE_DOC_READS_PER_MONTH, FREE_FLOWCHARTS_PER_MONTH,
+  LITE_AI_ANSWERS, LITE_DOC_READS, LITE_FLOWCHARTS,
   FREE_QUOTA_PERIOD_DAYS, periodKey, quotaResetsInMs,
-  PRO_PLANS, isValidProPlan,
+  PRO_PLANS, isValidProPlan, isLiteRow, tierOfRow, capsForTier, tierForCheckoutPlan,
   ensureProTables, getUserProRow, resolveAiGate,
   getDocReads, getFlowchartCount, recordFlowchart,
   verifyStripeWebhookSignature, applyStripeEvent,
@@ -57,16 +58,29 @@ async function founderCheck(request, env) {
 
 function publicPlans() {
   return {
-    monthly: { usd: PRO_PLANS.monthly.usd, interval: "month", label: "Pro Monthly" },
-    annual: { usd: PRO_PLANS.annual.usd, interval: "year", label: "Pro Annual", perMonth: 12 },
+    monthly: { usd: PRO_PLANS.monthly.usd, interval: "month", label: "Pro Monthly", tier: "pro" },
+    annual: { usd: PRO_PLANS.annual.usd, interval: "year", label: "Pro Annual", perMonth: 12, tier: "pro" },
     student: {
-      usd: PRO_PLANS.student.usd, interval: "month", label: "Pro Student",
+      usd: PRO_PLANS.student.usd, interval: "month", label: "Pro Student", tier: "pro",
       couponMonths: PRO_PLANS.student.couponMonths,
       note: "Verified college students only. $7.99/mo for 12 months, then renews at the standard monthly price.",
+    },
+    // Pro Lite: the middle rung — 10x free usage, metered, none of Pro's perks.
+    "lite-monthly": {
+      usd: PRO_PLANS["lite-monthly"].usd, interval: "month", label: "Lite Monthly", tier: "lite",
+      note: "10x the free usage. Not unlimited — and none of Pro's badge, theme, or reel.",
+    },
+    "lite-annual": {
+      usd: PRO_PLANS["lite-annual"].usd, interval: "year", label: "Lite Annual", tier: "lite",
+      perMonth: PRO_PLANS["lite-annual"].perMonth,
+      note: "10x the free usage. Not unlimited — and none of Pro's badge, theme, or reel.",
     },
     freeAiCap: FREE_AI_ANSWERS_PER_MONTH,
     freeDocReadsCap: FREE_DOC_READS_PER_MONTH,
     freeFlowchartsCap: FREE_FLOWCHARTS_PER_MONTH,
+    liteAiCap: LITE_AI_ANSWERS,
+    liteDocReadsCap: LITE_DOC_READS,
+    liteFlowchartsCap: LITE_FLOWCHARTS,
   };
 }
 
@@ -81,16 +95,21 @@ async function handleStatus(request, env, cors) {
   }
   const gate = await resolveAiGate(env, user);
   const row = await getUserProRow(env, user.id);
-  const isPro = gate.kind === "pro";
-  // Free-tier buckets beyond AI answers: document reads and flowchart saves.
+  const tier = tierOfRow(row); // "pro" | "lite" | "free" — the single tier readout
+  const isPro = tier === "pro";
+  const isLite = tier === "lite";
+  const caps = capsForTier(tier);
+  // Metered buckets beyond AI answers: document reads and flowchart saves.
   // Pro reports null caps (unlimited); the client renders "Unlimited".
-  const docReads = isPro ? { used: 0, cap: null } : { used: await getDocReads(env, user.id), cap: FREE_DOC_READS_PER_MONTH };
-  const flowcharts = isPro ? { used: 0, cap: null } : { used: await getFlowchartCount(env, user.id), cap: FREE_FLOWCHARTS_PER_MONTH };
+  const docReads = isPro ? { used: 0, cap: null } : { used: await getDocReads(env, user.id), cap: caps.docs };
+  const flowcharts = isPro ? { used: 0, cap: null } : { used: await getFlowchartCount(env, user.id), cap: caps.flowcharts };
   return json({
     ...base,
     signedIn: true,
     kind: gate.kind,
+    tier,
     isPro,
+    isLite,
     proSource: gate.proSource,
     aiUsed: gate.aiUsed,
     // null cap = unlimited (Pro). The client renders "Unlimited".
@@ -99,12 +118,13 @@ async function handleStatus(request, env, cors) {
     quota: { used: gate.aiUsed, cap: isPro ? null : gate.aiCap },
     docReads,
     flowcharts,
-    // Free-quota refill info: every free bucket refills together when this
+    // Free-quota refill info: every metered bucket refills together when this
     // countdown hits zero. Pro ignores it (unlimited).
     quotaPeriod: { days: FREE_QUOTA_PERIOD_DAYS, resetsInMs: quotaResetsInMs() },
     billing: {
       plan: gate.proSource === "lifetime" ? "lifetime" : intervalToPlan(row && row.pro_interval),
-      status: row && row.plan === "pro" ? "active" : "none",
+      tier,
+      status: row && (row.plan === "pro" || row.plan === "lite") ? "active" : "none",
     },
     hasBilling: !!(row && row.stripe_customer_id),
   }, 200, cors);
@@ -136,10 +156,15 @@ async function handleCreateCheckout(request, env, cors, body) {
 
   const plan = body && body.plan;
   if (!isValidProPlan(plan)) {
-    return errorResponse(400, "invalid_plan", "Choose a plan: monthly, annual, or student.", cors);
+    return errorResponse(400, "invalid_plan", "Choose a plan: monthly, annual, lite-monthly, lite-annual, or student.", cors);
   }
+  const isLitePlan = plan === "lite-monthly" || plan === "lite-annual";
+  const liteConfigured = !!(env.STRIPE_PRICE_LITE_MONTHLY && env.STRIPE_PRICE_LITE_ANNUAL);
   if (!isBillingConfigured(env)) {
     return errorResponse(503, "billing_not_configured", "Checkout isn't switched on yet.", cors);
+  }
+  if (isLitePlan && !liteConfigured) {
+    return errorResponse(503, "billing_not_configured", "The Lite plan isn't switched on yet.", cors);
   }
   // Student perk: the monthly price with the student coupon applied. Requires
   // a verified, unused .edu verification bound to this account. The coupon
@@ -256,17 +281,19 @@ async function handleVerifySession(request, env, cors, body) {
         await env.DB.prepare("UPDATE users SET stripe_customer_id = ? WHERE id = ?")
           .bind(customerId, user.id).run();
       }
+      // The tier comes from the checkout metadata the server itself wrote.
       // Lifetime guard included: a hand-granted row is never overwritten.
       // COALESCE keeps the webhook-set interval when this check runs first.
+      const paidTier = tierForCheckoutPlan(session.metadata && session.metadata.plan);
       await env.DB.prepare(
-        "UPDATE users SET plan = 'pro', pro_source = 'subscription', " +
+        "UPDATE users SET plan = ?, pro_source = 'subscription', " +
           "pro_interval = COALESCE(?, pro_interval) WHERE id = ? " +
           "AND (pro_source IS NULL OR pro_source = 'subscription')"
-      ).bind(subscriptionInterval(session), user.id).run();
-      return json({ isPro: true }, 200, cors);
+      ).bind(paidTier, subscriptionInterval(session), user.id).run();
+      return json({ isPro: paidTier === "pro", isLite: paidTier === "lite", tier: paidTier }, 200, cors);
     }
     const gate = await resolveAiGate(env, user);
-    return json({ isPro: gate.kind === "pro" }, 200, cors);
+    return json({ isPro: gate.kind === "pro", isLite: gate.kind === "lite", tier: gate.kind === "anonymous" ? "free" : gate.kind }, 200, cors);
   } catch (e) {
     console.error("pro verify-session:", String((e && e.message) || e).slice(0, 200));
     return errorResponse(502, "verify_failed", "Couldn't confirm that payment yet. It usually lands within a minute.", cors);
@@ -503,18 +530,22 @@ async function handleFlowchartAllow(request, env, cors) {
     return errorResponse(401, "auth_required", "Sign in to save flowcharts.", cors);
   }
   const gate = await resolveAiGate(env, user);
-  if (gate.kind === "pro") {
+  const tier = gate.kind === "pro" ? "pro" : gate.kind === "lite" ? "lite" : "free";
+  if (tier === "pro") {
     return json({ ok: true, allowed: true, pro: true, used: 0, cap: null }, 200, cors);
   }
+  const cap = capsForTier(tier).flowcharts;
   const used = await getFlowchartCount(env, user.id);
-  if (used >= FREE_FLOWCHARTS_PER_MONTH) {
+  if (used >= cap) {
     return json({
-      ok: true, allowed: false, used, cap: FREE_FLOWCHARTS_PER_MONTH,
-      message: "Free accounts can save 1 flowchart every 5 days. Cerebrum Pro saves unlimited flowcharts.",
+      ok: true, allowed: false, used, cap, tier,
+      message: tier === "lite"
+        ? "You've used your 30 Lite flowcharts for these 5 days. Pro saves unlimited flowcharts."
+        : "Free accounts can save 1 flowchart every 5 days. Lite saves 30 — Pro saves unlimited.",
     }, 200, cors);
   }
   const next = await recordFlowchart(env, user.id);
-  return json({ ok: true, allowed: true, used: next, cap: FREE_FLOWCHARTS_PER_MONTH }, 200, cors);
+  return json({ ok: true, allowed: true, used: next, cap, tier }, 200, cors);
 }
 
 // ── POST: list-lifetime (founder only) ─────────────────────────────────────
