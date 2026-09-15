@@ -5604,6 +5604,55 @@ function SourcesDialog({ onClose, accent }) {
   );
 }
 
+/* Last CTA click point for the iris origin. Set by Intro, read by App. */
+let lastEnterClick = null;
+
+/* Web Audio "thoom": 120Hz -> 38Hz sine drop + bandpassed noise shimmer.
+   Synthesized in the click handler = gesture-compliant by construction.
+   No audio file needed. */
+function playEnterThoom() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    if (ctx.state === "suspended") ctx.resume();
+    const t = ctx.currentTime;
+    // Low boom
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(38, t + 0.9);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.5, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t); osc.stop(t + 1.3);
+    // Airy shimmer
+    const len = Math.floor(ctx.sampleRate * 0.6);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const noise = ctx.createBufferSource(); noise.buffer = buf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.frequency.value = 2400; bp.Q.value = 0.8;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.08, t + 0.05);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    noise.connect(bp).connect(ng).connect(ctx.destination);
+    noise.start(t);
+    setTimeout(() => { try { ctx.close(); } catch (e) {} }, 2000);
+  } catch (e) { /* audio is enhancement, never a blocker */ }
+}
+
+/* Furthest-corner radius for iris — guarantees full coverage from any origin. */
+function irisEndRadius(x, y) {
+  return Math.sqrt(
+    Math.max(x, window.innerWidth - x) ** 2 +
+    Math.max(y, window.innerHeight - y) ** 2
+  );
+}
+
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const isMobile = useIsMobile();
   const reduced = useReducedMotion();
@@ -5697,13 +5746,31 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
      background frame is retained, no restart, no blank. The no-motion
      path is untouched: animation off or reduced motion goes straight
      through. A second press while leaving is ignored. */
-  const go = (q, submit) => {
+  const go = (q, submit, evt) => {
     const payload = typeof q === "string" ? q : "";
     if (leaving) return;
+    // Capture click point for iris origin (fallback to viewport center)
+    const cx = evt && evt.clientX != null ? evt.clientX : window.innerWidth / 2;
+    const cy = evt && evt.clientY != null ? evt.clientY : window.innerHeight / 2;
+    lastEnterClick = { x: cx, y: cy };
+    // The boom: synthesized thoom on the user's gesture
+    playEnterThoom();
     if (animationMode === "off" || reduced) { onEnter(payload, !!submit, clip); return; }
     setLeaving(true);
+    // Iris close: circle(0) -> circle(full) at click point, 600ms expo-out
+    const veil = document.querySelector(".cb-iris-veil");
+    if (veil) {
+      const r = irisEndRadius(cx, cy);
+      veil.animate(
+        [
+          { clipPath: `circle(0px at ${cx}px ${cy}px)` },
+          { clipPath: `circle(${r}px at ${cx}px ${cy}px)` },
+        ],
+        { duration: 600, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" }
+      );
+    }
     clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, clip), 380);
+    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, clip), 620);
   };
 
   /* One container, used by the header, the hero and the footer, so the
@@ -5767,7 +5834,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       <div aria-hidden="true" style={{
         position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
         background:
-          "radial-gradient(88% 64% at 50% 52%, rgba(8,10,13,0.60) 0%, rgba(8,10,13,0.36) 48%, rgba(8,10,13,0.08) 74%, transparent 88%)," +
+          "radial-gradient(ellipse 100% 88% at 50% 42%, transparent 22%, rgba(0,0,0,0.6) 58%, rgba(0,0,0,0.82) 100%)," +
           "linear-gradient(180deg, rgba(8,10,13,0.44) 0%, transparent 26%, transparent 62%, rgba(8,10,13,0.62) 100%)",
       }} />
 
@@ -5895,7 +5962,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             gap: isMobile ? 16 : 22, flexWrap: "wrap",
             ...(animate ? { animationDelay: "1.6s" } : null),
           }}>
-            <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
+            <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go" style={{
               cursor: "pointer",
               /* Mobile: tighter tracking/size/padding so "START
                  RESEARCHING" fits 360px on one line — it was wrapping to
@@ -6179,6 +6246,8 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           onRunExample={(q) => { setHowOpen(false); go(q, true); }}
         />
       )}
+      {/* Iris veil for the enter transition. WAAPI animates clip-path in go(). */}
+      <div aria-hidden="true" className="cb-iris-veil" />
     </div>
   );
 }
@@ -21975,6 +22044,33 @@ function useDynamicFavicon({ accent, busy, unread }) {
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
+  /* Iris open: when the visitor steps through, a veil starts covering the
+     viewport and irises open from the click point. */
+  const [irisOpen, setIrisOpen] = useState(false);
+  useEffect(() => {
+    if (!entered || !lastEnterClick) return;
+    const { x, y } = lastEnterClick;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    setIrisOpen(true);
+    const raf = requestAnimationFrame(() => {
+      const veil = document.querySelector(".cb-iris-veil-app");
+      if (veil) {
+        const r = irisEndRadius(x, y);
+        veil.style.clipPath = `circle(${r}px at ${x}px ${y}px)`;
+        const anim = veil.animate(
+          [
+            { clipPath: `circle(${r}px at ${x}px ${y}px)` },
+            { clipPath: `circle(0px at ${x}px ${y}px)` },
+          ],
+          { duration: 850, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" }
+        );
+        anim.onfinish = () => setIrisOpen(false);
+      } else {
+        setIrisOpen(false);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [entered]);
   /* The handoff bridge: the clip that was on screen when the visitor
      stepped through the door. The workspace's film opens on it (startAt)
      and its graded still dissolves over the workspace while the new reel
@@ -23687,6 +23783,8 @@ function App() {
           backgroundImage: `url("${filmPoster(enterClip)}")`,
         }} />
       )}
+      {/* Iris open veil: covers viewport on enter, irises open from click point. */}
+      {irisOpen && <div aria-hidden="true" className="cb-iris-veil-app" />}
       {updateReady && <VersionBanner P={P} accent={accent} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
       <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
       {/* ── The field, at application level ──────────────────────────────
@@ -25068,6 +25166,9 @@ summary::-webkit-details-marker { display: none; }
   position: absolute; inset: 0;
   width: 100%; height: 100%; object-fit: cover;
   opacity: 0;
+  /* Film grade: muted Planet-Earth palette. saturate(0.82) is the film-look
+     lever — stock ships oversaturated. Static filter = one-time cost. */
+  filter: brightness(0.92) contrast(1.08) saturate(0.82);
   /* The cross-dissolve's property. Promoting opacity alone is cheap;
      the inline style carries the actual duration per use. */
   will-change: opacity;
@@ -25154,6 +25255,22 @@ summary::-webkit-details-marker { display: none; }
   opacity: 0 !important;
   transition: opacity 0.32s ease;
 }
+/* Iris veil: the theatrical door. Fixed circle that opens from the click
+   point. WAAPI animates clip-path; this is just the base state. */
+.cb-iris-veil {
+  position: fixed; inset: 0; z-index: 9999;
+  background: #0a0a0a;
+  pointer-events: none;
+  will-change: clip-path;
+  clip-path: circle(0px at 50% 50%);
+}
+/* App-side veil for the iris open phase. Starts at full coverage. */
+.cb-iris-veil-app {
+  position: fixed; inset: 0; z-index: 9999;
+  background: #0a0a0a;
+  pointer-events: none;
+  will-change: clip-path;
+}
 /* Primary CTA: a whisper, not a pill — a thin tracked-caps outline that
    brightens on hover. Monumental through restraint. */
 .cb-intro-go {
@@ -25173,8 +25290,28 @@ summary::-webkit-details-marker { display: none; }
    animating it would cost a repaint per frame for texture nobody can see
    move. No blend mode — a plain low-opacity tile is the cheap version. */
 .cb-intro-grain {
-  position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.05;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  position: fixed; inset: -100px; z-index: 2; pointer-events: none; opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 300px 300px;
+  mix-blend-mode: overlay;
+  animation: cb-grain-jitter 0.9s steps(1) infinite;
+  will-change: transform;
+}
+/* Grain must JUMP, not glide — stepped 10fps for 16/35mm feel */
+@keyframes cb-grain-jitter {
+  0%, 100% { transform: translate(0, 0); }
+  10% { transform: translate(-3%, -5%); }
+  20% { transform: translate(-8%, 3%); }
+  30% { transform: translate(4%, -8%); }
+  40% { transform: translate(-3%, 8%); }
+  50% { transform: translate(-8%, 3%); }
+  60% { transform: translate(6%, 0); }
+  70% { transform: translate(0, 6%); }
+  80% { transform: translate(1%, 9%); }
+  90% { transform: translate(-5%, 4%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-intro-grain { animation: none; }
 }
 /* The ghost link draws its underline on hover instead of wearing one. */
 .cb-intro-how { position: relative; text-decoration: none !important; }
