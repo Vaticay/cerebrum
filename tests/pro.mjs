@@ -940,8 +940,10 @@ await test("Pro surfaces stay inside 320px: no fixed-width traps", async () => {
   assert.match(src, /flex: "1 1 160px"[\s\S]{0,80}maxWidth: 260/, "grant input must flex within a max width");
   // Pricing plan cards: stack on narrow screens.
   assert.match(src, /flex: "1 1 200px"/, "plan cards must wrap at 200px basis");
-  // Usage meter row: wraps instead of overflowing.
-  assert.match(src, /flexWrap: "wrap", justifyContent: "flex-end"/, "usage meter must wrap");
+  // Usage meter row: renders through the Row/UIRow anatomy (labels wrap via
+  // overflowWrap:anywhere above) with a real progressbar and used-of-cap text.
+  assert.match(src, /const meterRow = \(label, used, cap/, "usage meterRow helper missing");
+  assert.match(src, /role="progressbar"[\s\S]*?aria-valuemax=\{cap\}/, "usage meter must be a real progressbar");
   // Theme picker: five palettes must wrap on 320px.
   assert.match(src, /flex: "1 1 100px"[\s\S]{0,220}PALETTES\[pn\]\.bg/, "theme swatches must wrap");
   // Settings rows: long emails wrap instead of pushing controls off-screen.

@@ -7217,18 +7217,50 @@ function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "cen
 // Gold the eye can find at a glance, quiet enough to live next to the
 // wordmark. One component so the badge is identical on profile, nav,
 // settings, and the paywall.
+/* The Pro badge: the one gold element in the product. Gold is a brand
+   decision (Pro tier identity), not a gradient default — it renders as a
+   flat, letterspaced cap so it reads as a rank insignia rather than a
+   "premium" gradient button. Weight contract §11: labels at 600+; the
+   small-caps treatment below is the label role. */
 function ProBadge({ style } = {}) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
       fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
       fontFamily: "var(--cb-font)", color: "#1a1405",
-      background: "linear-gradient(135deg, #f2d67c 0%, #d4a437 55%, #a67c1a 100%)",
-      border: "1px solid rgba(212,175,55,0.55)",
+      background: "#d4a437",
       borderRadius: 999, padding: "2px 8px 2px 9px",
-      boxShadow: "0 1px 8px rgba(212,175,55,0.35)",
       whiteSpace: "nowrap", ...style,
     }}>PRO</span>
+  );
+}
+
+/* TierBadge: the membership rank everywhere a membership state is named —
+   profile headers, the Settings account card, the account menu. Pro is the
+   brand gold; Lite is a hairline gold outline (a tier, not a lesser gold);
+   Free is neutral ink. One component so the three ranks never drift apart
+   across surfaces. */
+function TierBadge({ tier, style } = {}) {
+  if (tier === "pro") return <ProBadge style={style} />;
+  if (tier === "lite") return (
+    <span style={{
+      display: "inline-flex", alignItems: "center",
+      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
+      fontFamily: "var(--cb-font)", color: "#c99a2e",
+      border: "1px solid rgba(212,164,55,0.55)",
+      borderRadius: 999, padding: "1px 8px 1px 9px",
+      whiteSpace: "nowrap", ...style,
+    }}>LITE</span>
+  );
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center",
+      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
+      fontFamily: "var(--cb-font)", color: "#9aa3a8",
+      border: "1px solid rgba(150,160,165,0.4)",
+      borderRadius: 999, padding: "1px 8px 1px 9px",
+      whiteSpace: "nowrap", ...style,
+    }}>FREE</span>
   );
 }
 
@@ -7326,7 +7358,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
       }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{name}</span>
-        {tag && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.08em", color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", borderRadius: 999, padding: "2px 8px", fontFamily: "var(--cb-font)" }}>{tag}</span>}
+        {tag && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.08em", color: "#1a1405", background: "#d4a437", borderRadius: 999, padding: "2px 8px", fontFamily: "var(--cb-font)" }}>{tag}</span>}
       </div>
       <div style={{ marginTop: 8, display: "flex", alignItems: "baseline", gap: 4 }}>
         <span style={{ fontSize: FONT_SIZES.display, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>{price}</span>
@@ -7362,7 +7394,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
           <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", padding: "24px 0", textAlign: "center" }}>Checking Pro status…</div>
         ) : user?.isPro ? (
           <div style={{ textAlign: "center", padding: "12px 0 4px" }}>
-            <div style={{ width: 52, height: 52, borderRadius: "50%", margin: "0 auto 14px", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#f2d67c,#a67c1a)", color: "#1a1405" }}>
+            <div style={{ width: 52, height: 52, borderRadius: "50%", margin: "0 auto 14px", display: "flex", alignItems: "center", justifyContent: "center", background: "#d4a437", color: "#1a1405" }}>
               <Icon name="check" size={24} />
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>You're Pro.</div>
@@ -7394,10 +7426,10 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                   {busy ? "Opening…" : "Manage subscription"}
                 </button>
               )}
-              <button onClick={() => upgradeToPlan("monthly")} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
+              <button onClick={() => upgradeToPlan("monthly")} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
                 {busy ? "Starting…" : `Pro Monthly — ${monthlyAmt}/mo`}
               </button>
-              <button onClick={() => upgradeToPlan("annual")} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
+              <button onClick={() => upgradeToPlan("annual")} disabled={busy} style={{ padding: "10px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
                 {busy ? "Starting…" : `Pro Annual — ${annualAmt}/yr`}
               </button>
             </div>
@@ -7445,7 +7477,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             </ul>
             {error && <div style={{ marginBottom: 12, fontSize: FONT_SIZES.small, color: "#e5484d", fontFamily: "var(--cb-font)" }}>{error}</div>}
             {!user ? (
-              <button onClick={() => { onClose(); onSignIn(); }} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              <button onClick={() => { onClose(); onSignIn(); }} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                 Sign in to go Pro
               </button>
             ) : !configured ? (
@@ -7460,7 +7492,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 {studentStep === "verified" ? (
                   <>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                      <span style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", flexShrink: 0 }}>
+                      <span style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "#d4a437", color: "#1a1405", flexShrink: 0 }}>
                         <Icon name="check" size={16} />
                       </span>
                       <div>
@@ -7468,7 +7500,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{studentEmail} · one-time discount, applied at checkout</div>
                       </div>
                     </div>
-                    <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
+                    <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "#d4a437", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
                       {busy ? "Starting secure checkout…" : `Go Pro — ${studentAmt}/mo for 12 months`}
                     </button>
                   </>
@@ -7484,7 +7516,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                         placeholder="000000" inputMode="numeric" autoComplete="one-time-code"
                         style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.body, letterSpacing: "0.3em", textAlign: "center", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, fontFamily: "var(--cb-font)" }} />
                       <button onClick={verifyStudentCode} disabled={studentBusy || studentCode.length !== 6}
-                        style={{ padding: "12px 20px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: studentBusy || studentCode.length !== 6 ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: studentBusy || studentCode.length !== 6 ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+                        style={{ padding: "12px 20px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: studentBusy || studentCode.length !== 6 ? P.raised : "#d4a437", border: "none", borderRadius: 10, cursor: studentBusy || studentCode.length !== 6 ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
                         {studentBusy ? "…" : "Verify"}
                       </button>
                     </div>
@@ -7505,7 +7537,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                         placeholder="you@university.edu" type="email" autoComplete="email"
                         style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.small, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 10, fontFamily: "var(--cb-font)" }} />
                       <button onClick={sendStudentCode} disabled={studentBusy || !studentEmail.includes("@")}
-                        style={{ padding: "12px 20px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: studentBusy || !studentEmail.includes("@") ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: studentBusy || !studentEmail.includes("@") ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                        style={{ padding: "12px 20px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: studentBusy || !studentEmail.includes("@") ? P.raised : "#d4a437", border: "none", borderRadius: 10, cursor: studentBusy || !studentEmail.includes("@") ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0, whiteSpace: "nowrap" }}>
                         {studentBusy ? "Sending…" : "Send code"}
                       </button>
                     </div>
@@ -7513,7 +7545,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 )}
               </div>
             ) : (
-              <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
+              <button onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#1a1405", background: busy ? P.raised : "#d4a437", border: "none", borderRadius: 10, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
                 {busy ? "Starting secure checkout…" : `${checkoutVerb} — ${checkoutLabel}`}
               </button>
             )}
@@ -7528,6 +7560,16 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
 
 // The membership card inside Settings → Account: status, usage meter,
 // upgrade/manage. Section/Row come from SettingsView.
+// The membership section inside Settings → Account: status, usage meters,
+// upgrade/manage. Section/Row come from SettingsView.
+//
+// Redesign (Wave 3): the tiers are framed as capacity, never punishment.
+// Free gets exact numbers and a refill countdown; Lite is sold as 10×
+// capacity; Pro is sold as the end of the meter. The numbers below are
+// load-bearing pricing data — Lite $3.99/mo + $39/yr at 150/30/10 per
+// 5 days, Pro $20/mo or $144/yr unlimited — and are not to be edited for
+// aesthetics. All wiring (portal, checkout entry via onOpenPro, lifetime)
+// is unchanged; only presentation moved.
 function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section, Row }) {
   const [portalBusy, setPortalBusy] = useState(false);
   const openPortal = async () => {
@@ -7541,72 +7583,118 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
       setPortalBusy(false);
     }
   };
+  // Refill countdown off the same 5-day grid the backend enforces
+  // (proStatus.quotaPeriod.resetsInMs). Ticks once a minute — a meter that
+  // counts down in real time at 1s granularity is a battery drain for a
+  // number nobody acts on within the minute.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
+  const fetchedAtRef = useRef(Date.now());
+  const prevStatusRef = useRef(proStatus);
+  if (prevStatusRef.current !== proStatus) { prevStatusRef.current = proStatus; fetchedAtRef.current = Date.now(); }
+  const periodMs = proStatus?.quotaPeriod?.resetsInMs;
+  const refillMs = periodMs != null ? Math.max(0, fetchedAtRef.current + periodMs - now) : null;
+  const fmtRefill = (ms) => {
+    if (ms == null) return "refills every 5 days";
+    const m = Math.floor(ms / 60000);
+    const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+    if (d > 0) return `refills in ${d}d ${h}h`;
+    if (h > 0) return `refills in ${h}h ${mm}m`;
+    if (mm > 0) return `refills in ${mm}m`;
+    return "refilling now";
+  };
+
+  const tier = proStatus?.tier || "free";
+  const isPro = tier === "pro" || !!user?.isPro;
+  const isLite = tier === "lite" || !!proStatus?.isLite;
+  const rank = isPro ? "pro" : isLite ? "lite" : "free";
   const q = proStatus?.quota;
-  const pct = q && q.cap ? Math.min(100, Math.round((q.used / q.cap) * 100)) : 0;
   const dq = proStatus?.docReads;
   const fq = proStatus?.flowcharts;
-  const isLite = !!proStatus?.isLite;
-  const meterRows = (cta) => (
-    <>
+  const canManage = proStatus?.hasBilling && proStatus?.proConfigured;
+
+  // The flat gold CTA is the one place gold-as-a-button is allowed: it is
+  // the product's own Pro brand, used once, for the single primary action.
+  const goldBtn = (label, onClick, disabled) => (
+    <button onClick={onClick} disabled={disabled} style={{
+      padding: "9px 18px", minHeight: 40, fontSize: FONT_SIZES.small, fontWeight: 700,
+      background: "#d4a437", color: "#1a1405", border: "none", borderRadius: 8,
+      cursor: disabled ? "default" : "pointer", fontFamily: "var(--cb-font)",
+      whiteSpace: "nowrap", flexShrink: 0, opacity: disabled ? 0.6 : 1,
+    }}>{label}</button>
+  );
+  const quietBtn = (label, onClick, disabled) => (
+    <button onClick={onClick} disabled={disabled} style={{
+      padding: "8px 16px", minHeight: 40, fontSize: FONT_SIZES.small, fontWeight: 600,
+      background: "transparent", color: P.ink, border: `1px solid ${P.line2}`,
+      borderRadius: 8, cursor: disabled ? "default" : "pointer", fontFamily: "var(--cb-font)",
+      whiteSpace: "nowrap", flexShrink: 0,
+    }}>{label}</button>
+  );
+
+  const meterRow = (label, used, cap, last) => {
+    const pct = cap && cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+    return (
       <Row
-        label="AI answers"
-        desc={q ? `${q.used} of ${q.cap} used · refills every 5 days` : "—"}
+        key={label}
+        label={label}
+        desc={`${used} of ${cap} used · ${fmtRefill(refillMs)}`}
         control={
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {q && q.cap && (
-              <div style={{ width: 110, maxWidth: "100%", height: 6, borderRadius: 999, background: P.raised, overflow: "hidden", flexShrink: 1, minWidth: 70 }} aria-hidden="true">
-                <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: pct >= 100 ? "#e5484d" : "linear-gradient(90deg,#d4a437,#f2d67c)", transition: "width 300ms ease" }} />
-              </div>
-            )}
-            {cta}
+          <div style={{ width: 92, height: 5, borderRadius: 999, background: P.raised, overflow: "hidden", flexShrink: 0 }} role="progressbar" aria-valuenow={used} aria-valuemax={cap} aria-label={`${label} usage`}>
+            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: pct >= 100 ? STATUS.bad : "#d4a437", transition: "width 300ms ease" }} />
           </div>
         }
+        last={last}
       />
-      <Row
-        label="Document reads"
-        desc={dq ? `${dq.used} of ${dq.cap} used · refills every 5 days` : "—"}
-        control={cta}
-      />
-      <Row
-        label="Flowcharts"
-        desc={fq ? `${fq.used} of ${fq.cap} saved · refills every 5 days` : "—"}
-        control={<span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Pro saves unlimited</span>}
-        last />
-    </>
-  );
-  const goProBtn = (
-    <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap", flexShrink: 0 }}>Go Pro</button>
-  );
+    );
+  };
+
+  const capacityLine = isPro
+    ? (user?.proSource === "lifetime" ? "Lifetime member — unlimited AI answers, document reads and flowcharts. No billing, ever."
+      : proStatus?.billing?.plan === "annual" ? "Annual billing · unlimited AI answers, document reads and flowcharts."
+      : proStatus?.billing?.plan === "monthly" ? "Monthly billing · unlimited AI answers, document reads and flowcharts."
+      : "Unlimited AI answers, document reads and flowcharts.")
+    : isLite
+    ? (proStatus?.billing?.plan === "lite-annual" ? "Annual billing · " : proStatus?.billing?.plan === "lite-monthly" ? "Monthly billing · " : "")
+      + "150 AI answers, 30 document reads and 10 flowcharts every 5 days — 10× the free tank."
+    : "15 AI answers, 3 document reads and 1 flowchart every 5 days.";
+  const tierName = isPro ? "Pro" : isLite ? "Pro Lite" : "Free";
+
   return (
-    <Section title={isLite ? "Pro Lite" : "Cerebrum Pro"} footer={user?.isPro ? undefined : "Free accounts get 15 AI answers, 3 document reads and 1 flowchart every 5 days. Pro is unlimited on all three."}>
+    <Section title="Membership">
       {!user ? (
         <Row label="Go further with Pro" desc="Unlimited AI answers, document reads and flowcharts, the PRO badge, an exclusive theme and cinematic backgrounds."
-          control={<button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>See plans</button>} last />
-      ) : user.isPro ? (
-        <Row
-          label={<span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>Cerebrum Pro <ProBadge /></span>}
-          desc={user.proSource === "lifetime" ? "Lifetime member — no billing, ever." : proStatus?.billing?.plan === "annual" ? "Annual billing · renews automatically" : proStatus?.billing?.plan === "monthly" ? "Monthly billing · renews automatically" : "Active membership"}
-          control={proStatus?.hasBilling && proStatus?.proConfigured ? (
-            <button onClick={openPortal} disabled={portalBusy} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-              {portalBusy ? "Opening…" : "Manage subscription"}
-            </button>
-          ) : null}
-          last />
-      ) : isLite ? (
+          control={goldBtn("See plans", onOpenPro)} last />
+      ) : (
         <>
           <Row
-            label="Pro Lite"
-            desc={proStatus?.billing?.plan === "lite-annual" ? "Annual billing · renews automatically" : proStatus?.billing?.plan === "lite-monthly" ? "Monthly billing · renews automatically" : "Active membership · 10x the free usage, metered"}
-            control={proStatus?.hasBilling && proStatus?.proConfigured ? (
-              <button onClick={openPortal} disabled={portalBusy} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                {portalBusy ? "Opening…" : "Manage subscription"}
-              </button>
-            ) : null}
+            label={<span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}><TierBadge tier={rank} />{tierName}</span>}
+            searchKey="Membership"
+            desc={capacityLine}
+            control={canManage ? quietBtn(portalBusy ? "Opening…" : "Manage subscription", openPortal, portalBusy) : null}
           />
-          {meterRows(goProBtn)}
+          {!isPro && meterRow("AI answers", q?.used || 0, q?.cap || (isLite ? 150 : 15), false)}
+          {!isPro && meterRow("Document reads", dq?.used || 0, dq?.cap || (isLite ? 30 : 3), false)}
+          {!isPro && meterRow("Flowcharts", fq?.used || 0, fq?.cap || (isLite ? 10 : 1), rank === "free")}
+          {rank === "free" && (
+            <Row
+              label="Pro Lite"
+              desc="150 AI answers every 5 days — 10× your current limit, plus 30 document reads and 10 flowcharts. $3.99/month or $39/year."
+              control={goldBtn("See plans", onOpenPro)}
+            />
+          )}
+          {rank !== "pro" && (
+            <Row
+              label="Pro"
+              desc="The meter goes away: unlimited AI answers, document reads and flowcharts, plus the badge, the exclusive theme and the members' reels. $20/month or $144/year."
+              control={rank === "free" ? goldBtn("Go Pro", onOpenPro) : quietBtn("Go Pro", onOpenPro)}
+              last
+            />
+          )}
         </>
-      ) : (
-        meterRows(goProBtn)
       )}
     </Section>
   );
@@ -7652,7 +7740,7 @@ function ProGrantPanel({ P, accent, at, Section, Row, onProChanged }) {
             <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run("grant", email); }}
               placeholder="name@example.com" type="email" autoComplete="off"
               style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, fontFamily: "var(--cb-font)", flex: "1 1 160px", minWidth: 0, maxWidth: 260 }} />
-            <button onClick={() => run("grant", email)} disabled={busy || !email.trim()} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: busy ? P.raised : "linear-gradient(135deg,#f2d67c,#d4a437)", color: busy ? P.faint : "#1a1405", border: "none", borderRadius: 8, cursor: busy || !email.trim() ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+            <button onClick={() => run("grant", email)} disabled={busy || !email.trim()} style={{ padding: "8px 16px", minHeight: 40, fontSize: FONT_SIZES.small, fontWeight: 700, background: busy ? P.raised : "#d4a437", color: busy ? P.faint : "#1a1405", border: "none", borderRadius: 8, cursor: busy || !email.trim() ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
               {busy ? "…" : "Grant"}
             </button>
           </div>
@@ -9548,7 +9636,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 events so this deeply-nested renderer needs no props. */}
             {t.aiQuota && t.aiQuota.gated === "free-cap" && (
               <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro"))}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 999, padding: "3px 10px", cursor: "pointer" }}>
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 999, padding: "3px 10px", cursor: "pointer" }}>
                 Out of free AI answers — Go Pro
               </button>
             )}
@@ -11643,7 +11731,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   const tierAction = (id) => {
     if (id === tier) return <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>;
     return (
-      <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: id === "pro" ? "linear-gradient(135deg,#f2d67c,#d4a437)" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+      <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: id === "pro" ? "#d4a437" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
         {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : "Downgrade"}
       </button>
     );
@@ -11718,7 +11806,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
             Pro removes the meter entirely — unlimited AI answers, document reads, and flowcharts — plus the gold badge, the exclusive black-bronze theme, and the members-only cinematic reels.
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={onOpenPro} style={{ padding: "12px 26px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "linear-gradient(135deg,#f2d67c,#d4a437)", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            <button onClick={onOpenPro} style={{ padding: "12px 26px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#1a1405", background: "#d4a437", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
               Go Pro — $20/mo
             </button>
             {!isLite && (
@@ -16339,7 +16427,11 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
 /* ── Row ─────────────────────────────────────────────────────────────
    A line item in a list: label, optional description, optional control.
    Inbox threads, settings rows, saved papers and watched topics were all
-   hand-built versions of this with slightly different padding. */
+   hand-built versions of this with slightly different padding.
+
+   Weight contract (DESIGN_RESEARCH §11): the label is the label role, so
+   it ships at 600; descriptions are body copy at 450. Every interactive
+   row keeps a 44px+ touch target. */
 function UIRow({ label, desc, control, onClick, P, accent, last, tone, style }) {
   return (
     <div
@@ -16348,13 +16440,14 @@ function UIRow({ label, desc, control, onClick, P, accent, last, tone, style }) 
       style={{
         display: "flex", alignItems: "center", gap: SP.md,
         padding: `${SP.md}px ${SP.lg}px ${SP.md}px ${SP.lg - 2}px`,
+        minHeight: 46,
         borderBottom: last ? "none" : `1px solid ${P.line}`,
         cursor: onClick ? "pointer" : "default", minWidth: 0, ...style,
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 500, color: tone === "bad" ? STATUS.bad : P.ink, overflowWrap: "anywhere" }}>{label}</div>
-        {desc && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.45, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
+        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 600, color: tone === "bad" ? STATUS.bad : P.ink, overflowWrap: "anywhere" }}>{label}</div>
+        {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
     </div>
@@ -16860,7 +16953,7 @@ function SaveIndicator({ state, P, accent }) {
   );
 }
 
-function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount }) {
+function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
   // A signed-in account always has a real username by the time this page
@@ -16963,7 +17056,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     (d) => d.toLowerCase().includes(degreeQuery) && d.toLowerCase() !== degreeQuery
   ).slice(0, 8);
 
-  const inputStyle = { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)" };
+  // 16px floor on every typed field: anything smaller makes iOS Safari
+  // zoom the page on focus, which breaks the edit layout.
+  const inputStyle = { width: "100%", padding: "9px 12px", fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)" };
 
   // The ledger, newest first.
   const ledger = [...(history || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -17047,6 +17142,21 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   };
 
   const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+
+  // Membership rank for the identity-level membership row below: derived
+  // the same way as the account menu and the Settings card, from
+  // /api/pro's tier with the user flag as the backstop.
+  const pTier = proStatus?.tier || "free";
+  const pRank = pTier === "pro" || user?.isPro ? "pro" : pTier === "lite" || proStatus?.isLite ? "lite" : "free";
+  const pTierName = pRank === "pro" ? "Pro" : pRank === "lite" ? "Pro Lite" : "Free";
+  const pUsage = pRank === "pro"
+    ? (user?.proSource === "lifetime" ? "Lifetime member · no billing, ever" : "Unlimited AI answers, document reads and flowcharts")
+    : (() => {
+        const q = proStatus?.quota;
+        const cap = q?.cap || (pRank === "lite" ? 150 : 15);
+        const used = q?.used || 0;
+        return `${used} of ${cap} AI answers this period`;
+      })();
 
   return (
     <div role="region" aria-label="Your profile" style={{
@@ -17197,7 +17307,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   width: "100%", resize: "vertical", padding: "10px 12px", borderRadius: 8,
                   background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", lineHeight: 1.6,
+                  fontSize: 16, fontFamily: "var(--cb-font)", lineHeight: 1.6,
                 }}
               />
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
@@ -17233,6 +17343,28 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
         {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 12 }}>{avatarError}</div>}
 
+        {/* ── Membership ───────────────────────────────────────────────
+            Identity-level, not an ad: one quiet row stating the rank and
+            what it carries, opening the same Pro dialog the account menu
+            and Settings membership section use. Free users see exact
+            numbers, never a nag. */}
+        {!editing && (
+          <section aria-label="Membership" style={{ marginTop: 24 }}>
+            <button onClick={onOpenPro} className="cb-row" style={{
+              display: "flex", alignItems: "center", gap: 12, width: "100%",
+              background: "transparent", border: "none", borderTop: `1px solid ${P.line}`,
+              padding: "14px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)",
+            }}>
+              <TierBadge tier={pRank} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>{pTierName}</span>
+                <span style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 1 }}>{pUsage}</span>
+              </span>
+              <span aria-hidden="true" style={{ color: P.faint, fontSize: 20, lineHeight: 1, flexShrink: 0 }}>›</span>
+            </button>
+          </section>
+        )}
+
         {editing && (
           <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px dashed ${P.line2}`, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
             {/* No cover picker: the banner is gone. No bio field: it edits
@@ -17250,7 +17382,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   width: "100%", padding: "10px 12px", borderRadius: 8,
                   background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+                  fontSize: 16, fontFamily: "var(--cb-font)",
                 }}
               />
               <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 4 }}>
@@ -17270,7 +17402,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       padding: "9px 12px", borderRadius: 8, minWidth: 0,
                       background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                       border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                      fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+                      fontSize: 16, fontFamily: "var(--cb-font)",
                     }}
                   />
                 ))}
@@ -17288,7 +17420,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                     placeholder="Degree, e.g. Ph.D. Microbiology"
                     aria-label="Degree"
                     autoComplete="off"
-                    style={{ ...inputStyle, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption }}
+                    style={{ ...inputStyle, fontFamily: "var(--cb-font)", fontSize: 16 }}
                   />
                   {degreeOpen && degreeMatches.length > 0 && (
                     <div style={{
@@ -17313,7 +17445,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
                   placeholder="Grad. year"
                   aria-label="Graduating year"
-                  style={{ ...inputStyle, width: 104, flex: "0 0 104px", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption }}
+                  style={{ ...inputStyle, width: 104, flex: "0 0 104px", fontFamily: "var(--cb-font)", fontSize: 16 }}
                 />
               </div>
               <div style={{ position: "relative", marginTop: 8, maxWidth: 440 }}>
@@ -18087,12 +18219,12 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
           )}
           {!loading && !error && u && (
             <>
-              {/* The cover is the account's own stored value (public-profile
-                  returns it), rendered with the same component as your own
-                  profile — one banner design language everywhere. */}
-              <div style={{ padding: isMobile ? "12px 12px 22px" : "16px 16px 26px" }}>
-                <ProfileCover P={P} cover={u.cover} accent={accent} height={isMobile ? 96 : 120} />
-                <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: isMobile ? -26 : -30, padding: isMobile ? "0 8px" : "0 10px" }}>
+              {/* No banner, anywhere. A profile is a document about a person,
+                  not a billboard: the same editorial identity header as your
+                  own profile — avatar, name, markers, context — with the
+                  relationship buttons in a row beneath it. */}
+              <div style={{ padding: isMobile ? "20px 18px 24px" : "24px 24px 28px" }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
                   <div style={{ width: isMobile ? 64 : 72, height: isMobile ? 64 : 72, flexShrink: 0 }}>
                     {u.avatar_base64 ? (
                       <img
@@ -18110,62 +18242,61 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                       }}>{initial}</div>
                     )}
                   </div>
-
-                  {/* Relationship buttons sit on the avatar's line, the way
-                      every profile people already use puts them. */}
-                  <div style={{ alignItems: "center", display: "flex", gap: 8, paddingBottom: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button
-                      onClick={toggleFollow}
-                      disabled={busy}
-                      className="cb-press"
-                      style={{
-                        padding: "8px 18px", borderRadius: 100, cursor: busy ? "default" : "pointer",
-                        fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)",
-                        opacity: busy ? 0.6 : 1,
-                        background: data.isFollowing ? "transparent" : accent,
-                        color: data.isFollowing ? P.ink2 : at,
-                        border: data.isFollowing ? `1px solid ${P.line2}` : "none",
-                      }}
-                    >{data.isFollowing ? "Following" : "Follow"}</button>
-                    <button
-                      onClick={message}
-                      disabled={msgBusy || !data.canMessage}
-                      className="cb-press"
-                      title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
-                      style={{
-                        padding: "8px 16px", borderRadius: 100,
-                        cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
-                        fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
-                        background: "transparent", color: data.canMessage ? P.ink2 : P.faint,
-                        border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.65,
-                      }}
-                    >{msgBusy ? "Opening…" : "Message"}</button>
+                  <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                      <h2 style={{ fontSize: isMobile ? 21 : 24, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
+                      {isFounder && <VerifiedCheck size={16} />}
+                      {u.isPro && <ProBadge style={{ fontSize: 11 }} />}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)" }}>@{u.username}</span>
+                      {/* "Follows you" is the one piece of relationship context
+                          worth surfacing before you decide to follow back, and
+                          it is information the viewer is already entitled to —
+                          it is about their own account, not a third party's. */}
+                      {data.followsMe && (
+                        <span style={{
+                          fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
+                          background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)",
+                          padding: "2px 8px", borderRadius: RADIUS.pill,
+                        }}>Follows you</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div style={{ padding: isMobile ? "0 8px" : "0 10px" }}>
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                    <h2 style={{ fontSize: isMobile ? 21 : 24, fontWeight: 700, color: P.ink, margin: 0, letterSpacing: "-0.02em", fontFamily: "var(--cb-font)" }}>{displayName}</h2>
-                    {isFounder && <VerifiedCheck size={16} />}
-                    {u.isPro && <ProBadge style={{ fontSize: 11 }} />}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>@{u.username}</span>
-                    {/* "Follows you" is the one piece of relationship context
-                        worth surfacing before you decide to follow back, and
-                        it is information the viewer is already entitled to —
-                        it is about their own account, not a third party's. */}
-                    {data.followsMe && (
-                      <span style={{
-                        fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
-                        background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)",
-                        padding: "2px 8px", borderRadius: RADIUS.pill,
-                      }}>Follows you</span>
-                    )}
-                  </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+                  <button
+                    onClick={toggleFollow}
+                    disabled={busy}
+                    className="cb-press"
+                    style={{
+                      padding: "9px 20px", minHeight: 44, borderRadius: 100, cursor: busy ? "default" : "pointer",
+                      fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
+                      opacity: busy ? 0.6 : 1,
+                      background: data.isFollowing ? "transparent" : accent,
+                      color: data.isFollowing ? P.ink2 : at,
+                      border: data.isFollowing ? `1px solid ${P.line2}` : "none",
+                    }}
+                  >{data.isFollowing ? "Following" : "Follow"}</button>
+                  <button
+                    onClick={message}
+                    disabled={msgBusy || !data.canMessage}
+                    className="cb-press"
+                    title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
+                    style={{
+                      padding: "9px 18px", minHeight: 44, borderRadius: 100,
+                      cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
+                      fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
+                      background: "transparent", color: data.canMessage ? P.ink2 : P.faint,
+                      border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.65,
+                    }}
+                  >{msgBusy ? "Opening…" : "Message"}</button>
                 </div>
 
+                {/* Identity (name, username, follows-you) is already stated
+                    in the editorial header above — the profile's body
+                    starts at the bio. */}
                 {u.bio && (
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.65, marginTop: 12, whiteSpace: "pre-wrap" }}>{u.bio}</div>
                 )}
@@ -18226,7 +18357,6 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage }) 
                     think other people can see. */}
                 <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, marginTop: 18, paddingTop: 12, borderTop: `1px solid ${P.line}` }}>
                   Cerebrum profiles never show what someone searched for, saved, or read. Follower counts don't open into lists.
-                </div>
                 </div>
               </div>
             </>
@@ -19354,8 +19484,13 @@ function ConfigStatus({ P, accent }) {
 function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  // Wave 3 — the three destructive confirmations used to be inline
+  // expanders inside their rows (Delete/Cancel pairs that shifted the
+  // whole list down and broke the one-row-one-action anatomy). They are
+  // real Dialog sheets now, opened from quiet label rows.
+  const [clearOpen, setClearOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   // Commit 67
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState("");
@@ -19363,7 +19498,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const [notifPerm, setNotifPerm] = useState(() => {
     try { return "Notification" in window ? Notification.permission : "unsupported"; } catch { return "unsupported"; }
   });
-  const [confirmReset, setConfirmReset] = useState(false);
   // Commit 75 — founder diagnostics. Loaded only on the Account tab.
   const [founderStatus, setFounderStatus] = useState(null);
   useEffect(() => {
@@ -19393,7 +19527,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // literature query per topic upstream, and paying for it on every visit
   // to Settings regardless of which tab you wanted would be rude to both
   // the user and Europe PMC.
-  useEffect(() => { if (tab === "data") loadWatchlist(); }, [tab, loadWatchlist]);
+  useEffect(() => { if (tab === "privacy") loadWatchlist(); }, [tab, loadWatchlist]);
 
   // Commit 67 — reset every preference to its default.
   //
@@ -19430,7 +19564,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setDataDensity("comfortable");  // cb_density
     const allOn = { call: true, message: true, watch: true };
     setNotify(allOn); setNotifyPref(allOn);
-    setConfirmReset(false);
+    setResetOpen(false);
     sfx();
     toast("Settings reset to defaults.");
   }
@@ -19439,7 +19573,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // equal width (`left`/`width` as `index/count` and `1/count` percentages)
   // — true on desktop, where flex:1 with enough room does divide them
   // evenly, but on a narrow phone viewport there isn't enough width for
-  // "Audio & Voice"/"History & Data" to fit at their natural size, and the
+  // "Sound & motion"/"Privacy & data" to fit at their natural size, and the
   // fixed `flex:1` sizing plus no way to scroll meant the bar just
   // overflowed the dialog with the last tab ("History & Data") clipped
   // clean off the edge — genuinely unreachable, not just visually off.
@@ -19490,61 +19624,80 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
      Nothing was removed. SETTINGS_INDEX below still maps every individual
      row to its tab, so search jumps to the right place.
      ══════════════════════════════════════════════════════════════ */
+  /* ══════════════════════════════════════════════════════════════
+     Wave 3 — the six sections. The old five-tab map split "appearance"
+     from "accessibility" (a distinction that was ours, not the user's)
+     and filed sound under Answers, motion under Appearance, notifications
+     under their own tab, and diagnostics next to library management.
+     These are grouped by the question being asked: who am I here, what
+     comes back, how does it look, how does it sound and move, who sees
+     what and where my data lives, and what's under the hood.
+
+     Nothing was removed. SETTINGS_INDEX below still maps every individual
+     row to its section, so search jumps to the right place.
+     ══════════════════════════════════════════════════════════════ */
   const TABS = [
     ["account", "Account", "user"],
     ["answers", "Answers", "settings"],
     ["appearance", "Appearance", "eye"],
-    ["notifications", "Notifications", "bell"],
-    ["data", "Data & storage", "database"],
+    ["sound", "Sound & motion", "volumeOn"],
+    ["privacy", "Privacy & data", "shield"],
+    ["about", "About", "question"],
   ];
 
   // Commit 67 — settings search.
   //
-  // Seven tabs is past the point where someone can be expected to guess
-  // which one holds "reduce transparency". This index is maintained by
-  // hand rather than derived from the rendered tree: deriving it would mean
-  // rendering every tab's contents on every keystroke to read the labels
-  // back out, and a hand-list is honest about the fact that a new setting
-  // has to be registered here to be findable.
+  // The sections grew from five to six, so someone is even less likely to
+  // guess which one holds "reduce transparency". This index is maintained
+  // by hand rather than derived from the rendered tree: deriving it would
+  // mean rendering every section's contents on every keystroke to read
+  // the labels back out, and a hand-list is honest about the fact that a
+  // new setting has to be registered here to be findable.
   const SETTINGS_INDEX = [
     ["Answer length", "answers", "concise standard detailed response verbosity"],
     ["Check answers against their sources", "answers", "verify verification accuracy claims fact check"],
     // Commit 100 — the privacy controls are findable by the words people
     // actually search for when they go looking for them, which is rarely
     // the word on the switch.
-    ["Let people find me in search", "account", "privacy discoverable hidden invisible directory find people search"],
-    ["Show my institution on my profile", "account", "privacy affiliation university college hide institution"],
-    ["Who can start a conversation with you", "account", "privacy dm direct message strangers block messages"],
+    ["Let people find me in search", "privacy", "privacy discoverable hidden invisible directory find people search"],
+    ["Show my institution on my profile", "privacy", "privacy affiliation university college hide institution"],
+    ["Who can start a conversation with you", "privacy", "privacy dm direct message strangers block messages"],
     ["Animated typing", "answers", "typewriter reveal progressive"],
     ["Citation format", "answers", "apa mla chicago vancouver bibtex reference style"],
     ["Theme", "appearance", "dark light palette colour color"],
     ["Accent color", "appearance", "colour highlight brand"],
-    ["Background animation", "appearance", "motion particles effects reduce"],
+    ["Background animation", "sound", "motion particles effects reduce"],
+    ["Animation speed", "sound", "motion speed particles rate"],
+    ["Pro cinematic reel", "sound", "members backgrounds aurora nebula video"],
+    ["Reduce transparency", "sound", "glass blur frosted solid"],
     ["Data density", "appearance", "compact comfortable spacing padding layout"],
-    ["Desktop notifications", "notifications", "permission browser alerts push"],
-    ["Incoming calls", "notifications", "ring call video audio"],
-    ["Direct messages", "notifications", "inbox dm chat message"],
-    ["Watched topics", "data", "papers literature alerts new research"],
+    ["Desktop notifications", "privacy", "permission browser alerts push"],
+    ["Incoming calls", "privacy", "ring call video audio"],
+    ["Direct messages", "privacy", "inbox dm chat message"],
+    ["Watched topics", "privacy", "papers literature alerts new research"],
     ["High contrast", "appearance", "contrast vision legibility"],
     ["Text size", "appearance", "font size larger bigger zoom"],
     ["Line spacing", "appearance", "leading line height readability"],
-    ["Reduce transparency", "appearance", "glass blur frosted solid"],
     ["Focus indicators", "appearance", "keyboard ring outline focus"],
     ["Dyslexia-friendly font", "appearance", "opendyslexic typeface reading"],
-    ["Auto-read answers", "appearance", "speech tts read aloud voice"],
-    ["Sound effects", "answers", "mute clicks sfx sounds"],
-    ["Search ambience", "answers", "tone background ambient sound"],
+    ["Auto-read answers", "sound", "speech tts read aloud voice"],
+    ["Sound effects", "sound", "mute clicks sfx sounds"],
+    ["Search ambience", "sound", "tone background ambient sound"],
     ["Text to speech", "answers", "elevenlabs voice narration tts"],
-    ["Saved conversations", "data", "history conversations clear delete"],
-    ["Saved articles", "data", "papers sources saved storage"],
-    ["Watched topics list", "data", "watchlist unwatch topics manage"],
-    ["Export workspace", "data", "backup download json export"],
-    ["Import workspace", "data", "restore upload json import"],
-    ["Reset all settings", "data", "defaults restore factory reset"],
-    ["Keyboard shortcuts", "data", "hotkeys keys shortcuts"],
-    ["System status", "data", "health uptime api diagnostics"],
+    ["Saved conversations", "privacy", "history conversations clear delete"],
+    ["Saved articles", "privacy", "papers sources saved storage"],
+    ["Watched topics list", "privacy", "watchlist unwatch topics manage"],
+    ["Export workspace", "privacy", "backup download json export"],
+    ["Import workspace", "privacy", "restore upload json import"],
+    ["Reset all settings", "privacy", "defaults restore factory reset"],
+    ["Clear all data", "privacy", "erase wipe delete everything storage"],
+    ["Keyboard shortcuts", "about", "hotkeys keys shortcuts"],
+    ["System status", "about", "health uptime api diagnostics"],
+    ["Configuration", "about", "env environment variables cloudflare"],
+    ["Version", "about", "build number release"],
     ["Sign out", "account", "logout leave session"],
     ["Delete account", "account", "remove erase danger"],
+    ["Membership", "account", "pro lite free subscription billing quota usage"],
   ];
   const searchHits = query.trim().length < 2 ? [] : (() => {
     const q = query.trim().toLowerCase();
@@ -19578,7 +19731,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
      system-gray panels, iOS green switches, thin-weight system-font labels —
      nothing here matched the rest of the app, which is dark glass, accent-
      driven controls, and a deliberately weightier type scale). ── */
-  const bg = P.dark ? withAlpha(P.surface, 0.55) : P.surface;
+  // Wave 3 — sections are solid and near-opaque now. The old frosted
+  // blur(12px) panels turned every tab into a stack of glass plates and
+  // made text legibility depend on whatever the background reel was
+  // doing behind it. A settings page is an instrument, not a view.
+  const bg = P.surface;
   const divider = P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
   const sectionBg = "transparent";
   const glassBorderS = P.dark ? `1px solid ${withAlpha(P.ink2, 0.1)}` : `1px solid ${P.line2}`;
@@ -19589,8 +19746,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           generous spacing. The old caption-size faint labels made every
           tab read as one undifferentiated list of rows. */}
       {title && <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, marginBottom: 10, paddingLeft: 2, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>{title}</div>}
-      <div style={{ background: bg, border: glassBorderS, borderRadius: 12, overflow: "hidden", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>{children}</div>
-      {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, paddingLeft: 2, lineHeight: 1.5 }}>{footer}</div>}
+      <div style={{ background: bg, border: glassBorderS, borderRadius: 12, overflow: "hidden" }}>{children}</div>
+      {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, paddingLeft: 2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>
   );
 
@@ -19600,8 +19757,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // with no idea which one you were looking for.
   /* Commit 84 — delegates to UIRow. The only thing this still owns is
      the search-jump highlight, which is Settings-specific. */
-  const Row = ({ icon, label, desc, control, onClick, last, destructive }) => {
-    const lit = highlight && highlight === label;
+  const Row = ({ icon, label, desc, control, onClick, last, destructive, searchKey }) => {
+    // The membership row's label is JSX (badge + tier name), so a plain
+    // string comparison can never match it. searchKey gives such rows a
+    // stable string the settings-search highlight can find.
+    const lit = highlight && (highlight === label || (searchKey && highlight === searchKey));
     return (
       <UIRow
         P={P} accent={accent} label={label} desc={desc} last={last}
@@ -19669,7 +19829,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   width: "100%", padding: "9px 12px 9px 34px", borderRadius: 100,
                   background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                  fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+                  fontSize: 16, fontFamily: "var(--cb-font)",
                 }}
               />
               {query.trim().length >= 2 && (
@@ -19770,11 +19930,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               {user.isFounder && (
                 <ProGrantPanel P={P} accent={accent} at={at} Section={Section} Row={Row} onProChanged={onProChanged} />
               )}
-              {/* Commit 100 — privacy sits directly under the account it
-                  governs, above password and everything else. It is the
-                  first thing someone should meet when they come looking for
-                  it, not the last section on a scroll. */}
-              <PrivacySettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} Switch={Switch} Picker={Picker} />
+              {/* Commit 100 — privacy used to sit here, under the account it
+                  governs. It moved to Privacy & data: "who can see me" and
+                  "where does my data live" are one question now. */}
               {/* The Password section is gone. Cerebrum signs you in with an
                   emailed code and nothing else; the password endpoints behind
                   this form created a credential that no sign-in path would
@@ -19836,17 +19994,10 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <Row label="Sign out" desc="Switches this browser back to guest mode." onClick={() => { onSignOut(); close(); }} last />
               </Section>
               <Section title="Danger zone" footer="Deletes your email, password, library and history from our servers. Immediately, and for good.">
-                {!confirmDeleteAccount ? (
-                  <Row label="Delete account" destructive onClick={() => setConfirmDeleteAccount(true)} last />
-                ) : (
-                  <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <span style={{ fontSize: FONT_SIZES.small, color: STATUS.bad }}>Permanently delete your account and all its data?</span>
-                    <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                      <button onClick={() => setConfirmDeleteAccount(false)} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer" }}>Cancel</button>
-                      <button onClick={submitDeleteAccount} disabled={delBusy} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: delBusy ? "default" : "pointer" }}>{delBusy ? "Deleting…" : "Confirm delete"}</button>
-                    </span>
-                  </div>
-                )}
+                {/* Wave 3 — the old inline Delete/Cancel expander shifted
+                    the whole list down and doubled the row anatomy. One
+                    quiet row; the confirmation is a Dialog sheet. */}
+                <Row label="Delete account" destructive onClick={() => setDeleteOpen(true)} last />
               </Section>
             </>)}
           </>)}
@@ -19861,6 +20012,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Citation format" control={
                 <Picker value={citationStyle} options={[["vancouver", "Vancouver"], ["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"], ["bibtex", "BibTeX"]]} onChange={setCitationStyle} />
               } last />
+            </Section>
+
+            {/* Wave 3 — how an answer is spoken is part of what an answer
+                is, so the voice and key pickers live here. Auto-read (the
+                when) lives under Sound & motion. */}
+            <Section title="Read aloud" footer="The built-in voice is free and needs no setup. ElevenLabs is a paid service with more natural voices; if you have an account there, paste your key and answers will use it instead. The key stays in this browser.">
+              <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+              <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
             </Section>
 
           </>)}
@@ -19888,12 +20047,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 </div>
               )}
             </Section>
-            {user && user.isPro && (
-              <Section title="Pro backgrounds" footer="The members-only cinematic reel — aurora, nebula, eclipse, DNA. Replaces the standard backdrop while it's on.">
-                <Row label="Pro cinematic reel" desc="Ten exclusive clips, curated for members." control={<Switch on={proReel} onChange={(v) => { sfx(); setProReel(v); }} label="Pro cinematic reel" />} last />
-              </Section>
-            )}
 
+            {/* Wave 3 — the Pro reel lives under Sound & motion with the
+                rest of the backdrop controls, not beside the palette. */}
             <Section title="Accent color">
               {/* v7.0 redesign: these were full circles — a row of bright
                   candy-colored dots reads more "pick a crayon" than
@@ -19912,31 +20068,25 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               </div>
             </Section>
 
-            {/* Motion lives here, once — it used to also have a duplicate
-                on/off toggle over on the Accessibility tab that read a ref
-                (`lastAnimModeRef`) never passed into this component, which
-                threw a ReferenceError the instant anyone touched it. One
-                control, one place, no crash. */}
-            <Section title="Motion" footer="Off kills the background entirely.">
-              <Row label="Background animation" desc="Particles and entrance effects" control={
-                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
-              } last={animationMode === "off"} />
-              {/* v6.9: was cookie-persisted and threaded all the way down into
-                  LivingBackground already, but had no control anywhere to
-                  actually change it from its default — this is the first real
-                  UI for it, reusing LocalSlider (defined below, previously
-                  built but never called from anywhere). Hidden when the
-                  background is off entirely, since a speed has nothing to
-                  apply to at that point. */}
-              {animationMode !== "off" && (
-                <div style={{ padding: "12px 0 4px" }}>
-                  <LocalSlider label="Animation speed" value={animSpeed} min={0.25} max={2} step={0.25}
-                    format={(v) => `${v}×`} onCommit={(v) => { sfx(); setAnimSpeed(v); }} accent={accent} P={P} />
-                </div>
-              )}
+            {/* Typography and Vision used to live on a separate
+                "Accessibility" tab. The split between "appearance" and
+                "accessibility" was ours, not the user's: someone turning
+                up contrast is doing the same job as someone picking a
+                theme. */}
+            <Section title="Typography" footer="All changes apply immediately and persist across sessions.">
+              <Row label="Text size" control={
+                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={(v) => { sfx(); setFontSize(v); }} />
+              } />
+              <Row label="Dyslexia-friendly font" desc="OpenDyslexic, designed for easier reading with dyslexia" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); if (v) ensureDyslexicFont(); setDyslexicFont(v); }} label="Dyslexic font" />} />
+              <Row label="Line spacing" desc="Increases space between lines of text" control={
+                <Picker value={lineSpacing} options={[["normal", "Normal"], ["relaxed", "Relaxed"], ["loose", "Loose"]]} onChange={(v) => { sfx(); setLineSpacing(v); }} />
+              } last />
             </Section>
 
-            {/* v31: the "Background style" picker is gone — one field per screen now. */}
+            <Section title="Vision">
+              <Row label="High contrast" desc="Maximum contrast between text and background" control={<Switch on={highContrast} onChange={(v) => { sfx(); setHighContrast(v); }} label="High contrast" />} />
+              <Row label="Focus indicators" desc="Shows a visible ring around the focused element" control={<Switch on={focusHighlight} onChange={(v) => { sfx(); setFocusHighlight(v); }} label="Focus indicators" />} last />
+            </Section>
 
             <Section title="Layout density" footer="Tighter spacing. Good for long source lists.">
               <Row label="Data density" control={
@@ -19945,7 +20095,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
           </>)}
 
-          {tab === "notifications" && (<>
+          {tab === "privacy" && (<>
+            {/* Commit 100 — the privacy controls used to sit on the Account
+                tab, directly under the identity they govern. They move here
+                because "who can see me" and "where does my data live" are
+                one question, and the notifications that touch that data are
+                part of the same answer. */}
+            <PrivacySettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} Switch={Switch} Picker={Picker} />
+
             {/* Commit 67. Cerebrum was raising three kinds of desktop
                 notification with no way to turn any of them off short of
                 revoking the browser permission for all three — see
@@ -20024,65 +20181,83 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             )}
           </>)}
 
-          {/* Commit 88 — folded into Appearance. */}
-          {tab === "appearance" && (<>
-            <Section title="Vision" footer="All changes apply immediately and persist across sessions.">
-              <Row label="High contrast" desc="Maximum contrast between text and background" control={<Switch on={highContrast} onChange={(v) => { sfx(); setHighContrast(v); }} label="High contrast" />} />
-              <Row label="Text size" control={
-                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={(v) => { sfx(); setFontSize(v); }} />
-              } />
-              <Row label="Line spacing" desc="Increases space between lines of text" control={
-                <Picker value={lineSpacing} options={[["normal", "Normal"], ["relaxed", "Relaxed"], ["loose", "Loose"]]} onChange={(v) => { sfx(); setLineSpacing(v); }} />
-              } />
-              <Row label="Reduce transparency" desc="Makes panels solid instead of frosted glass" control={<Switch on={reducedTransparency} onChange={(v) => { sfx(); setReducedTransparency(v); }} label="Reduce transparency" />} />
-              <Row label="Focus indicators" desc="Shows a visible ring around the focused element" control={<Switch on={focusHighlight} onChange={(v) => { sfx(); setFocusHighlight(v); }} label="Focus indicators" />} last />
-            </Section>
-
-            <Section title="Reading" footer="OpenDyslexic, designed for easier reading with dyslexia.">
-              <Row label="Dyslexia-friendly font" desc="Uses OpenDyslexic typeface for body text" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); if (v) ensureDyslexicFont(); setDyslexicFont(v); }} label="Dyslexic font" />} last />
-            </Section>
-
-            <Section title="Audio assistance" footer="Voice selection and playback speed are on the Answers tab.">
-              <Row label="Auto-read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto-read" />} last />
-            </Section>
-          </>)}
+          {/* Wave 3 — the contents of this old block were split where they
+              belong: Vision and Reading live in the Appearance tab now,
+              and Auto-read answers moved to Sound & motion. Nothing was
+              removed; the rows are just addressed differently. */}
 
           {/* Commit 88 — folded into Answers: how an answer is spoken is part
               of what an answer is. */}
-          {tab === "answers" && (<>
-            <Section title="Interface sounds">
+          {tab === "sound" && (<>
+            <Section title="Sounds">
               <Row label="Sound effects" desc="Click sounds and ambient tones while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
               <Row label="Search ambience" desc="Background tone while a search runs" control={
                 <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Sfx.preview(v); }} />
               } last />
             </Section>
 
-            <Section title="Read answers aloud" footer="The built-in voice is free and needs no setup. ElevenLabs is a paid service with more natural voices; if you have an account there, paste your key and answers will use it instead. The key stays in this browser.">
-              <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-              <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
+            {/* Motion lives here, once — it used to also have a duplicate
+                on/off toggle over on the Accessibility tab that read a ref
+                (`lastAnimModeRef`) never passed into this component, which
+                threw a ReferenceError the instant anyone touched it. One
+                control, one place, no crash. */}
+            <Section title="Motion" footer="Off kills the background entirely.">
+              <Row label="Background animation" desc="Particles and entrance effects" control={
+                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
+              } last={animationMode === "off"} />
+              {/* v6.9: was cookie-persisted and threaded all the way down into
+                  LivingBackground already, but had no control anywhere to
+                  actually change it from its default — this is the first real
+                  UI for it, reusing LocalSlider. Hidden when the background
+                  is off entirely, since a speed has nothing to apply to at
+                  that point. */}
+              {animationMode !== "off" && (
+                <div style={{ padding: "12px 0 4px" }}>
+                  <LocalSlider label="Animation speed" value={animSpeed} min={0.25} max={2} step={0.25}
+                    format={(v) => `${v}×`} onCommit={(v) => { sfx(); setAnimSpeed(v); }} accent={accent} P={P} />
+                </div>
+              )}
+              <Row label="Reduce transparency" desc="Makes panels solid instead of frosted glass" control={<Switch on={reducedTransparency} onChange={(v) => { sfx(); setReducedTransparency(v); }} label="Reduce transparency" />} last />
             </Section>
-          </>)}
 
-          {tab === "data" && (<>
-            <Section title="Conversation history" footer="Kept in this browser. They never leave your device.">
-              <Row label="Saved conversations" desc={`${(history || []).length} conversation${(history || []).length === 1 ? "" : "s"} kept`} />
-              {(history || []).length > 0 && (
-                <Row label="Clear conversation history" destructive control={
-                  <button onClick={() => { setHistory([]); sfx(); }} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, color: STATUS.bad, background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
+            {/* The Pro palette stays with the Theme picker on Appearance —
+                the cinematic reel is a backdrop behavior, so it lives here
+                with the rest of the backdrop controls. */}
+            <Section title="Pro backgrounds" footer="The members-only cinematic reel — aurora, nebula, eclipse, DNA. Replaces the standard backdrop while it's on.">
+              {user && user.isPro ? (
+                <Row label="Pro cinematic reel" desc="Ten exclusive clips, curated for members." control={<Switch on={proReel} onChange={(v) => { sfx(); setProReel(v); }} label="Pro cinematic reel" />} last />
+              ) : (
+                <Row label="Pro cinematic reel" desc="Members-only backdrop, included with Pro." control={
+                  <button onClick={onOpenPro} style={{ padding: "8px 16px", minHeight: 40, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: "#d4a437", border: `1px solid #d4a437`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>See plans</button>
                 } last />
               )}
             </Section>
 
-            <Section title="Storage" footer="Stored in this browser. Queries go to our server to run the search: details in Privacy.">
-              <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} />
-              <Row label="Clear all data" destructive control={
-                confirmClear
-                  ? <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setConfirmClear(false); sfx(); }} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
-                      <button onClick={() => setConfirmClear(false)} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, color: P.ink2, background: "transparent", border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Cancel</button>
-                    </div>
-                  : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", fontSize: FONT_SIZES.small, color: STATUS.bad, background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear…</button>
-              } last />
+            <Section title="Auto-read" footer="Voice selection and playback speed are on the Answers tab.">
+              <Row label="Auto-read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto-read" />} last />
+            </Section>
+          </>)}
+
+          {/* Continues Privacy & data: history, library, watchlist,
+              workspace and the two destructive confirmations. A second
+              conditional block under the same tab id is deliberate — it
+              keeps each block short enough to read at a glance. */}
+          {tab === "privacy" && (<>
+            <Section title="History & storage" footer="Kept in this browser. They never leave your device. Queries go to our server to run the search: details in Privacy, above.">
+              <Row label="Saved conversations" desc={`${(history || []).length} conversation${(history || []).length === 1 ? "" : "s"} kept`} />
+              <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} last={(history || []).length === 0} />
+              {(history || []).length > 0 && (
+                <Row label="Clear conversation history" destructive control={
+                  <button onClick={() => { setHistory([]); sfx(); }} style={{ padding: "6px 14px", minHeight: 40, fontSize: FONT_SIZES.small, color: STATUS.bad, background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
+                } last />
+              )}
+            </Section>
+
+            {/* Wave 3 — the old "Storage" section's Clear-all-data row used
+                the same inline Delete/Cancel expander pattern as the other
+                destructive confirmations. It is a Dialog sheet now. */}
+            <Section title="Erase" footer="Wipes everything Cerebrum keeps in this browser — conversations, saved articles and preferences. Your account and anything on our servers are untouched.">
+              <Row label="Clear all data" destructive onClick={() => setClearOpen(true)} last />
             </Section>
 
             {/* Commit 67 — watched topics were manageable only from the
@@ -20164,23 +20339,18 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
 
             {/* Commit 67 — there was no way back. Every control on the
-                Appearance and Accessibility tabs writes a cookie, and a
+                Appearance and Sound & motion tabs writes a cookie, and a
                 person who changed eight of them experimenting had to
                 remember and reverse each one by hand. */}
             <Section title="Preferences" footer="Preferences only. Your library and history are untouched.">
-              {!confirmReset ? (
-                <Row label="Reset all settings" desc="Puts every preference back to its default" onClick={() => setConfirmReset(true)} last />
-              ) : (
-                <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>Reset every preference to its default? Your data stays.</span>
-                  <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                    <button onClick={() => setConfirmReset(false)} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Cancel</button>
-                    <button onClick={resetAllSettings} style={{ padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: at, border: "none", borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Reset</button>
-                  </span>
-                </div>
-              )}
+              <Row label="Reset all settings" desc="Puts every preference back to its default" onClick={() => setResetOpen(true)} last />
             </Section>
+          </>)}
 
+          {/* Wave 3 — diagnostics and credits are no longer filed next to
+              library management. About is where you look when something
+              feels wrong or you want to know what you're running. */}
+          {tab === "about" && (<>
             <Section title="Keyboard shortcuts">
               <div style={{ padding: "4px 0" }}>
                 {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], [kbdLabel("D"), "Toggle light / dark"], ["Esc", "Back to search"]].map(([key, desc], i, arr) => (
@@ -20211,10 +20381,56 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Built by" control={<span style={{ fontSize: FONT_SIZES.body, color: accent, fontWeight: 500 }}>Vaticay</span>} last />
             </Section>
           </>)}
-
         </div>
         </div>
       </div>
+
+      {/* Wave 3 — the destructive confirmations. Sheets on mobile, small
+          dialogs on desktop, via the Dialog primitive (focus trap, Escape,
+          scroll lock). Each restates exactly what will happen and what
+          will not, and each has one primary action. */}
+      {clearOpen && (
+        <Dialog label="Clear all data" onClose={() => setClearOpen(false)} zIndex={240}>
+          <p style={{ fontSize: FONT_SIZES.body, fontWeight: 450, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
+            Wipe everything Cerebrum keeps in this browser — your conversations, saved articles and preferences.
+          </p>
+          <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+            Your account and anything stored on our servers are untouched. This can't be undone.
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
+            <button onClick={() => setClearOpen(false)} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my data</button>
+            <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setClearOpen(false); sfx(); }} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear everything</button>
+          </div>
+        </Dialog>
+      )}
+      {resetOpen && (
+        <Dialog label="Reset all settings" onClose={() => setResetOpen(false)} zIndex={240}>
+          <p style={{ fontSize: FONT_SIZES.body, fontWeight: 450, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
+            Put every preference back to its default — theme, accent, sounds, motion, answer style, everything on the Appearance and Sound & motion tabs.
+          </p>
+          <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+            Your library, history and watchlist are untouched.
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
+            <button onClick={() => setResetOpen(false)} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Cancel</button>
+            <button onClick={() => { resetAllSettings(); setResetOpen(false); }} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Reset settings</button>
+          </div>
+        </Dialog>
+      )}
+      {deleteOpen && (
+        <Dialog label="Delete account" onClose={() => setDeleteOpen(false)} zIndex={240}>
+          <p style={{ fontSize: FONT_SIZES.body, fontWeight: 450, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
+            Permanently delete your account and all its data — email, library, history, everything on our servers.
+          </p>
+          <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+            Immediately, and for good. If you have an active subscription, cancel it in the billing portal first — deletion doesn't stop billing.
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
+            <button onClick={() => setDeleteOpen(false)} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my account</button>
+            <button onClick={async () => { await submitDeleteAccount(); }} disabled={delBusy} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: delBusy ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: delBusy ? 0.6 : 1 }}>{delBusy ? "Deleting…" : "Delete my account"}</button>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -21124,7 +21340,107 @@ function ToastHost({ P, accent }) {
 // recreates) re-rendered on every App state change, including something as
 // frequent as a keystroke in the search box, even though almost none of
 // those actually change anything Sidebar shows.
-const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, collections, threads, muted, onToggleMute, onLogoClick, railCollapsed, onToggleRail }) {
+/* ══════════════════════════════════════════════════════════════
+   Wave 3 — AccountMenu: the account menu, finally a real menu.
+
+   The sidebar footer used to jump straight to the profile page, which
+   meant "am I on the right account, what tier am I on, where do I sign
+   out" had three different answers in three different places. This is the
+   one answer: identity (avatar, name, email, tier), then exactly four
+   rows — Profile, Membership, Settings, Sign out — each with the same
+   label + value + chevron anatomy as Settings. Bottom sheet on mobile,
+   small dialog on desktop; uses the Dialog primitive (focus trap, Escape,
+   scroll lock, reduced-motion handled there). */
+function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOpenPro, onSignOut }) {
+  const isMobile = useIsMobile();
+  const tier = proStatus?.tier || "free";
+  const rank = tier === "pro" || user?.isPro ? "pro" : tier === "lite" || proStatus?.isLite ? "lite" : "free";
+  const q = proStatus?.quota;
+  const usageLine = rank === "pro"
+    ? "Unlimited AI answers, document reads, flowcharts"
+    : q && q.cap != null
+      ? `${q.used} of ${q.cap} AI answers · refills every 5 days`
+      : rank === "lite" ? "150 AI answers every 5 days" : "15 AI answers every 5 days";
+  const displayName = user?.name || (user?.email || "").split("@")[0] || "Your profile";
+
+  const menuRow = (label, desc, action, tone) => (
+    <button
+      onClick={action}
+      className="cb-row"
+      style={{
+        display: "flex", alignItems: "center", gap: SP.md, width: "100%",
+        padding: `${SP.md}px ${SP.lg}px`, minHeight: 52, background: "transparent",
+        border: "none", borderBottom: `1px solid ${P.line}`, cursor: "pointer",
+        textAlign: "left", fontFamily: "var(--cb-font)",
+      }}
+    >
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: tone === "bad" ? STATUS.bad : P.ink, fontFamily: "var(--cb-font)" }}>{label}</span>
+        {desc && <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.5, marginTop: 2, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{desc}</span>}
+      </span>
+      <span aria-hidden="true" style={{ color: P.faint, fontSize: 20, lineHeight: 1, flexShrink: 0 }}>›</span>
+    </button>
+  );
+
+  return (
+    <Dialog label="Account" onClose={onClose} zIndex={240} width={400}
+      scrimStyle={isMobile ? { alignItems: "flex-end", padding: 0 } : {}}
+      panelStyle={{
+        background: P.surface, border: `1px solid ${P.line}`,
+        borderRadius: isMobile ? "16px 16px 0 0" : RADIUS.lg,
+        padding: 0, overflow: "hidden", outline: "none",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
+      }}
+    >
+      <div style={{ padding: "18px 20px 14px", display: "flex", alignItems: "center", gap: 14 }}>
+        <span aria-hidden="true" style={{
+          width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          fontSize: 20, fontWeight: 700, fontFamily: "var(--cb-font)",
+          boxShadow: rank === "pro" ? "0 0 0 2px #d4a437" : `0 0 0 1px ${P.line}`,
+          ...avatarSkin(user?.email || user?.id || "cerebrum"),
+        }}>{(user?.email || "?")[0].toUpperCase()}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</span>
+            <TierBadge tier={rank} />
+          </div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {user?.email || "Signed in"}
+          </div>
+        </div>
+      </div>
+      <nav aria-label="Account" style={{ borderTop: `1px solid ${P.line}` }}>
+        {menuRow("Your profile", "Name, photo, research interests, pinned papers", () => { onClose(); onNavigate("profile"); })}
+        {menuRow("Membership", usageLine, () => { onClose(); onOpenPro(); })}
+        {menuRow("Settings", "Appearance, answers, notifications, data", () => { onClose(); onNavigate("settings"); })}
+        <button
+          onClick={() => { onClose(); onSignOut(); }}
+          className="cb-row"
+          style={{
+            display: "flex", alignItems: "center", width: "100%", padding: `${SP.md}px ${SP.lg}px`,
+            minHeight: 52, background: "transparent", border: "none", cursor: "pointer",
+            textAlign: "left", fontFamily: "var(--cb-font)",
+          }}
+        >
+          <span style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: STATUS.bad, fontFamily: "var(--cb-font)" }}>Sign out</span>
+        </button>
+      </nav>
+      <div style={{ padding: "14px 20px calc(16px + env(safe-area-inset-bottom))" }}>
+        <button onClick={onClose} style={{
+          width: "100%", padding: "10px", minHeight: 44, borderRadius: RADIUS.pill,
+          background: "transparent", border: `1px solid ${P.line}`, color: P.ink2,
+          fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)", cursor: "pointer",
+        }}>Close</button>
+      </div>
+    </Dialog>
+  );
+}
+
+const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, collections, threads, muted, onToggleMute, onLogoClick, railCollapsed, onToggleRail, proStatus, onOpenPro, onSignOut, onOpenAuth }) {
+  // Wave 3 — the profile chip opens the account menu, not the profile
+  // page: identity, membership state and sign-out in one place.
+  const [acctOpen, setAcctOpen] = useState(false);
   /* ══════════════════════════════════════════════════════════════
      Commit 88 — the rail is grouped, and its keys match the router.
 
@@ -21295,10 +21611,11 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         </div>
         {user ? (
           <button
-            onClick={() => onNavigate("profile")}
+            onClick={() => setAcctOpen(true)}
             aria-current={view === "profile" ? "page" : undefined}
-            title={expanded ? "Your profile" : (user.name || user.email || "Your profile")}
-            aria-label="Your profile"
+            title={expanded ? "Account" : (user.name || user.email || "Account")}
+            aria-label="Account"
+            aria-haspopup="dialog"
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}
             style={{
               display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
@@ -21332,13 +21649,13 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
           </button>
         ) : (
           <button
-            onClick={() => onNavigate("profile")}
+            onClick={() => { if (onOpenAuth) onOpenAuth("login"); else onNavigate("profile"); }}
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}
             title={expanded ? undefined : "Sign in"}
             aria-label="Sign in"
             style={{
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%",
-              padding: expanded ? "10px 12px" : "10px 0", borderRadius: RADIUS.md, cursor: "pointer",
+              padding: expanded ? "12px 12px" : "12px 0", borderRadius: RADIUS.md, cursor: "pointer",
               border: `1px solid ${withAlpha(accent, 0.4)}`, background: withAlpha(accent, 0.1),
               color: P.ink, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
             }}
@@ -21351,11 +21668,23 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     </nav>
   );
 
-  if (!isMobile) return body;
+  if (!isMobile) return (
+    <>
+      {body}
+      {acctOpen && (
+        <AccountMenu P={P} accent={accent} at={at} user={user} proStatus={proStatus}
+          onClose={() => setAcctOpen(false)} onNavigate={onNavigate} onOpenPro={onOpenPro} onSignOut={onSignOut} />
+      )}
+    </>
+  );
   return (
     <>
       {mobileOpen && <div onClick={onCloseMobile} className="cb-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 29 }} />}
       {body}
+      {acctOpen && (
+        <AccountMenu P={P} accent={accent} at={at} user={user} proStatus={proStatus}
+          onClose={() => setAcctOpen(false)} onNavigate={onNavigate} onOpenPro={onOpenPro} onSignOut={onSignOut} />
+      )}
     </>
   );
 });
@@ -23481,6 +23810,8 @@ function App() {
         onToggleMute={handleToggleMute}
         onLogoClick={handleLogoClick}
         railCollapsed={railCollapsed} onToggleRail={toggleRail}
+        proStatus={proStatus} onOpenPro={() => setProModalOpen(true)} onSignOut={signOut}
+        onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }}
       />
       <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 260), outline: "none"}}>
       {/* Commit 46: the top header is gone for good — every destination it
@@ -23877,6 +24208,7 @@ function App() {
             history={history} saved={saved} setSaved={setSaved} collections={collections}
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
+            proStatus={proStatus} onOpenPro={() => setProModalOpen(true)}
           />
         </Reveal>
       )}
