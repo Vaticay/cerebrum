@@ -16918,12 +16918,6 @@ function FieldRidge({ history, accent, P }) {
   );
 }
 
-// ProfileEmpty is shared by the profile tabs' honest empty states.
-/* Empty states: compact and human, not billboards. A big dashed box with
-   an icon in a tinted square screams "template" — and the research is
-   explicit that icons in rounded tinted boxes are an AI tell. Just say
-   what's true, in one or two lines, and leave room for the content that
-   will be there. */
 /* Star rating for saved papers (Goodreads/Letterboxd-style, 1-5).
    Personal, not aggregated — it's your library, your taste.
    Click a star to set; click the current rating again to clear.
@@ -16975,15 +16969,6 @@ function StarRating({ P, value, onRate, disabled, size = 16 }) {
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function ProfileEmpty({ P, title, body }) {
-  return (
-    <div style={{ padding: "16px 0" }}>
-      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)" }}>{title}</div>
-      <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 4, maxWidth: 480, fontFamily: "var(--cb-font)" }}>{body}</div>
     </div>
   );
 }
@@ -17110,6 +17095,21 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const [avatarError, setAvatarError] = useState("");
   // A profile is a thing you LOOK at; editing it is a mode you enter.
   const [editing, setEditing] = useState(false);
+  /* Profile tabs: Investigations · Library · Collections, Investigations
+     first — the social grammar. One tab visible at a time; the bar below
+     pins to the viewport top on scroll. */
+  const [tab, setTab] = useState("investigations");
+  const tabSentinelRef = useRef(null);
+  const [tabsStuck, setTabsStuck] = useState(false);
+  useEffect(() => {
+    const s = tabSentinelRef.current;
+    if (!s) return;
+    // Zero-height sentinel exactly where the bar sits in flow: when it
+    // scrolls above the viewport, the sticky bar has pinned to the top.
+    const obs = new IntersectionObserver(([e]) => setTabsStuck(e.boundingClientRect.top < 0), { threshold: 0 });
+    obs.observe(s);
+    return () => obs.disconnect();
+  }, []);
 
   // Center-crops whatever aspect ratio was uploaded to a square, then
   // downsamples it onto a fixed 256x256 canvas and re-encodes as JPEG —
@@ -17271,6 +17271,26 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const interests = Array.isArray(profile.interests) ? profile.interests.filter(Boolean) : [];
   const contextLine = [profile.degree, profile.affiliation, profile.grad_year].filter(Boolean).join(" · ");
   const collectionCounts = (collections || []).map((c) => ({ ...c, count: (saved || []).filter((s) => s.collectionId === c.id).length }));
+  /* Work stats for the header strip: GitHub grammar, not Instagram — what
+     the person produced, not who follows them. Tappable, each jumping to
+     its tab. Naked zeros stay hidden; a brand-new account shows no stats
+     row at all and the empty states carry the invitation instead. */
+  const profileStats = [
+    ledger.length > 0 && { id: "investigations", n: ledger.length, label: ledger.length === 1 ? "Investigation" : "Investigations" },
+    (saved || []).length > 0 && { id: "library", n: (saved || []).length, label: (saved || []).length === 1 ? "Paper saved" : "Papers saved" },
+    collectionCounts.length > 0 && { id: "collections", n: collectionCounts.length, label: collectionCounts.length === 1 ? "Collection" : "Collections" },
+  ].filter(Boolean);
+  /* Investigations grouped by month for the diary view — "September 2026"
+     beats an undifferentiated scroll of bare dates. */
+  const monthGroups = [];
+  ledger.forEach((h) => {
+    const d = new Date(h.ts || 0);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    let g = monthGroups.find((x) => x.key === key);
+    if (!g) { g = { key, label, items: [] }; monthGroups.push(g); }
+    g.items.push(h);
+  });
   const shelfName = (sv) => (collections || []).find((c) => c.id === sv.collectionId)?.name || "";
 
   const fmtDate = (ts) => {
@@ -17320,7 +17340,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         <div style={{
           display: "flex", gap: isMobile ? 16 : 20, alignItems: "flex-start",
         }}>
-          <div style={{ position: "relative", width: isMobile ? 72 : 88, height: isMobile ? 72 : 88, flexShrink: 0 }}>
+          <div style={{ position: "relative", width: 96, height: 96, flexShrink: 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
@@ -17398,7 +17418,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               <button
                 onClick={() => setEditing((v) => !v)}
                 style={{
-                  flexShrink: 0, padding: "8px 16px", borderRadius: 100, cursor: "pointer",
+                  flexShrink: 0, padding: "12px 18px", borderRadius: 100, cursor: "pointer",
                   fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
                   background: editing ? accent : "transparent",
                   color: editing ? at : P.ink,
@@ -17482,6 +17502,24 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             metagaming — "they do things to make number go up.") */}
 
         {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 12 }}>{avatarError}</div>}
+
+        {/* ── Work stats ─────────────────────────────────────────────────
+            The tappable totals: investigations run, papers saved,
+            collections built. Each jumps to its tab. */}
+        {profileStats.length > 0 && (
+          <div role="list" aria-label="Research totals" style={{ display: "flex", gap: isMobile ? 24 : 30, marginTop: 18, flexWrap: "wrap" }}>
+            {profileStats.map((s) => (
+              <button key={s.id} role="listitem" onClick={() => setTab(s.id)} style={{
+                background: "none", border: "none", padding: "6px 0", cursor: "pointer",
+                display: "flex", alignItems: "baseline", gap: 7, minHeight: 44,
+                fontFamily: "var(--cb-font)",
+              }}>
+                <span style={{ fontSize: isMobile ? 19 : 21, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
+                <span style={{ fontSize: FONT_SIZES.small, color: P.faint }}>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ── Membership ───────────────────────────────────────────────
             Identity-level, not an ad: one quiet row stating the rank and
@@ -17676,15 +17714,40 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </section>
         )}
 
-        {/* ── Library ────────────────────────────────────────────────
-            Artifacts first: the papers say who this is. Counts live on the
-            section header, never in a hero stat row. */}
-        <section aria-label="Saved papers" style={{ marginTop: 30 }}>
-          <div style={{ ...eyebrow, marginBottom: 4 }}>Library · {(saved || []).length}</div>
+        {/* ── Profile tabs ───────────────────────────────────────────────
+            The social grammar: identity above, sticky tabs, scannable lists
+            below. Counts live on the tabs; Investigations leads — it's the
+            core loop and the freshest content. */}
+        <div ref={tabSentinelRef} aria-hidden="true" style={{ height: 0 }} />
+        <div style={{
+          position: "sticky", top: 0, zIndex: 30, background: P.bg,
+          margin: isMobile ? "30px -18px 0" : "34px -28px 0",
+          padding: isMobile ? "10px 18px 0" : "12px 28px 0",
+          /* The mobile hamburger is fixed at top:14 left:14 (38px). When
+             the bar pins, ease the tabs right so the first tab never slides
+             underneath it. */
+          paddingLeft: isMobile && tabsStuck ? 64 : undefined,
+          transition: "padding-left 180ms ease",
+          borderBottom: tabsStuck ? `1px solid ${P.line}` : "none",
+        }}>
+          <SegControl value={tab} onChange={setTab} P={P} accent={accent} ariaLabel="Profile sections"
+            options={[
+              { id: "investigations", label: `Investigations · ${ledger.length}` },
+              { id: "library", label: `Library · ${(saved || []).length}` },
+              { id: "collections", label: `Collections · ${collectionCounts.length}` },
+            ]} />
+        </div>
+
+        <div role="tabpanel" aria-label={tab === "investigations" ? "Investigations" : tab === "library" ? "Saved papers" : "Collections"}>
+        {tab === "library" && (
+        <section aria-label="Saved papers" style={{ marginTop: 18 }}>
           {(saved || []).length === 0 ? (
-            <ProfileEmpty P={P}
-              title="Nothing on the shelf yet"
-              body="Save a paper from any answer and it lands here, with the investigation that found it." />
+            <div style={{ marginTop: 18 }}>
+              <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
+                title="Nothing on the shelf yet"
+                body="Save a paper from any answer and it lands here, with the investigation that found it — your personal collection of the research that matters to you."
+                isMobile={isMobile} />
+            </div>
           ) : (
             <div>
               {(saved || []).map((sv, i) => {
@@ -17731,14 +17794,17 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </div>
           )}
         </section>
+        )}
 
-        {/* ── Collections ──────────────────────────────────────────── */}
-        <section aria-label="Collections" style={{ marginTop: 30 }}>
-          <div style={{ ...eyebrow, marginBottom: 4 }}>Collections · {collectionCounts.length}</div>
+        {tab === "collections" && (
+        <section aria-label="Collections" style={{ marginTop: 18 }}>
           {collectionCounts.length === 0 ? (
-            <ProfileEmpty P={P}
-              title="No shelves yet"
-              body="Shelves group saved papers by question rather than by date. Make one from any paper you have saved." />
+            <div style={{ marginTop: 18 }}>
+              <WorkspaceEmpty P={P} accent={accent} icon="folder"
+                title="No shelves yet"
+                body="Shelves group saved papers by question rather than by date. Once you've saved a few papers, file them onto shelves from your library."
+                isMobile={isMobile} />
+            </div>
           ) : (
             <div>
               {collectionCounts.map((c, i) => (
@@ -17754,59 +17820,59 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </div>
           )}
         </section>
+        )}
 
-        {/* ── Investigations: the diary ──────────────────────────────
-            A dated trail of the work, not a counter. Each row opens the
-            thread it came from. */}
-        <section aria-label="Investigations" style={{ marginTop: 30 }}>
-          <div style={{ ...eyebrow, marginBottom: 4 }}>Investigations · {ledger.length}</div>
+        {tab === "investigations" && (
+        <section aria-label="Investigations" style={{ marginTop: 6 }}>
+          {/* The activity strip lives here now, always visible — the shape
+              of a diary, not a disclosure to hunt for. */}
+          {(history || []).length >= 3 && (
+            <div style={{ padding: "16px 0 2px" }}>
+              <FieldRidge history={history} accent={accent} P={P} />
+            </div>
+          )}
           {ledger.length === 0 ? (
-            <ProfileEmpty P={P}
-              title="No investigations yet"
-              body="Every question you ask is kept as an investigation: the thread, the papers it found, and what you saved from it." />
+            <div style={{ marginTop: 18 }}>
+              <WorkspaceEmpty P={P} accent={accent} icon="search"
+                title="No investigations yet"
+                body="Every question you ask becomes an investigation — the thread, the papers it surfaced, and what you saved from it. Ask a question from the search tab and the trail starts here."
+                isMobile={isMobile} />
+            </div>
           ) : (
             <div>
-              {ledger.map((h, i) => (
-                <button key={h.id || i} onClick={() => onOpenHistory(h)} className="cb-row" style={{
-                  display: "block", width: "100%", textAlign: "left", background: "transparent",
-                  border: "none", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
-                  cursor: "pointer", padding: "12px 0",
-                }}>
-                  <div style={{ display: "flex", gap: 14, alignItems: "baseline" }}>
-                    <span style={{ flexShrink: 0, width: isMobile ? 52 : 64, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                      {fmtDate(h.ts)}
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>
-                      {tidyQuestionTitle(h.title)}
-                    </span>
-                    <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
-                      {(h.turns || []).length}q{(h.allSources || []).length > 0 ? ` · ${(h.allSources || []).length}p` : ""}
-                    </span>
-                  </div>
-                </button>
+              {monthGroups.map((g) => (
+                <div key={g.key}>
+                  <div style={{ ...eyebrow, margin: "22px 0 2px" }}>{g.label}</div>
+                  {g.items.map((h, i) => {
+                    const turns = (h.turns || []).length;
+                    const papers = (h.allSources || []).length;
+                    return (
+                      <button key={h.id || `${g.key}-${i}`} onClick={() => onOpenHistory(h)} className="cb-row" style={{
+                        display: "block", width: "100%", textAlign: "left", background: "transparent",
+                        border: "none", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
+                        cursor: "pointer", padding: "12px 0",
+                      }}>
+                        <div style={{ display: "flex", gap: 14, alignItems: "baseline" }}>
+                          <span style={{ flexShrink: 0, width: isMobile ? 52 : 64, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                            {fmtDate(h.ts)}
+                          </span>
+                          <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>
+                            {tidyQuestionTitle(h.title)}
+                          </span>
+                          <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+                            {turns} question{turns === 1 ? "" : "s"}{papers > 0 ? ` · ${papers} paper${papers === 1 ? "" : "s"}` : ""}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               ))}
             </div>
           )}
         </section>
-
-        {/* ── Activity: the shape of the work, behind a disclosure. ──
-            Detailed stats belong here, not on the landing view. */}
-        {(history || []).length >= 3 && (
-          <section aria-label="Research activity" style={{ marginTop: 30 }}>
-            <details>
-              <summary style={{
-                ...eyebrow, cursor: "pointer", listStyle: "none",
-                display: "flex", alignItems: "center", gap: 8,
-              }}>
-                <span style={{ fontSize: 10, color: P.faint }}>▶</span>
-                Activity · last 120 days
-              </summary>
-              <div style={{ marginTop: 12 }}>
-                <FieldRidge history={history} accent={accent} P={P} />
-              </div>
-            </details>
-          </section>
         )}
+        </div>
 
         {/* Account & security lives at the very bottom, quiet — sensitive
             actions belong beneath everything, not interrupting the profile. */}
