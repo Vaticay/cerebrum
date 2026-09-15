@@ -51,6 +51,36 @@
          trip, so the trick bought nothing here. -->
     <link rel="preload" as="style" href="/fonts/cerebrum-fonts.css" />
     <link rel="stylesheet" href="/fonts/cerebrum-fonts.css" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/NGSwv5HMAFg6IuGlBNMjxLsH8ag.woff2" />
+
+    <!-- The one typeface. Inter Tight ships as a variable font (wght
+         100–900) from this origin's /fonts directory — the woff2 files
+         were already there but nothing referenced them, so every iPhone
+         was rendering the whole app in San Francisco with synthesized
+         bold. Two @font-face rules (latin + latin-ext subsets) with the
+         real unicode ranges, and one --cb-font token the app uses for
+         everything: body 450–500, controls 600, headings 650–700, all
+         real weights, no faux-bold. Declared here so the boot splash and
+         first paint already use it, before React mounts. -->
+    <style>
+      @font-face {
+        font-family: 'Inter Tight';
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: swap;
+        src: url('/fonts/NGSwv5HMAFg6IuGlBNMjxLsJ8ah8QA.woff2') format('woff2');
+        unicode-range: U+0020,U+0041,U+00A0,U+00C1,U+0100-0130,U+0132-0148,U+014A-0151,U+0154-01C3,U+01C5-02BA,U+02BC-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-0301,U+0303-0304,U+0308,U+0323,U+0329,U+1D43,U+1D47-1D49,U+1D4D,U+1D4F-1D50,U+1D52,U+1D56-1D58,U+1D5B,U+1D62-1D65,U+1D9C,U+1DA0,U+1DBB,U+1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20BF,U+2113,U+2C7C,U+2C7F,U+A7FF;
+      }
+      @font-face {
+        font-family: 'Inter Tight';
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: swap;
+        src: url('/fonts/NGSwv5HMAFg6IuGlBNMjxLsH8ag.woff2') format('woff2');
+        unicode-range: U+0020-007E,U+00A0-00FF,U+0102,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0300-0301,U+0303-0304,U+0308,U+0323,U+0329,U+2002,U+2009,U+200B,U+2013-2014,U+2018-201A,U+201C-201E,U+2022,U+2026,U+2032-2033,U+2039-203A,U+2044,U+20AC,U+2122,U+2191,U+2193,U+2212,U+FEFF;
+      }
+      :root { --cb-font: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    </style>
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -130,7 +160,7 @@
     </script>
   </head>
   <body>
-    <div id="root"><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#000000;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00e5a0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1.5s ease infinite"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/></svg></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>
+    <div id="root"><div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#000000;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00e5a0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1.5s ease infinite"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/></svg></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>
     <!-- Fallback content for crawlers and browsers with JS disabled. This is
          what non-JS reputation scanners and search engine crawlers actually
          index. Having real, descriptive content here — not just "loading..." —
