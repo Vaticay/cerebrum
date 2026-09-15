@@ -7296,26 +7296,6 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
     }
   };
 
-  const planCard = (id, name, price, per, note, tag) => (
-    <button key={id} onClick={() => { setPlan(id); }} aria-pressed={plan === id}
-      style={{
-        flex: "1 1 200px", minWidth: 0, textAlign: "left", cursor: "pointer", borderRadius: 12, padding: "16px 14px",
-        background: plan === id ? withAlpha("#34d399", 0.07) : P.surface,
-        border: plan === id ? "1px solid rgba(52,211,153,0.5)" : `1px solid ${P.line}`,
-        transition: "border-color 150ms ease, background 150ms ease",
-      }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{name}</span>
-        {tag && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)" }}>{tag}</span>}
-      </div>
-      <div style={{ marginTop: 8, display: "flex", alignItems: "baseline", gap: 4 }}>
-        <span style={{ fontSize: FONT_SIZES.display, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>{price}</span>
-        <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>{per}</span>
-      </div>
-      <div style={{ marginTop: 4, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{note}</div>
-    </button>
-  );
-
   return (
     <Dialog label="Cerebrum Pro" onClose={onClose} zIndex={220} width={540}
       panelStyle={{
@@ -7385,25 +7365,66 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
           </div>
         ) : (
           <>
-            <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
-              {planCard("monthly", "Monthly", monthlyAmt, "/month", "Billed monthly · cancel anytime")}
-              {planCard("annual", "Annual", annualAmt, "/year", "$12/mo billed annually · two months free", "Most popular")}
-              {planCard("student", "Student", studentAmt, "/month", "College email required · 12 months, then $20/mo", "Student discount")}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+              {[
+                { id: "annual", name: "Annual", price: annualAmt, per: "/year", note: "$12 per month, billed annually", badge: "Most popular" },
+                { id: "monthly", name: "Monthly", price: monthlyAmt, per: "/month", note: "Billed monthly, cancel anytime" },
+                { id: "student", name: "Student", price: studentAmt, per: "/month", note: "College email required · 12 months", badge: "Student" },
+              ].map((opt) => (
+                <button key={opt.id} onClick={() => setPlan(opt.id)} aria-pressed={plan === opt.id}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                    padding: "14px 16px", borderRadius: 10, cursor: "pointer", textAlign: "left",
+                    background: plan === opt.id ? withAlpha("#34d399", 0.07) : "transparent",
+                    border: plan === opt.id ? "1px solid rgba(52,211,153,0.5)" : `1px solid ${P.line}`,
+                    transition: "border-color 150ms ease, background 150ms ease",
+                    width: "100%",
+                  }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                    <span style={{
+                      width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
+                      border: plan === opt.id ? "5px solid #34d399" : `2px solid ${P.line2}`,
+                      transition: "border 150ms ease",
+                    }} />
+                    <span>
+                      <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
+                        {opt.name}
+                        {opt.badge && <span style={{ marginLeft: 8, fontSize: FONT_SIZES.micro, fontWeight: 600, color: "#34d399", fontFamily: "var(--cb-font)" }}>{opt.badge}</span>}
+                      </span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 2 }}>{opt.note}</span>
+                    </span>
+                  </span>
+                  <span style={{ fontSize: FONT_SIZES.body, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+                    {opt.price}<span style={{ fontSize: FONT_SIZES.caption, fontWeight: 400, color: P.faint }}>{opt.per}</span>
+                  </span>
+                </button>
+              ))}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "2px 0 14px" }}>
-              <div style={{ flex: 1, height: 1, background: P.line }} />
-              <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>Or start smaller</span>
-              <div style={{ flex: 1, height: 1, background: P.line }} />
-            </div>
-            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10, letterSpacing: "-0.01em" }}>
-              Pro Lite <span style={{ fontWeight: 400, color: P.faint }}>(10x the free usage)</span>
-            </div>
-            <div style={{ display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-              {planCard("lite-monthly", "Lite Monthly", liteMonthlyAmt, "/month", "Billed monthly · cancel anytime")}
-              {planCard("lite-annual", "Lite Annual", liteAnnualAmt, "/year", "$3.25/mo billed annually")}
-            </div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 20 }}>
-              150 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered, never unlimited, and none of Pro's badge, theme, or members' reels.
+            <div style={{ margin: "20px 0", padding: "16px", borderRadius: 10, border: `1px solid ${P.line}`, background: P.surface }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+                <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Pro Lite</span>
+                <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>10x the free usage, metered</span>
+              </div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.5, marginBottom: 12 }}>
+                150 AI answers · 30 document reads · 10 flowcharts, every 5 days. None of Pro's badge, theme, or members' reels.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { id: "lite-monthly", label: `Monthly ${liteMonthlyAmt}` },
+                  { id: "lite-annual", label: `Annual ${liteAnnualAmt}` },
+                ].map((opt) => (
+                  <button key={opt.id} onClick={() => setPlan(opt.id)}
+                    style={{
+                      flex: 1, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                      fontSize: FONT_SIZES.small, fontWeight: plan === opt.id ? 700 : 600, fontFamily: "var(--cb-font)",
+                      background: plan === opt.id ? withAlpha("#34d399", 0.07) : "transparent",
+                      color: plan === opt.id ? P.ink : P.ink2,
+                      border: plan === opt.id ? "1px solid rgba(52,211,153,0.5)" : `1px solid ${P.line}`,
+                    }}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
             {/* The benefit list follows the selected plan card — a Lite shopper
                must see Lite's actual benefits, never Pro's unlimited list. */}
