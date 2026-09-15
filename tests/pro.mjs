@@ -18,6 +18,9 @@ import {
   FREE_AI_ANSWERS_PER_MONTH,
   FREE_DOC_READS_PER_MONTH,
   FREE_FLOWCHARTS_PER_MONTH,
+  FREE_QUOTA_PERIOD_DAYS,
+  periodKey,
+  quotaResetsInMs,
   isValidProPlan,
   monthKey,
   isProRow,
@@ -273,6 +276,32 @@ await test("monthKey is UTC YYYY-MM", () => {
   assert.match(monthKey(new Date("2026-09-15T10:00:00Z")), /^\d{4}-\d{2}$/);
   assert.equal(monthKey(new Date("2026-09-15T10:00:00Z")), "2026-09");
   assert.equal(monthKey(new Date("2026-01-01T00:30:00+05:00")), "2025-12");
+});
+
+await test("free quota period is 5 days on a fixed grid", () => {
+  assert.equal(FREE_QUOTA_PERIOD_DAYS, 5);
+  assert.match(periodKey(0), /^p0$/);
+  assert.match(periodKey(Date.now()), /^p\d+$/);
+  // Same instant -> same key (deterministic, not per-user).
+  assert.equal(periodKey(1757950000000), periodKey(1757950000000));
+  // Exactly one period apart -> key increments by exactly 1.
+  const fiveDaysMs = 5 * 24 * 3600 * 1000;
+  const a = 1757950000000;
+  assert.equal(Number(periodKey(a + fiveDaysMs).slice(1)) - Number(periodKey(a).slice(1)), 1);
+  // One millisecond before the boundary stays in the old period.
+  const boundary = (Math.floor(a / fiveDaysMs) + 1) * fiveDaysMs;
+  assert.equal(periodKey(boundary - 1), periodKey(a));
+  assert.notEqual(periodKey(boundary), periodKey(a));
+});
+
+await test("quotaResetsInMs counts down to the next 5-day boundary", () => {
+  const fiveDaysMs = 5 * 24 * 3600 * 1000;
+  const now = 1757950000000;
+  const remaining = quotaResetsInMs(now);
+  assert.ok(remaining > 0 && remaining <= fiveDaysMs, `remaining=${remaining}`);
+  // At the exact boundary instant the next full period lies ahead.
+  const boundary = (Math.floor(now / fiveDaysMs) + 1) * fiveDaysMs;
+  assert.equal(quotaResetsInMs(boundary), fiveDaysMs);
 });
 
 await test("plan enum is closed: monthly | annual only", () => {

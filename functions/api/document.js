@@ -390,7 +390,7 @@ export async function onRequest(context) {
       docUsed = await proLib.getDocReads(env, docUser.id);
       if (docUsed >= proLib.FREE_DOC_READS_PER_MONTH) {
         return errRes(
-          "You've used your 3 free document reads this month. Cerebrum Pro reads unlimited documents.",
+          "You've used your 3 free document reads for these 5 days. Cerebrum Pro reads unlimited documents.",
           402,
           "doc_quota_exhausted",
           cors

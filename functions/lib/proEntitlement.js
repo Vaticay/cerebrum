@@ -5,11 +5,12 @@
 //     lives on the users row (plan='pro'), kept in sync by Stripe webhooks.
 //     Enforcement reads the row at request time — no live Stripe calls in
 //     the hot path.
-//   - AI synthesis is the metered resource. Free accounts get
-//     FREE_AI_ANSWERS_PER_MONTH AI answers per UTC calendar month, tracked
-//     in pro_usage. Pro (paid or lifetime) is unlimited. Anonymous callers
-//     get no AI synthesis at all — there is no identity to meter against —
-//     and fall through to the deterministic Wave-4 extractive answer.
+//   - AI synthesis is a metered resource. Free accounts get
+//     FREE_AI_ANSWERS_PER_MONTH AI answers per quota period (a fixed
+//     FREE_QUOTA_PERIOD_DAYS-day grid), tracked in pro_usage. Pro (paid or
+//     lifetime) is unlimited. Anonymous callers get no AI synthesis at all —
+//     there is no identity to meter against — and fall through to the
+//     deterministic Wave-4 extractive answer.
 //   - Lifetime grants (the founder handing Pro to specific people, no
 //     subscription involved) are stored as plan='pro', pro_source='lifetime'.
 //     Webhook handlers must NEVER downgrade or overwrite a lifetime row.
@@ -21,9 +22,9 @@
 
 export const FREE_AI_ANSWERS_PER_MONTH = 15;
 // Notebook Mode (document analysis) and Flowchart Studio are metered the
-// same way: free accounts get a small monthly bucket, Pro is unlimited.
+// same way: free accounts get a small quota-period bucket, Pro is unlimited.
 // These caps are product policy set by Dusty (2026-09-15): 3 document reads
-// and 1 saved flowchart per UTC month on the free tier.
+// and 1 saved flowchart per quota period on the free tier.
 export const FREE_DOC_READS_PER_MONTH = 3;
 export const FREE_FLOWCHARTS_PER_MONTH = 1;
 
@@ -227,10 +228,32 @@ export const USER_PRO_COLUMNS = [
 
 // ── Month key ─────────────────────────────────────────────────────────────
 
-// UTC calendar month: the free AI-answer bucket resets on the 1st.
+// UTC calendar month. Kept as a pure utility; the free-quota buckets below
+// no longer use it (they run on the 5-day period grid instead).
 export function monthKey(d = new Date()) {
   const iso = d instanceof Date ? d.toISOString() : new Date(d).toISOString();
   return iso.slice(0, 7);
+}
+
+// ── Quota period ──────────────────────────────────────────────────────────
+
+// Free-tier buckets (AI answers, document reads, flowchart saves) refill
+// every FREE_QUOTA_PERIOD_DAYS days on a fixed grid anchored to the Unix
+// epoch — not per-user, not calendar months — so every free account refills
+// at the same instant and the client can show one honest countdown.
+// The pro_usage.month column stores these period keys; the column name is
+// kept to avoid a migration, but it no longer means "calendar month".
+export const FREE_QUOTA_PERIOD_DAYS = 5;
+const QUOTA_PERIOD_MS = FREE_QUOTA_PERIOD_DAYS * 24 * 3600 * 1000;
+
+export function periodKey(nowMs = Date.now()) {
+  return "p" + Math.floor(nowMs / QUOTA_PERIOD_MS);
+}
+
+// Milliseconds until the current free-quota period ends — the refill
+// countdown the client shows on the Usage tab.
+export function quotaResetsInMs(nowMs = Date.now()) {
+  return (Math.floor(nowMs / QUOTA_PERIOD_MS) + 1) * QUOTA_PERIOD_MS - nowMs;
 }
 
 // ── Entitlement reads ─────────────────────────────────────────────────────
@@ -303,7 +326,7 @@ export async function resolveAiGate(env, sessionUser) {
     await ensureProTables(env);
     const u = await env.DB.prepare(
       "SELECT ai_answers FROM pro_usage WHERE user_id = ? AND month = ?"
-    ).bind(sessionUser.id, monthKey()).first();
+    ).bind(sessionUser.id, periodKey()).first();
     used = u && typeof u.ai_answers === "number" ? u.ai_answers : 0;
   } catch {
     used = 0;
@@ -329,20 +352,20 @@ export async function recordAiAnswer(env, userId) {
     "INSERT INTO pro_usage (user_id, month, ai_answers) VALUES (?, ?, 1) " +
       "ON CONFLICT (user_id, month) DO UPDATE SET ai_answers = ai_answers + 1 " +
       "RETURNING ai_answers"
-  ).bind(userId, monthKey()).first();
+  ).bind(userId, periodKey()).first();
   return row && typeof row.ai_answers === "number" ? row.ai_answers : 1;
 }
 
 // ── Document-read metering (Notebook Mode) ───────────────────────────────
 // Same atomic upsert as AI answers: free accounts get
-// FREE_DOC_READS_PER_MONTH document analyses per UTC month, Pro unlimited.
+// FREE_DOC_READS_PER_MONTH document analyses per quota period, Pro unlimited.
 
 export async function getDocReads(env, userId) {
   await ensureProTables(env);
   try {
     const u = await env.DB.prepare(
       "SELECT doc_reads FROM pro_usage WHERE user_id = ? AND month = ?"
-    ).bind(userId, monthKey()).first();
+    ).bind(userId, periodKey()).first();
     return u && typeof u.doc_reads === "number" ? u.doc_reads : 0;
   } catch {
     return 0;
@@ -355,7 +378,7 @@ export async function recordDocRead(env, userId) {
     "INSERT INTO pro_usage (user_id, month, doc_reads) VALUES (?, ?, 1) " +
       "ON CONFLICT (user_id, month) DO UPDATE SET doc_reads = doc_reads + 1 " +
       "RETURNING doc_reads"
-  ).bind(userId, monthKey()).first();
+  ).bind(userId, periodKey()).first();
   return row && typeof row.doc_reads === "number" ? row.doc_reads : 1;
 }
 
@@ -368,7 +391,7 @@ export async function getFlowchartCount(env, userId) {
   try {
     const u = await env.DB.prepare(
       "SELECT flowcharts FROM pro_usage WHERE user_id = ? AND month = ?"
-    ).bind(userId, monthKey()).first();
+    ).bind(userId, periodKey()).first();
     return u && typeof u.flowcharts === "number" ? u.flowcharts : 0;
   } catch {
     return 0;
@@ -381,7 +404,7 @@ export async function recordFlowchart(env, userId) {
     "INSERT INTO pro_usage (user_id, month, flowcharts) VALUES (?, ?, 1) " +
       "ON CONFLICT (user_id, month) DO UPDATE SET flowcharts = flowcharts + 1 " +
       "RETURNING flowcharts"
-  ).bind(userId, monthKey()).first();
+  ).bind(userId, periodKey()).first();
   return row && typeof row.flowcharts === "number" ? row.flowcharts : 1;
 }
 

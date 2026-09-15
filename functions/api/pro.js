@@ -21,6 +21,7 @@ import { checkRateLimit } from "../lib/rateLimit.js";
 import { getSessionUser } from "../lib/authHelpers.js";
 import {
   FREE_AI_ANSWERS_PER_MONTH, FREE_DOC_READS_PER_MONTH, FREE_FLOWCHARTS_PER_MONTH,
+  FREE_QUOTA_PERIOD_DAYS, periodKey, quotaResetsInMs,
   PRO_PLANS, isValidProPlan,
   ensureProTables, getUserProRow, resolveAiGate,
   getDocReads, getFlowchartCount, recordFlowchart,
@@ -98,6 +99,9 @@ async function handleStatus(request, env, cors) {
     quota: { used: gate.aiUsed, cap: isPro ? null : gate.aiCap },
     docReads,
     flowcharts,
+    // Free-quota refill info: every free bucket refills together when this
+    // countdown hits zero. Pro ignores it (unlimited).
+    quotaPeriod: { days: FREE_QUOTA_PERIOD_DAYS, resetsInMs: quotaResetsInMs() },
     billing: {
       plan: gate.proSource === "lifetime" ? "lifetime" : intervalToPlan(row && row.pro_interval),
       status: row && row.plan === "pro" ? "active" : "none",
@@ -506,7 +510,7 @@ async function handleFlowchartAllow(request, env, cors) {
   if (used >= FREE_FLOWCHARTS_PER_MONTH) {
     return json({
       ok: true, allowed: false, used, cap: FREE_FLOWCHARTS_PER_MONTH,
-      message: "Free accounts can save 1 flowchart a month. Cerebrum Pro saves unlimited flowcharts.",
+      message: "Free accounts can save 1 flowchart every 5 days. Cerebrum Pro saves unlimited flowcharts.",
     }, 200, cors);
   }
   const next = await recordFlowchart(env, user.id);

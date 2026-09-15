@@ -7114,9 +7114,9 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             </div>
             <ul style={{ listStyle: "none", margin: "0 0 20px", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                ["Unlimited AI-synthesized answers", "Free plan: 15 per month"],
-                ["Unlimited document reads", "Free plan: 3 per month"],
-                ["Unlimited flowchart saves", "Free plan: 1 per month"],
+                ["Unlimited AI-synthesized answers", "Free plan: 15 every 5 days"],
+                ["Unlimited document reads", "Free plan: 3 every 5 days"],
+                ["Unlimited flowchart saves", "Free plan: 1 every 5 days"],
                 ["PRO badge on your profile", "Gold, everywhere your name appears"],
                 ["Exclusive Pro theme", "Black-bronze and gold, members only"],
                 ["Members-only cinematic backgrounds", "The aurora, nebula, eclipse and DNA reels"],
@@ -7234,7 +7234,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   const dq = proStatus?.docReads;
   const fq = proStatus?.flowcharts;
   return (
-    <Section title="Cerebrum Pro" footer={user?.isPro ? undefined : "Free accounts get 15 AI answers, 3 document reads and 1 flowchart a month. Pro is unlimited on all three."}>
+    <Section title="Cerebrum Pro" footer={user?.isPro ? undefined : "Free accounts get 15 AI answers, 3 document reads and 1 flowchart every 5 days. Pro is unlimited on all three."}>
       {!user ? (
         <Row label="Go further with Pro" desc="Unlimited AI answers, document reads and flowcharts, the PRO badge, an exclusive theme and cinematic backgrounds."
           control={<button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>See plans</button>} last />
@@ -7252,7 +7252,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
         <>
         <Row
           label="AI answers this month"
-          desc={q ? `${q.used} of ${q.cap} free AI answers used · resets monthly` : "Free plan · 15 AI answers a month"}
+          desc={q ? `${q.used} of ${q.cap} free AI answers used · refills every 5 days` : "Free plan · 15 AI answers every 5 days"}
           control={
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {q && (
@@ -7266,12 +7266,12 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
         />
         <Row
           label="Document reads this month"
-          desc={dq ? `${dq.used} of ${dq.cap} free document reads used · resets monthly` : "Free plan · 3 document reads a month"}
+          desc={dq ? `${dq.used} of ${dq.cap} free document reads used · refills every 5 days` : "Free plan · 3 document reads every 5 days"}
           control={<button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", flexShrink: 0 }}>Go Pro</button>}
         />
         <Row
           label="Flowcharts this month"
-          desc={fq ? `${fq.used} of ${fq.cap} free flowchart saved · resets monthly` : "Free plan · 1 flowchart a month"}
+          desc={fq ? `${fq.used} of ${fq.cap} free flowchart saved · refills every 5 days` : "Free plan · 1 flowchart every 5 days"}
           control={<span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Pro saves unlimited</span>}
           last />
         </>
@@ -18074,8 +18074,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 {docIsPro
                   ? "Pro: unlimited document reads."
                   : docLeft > 0
-                    ? `${docLeft} of ${docCap} free document reads left this month.`
-                    : "You've used your 3 free document reads this month — Pro reads unlimited."}
+                    ? `${docLeft} of ${docCap} free document reads left — refills every 5 days.`
+                    : "You've used your 3 free document reads for these 5 days — Pro reads unlimited."}
               </div>
             )}
           </div>
