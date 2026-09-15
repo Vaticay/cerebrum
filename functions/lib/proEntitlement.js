@@ -20,6 +20,12 @@
 // Pure functions are exported so tests/pro.mjs can exercise them with no DB.
 
 export const FREE_AI_ANSWERS_PER_MONTH = 15;
+// Notebook Mode (document analysis) and Flowchart Studio are metered the
+// same way: free accounts get a small monthly bucket, Pro is unlimited.
+// These caps are product policy set by Dusty (2026-09-15): 3 document reads
+// and 1 saved flowchart per UTC month on the free tier.
+export const FREE_DOC_READS_PER_MONTH = 3;
+export const FREE_FLOWCHARTS_PER_MONTH = 1;
 
 // Display metadata for the two paid plans. The actual money lives in Stripe
 // Price objects; these IDs come from env (STRIPE_PRICE_MONTHLY /
@@ -174,8 +180,19 @@ export async function ensureProTables(env) {
       "user_id TEXT NOT NULL, " +
       "month TEXT NOT NULL, " +
       "ai_answers INTEGER NOT NULL DEFAULT 0, " +
+      "doc_reads INTEGER NOT NULL DEFAULT 0, " +
+      "flowcharts INTEGER NOT NULL DEFAULT 0, " +
       "PRIMARY KEY (user_id, month))"
   );
+  // Self-healing: databases created before the doc_reads / flowcharts
+  // columns existed get them here. A duplicate-column error means the
+  // column is already there — swallow it like the users-table ALTERs below.
+  for (const ddl of [
+    "ALTER TABLE pro_usage ADD COLUMN doc_reads INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pro_usage ADD COLUMN flowcharts INTEGER NOT NULL DEFAULT 0",
+  ]) {
+    try { await env.DB.exec(ddl); } catch { /* already exists */ }
+  }
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS stripe_events (" +
       "event_id TEXT PRIMARY KEY, " +
@@ -314,6 +331,58 @@ export async function recordAiAnswer(env, userId) {
       "RETURNING ai_answers"
   ).bind(userId, monthKey()).first();
   return row && typeof row.ai_answers === "number" ? row.ai_answers : 1;
+}
+
+// ── Document-read metering (Notebook Mode) ───────────────────────────────
+// Same atomic upsert as AI answers: free accounts get
+// FREE_DOC_READS_PER_MONTH document analyses per UTC month, Pro unlimited.
+
+export async function getDocReads(env, userId) {
+  await ensureProTables(env);
+  try {
+    const u = await env.DB.prepare(
+      "SELECT doc_reads FROM pro_usage WHERE user_id = ? AND month = ?"
+    ).bind(userId, monthKey()).first();
+    return u && typeof u.doc_reads === "number" ? u.doc_reads : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function recordDocRead(env, userId) {
+  await ensureProTables(env);
+  const row = await env.DB.prepare(
+    "INSERT INTO pro_usage (user_id, month, doc_reads) VALUES (?, ?, 1) " +
+      "ON CONFLICT (user_id, month) DO UPDATE SET doc_reads = doc_reads + 1 " +
+      "RETURNING doc_reads"
+  ).bind(userId, monthKey()).first();
+  return row && typeof row.doc_reads === "number" ? row.doc_reads : 1;
+}
+
+// ── Flowchart metering (Flowchart Studio saves) ──────────────────────────
+// Free accounts get FREE_FLOWCHARTS_PER_MONTH *new* flowcharts per UTC
+// month; re-saving an existing chart never counts. Pro unlimited.
+
+export async function getFlowchartCount(env, userId) {
+  await ensureProTables(env);
+  try {
+    const u = await env.DB.prepare(
+      "SELECT flowcharts FROM pro_usage WHERE user_id = ? AND month = ?"
+    ).bind(userId, monthKey()).first();
+    return u && typeof u.flowcharts === "number" ? u.flowcharts : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function recordFlowchart(env, userId) {
+  await ensureProTables(env);
+  const row = await env.DB.prepare(
+    "INSERT INTO pro_usage (user_id, month, flowcharts) VALUES (?, ?, 1) " +
+      "ON CONFLICT (user_id, month) DO UPDATE SET flowcharts = flowcharts + 1 " +
+      "RETURNING flowcharts"
+  ).bind(userId, monthKey()).first();
+  return row && typeof row.flowcharts === "number" ? row.flowcharts : 1;
 }
 
 // ── Stripe webhook signature (Web Crypto, no SDK) ─────────────────────────

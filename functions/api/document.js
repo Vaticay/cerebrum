@@ -363,6 +363,52 @@ export async function onRequest(context) {
     if (!documentText) {
       return errRes("No document text provided.", 400, "missing_document", cors);
     }
+
+    // ── Access gate: document analysis is provider-backed AI spend, so it
+    // belongs to accounts, not anonymous callers. Free accounts get
+    // FREE_DOC_READS_PER_MONTH reads per UTC month; Pro is unlimited.
+    // (Fail closed: an unresolvable session denies, like search.js.)
+    let proLib = null;
+    let docUser = null;
+    try {
+      const { getSessionUser } = await import("../lib/authHelpers.js");
+      proLib = await import("../lib/proEntitlement.js");
+      docUser = await getSessionUser(request, env);
+    } catch {
+      proLib = null;
+      docUser = null;
+    }
+    if (!proLib || !docUser) {
+      return errRes("Sign in to analyze documents.", 401, "auth_required", cors);
+    }
+    const docGate = await proLib.resolveAiGate(env, docUser);
+    // Pro (paid or lifetime) reads unlimited documents. Everyone else draws
+    // from the monthly free bucket.
+    const docPro = docGate.kind === "pro";
+    let docUsed = 0;
+    if (!docPro) {
+      docUsed = await proLib.getDocReads(env, docUser.id);
+      if (docUsed >= proLib.FREE_DOC_READS_PER_MONTH) {
+        return errRes(
+          "You've used your 3 free document reads this month. Cerebrum Pro reads unlimited documents.",
+          402,
+          "doc_quota_exhausted",
+          cors
+        );
+      }
+    }
+    const docQuota = () => ({
+      used: docUsed,
+      cap: docPro ? null : proLib.FREE_DOC_READS_PER_MONTH,
+    });
+    // A failed analysis burns nothing: the read is only recorded after the
+    // provider returns. Best-effort like search.js — a failed increment must
+    // never fail the analysis itself.
+    const meterDocRead = async () => {
+      if (!docPro && docUser) {
+        try { docUsed = await proLib.recordDocRead(env, docUser.id); } catch {}
+      }
+    };
     // Commit 64 — a long document is no longer refused. It used to return
     // a 413 telling the person to go and cut their own paper down, which is
     // work the tool should be doing for them. There is still a real ceiling
@@ -403,14 +449,16 @@ export async function onRequest(context) {
     const result = await withTimeout(generate(env, messages, maxTokens), 60000, "document analysis");
 
     if (isQA) {
-      return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model }, 200, cors);
+      await meterDocRead();
+      return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model, quota: docQuota() }, 200, cors);
     }
     const sectioned = splitSummarySections(result.answer);
     // The truncation note is appended to what the reader actually sees —
     // a summary that silently covers only part of a document is worse than
     // no summary, because nothing on screen says so.
     const raw = result.answer + truncatedNote;
-    return okRes({ mode: "summary", raw, ...sectioned, truncated: !!truncatedNote, model: result.model }, 200, cors);
+    await meterDocRead();
+    return okRes({ mode: "summary", raw, ...sectioned, truncated: !!truncatedNote, model: result.model, quota: docQuota() }, 200, cors);
   } catch (e) {
     console.error("Cerebrum document endpoint error:", e);
     // The exception message never reaches the client — see

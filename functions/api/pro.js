@@ -20,8 +20,10 @@ import {
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { getSessionUser } from "../lib/authHelpers.js";
 import {
-  FREE_AI_ANSWERS_PER_MONTH, PRO_PLANS, isValidProPlan,
+  FREE_AI_ANSWERS_PER_MONTH, FREE_DOC_READS_PER_MONTH, FREE_FLOWCHARTS_PER_MONTH,
+  PRO_PLANS, isValidProPlan,
   ensureProTables, getUserProRow, resolveAiGate,
+  getDocReads, getFlowchartCount, recordFlowchart,
   verifyStripeWebhookSignature, applyStripeEvent,
   normalizeEmail, validateGrantTarget,
   grantLifetimePro, revokeLifetimePro, listLifetimePros,
@@ -62,6 +64,8 @@ function publicPlans() {
       note: "Verified college students only. $7.99/mo for 12 months, then renews at the standard monthly price.",
     },
     freeAiCap: FREE_AI_ANSWERS_PER_MONTH,
+    freeDocReadsCap: FREE_DOC_READS_PER_MONTH,
+    freeFlowchartsCap: FREE_FLOWCHARTS_PER_MONTH,
   };
 }
 
@@ -77,6 +81,10 @@ async function handleStatus(request, env, cors) {
   const gate = await resolveAiGate(env, user);
   const row = await getUserProRow(env, user.id);
   const isPro = gate.kind === "pro";
+  // Free-tier buckets beyond AI answers: document reads and flowchart saves.
+  // Pro reports null caps (unlimited); the client renders "Unlimited".
+  const docReads = isPro ? { used: 0, cap: null } : { used: await getDocReads(env, user.id), cap: FREE_DOC_READS_PER_MONTH };
+  const flowcharts = isPro ? { used: 0, cap: null } : { used: await getFlowchartCount(env, user.id), cap: FREE_FLOWCHARTS_PER_MONTH };
   return json({
     ...base,
     signedIn: true,
@@ -88,6 +96,8 @@ async function handleStatus(request, env, cors) {
     aiCap: isPro ? null : gate.aiCap,
     // Convenience shapes for the settings UI (same values, friendlier names).
     quota: { used: gate.aiUsed, cap: isPro ? null : gate.aiCap },
+    docReads,
+    flowcharts,
     billing: {
       plan: gate.proSource === "lifetime" ? "lifetime" : intervalToPlan(row && row.pro_interval),
       status: row && row.plan === "pro" ? "active" : "none",
@@ -471,9 +481,36 @@ export async function onRequest(context) {
     case "grant": return handleGrant(request, env, cors, parsed.body);
     case "revoke": return handleRevoke(request, env, cors, parsed.body);
     case "list-lifetime": return handleListLifetime(request, env, cors);
+    case "flowchart-allow": return handleFlowchartAllow(request, env, cors);
     default:
       return errorResponse(400, "unknown_action", "Unknown action.", cors);
   }
+}
+
+// ── POST: flowchart-allow (signed in) ─────────────────────────────────────
+// The client calls this when a free user saves a NEW flowchart (re-saving an
+// existing chart never touches this endpoint). Pro is always allowed.
+// Free accounts get FREE_FLOWCHARTS_PER_MONTH new charts per UTC month;
+// the increment is atomic with the allowance check.
+async function handleFlowchartAllow(request, env, cors) {
+  let user = null;
+  try { user = await getSessionUser(request, env); } catch { user = null; }
+  if (!user) {
+    return errorResponse(401, "auth_required", "Sign in to save flowcharts.", cors);
+  }
+  const gate = await resolveAiGate(env, user);
+  if (gate.kind === "pro") {
+    return json({ ok: true, allowed: true, pro: true, used: 0, cap: null }, 200, cors);
+  }
+  const used = await getFlowchartCount(env, user.id);
+  if (used >= FREE_FLOWCHARTS_PER_MONTH) {
+    return json({
+      ok: true, allowed: false, used, cap: FREE_FLOWCHARTS_PER_MONTH,
+      message: "Free accounts can save 1 flowchart a month. Cerebrum Pro saves unlimited flowcharts.",
+    }, 200, cors);
+  }
+  const next = await recordFlowchart(env, user.id);
+  return json({ ok: true, allowed: true, used: next, cap: FREE_FLOWCHARTS_PER_MONTH }, 200, cors);
 }
 
 // ── POST: list-lifetime (founder only) ─────────────────────────────────────

@@ -7115,6 +7115,8 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             <ul style={{ listStyle: "none", margin: "0 0 20px", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
               {[
                 ["Unlimited AI-synthesized answers", "Free plan: 15 per month"],
+                ["Unlimited document reads", "Free plan: 3 per month"],
+                ["Unlimited flowchart saves", "Free plan: 1 per month"],
                 ["PRO badge on your profile", "Gold, everywhere your name appears"],
                 ["Exclusive Pro theme", "Black-bronze and gold, members only"],
                 ["Members-only cinematic backgrounds", "The aurora, nebula, eclipse and DNA reels"],
@@ -7229,10 +7231,12 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   };
   const q = proStatus?.quota;
   const pct = q && q.cap ? Math.min(100, Math.round((q.used / q.cap) * 100)) : 0;
+  const dq = proStatus?.docReads;
+  const fq = proStatus?.flowcharts;
   return (
-    <Section title="Cerebrum Pro" footer={user?.isPro ? undefined : "Free accounts get 15 AI-synthesized answers a month. Pro is unlimited."}>
+    <Section title="Cerebrum Pro" footer={user?.isPro ? undefined : "Free accounts get 15 AI answers, 3 document reads and 1 flowchart a month. Pro is unlimited on all three."}>
       {!user ? (
-        <Row label="Go further with Pro" desc="Unlimited AI answers, the PRO badge, an exclusive theme and cinematic backgrounds."
+        <Row label="Go further with Pro" desc="Unlimited AI answers, document reads and flowcharts, the PRO badge, an exclusive theme and cinematic backgrounds."
           control={<button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)" }}>See plans</button>} last />
       ) : user.isPro ? (
         <Row
@@ -7245,6 +7249,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           ) : null}
           last />
       ) : (
+        <>
         <Row
           label="AI answers this month"
           desc={q ? `${q.used} of ${q.cap} free AI answers used · resets monthly` : "Free plan · 15 AI answers a month"}
@@ -7258,7 +7263,18 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
               <button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", flexShrink: 0 }}>Go Pro</button>
             </div>
           }
+        />
+        <Row
+          label="Document reads this month"
+          desc={dq ? `${dq.used} of ${dq.cap} free document reads used · resets monthly` : "Free plan · 3 document reads a month"}
+          control={<button onClick={onOpenPro} style={{ padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: "linear-gradient(135deg,#f2d67c,#d4a437)", color: "#1a1405", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-body)", whiteSpace: "nowrap", flexShrink: 0 }}>Go Pro</button>}
+        />
+        <Row
+          label="Flowcharts this month"
+          desc={fq ? `${fq.used} of ${fq.cap} free flowchart saved · resets monthly` : "Free plan · 1 flowchart a month"}
+          control={<span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Pro saves unlimited</span>}
           last />
+        </>
       )}
     </Section>
   );
@@ -17745,7 +17761,7 @@ const SAMPLE_DOCUMENT = [
   "blinding, which is unavoidable when the intervention is a park.",
 ].join("\n");
 
-function NotebookMode({ P, accent, at, close, asPage = false }) {
+function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
   // away whatever the person pasted.
@@ -17815,10 +17831,28 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
 
   // 2026-09-14: Document Mode now has a 120s timeout and a cancel button.
   // The old plain fetch() could hang forever with only "Reading it…" showing.
+  // Document reads are metered per account (free: 3/month, Pro: unlimited);
+  // anonymous callers sign in first. The server enforces it — this gate just
+  // routes people to the right door before they spend a click.
+  const docIsPro = !!user?.isPro;
+  const docCap = proStatus?.docReads?.cap;
+  const docUsed = proStatus?.docReads?.used || 0;
+  const docLeft = docIsPro || docCap == null ? null : Math.max(0, docCap - docUsed);
+  const docGate = () => {
+    if (!user) { if (onOpenAuth) onOpenAuth("signin"); return false; }
+    if (!docIsPro && docCap != null && docUsed >= docCap) { if (onOpenPro) onOpenPro(); return false; }
+    return true;
+  };
+  const handleDocApiError = (data, fallback) => {
+    if (data && data.code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); return true; }
+    if (data && data.code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(); return true; }
+    return false;
+  };
   const analyzeAbort = useRef(null);
   const analyze = async () => {
     const text = documentText.trim();
     if (!text || analyzing) return;
+    if (!docGate()) return;
     setAnalyzing(true);
     setError("");
     setSummary(null);
@@ -17830,8 +17864,12 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     try {
       const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text }), signal: controller.signal });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Couldn't analyze that document. Please try again.");
+      if (!res.ok) {
+        if (handleDocApiError(data)) { setAnalyzing(false); clearTimeout(timeoutId); analyzeAbort.current = null; return; }
+        throw new Error(data.error || "Couldn't analyze that document. Please try again.");
+      }
       setSummary(data);
+      if (onUsageChanged) onUsageChanged();
     } catch (e) {
       if (e.name === "AbortError") {
         setError("The analysis took too long and was stopped. Try a shorter document, or try again.");
@@ -17857,6 +17895,7 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
   const askFollowUp = async () => {
     const q = qaQuery.trim();
     if (!q || qaBusy || !summary) return;
+    if (!docGate()) return;
     const historyForRequest = qaHistory
       .filter((h) => h.answer)
       .flatMap((h) => [{ role: "user", text: h.query }, { role: "assistant", text: h.answer }]);
@@ -17867,8 +17906,15 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
     try {
       const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: documentText.trim(), query: q, history: historyForRequest }) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Couldn't answer that.");
+      if (!res.ok) {
+        if (handleDocApiError(data)) {
+          setQaHistory((prev) => prev.slice(0, -1));
+          return;
+        }
+        throw new Error(data.error || "Couldn't answer that.");
+      }
       setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, answer: data.answer } : h)));
+      if (onUsageChanged) onUsageChanged();
     } catch (e) {
       setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, errorMsg: e.message || "Couldn't answer that." } : h)));
     } finally {
@@ -18023,6 +18069,15 @@ function NotebookMode({ P, accent, at, close, asPage = false }) {
                 >Cancel</button>
               )}
             </div>
+            {(docIsPro || docCap != null) && (
+              <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+                {docIsPro
+                  ? "Pro: unlimited document reads."
+                  : docLeft > 0
+                    ? `${docLeft} of ${docCap} free document reads left this month.`
+                    : "You've used your 3 free document reads this month — Pro reads unlimited."}
+              </div>
+            )}
           </div>
           {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
         </div>
@@ -22973,7 +23028,7 @@ function App() {
       )}
       {view === "document" && (
         <Reveal style={S.pageView} deps={[view]}>
-          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} />
+          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro} />
         </Reveal>
       )}
       {/* ══════════════════════════════════════════════════════════
@@ -23448,7 +23503,7 @@ function App() {
           onAuthed={(u) => handleAuthed(u, { checkImport: true })}
         />
       )}
-      {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} />}
+      {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro} />}
       {proModalOpen && (
         <ProModal
           P={P} accent={accent} at={at} user={user} proStatus={proStatus}
@@ -23464,7 +23519,20 @@ function App() {
           docTitle={flowchartOpen.title}
           answerText={flowchartOpen.answerText}
           sources={flowchartOpen.sources}
-          onSave={({ title, nodes, edges }) => {
+          onSave={async ({ title, nodes, edges }) => {
+            // New charts are metered: free accounts get 1 per month, Pro is
+            // unlimited, and saving requires a signed-in account. Re-saving
+            // an existing chart never counts. The server is the authority —
+            // this just routes people to the right door first.
+            if (!flowchartOpen.chartId) {
+              if (!user) { setAuthInitialTab("signin"); setAuthOpen(true); return; }
+              if (!user.isPro) {
+                let allow = null;
+                try { allow = await apiProPost("flowchart-allow", {}); } catch { allow = null; }
+                if (!allow || !allow.allowed) { setProModalOpen(true); return; }
+                refreshPro();
+              }
+            }
             const id = flowchartOpen.chartId || fcId("chart");
             const rec = { id, title, nodes, edges, updatedAt: Date.now() };
             setFlowcharts((prev) => [rec, ...prev.filter((c) => c.id !== id)]);

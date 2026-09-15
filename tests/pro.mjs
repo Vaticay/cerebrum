@@ -16,12 +16,18 @@ import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   FREE_AI_ANSWERS_PER_MONTH,
+  FREE_DOC_READS_PER_MONTH,
+  FREE_FLOWCHARTS_PER_MONTH,
   isValidProPlan,
   monthKey,
   isProRow,
   resolveAiGate,
   aiSynthesisAllowed,
   recordAiAnswer,
+  getDocReads,
+  recordDocRead,
+  getFlowchartCount,
+  recordFlowchart,
   verifyStripeWebhookSignature,
   subscriptionTransition,
   subscriptionInterval,
@@ -65,6 +71,8 @@ async function test(name, fn) {
 function mockDB() {
   const users = new Map();
   const usage = new Map();
+  const docReads = new Map();
+  const flowcharts = new Map();
   const events = new Set();
   // student_verifications: id -> row; email uniqueness enforced like D1.
   const student = new Map();
@@ -73,6 +81,8 @@ function mockDB() {
   return {
     _users: users,
     _usage: usage,
+    _docReads: docReads,
+    _flowcharts: flowcharts,
     _events: events,
     _student: student,
     addUser(row) {
@@ -96,6 +106,14 @@ function mockDB() {
               const n = usage.get(args[0] + "|" + args[1]);
               return n == null ? null : { ai_answers: n };
             }
+            if (q.startsWith("SELECT doc_reads FROM pro_usage WHERE user_id = ? AND month = ?")) {
+              const n = docReads.get(args[0] + "|" + args[1]);
+              return n == null ? null : { doc_reads: n };
+            }
+            if (q.startsWith("SELECT flowcharts FROM pro_usage WHERE user_id = ? AND month = ?")) {
+              const n = flowcharts.get(args[0] + "|" + args[1]);
+              return n == null ? null : { flowcharts: n };
+            }
             if (q.startsWith("SELECT id FROM users WHERE stripe_customer_id = ?")) {
               for (const [id, r] of users) if (r.stripe_customer_id === args[0]) return { id };
               return null;
@@ -109,6 +127,18 @@ function mockDB() {
               const n = (usage.get(k) || 0) + 1;
               usage.set(k, n);
               return { ai_answers: n };
+            }
+            if (q.startsWith("INSERT INTO pro_usage") && q.includes("RETURNING doc_reads")) {
+              const k = args[0] + "|" + args[1];
+              const n = (docReads.get(k) || 0) + 1;
+              docReads.set(k, n);
+              return { doc_reads: n };
+            }
+            if (q.startsWith("INSERT INTO pro_usage") && q.includes("RETURNING flowcharts")) {
+              const k = args[0] + "|" + args[1];
+              const n = (flowcharts.get(k) || 0) + 1;
+              flowcharts.set(k, n);
+              return { flowcharts: n };
             }
             if (q.startsWith("SELECT id, verified_at, used_at FROM student_verifications WHERE email = ?")) {
               const id = studentByEmail.get(args[0]);
@@ -764,6 +794,52 @@ await test("concurrent recordAiAnswer calls never lose increments", async () => 
   const gate = await resolveAiGate(env, { id: "u21", email: "race@x.com" });
   assert.equal(gate.aiUsed, 20, "atomic upsert must not drop parallel increments");
   assert.equal(aiSynthesisAllowed(gate), false, "20/15 must be over the cap");
+});
+
+// ── Document-read + flowchart metering (2026-09-15: free 3 docs, 1 chart) ──
+
+await test("free doc-read bucket: 0→3 increments, caps are 3 and 1", async () => {
+  assert.equal(FREE_DOC_READS_PER_MONTH, 3, "doc cap must be 3");
+  assert.equal(FREE_FLOWCHARTS_PER_MONTH, 1, "flowchart cap must be 1");
+  const db = mockDB();
+  db.addUser({ id: "u30", email: "doc@x.com" });
+  const env = envOf(db);
+  assert.equal(await getDocReads(env, "u30"), 0);
+  assert.equal(await getFlowchartCount(env, "u30"), 0);
+  for (let i = 1; i <= 3; i++) assert.equal(await recordDocRead(env, "u30"), i);
+  assert.equal(await recordFlowchart(env, "u30"), 1);
+  assert.equal(await getDocReads(env, "u30"), 3);
+  assert.equal(await getFlowchartCount(env, "u30"), 1);
+});
+
+await test("doc reads and flowchart saves use separate buckets from AI answers", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u31", email: "sep@x.com" });
+  const env = envOf(db);
+  await recordAiAnswer(env, "u31");
+  await recordDocRead(env, "u31");
+  await recordFlowchart(env, "u31");
+  const gate = await resolveAiGate(env, { id: "u31", email: "sep@x.com" });
+  assert.equal(gate.aiUsed, 1, "AI bucket must hold exactly the AI increments");
+  assert.equal(await getDocReads(env, "u31"), 1, "doc bucket must hold exactly the doc increments");
+  assert.equal(await getFlowchartCount(env, "u31"), 1, "flowchart bucket must hold exactly the chart increments");
+});
+
+await test("document endpoint gates: sign-in required, free 3/mo, quota in response", async () => {
+  const src = await readFile(join(root, "functions/api/document.js"), "utf8");
+  assert.match(src, /auth_required/, "document endpoint must require sign-in");
+  assert.match(src, /FREE_DOC_READS_PER_MONTH/, "document endpoint must use the free doc cap");
+  assert.match(src, /doc_quota_exhausted/, "document endpoint must return a quota code at the cap");
+  assert.match(src, /meterDocRead\(\)/, "document endpoint must meter after successful analysis");
+  assert.match(src, /quota: docQuota\(\)/, "document responses must carry the quota shape");
+});
+
+await test("flowchart-allow action meters new charts and denies at the cap", async () => {
+  const src = await readFile(join(root, "functions/api/pro.js"), "utf8");
+  assert.match(src, /case "flowchart-allow"/, "pro.js must route flowchart-allow");
+  assert.match(src, /recordFlowchart\(env, user\.id\)/, "flowchart-allow must atomically record");
+  assert.match(src, /FREE_FLOWCHARTS_PER_MONTH/, "flowchart-allow must use the free chart cap");
+  assert.match(src, /docReads,\n    flowcharts,/, "pro status must expose docReads and flowcharts");
 });
 
 await test("cached AI answers are gated and charged, never a quota bypass", async () => {
