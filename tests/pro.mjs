@@ -35,10 +35,13 @@ import {
   resolveAiGate,
   aiSynthesisAllowed,
   recordAiAnswer,
+  consumeAiAnswer,
   getDocReads,
   recordDocRead,
+  consumeDocRead,
   getFlowchartCount,
   recordFlowchart,
+  consumeFlowchart,
   verifyStripeWebhookSignature,
   subscriptionTransition,
   subscriptionInterval,
@@ -266,6 +269,26 @@ function mockDB() {
               const r = student.get(args[0]);
               if (r) r.used_at = null;
               return { meta: { changes: r ? 1 : 0 } };
+            }
+            if (q.startsWith("INSERT INTO pro_usage (user_id, month, ")) {
+              // Atomic consume: INSERT ... ON CONFLICT ... DO UPDATE SET
+              // <col> = <col> + 1 WHERE <col> < ?. The read-modify-write runs
+              // synchronously inside run(), modeling SQLite's write
+              // serialization — concurrent consumes in tests race exactly
+              // like production D1.
+              const m = q.match(/^INSERT INTO pro_usage \(user_id, month, (\w+)\) VALUES \(\?, \?, 1\) ON CONFLICT \(user_id, month\) DO UPDATE SET \1 = \1 \+ 1 WHERE \1 < \?$/);
+              if (!m) throw new Error("mockDB.run: unhandled: " + q.slice(0, 80));
+              const store = m[1] === "ai_answers" ? usage
+                : m[1] === "doc_reads" ? docReads
+                : m[1] === "flowcharts" ? flowcharts : null;
+              if (!store) throw new Error("mockDB.run: unknown quota column: " + m[1]);
+              const k = args[0] + "|" + args[1];
+              const cur = store.get(k) || 0;
+              if (cur < args[2]) {
+                store.set(k, cur + 1);
+                return { meta: { changes: 1 } };
+              }
+              return { meta: { changes: 0 } };
             }
             throw new Error("mockDB.run: unhandled: " + q.slice(0, 80));
           };
@@ -752,7 +775,7 @@ await test("search.js gates all three AI waves on the Pro gate", async () => {
   const waveGuards = src.match(/if \(!aiOK && aiSynthesisAllowed[^\n]*\)/g) || [];
   assert.equal(waveGuards.length, 3, `expected 3 gated wave guards, found ${waveGuards.length}`);
   assert.match(src, /aiQuota:\s*\{/, "search response missing aiQuota");
-  assert.match(src, /recordAiAnswer\(env, aiGate\.userId\)/, "AI answers not metered");
+  assert.match(src, /consumeAiAnswer\(env, aiGate\.userId, aiGate\.aiCap\)/, "AI answers not metered atomically");
   // Wave 4 (deterministic fallback) must stay ungated — everyone gets it.
   assert.match(src, /WAVE 4 — DETERMINISTIC EXTRACTIVE SYNTHESIS/, "wave 4 marker moved?");
 });
@@ -957,6 +980,107 @@ await test("concurrent recordAiAnswer calls never lose increments", async () => 
   assert.equal(aiSynthesisAllowed(gate), false, "20/15 must be over the cap");
 });
 
+// ── Atomic quota consumption (2026-09-15) ─────────────────────────────────
+// consume* folds the cap check into the increment: one D1 statement, so
+// concurrent requests can never overshoot a cap or drive usage negative.
+
+await test("20 concurrent consumes against cap 1 → exactly 1 allowed", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u40", email: "race2@x.com" });
+  const env = envOf(db);
+  const results = await Promise.all(
+    Array.from({ length: 20 }, () => consumeAiAnswer(env, "u40", 1))
+  );
+  const allowedCount = results.filter((r) => r.allowed).length;
+  assert.equal(allowedCount, 1, `expected exactly 1 allowed, got ${allowedCount}`);
+  const gate = await resolveAiGate(env, { id: "u40", email: "race2@x.com" });
+  assert.equal(gate.aiUsed, 1, "bucket must hold exactly the one consumed unit");
+  // Note: the gate's tier cap is 15 (free), while this test raced on an
+  // explicit cap of 1 — the bucket count is what proves atomicity here.
+});
+
+await test("consume at exactly the cap is denied; one below is allowed", async () => {
+  const db = mockDB();
+  const env = envOf(db);
+  for (let i = 1; i <= 3; i++) {
+    const r = await consumeDocRead(env, "u41", 3);
+    assert.ok(r.allowed, `consume ${i}/3 must be allowed`);
+    assert.equal(r.used, i, `used must read ${i} after consume ${i}`);
+  }
+  const denied = await consumeDocRead(env, "u41", 3);
+  assert.ok(!denied.allowed, "consume at exactly the cap must be denied");
+  assert.equal(denied.used, 3, "denied consume reports the true count");
+  assert.equal(await getDocReads(env, "u41"), 3, "denied consume must not move the bucket");
+});
+
+await test("hammering all three buckets never drives usage negative or past the cap", async () => {
+  const db = mockDB();
+  const env = envOf(db);
+  const ai = await Promise.all(Array.from({ length: 60 }, () => consumeAiAnswer(env, "u42", 5)));
+  const docs = await Promise.all(Array.from({ length: 60 }, () => consumeDocRead(env, "u42", 3)));
+  const charts = await Promise.all(Array.from({ length: 60 }, () => consumeFlowchart(env, "u42", 1)));
+  assert.equal(ai.filter((r) => r.allowed).length, 5, "ai bucket must allow exactly 5");
+  assert.equal(docs.filter((r) => r.allowed).length, 3, "doc bucket must allow exactly 3");
+  assert.equal(charts.filter((r) => r.allowed).length, 1, "flowchart bucket must allow exactly 1");
+  const gate = await resolveAiGate(env, { id: "u42", email: "hammer@x.com" });
+  assert.ok(gate.aiUsed >= 0 && gate.aiUsed <= 5, `aiUsed=${gate.aiUsed} out of [0,5]`);
+  const d = await getDocReads(env, "u42");
+  assert.ok(d >= 0 && d <= 3, `doc_reads=${d} out of [0,3]`);
+  const f = await getFlowchartCount(env, "u42");
+  assert.ok(f >= 0 && f <= 1, `flowcharts=${f} out of [0,1]`);
+});
+
+await test("lite cap 150 enforced atomically, not just free's 15", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u43", email: "lite2@x.com", plan: "lite", pro_source: "subscription" });
+  const env = envOf(db);
+  const results = await Promise.all(
+    Array.from({ length: 200 }, () => consumeAiAnswer(env, "u43", LITE_AI_ANSWERS))
+  );
+  assert.equal(results.filter((r) => r.allowed).length, 150, "exactly 150 of 200 concurrent consumes allowed");
+  const gate = await resolveAiGate(env, { id: "u43", email: "lite2@x.com" });
+  assert.equal(gate.kind, "lite");
+  assert.equal(gate.aiUsed, 150);
+  assert.equal(aiSynthesisAllowed(gate), false);
+  const denied = await consumeAiAnswer(env, "u43", LITE_AI_ANSWERS);
+  assert.ok(!denied.allowed, "151st lite consume must be denied");
+});
+
+await test("pro unlimited skips the consume: no DB write, always allowed", async () => {
+  const db = mockDB();
+  db.addUser({ id: "u44", email: "pro2@x.com", plan: "pro", pro_source: "subscription" });
+  const env = envOf(db);
+  const r = await consumeAiAnswer(env, "u44", Infinity);
+  assert.ok(r.allowed, "pro (Infinity cap) must be allowed");
+  assert.equal(r.used, 0);
+  const r2 = await consumeDocRead(env, "u44", null);
+  assert.ok(r2.allowed, "pro (null cap, the document.js shape) must be allowed");
+  assert.equal(db._usage.size, 0, "pro consume must not write an ai_answers row");
+  assert.equal(db._docReads.size, 0, "pro consume must not write a doc_reads row");
+  assert.equal(db._flowcharts.size, 0, "pro consume must not write a flowcharts row");
+});
+
+await test("consumes in one quota period don't leak into another period", async () => {
+  const db = mockDB();
+  const env = envOf(db);
+  const realNow = Date.now;
+  try {
+    for (let i = 0; i < FREE_AI_ANSWERS_PER_MONTH; i++) {
+      assert.ok((await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_MONTH)).allowed);
+    }
+    const full = await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_MONTH);
+    assert.ok(!full.allowed, "full period must deny");
+    assert.equal(full.used, FREE_AI_ANSWERS_PER_MONTH);
+    // One full quota period forward: the bucket is fresh again.
+    Date.now = () => realNow() + FREE_QUOTA_PERIOD_DAYS * 24 * 3600 * 1000;
+    const fresh = await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_MONTH);
+    assert.ok(fresh.allowed, "new period must allow");
+    assert.equal(fresh.used, 1, "new period starts at 1, not 16");
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 // ── Document-read + flowchart metering (2026-09-15: free 3 docs, 1 chart) ──
 
 await test("free doc-read bucket: 0→3 increments, caps are 3 and 1", async () => {
@@ -991,14 +1115,14 @@ await test("document endpoint gates: sign-in required, free 3/mo, quota in respo
   assert.match(src, /auth_required/, "document endpoint must require sign-in");
   assert.match(src, /FREE_DOC_READS_PER_MONTH/, "document endpoint must use the free doc cap");
   assert.match(src, /doc_quota_exhausted/, "document endpoint must return a quota code at the cap");
-  assert.match(src, /meterDocRead\(\)/, "document endpoint must meter after successful analysis");
+  assert.match(src, /consumeDocRead\(env, docUser\.id, docCap\)/, "document endpoint must atomically consume the doc read at the gate");
   assert.match(src, /quota: docQuota\(\)/, "document responses must carry the quota shape");
 });
 
 await test("flowchart-allow action meters new charts and denies at the cap", async () => {
   const src = await readFile(join(root, "functions/api/pro.js"), "utf8");
   assert.match(src, /case "flowchart-allow"/, "pro.js must route flowchart-allow");
-  assert.match(src, /recordFlowchart\(env, user\.id\)/, "flowchart-allow must atomically record");
+  assert.match(src, /consumeFlowchart\(env, user\.id, cap\)/, "flowchart-allow must atomically consume");
   assert.match(src, /FREE_FLOWCHARTS_PER_MONTH/, "flowchart-allow must use the free chart cap");
   assert.match(src, /docReads,\n    flowcharts,/, "pro status must expose docReads and flowcharts");
 });

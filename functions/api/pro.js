@@ -25,7 +25,7 @@ import {
   FREE_QUOTA_PERIOD_DAYS, periodKey, quotaResetsInMs,
   PRO_PLANS, isValidProPlan, isLiteRow, tierOfRow, capsForTier, tierForCheckoutPlan,
   ensureProTables, getUserProRow, resolveAiGate,
-  getDocReads, getFlowchartCount, recordFlowchart,
+  getDocReads, getFlowchartCount, consumeFlowchart,
   verifyStripeWebhookSignature, applyStripeEvent,
   normalizeEmail, validateGrantTarget,
   grantLifetimePro, revokeLifetimePro, listLifetimePros,
@@ -521,7 +521,7 @@ export async function onRequest(context) {
 // ── POST: flowchart-allow (signed in) ─────────────────────────────────────
 // The client calls this when a free user saves a NEW flowchart (re-saving an
 // existing chart never touches this endpoint). Pro is always allowed.
-// Free accounts get FREE_FLOWCHARTS_PER_MONTH new charts per UTC month;
+// Free accounts get FREE_FLOWCHARTS_PER_MONTH new charts per quota period;
 // the increment is atomic with the allowance check.
 async function handleFlowchartAllow(request, env, cors) {
   let user = null;
@@ -534,18 +534,20 @@ async function handleFlowchartAllow(request, env, cors) {
   if (tier === "pro") {
     return json({ ok: true, allowed: true, pro: true, used: 0, cap: null }, 200, cors);
   }
+  // Free accounts get FREE_FLOWCHARTS_PER_MONTH new charts per quota period
+  // (Lite 30). The allowance check and the increment are ONE atomic consume:
+  // concurrent saves can never overshoot the cap.
   const cap = capsForTier(tier).flowcharts;
-  const used = await getFlowchartCount(env, user.id);
-  if (used >= cap) {
+  const consumed = await consumeFlowchart(env, user.id, cap);
+  if (!consumed.allowed) {
     return json({
-      ok: true, allowed: false, used, cap, tier,
+      ok: true, allowed: false, used: consumed.used, cap, tier,
       message: tier === "lite"
         ? "You've used your 30 Lite flowcharts for these 5 days. Pro saves unlimited flowcharts."
         : "Free accounts can save 1 flowchart every 5 days. Lite saves 30 — Pro saves unlimited.",
     }, 200, cors);
   }
-  const next = await recordFlowchart(env, user.id);
-  return json({ ok: true, allowed: true, used: next, cap, tier }, 200, cors);
+  return json({ ok: true, allowed: true, used: consumed.used, cap, tier }, 200, cors);
 }
 
 // ── POST: list-lifetime (founder only) ─────────────────────────────────────

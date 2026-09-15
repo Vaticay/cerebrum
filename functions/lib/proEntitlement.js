@@ -405,6 +405,8 @@ export function aiSynthesisAllowed(gate) {
 // heavy concurrency a free user lands one or two answers over the cap —
 // immaterial for a soft product cap, and the atomic upsert means the count
 // itself never loses increments.
+// NOTE: quota-gated call sites now use consumeAiAnswer (cap check folded
+// into the increment); this remains for unconditional increments only.
 export async function recordAiAnswer(env, userId) {
   await ensureProTables(env);
   const row = await env.DB.prepare(
@@ -466,6 +468,61 @@ export async function recordFlowchart(env, userId) {
   ).bind(userId, periodKey()).first();
   return row && typeof row.flowcharts === "number" ? row.flowcharts : 1;
 }
+
+// ── Atomic quota consumption (2026-09-15) ───────────────────────────────
+// Race-safe replacement for check-then-increment: the cap check and the
+// increment are ONE D1 statement, so concurrent requests can never
+// overshoot a cap or drive usage negative.
+//
+//   INSERT INTO pro_usage (user_id, month, <col>) VALUES (?, ?, 1)
+//   ON CONFLICT (user_id, month) DO UPDATE SET <col> = <col> + 1 WHERE <col> < ?
+//
+// A missing row inserts 1 (always within a cap ≥ 1); an existing row only
+// increments while below the cap. meta.changes === 1 means this call
+// consumed a unit; 0 means the bucket was already at the cap. Returns
+// { allowed, used } — used is the post-consume count (or the current count
+// when denied) for the quota payloads the endpoints return.
+//
+// Pro is the fast path: a null/Infinity cap skips the DB write entirely
+// (allowed, used 0). Caps ≤ 0 are denied without touching the DB.
+const QUOTA_COLUMNS = { ai: "ai_answers", docs: "doc_reads", flowcharts: "flowcharts" };
+
+async function consumeQuota(env, kind, userId, cap) {
+  const column = QUOTA_COLUMNS[kind];
+  if (!column || !env || !env.DB || !userId) return { allowed: false, used: 0 };
+  if (cap == null || cap === Infinity) return { allowed: true, used: 0 };
+  if (!(cap > 0)) return { allowed: false, used: 0 };
+  await ensureProTables(env);
+  const pk = periodKey();
+  // Column names are internal constants, never caller input — the whitelist
+  // above is the guard. The cap rides as a bound parameter.
+  const res = await env.DB.prepare(
+    "INSERT INTO pro_usage (user_id, month, " + column + ") VALUES (?, ?, 1) " +
+      "ON CONFLICT (user_id, month) DO UPDATE SET " + column + " = " + column + " + 1 " +
+      "WHERE " + column + " < ?"
+  ).bind(userId, pk, cap).run();
+  const allowed = ((res && res.meta && res.meta.changes) || 0) === 1;
+  let used = 0;
+  try {
+    const row = await env.DB.prepare(
+      "SELECT " + column + " FROM pro_usage WHERE user_id = ? AND month = ?"
+    ).bind(userId, pk).first();
+    used = row && typeof row[column] === "number" ? row[column] : 0;
+  } catch {
+    used = 0;
+  }
+  return { allowed, used };
+}
+
+// Atomically consume one AI answer from a metered bucket (free or Lite).
+// Pro passes cap null/Infinity and never touches the DB.
+export const consumeAiAnswer = (env, userId, cap) => consumeQuota(env, "ai", userId, cap);
+
+// Atomically consume one Notebook Mode document read.
+export const consumeDocRead = (env, userId, cap) => consumeQuota(env, "docs", userId, cap);
+
+// Atomically consume one Flowchart Studio save.
+export const consumeFlowchart = (env, userId, cap) => consumeQuota(env, "flowcharts", userId, cap);
 
 // ── Stripe webhook signature (Web Crypto, no SDK) ─────────────────────────
 

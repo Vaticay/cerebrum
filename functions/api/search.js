@@ -8301,11 +8301,19 @@ export async function onRequest(context) {
     }
     const aiSynthesisAllowed = proLib ? proLib.aiSynthesisAllowed(aiGate) : false;
     // Consume one AI answer from a metered account's bucket (free or Lite).
-    // Best-effort by design: a failed increment must never fail the search
-    // itself.
+    // The cap check and the increment are ONE atomic statement
+    // (consumeAiAnswer): concurrent requests can never overshoot the cap or
+    // drive usage negative. If this request lost the race for the last slot
+    // — gate said "allowed" but the bucket filled first — the AI was already
+    // burned, so the answer still goes out and the quota payload reports the
+    // true count. Best-effort by design: a failed consume must never fail
+    // the search itself.
     const meterAiAnswer = async () => {
       if (proLib && (aiGate.kind === "free" || aiGate.kind === "lite") && aiGate.userId) {
-        try { aiGate.aiUsed = await proLib.recordAiAnswer(env, aiGate.userId); } catch {}
+        try {
+          const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGate.aiCap);
+          if (consumed && typeof consumed.used === "number") aiGate.aiUsed = consumed.used;
+        } catch {}
       }
     };
     // The quota shape every AI surface returns, so the client's upgrade

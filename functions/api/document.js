@@ -383,13 +383,25 @@ export async function onRequest(context) {
     }
     const docGate = await proLib.resolveAiGate(env, docUser);
     // Pro (paid or lifetime) reads unlimited documents. Lite and free draw
-    // from their metered buckets — 30 and 3 reads per 5-day period.
+    // from their metered buckets — 30 and 3 reads per 5-day period
+    // (FREE_DOC_READS_PER_MONTH on the free tier). The auth check and the
+    // increment are ONE atomic consume: concurrent requests can never
+    // overshoot the cap. The reservation happens up front, so a failed
+    // analysis burns the reserved slot instead of risking unbounded
+    // overshoot. Best-effort: a metering failure never blocks the analysis.
     const docTier = docGate.kind === "pro" ? "pro" : docGate.kind === "lite" ? "lite" : "free";
     const docCap = docTier === "pro" ? null : proLib.capsForTier(docTier).docs;
     let docUsed = 0;
     if (docCap !== null) {
-      docUsed = await proLib.getDocReads(env, docUser.id);
-      if (docUsed >= docCap) {
+      let docAllowed = true;
+      try {
+        const consumed = await proLib.consumeDocRead(env, docUser.id, docCap);
+        docUsed = consumed.used;
+        docAllowed = consumed.allowed;
+      } catch {
+        docAllowed = true;
+      }
+      if (!docAllowed) {
         return errRes(
           docTier === "lite"
             ? "You've used your 30 Lite document reads for these 5 days. Pro reads unlimited documents."
@@ -404,14 +416,6 @@ export async function onRequest(context) {
       used: docUsed,
       cap: docCap,
     });
-    // A failed analysis burns nothing: the read is only recorded after the
-    // provider returns. Best-effort like search.js — a failed increment must
-    // never fail the analysis itself.
-    const meterDocRead = async () => {
-      if (docCap !== null && docUser) {
-        try { docUsed = await proLib.recordDocRead(env, docUser.id); } catch {}
-      }
-    };
     // Commit 64 — a long document is no longer refused. It used to return
     // a 413 telling the person to go and cut their own paper down, which is
     // work the tool should be doing for them. There is still a real ceiling
@@ -452,7 +456,6 @@ export async function onRequest(context) {
     const result = await withTimeout(generate(env, messages, maxTokens), 60000, "document analysis");
 
     if (isQA) {
-      await meterDocRead();
       return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model, quota: docQuota() }, 200, cors);
     }
     const sectioned = splitSummarySections(result.answer);
@@ -460,7 +463,6 @@ export async function onRequest(context) {
     // a summary that silently covers only part of a document is worse than
     // no summary, because nothing on screen says so.
     const raw = result.answer + truncatedNote;
-    await meterDocRead();
     return okRes({ mode: "summary", raw, ...sectioned, truncated: !!truncatedNote, model: result.model, quota: docQuota() }, 200, cors);
   } catch (e) {
     console.error("Cerebrum document endpoint error:", e);
