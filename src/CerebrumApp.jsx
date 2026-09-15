@@ -1874,45 +1874,6 @@ function useCountUp(target, ms = 900) {
 // one of them truncated to "QUESTION…", which is a label that has stopped
 // being a label. On mobile the deck uses the short form in a 2x2 grid, so
 // the words stay whole.
-function DeckStat({ label, shortLabel, value, accent, P, isMobile, suffix = "" }) {
-  const n = useCountUp(value);
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
-      {/* Tabular figures, so a column of counts lines up instead of
-          jittering as it counts. A zero is set at the same size but in the
-          faint ink: it is still information, it is just not news. */}
-      <span style={{
-        fontSize: isMobile ? 17 : 29, fontWeight: 600,
-        color: value > 0 ? P.ink : withAlpha(P.faint, 0.55),
-        fontFamily: "var(--cb-font)", letterSpacing: "-0.035em", lineHeight: 1.05,
-        fontVariantNumeric: "tabular-nums",
-      }}>{n}{suffix}</span>
-      {/* Commit 71 — was uppercase mono with wide tracking, matching the
-          four shouted card eyebrows above it. Sentence case in the body
-          face: the NUMBER is the thing worth seeing here, and a label
-          competing with it for attention just makes the row noisy. */}
-      <span style={{
-        fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)",
-        letterSpacing: "0.005em", lineHeight: 1.35, fontWeight: 450,
-      }}>{isMobile ? (shortLabel || label) : label}</span>
-    </div>
-  );
-}
-
-/* Commit 71 — the eyebrow, rebuilt.
-   Every card on this deck carried the same tiny uppercase monospace label
-   in the accent colour: QUESTIONS ASKED, PICK UP WHERE YOU LEFT OFF,
-   MILESTONES, TODAY IN SCIENCE, YOUR WATCHED TOPICS. Five identical
-   shouted labels stacked down one screen is the single loudest "generated
-   dashboard" signal there is — it is what a template does when it has no
-   opinion about which thing matters most.
-
-   One small accent dot and sentence case in the body face instead. It
-   reads as a quiet section marker rather than a system log, and because
-   it is no longer visually screaming, real hierarchy (the question, the
-   headline, the photograph) can actually be seen. */
-/* Commit 84 — now a thin wrapper over UILabel. Kept as a name because
-   the deck calls it everywhere, but there is one implementation. */
 function DeckLabel({ P, accent, children, extra }) {
   return <UILabel P={P} accent={accent} right={extra}>{children}</UILabel>;
 }
@@ -1941,85 +1902,11 @@ function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
    progress bar is the point: "2 of 5 topics" is motivating in a way a
    wall of grey locked badges is not. Every number is a row count from
    the database — see resource "milestones" in functions/api/data.js. */
-function MilestoneCard({ P, accent, at, user, refreshKey }) {
-  const [data, setData] = useState(null);
-  const load = useCallback(async () => {
-    if (!user) { setData(null); return; }
-    const d = await apiDataGet("milestones");
-    if (d && Array.isArray(d.items)) setData(d);
-  }, [user]);
-  useEffect(() => { load(); }, [load, refreshKey]);
-  if (!user || !data) return null;
-  const next = data.next;
-  const pct = next ? Math.min(100, Math.round((next.have / next.need) * 100)) : 100;
-  return (
-    <DeckCard P={P} accent={accent} label="How far you've got"
-      labelExtra={<span style={{ fontFamily: "var(--cb-font)" }}>{data.earnedCount} of {data.total}</span>}>
-      {next ? (
-        <>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 3 }}>
-            <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, letterSpacing: "-0.01em" }}>{next.label}</span>
-            {/* The percentage was never shown, only implied by a 6px bar.
-                Saying it costs one span and turns a decorative stripe into
-                a reading. */}
-            <span style={{
-              marginLeft: "auto", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro,
-              color: accent, fontVariantNumeric: "tabular-nums", fontWeight: 600,
-            }}>{pct}%</span>
-          </div>
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 13, lineHeight: 1.5 }}>{next.desc}</div>
-          <div style={{
-            height: 8, borderRadius: RADIUS.pill, marginBottom: 9, position: "relative",
-            background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
-            boxShadow: P.dark ? "inset 0 1px 2px rgba(0,0,0,0.35)" : "none",
-            overflow: "hidden",
-          }}>
-            <div className="cb-progress-fill" style={{
-              height: "100%", width: "100%", borderRadius: RADIUS.pill,
-              background: "linear-gradient(90deg, " + withAlpha(accent, 0.55) + ", " + accent + ")",
-              boxShadow: "0 0 14px " + withAlpha(accent, 0.45),
-              transform: "scaleX(" + pct / 100 + ")", transformOrigin: "left",
-              transition: "transform 1100ms cubic-bezier(0.16, 1, 0.3, 1)",
-            }} />
-          </div>
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-            {next.have} of {next.need} {next.unit}{next.need === 1 ? "" : "s"}
-          </div>
-        </>
-      ) : (
-        <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
-          Every milestone earned. That's a real research habit.
-        </div>
-      )}
-      <div style={{ alignItems: "center", paddingTop: 16, display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {data.items.filter((i) => i.earned).slice(-6).map((i) => (
-          <span key={i.key} title={`${i.label}: ${i.desc}`} style={{
-            display: "inline-flex", alignItems: "center", gap: 5,
-            padding: "5px 11px", borderRadius: RADIUS.pill,
-            background: withAlpha(accent, 0.11), color: accent,
-            border: "1px solid " + withAlpha(accent, 0.22),
-            fontSize: FONT_SIZES.micro, fontWeight: 600, maxWidth: "100%", overflow: "hidden",
-          }}>
-            <Icon name="check" size={11} />
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.label}</span>
-          </span>
-        ))}
-      </div>
-    </DeckCard>
-  );
-}
 
-function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", streakDays = 0 }) {
+function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "" }) {
   const deckRef = useGsapReveal([user ? user.id : "anon", history.length, saved.length], {
     y: 14, stagger: 0.06, duration: 0.85, descend: false,
   });
-  const [streak, setStreak] = useState(() => readStreak());
-  const [watchCount, setWatchCount] = useState(0);
-  useEffect(() => {
-    const onFocus = () => setStreak(readStreak());
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
 
   // "Pick up where you left off." The revisit research this whole surface is
   // built on is specific: it's returning to something you already engaged
@@ -2118,42 +2005,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           }}>
             {lastQ && <><span>{greeting()}{greetingName ? ", " + greetingName : ""}</span><span aria-hidden="true" style={{ opacity: 0.4 }}>·</span></>}
             <span>{todayLabel()}</span>
-            {streakDays > 0 && (
-              <>
-                <span aria-hidden="true" style={{ opacity: 0.4 }}>·</span>
-                <span style={{ color: P.ink2 }}>{streakDays}-day streak</span>
-              </>
-            )}
           </p>
-        </div>
-      )}
-
-      {/* Stats strip — four real counts. Rendered only for signed-in users
-          with something to count; a row of zeroes is a worse first
-          impression than no row at all. */}
-      {user && (totalTurns > 0 || saved.length > 0) && (
-        /* Ordered last and stripped of its card.
-           These four numbers were the first thing under the composer, in a
-           bordered panel, at the same visual weight as the work itself —
-           and three of them are usually zero. A count of what you have done
-           belongs after what you were doing, and it does not need a box to
-           be legible. `order` moves it without moving the markup, so the
-           reading order for a screen reader still follows the source. */
-        <div className="cb-deck-stats" style={{
-          order: 2,
-          display: "grid",
-          /* Single row of four on phones too — the 2×2 with 24px numerals
-             was a monument; a footer stat just needs to be legible. */
-          gridTemplateColumns: "repeat(4, minmax(0,1fr))",
-          gap: isMobile ? "8px" : 14,
-          padding: isMobile ? "14px 4px 2px" : "22px 6px 2px",
-          marginTop: isMobile ? 4 : 12,
-          borderTop: `1px solid ${P.line}`,
-        }}>
-          <DeckStat label="Questions asked" shortLabel="Questions" value={totalTurns} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Papers saved" shortLabel="Saved" value={(saved || []).length} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Topics watched" shortLabel="Watched" value={watchCount} P={P} accent={accent} isMobile={isMobile} />
-          <DeckStat label="Day streak" shortLabel="Streak" value={streak.days} P={P} accent={accent} isMobile={isMobile} />
         </div>
       )}
 
@@ -2227,8 +2079,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
         )}
 
         <WatchList P={P} accent={accent} at={at} user={user} onAsk={onAsk}
-          refreshKey={watchKey} deck onCount={setWatchCount} />
-        <MilestoneCard P={P} accent={accent} at={at} user={user} refreshKey={watchKey} />
+          refreshKey={watchKey} deck />
         <DailyScience P={P} accent={accent} at={at} onAsk={onAsk} deck />
       </div>
     </div>
@@ -11229,43 +11080,11 @@ const TREND_CATEGORY_ICONS = [
   ["Space", "planet"],
   ["Preprints", "document"],
 ];
-function TrendBandArt({ item }) {
-  const cover = coverFor(item);
-  const glyph = (TREND_CATEGORY_ICONS.find(([c]) => (item.category || "") === c) || [])[1] || "bookOpen";
-  return (
-    <>
-      <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: cover.background }} />
-      <svg aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-        {[0.22, 0.4, 0.6, 0.82, 1.06].map((r, i) => (
-          <circle key={i} cx="84%" cy="112%" r={`${r * 120}`} fill="none"
-            stroke={cover.tone} strokeOpacity={Math.max(0.04, 0.17 - i * 0.03)} strokeWidth="1" />
-        ))}
-      </svg>
-      <Icon name={glyph} size={108} style={{ position: "absolute", right: 8, bottom: -10, color: "#ffffff", opacity: 0.09 }} />
-      {item.category && (
-        <span style={{
-          position: "absolute", left: 16, bottom: 28, fontSize: FONT_SIZES.micro,
-          fontFamily: "var(--cb-font)", letterSpacing: "0.12em", textTransform: "uppercase",
-          color: "rgba(255,255,255,0.55)",
-        }}>{item.category}</span>
-      )}
-      <div aria-hidden="true" style={{ position: "absolute", left: 16, right: 16, bottom: 16, height: 1, background: `linear-gradient(90deg, ${withAlpha(cover.tone, 0.55)}, transparent)` }} />
-    </>
-  );
-}
-
-/* Commit 81 — TrendCover is gone.
-   It painted a colour field with a story's initials at 40px, and it was
-   the last "letter placeholder" in the product. Every surface that used it
-   now becomes a type card when there is no photograph instead (see
-   TrendingHero, TrendingCard and DailyScience), which is a design, not an
-   apology for a missing asset. coverFor() survives because the gradient
-   itself is still used for the slim category strips. */
 
 function TrendingHero({ P, accent, item, onExpand }) {
-  // Commit 72 — same resolver as TrendingCard. The hero is the biggest
-  // thing on the Trending page; a generated initials cover there is the
-  // single most template-looking element in the app.
+  // Commit 72 — the hero is the biggest thing on the Trending page; a
+  // generated initials cover there is the single most template-looking
+  // element in the app, so it resolves a real licensed picture instead.
   const found = useResolvedImage(item.image_url ? "" : item.title, item.image_url, item.category);
   const media = item.image_url ? { url: item.image_url, type: "image" } : found;
   const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
@@ -11339,76 +11158,6 @@ function TrendingHero({ P, accent, item, onExpand }) {
   );
 }
 
-function TrendingCard({ P, accent, at, item, onExpand }) {
-  // Commit 72 — "there's like no photo being imported for thumbnails
-  // except for NASA" was reported back in Commit 62 and only half-solved
-  // then, by adding a generated cover. A generated cover is a floor, not a
-  // fix; this goes and finds a real, licensed picture for the ones the
-  // upstream feed left bare. See useResolvedImage / functions/api/image.js.
-  const found = useResolvedImage(item.image_url ? "" : item.title, item.image_url, item.category);
-  const media = item.image_url ? { url: item.image_url, type: "image" } : found;
-  const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
-  // Commit 79 — same reasoning as TrendingHero: a card with no photograph
-  // becomes a type card instead of a 16:10 monogram placeholder. The media
-  // band collapses to a slim category strip, and the headline gets the
-  // room. It makes the grid look edited rather than generated.
-  const hasPhoto = imgStatus === "ready";
-  useEffect(() => { if (media && media.url) setImgStatus("loading"); }, [media && media.url]);
-  return (
-    <button
-      type="button" onClick={() => onExpand(item)}
-      style={{
-        borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden",
-        background: P.surface, display: "flex", flexDirection: "column",
-        textDecoration: "none", color: "inherit", width: "100%", padding: 0,
-        font: "inherit", cursor: "pointer", textAlign: "left",
-      }}
-      className="cb-trend-card"
-    >
-      {/* Commit 87 — the media band is now a CONSTANT height whether or not
-          a photograph resolved. It used to be a 16:10 image on cards that
-          found one and a 6px stripe on cards that did not, so a single row
-          of three could contain a 200px picture, a hairline, and a
-          hairline — three different objects wearing the same border. The
-          summary then flexed to fill the difference and left a hole in the
-          middle of the bare cards. With the tonal palette there is now
-          something worth showing in that band when there is no photo (a
-          quiet duotone field, still no monogram), so reserving it costs
-          nothing and the row finally scans as one row. */}
-      <div style={{ position: "relative", aspectRatio: "16/10", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", flexShrink: 0, overflow: "hidden" }}>
-        {media && media.url && imgStatus !== "error" && (
-          <div style={{ position: "absolute", inset: 0, opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }}>
-            <CardMedia media={media} onReady={() => setImgStatus("ready")} onFail={() => setImgStatus("error")} />
-          </div>
-        )}
-        {!hasPhoto && <TrendBandArt item={item} />}
-        {hasPhoto && !item.image_url && <ImageCredit image={found} />}
-        {hasPhoto && <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)", opacity: imgStatus === "ready" ? 1 : 0 }} />}
-        {item.source && <span title={SOURCE_FULL_NAMES[item.source]} style={{ position: "absolute", top: 10, left: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", background: "rgba(0,0,0,0.55)", padding: "3px 8px", borderRadius: 100, fontFamily: "var(--cb-font)" }}>{item.source}</span>}
-      </div>
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-        {/* On a photo card the source sits on the image; on a type card
-            there is no image to sit on, so it leads the text instead. */}
-        {/* Commit 87 — the source used to appear here on bare cards and on
-            the image on photo cards, i.e. in two different places in one
-            grid. It now always sits on the band. */}
-        <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{item.title}</div>
-        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55, flex: 1, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
-        <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-          {item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : ""}
-          <span style={{ color: accent, marginLeft: "auto", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Expand <Icon name="arrowRight" size={11} /></span>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-// Client-side dedup safety net — mirrors the normalization functions.
-// lib/trendingSource.js runs server-side (see that file), so a cached or
-// slightly-stale response, or any future backend change, still can't put
-// the same story on screen twice. Dedupes by normalized URL first, falling
-// back to normalized title for two different URLs carrying the same
-// syndicated story.
 function normalizeTrendingUrl(url) {
   return String(url || "").trim().toLowerCase()
     .replace(/^https?:\/\//, "").replace(/^www\./, "")
@@ -11432,8 +11181,8 @@ function dedupeTrendingItems(items) {
   return out;
 }
 
-// Article detail — opened by clicking a TrendingHero/TrendingCard instead
-// of leaving the app immediately. Same dialog pattern as InstitutionModal/
+// Article detail — opened by clicking a story instead of leaving the app
+// immediately. Same dialog pattern as InstitutionModal/
 // InboxModal (backdrop click + Escape both close, focus trapped inside):
 // full title, full untruncated summary, source, published date, and the
 // actual outbound link to the original article, which lives here now
@@ -12032,21 +11781,10 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   // flag), so a retry is expressed as a dependency change rather than by
   // hoisting load() out and losing that ownership.
   const [reloadTick, setReloadTick] = useState(0);
-  // Commit 58 — Trending was one long column of large cards: enormous
-  // vertical space, one story per screenful, and no way to get an overview
-  // of what's happening today without scrolling for a minute. Two changes:
-  // a Digest tab that lists everything compactly (the default, because the
-  // first thing anyone wants from a feed is the shape of the day), and the
-  // existing card layout kept as a second tab for browsing.
-  // Browse is the default: the cards carry images and are what people
-  // actually want to look at first — Digest is the scan-the-day view you
-  // switch to deliberately.
-  const [trendTab, setTrendTab] = useState("cards");
-  // Commit 60 — the feed now spans disciplines (see functions/lib/
-  // trendingSource.js), so it needs a way to narrow to one. Built from the
-  // categories actually present rather than a hardcoded list, so a source
-  // going down removes its chip instead of leaving a filter that finds
-  // nothing.
+  // The feed now spans disciplines (see functions/lib/trendingSource.js),
+  // so it needs a way to narrow to one. Built from the categories actually
+  // present rather than a hardcoded list, so a source going down removes
+  // its section instead of leaving a filter that finds nothing.
   const [trendCat, setTrendCat] = useState("All");
 
   useEffect(() => {
@@ -12083,56 +11821,78 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   // dedupeTrendingItems above) — a safety net against a stale cache row or
   // a future source change, never a substitute for the server-side dedup.
   const deduped = useMemo(() => dedupeTrendingItems(items), [items]);
-  // Commit 63 — the category filter used to be applied only inside the
-  // digest branch, so clicking a chip did nothing at all in Browse: hero and
-  // the card grid were still built from the unfiltered list. Filtering once,
-  // here, means every view below is fed the same already-narrowed list and
-  // no future view can forget to apply it.
+  // The category filter is applied once, here, so every view below is fed
+  // the same already-narrowed list and no future view can forget it.
   const visibleItems = deduped.filter((x) => trendCat === "All" || x.category === trendCat);
   const [hero, ...rest] = visibleItems;
+  const categories = ["All", ...Array.from(new Set(deduped.map((x) => x.category).filter(Boolean)))];
+
+  // A newspaper dateline, not a "Live" badge. The feed refreshes on a real
+  // hourly clock; the honest signal is when this edition was printed.
+  const dateline = generatedAt
+    ? new Date(generatedAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+    : "";
 
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
       <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "72px 18px 60px" : "44px 32px 90px" }}>
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {/* Commit 88 — an h1, like every other page title. This was a div,
-                so Trending was the one destination a screen reader could not
-                announce and the only one that broke the heading outline. */}
-            <h1 style={{ margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Trending in Science</h1>
-            {/* Commit 80 — out of preview. The label was honest while the
-                feed was new; it now refreshes on a real hourly clock from
-                fifteen sources and has been stable. Leaving a "Preview"
-                badge on a shipped feature stops being modesty and starts
-                being a reason for people not to trust it. */}
-            {status === "ready" && (
-              <span title="Refreshed automatically once an hour" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS.good, flexShrink: 0, animation: "cbHuddlePulse 1.6s ease-in-out infinite" }} />
-                Live{generatedAt ? " · updated " + relativeTime(generatedAt) : ""}
-              </span>
-            )}
+        {/* ══════════════════════════════════════════════════════
+            The masthead. Trending is a daily edition, not a dashboard:
+            nameplate, dateline, and the one honest disclaimer, ruled off
+            from the stories like a front page. No pulse dot, no "Live"
+            badge — the feed refreshes hourly and says so in words.
+            ══════════════════════════════════════════════════════ */}
+        <div style={{ marginBottom: 26, borderBottom: `2px solid ${P.ink}`, paddingBottom: 18 }}>
+          <h1 style={{ margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Trending in Science</h1>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: "0.02em" }}>
+              {dateline}{dateline ? "  ·  " : ""}Refreshed hourly from real science press
+            </span>
           </div>
-          <div style={{ fontSize: FONT_SIZES.body, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
-            Refreshed hourly from real science press. Not curated by us, not fact-checked like an answer. Read the source before you cite it.
+          <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
+            Not curated by us, not fact-checked like an answer. Read the source before you cite it.
           </div>
         </div>
-        {status === "loading" && (
-          <>
-            <div style={{ borderRadius: 16, overflow: "hidden", aspectRatio: "16/9", background: P.skel, backgroundSize: "200% 100%", animation: "cbShimmer 1.8s ease-in-out infinite", marginBottom: 24 }} />
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <div key={i} style={{ borderRadius: 12, border: `1px solid ${P.line}`, overflow: "hidden" }}>
-                  <div style={{ aspectRatio: "16/10", background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                  <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ height: 14, width: "80%", borderRadius: 8, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                    <div style={{ height: 10, width: "100%", borderRadius: 8, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                    <div style={{ height: 10, width: "60%", borderRadius: 8, background: P.skel, backgroundSize: "200% 100%", animation: `cbShimmer 1.8s ease-in-out ${i * 120}ms infinite` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
+
+        {/* ══════════════════════════════════════════════════════
+            Sections. A newspaper's section index, not a row of filter
+            chips: text links separated by middots, the active section
+            underlined in accent. Same filtering behavior, none of the
+            pill chrome.
+            ══════════════════════════════════════════════════════ */}
+        {status === "ready" && categories.length > 1 && (
+          <nav aria-label="Filter by section" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", rowGap: 8, marginBottom: 22 }}>
+            {categories.map((cat, i) => (
+              <span key={cat} style={{ display: "inline-flex", alignItems: "center" }}>
+                {i > 0 && <span aria-hidden="true" style={{ color: P.faint, margin: "0 10px", fontSize: FONT_SIZES.small }}>·</span>}
+                <button
+                  type="button"
+                  onClick={() => setTrendCat(cat)}
+                  aria-current={trendCat === cat ? "true" : undefined}
+                  style={{
+                    background: "none", border: "none", padding: "6px 2px", cursor: "pointer",
+                    fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+                    fontWeight: trendCat === cat ? 700 : 400,
+                    color: trendCat === cat ? P.ink : P.ink2,
+                    borderBottom: trendCat === cat ? `2px solid ${accent}` : "2px solid transparent",
+                    marginBottom: -2,
+                  }}
+                >{cat}</button>
+              </span>
+            ))}
+          </nav>
         )}
+
+        {/* A loading state is a line of text, not six shimmering cards.
+            The feed takes a moment; it says so, quietly. */}
+        {status === "loading" && (
+          <div style={{ padding: "72px 0", textAlign: "center" }}>
+            <div style={{ fontSize: FONT_SIZES.body, color: P.faint, fontFamily: "var(--cb-font)" }}>
+              Gathering today&apos;s science stories…
+            </div>
+          </div>
+        )}
+
         {/* An error state is a screen a real person actually lands on, so it
             gets the same treatment as any other: a contained surface rather
             than text floating in the middle of an empty page, a headline
@@ -12156,10 +11916,10 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
               <Icon name="warning" size={22} style={{ color: STATUS.bad }} />
             </div>
             <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, marginBottom: 8 }}>
-              Trending feed didn't load
+              Trending feed didn&apos;t load
             </div>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>
-              The upstream science feed didn't answer. It's usually busy rather than
+              The upstream science feed didn&apos;t answer. It&apos;s usually busy rather than
               down, so a retry in a few seconds normally works.
             </div>
             <button
@@ -12172,79 +11932,43 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             >Try again</button>
           </div>
         )}
+
         {status === "ready" && (
           <>
-            {/* ══════════════════════════════════════════════════════
-                Commit 87 — one control row, not two.
-
-                A category filter and a view switcher were stacked as two
-                separate full-width rows of pills, one above the other,
-                identically styled — so the page opened with four lines of
-                chrome (title, standfirst, filters, tabs) before the first
-                story, and nothing in the styling told you that the top row
-                narrows WHAT you see while the bottom row changes HOW you
-                see it. They are different kinds of control and they now
-                look it: subjects on the left as filters, view mode on the
-                right as a segmented control, on one line.
-                ══════════════════════════════════════════════════════ */}
-            <div style={{
-              display: "flex", alignItems: "center", gap: 12, marginBottom: 20,
-              flexWrap: "wrap", justifyContent: "space-between",
-            }}>
-              <div className="cb-scroll-x" style={{ display: "flex", gap: 6, flexWrap: isMobile ? "nowrap" : "wrap", overflowX: isMobile ? "auto" : "visible", minWidth: 0, maxWidth: "100%" }}>
-                {["All", ...Array.from(new Set(deduped.map((x) => x.category).filter(Boolean)))].map((cat) => (
-                  <button key={cat} onClick={() => setTrendCat(cat)}
-                    style={{
-                      padding: "6px 13px", borderRadius: RADIUS.pill, cursor: "pointer", flexShrink: 0,
-                      whiteSpace: "nowrap",
-                      fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
-                      background: trendCat === cat ? withAlpha(accent, 0.16) : "transparent",
-                      color: trendCat === cat ? P.ink : P.ink2,
-                      border: `1px solid ${trendCat === cat ? withAlpha(accent, 0.4) : P.line}`,
-                      transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
-                    }}>{cat}</button>
-                ))}
-              </div>
-              {/* A real segmented control: one track, one moving fill.
-                  Two separate outlined pills read as two independent
-                  toggles, which is exactly the wrong mental model for a
-                  pair of mutually exclusive views. */}
-              <SegControl value={trendTab} onChange={setTrendTab} P={P} accent={accent} ariaLabel="Trending view"
-                options={[{ id: "cards", label: "Browse" }, { id: "digest", label: "Digest" }]} />
-            </div>
-            {trendTab === "digest" ? (
-              /* One line per story: headline, source, age. The whole day
-                 fits on a screen, which is the entire point of a digest —
-                 you scan it, then open the two things worth reading. */
-              <div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
-                {visibleItems.map((item, i) => (
-                  <button key={item.url || i} onClick={() => setExpanded(item)}
-                    style={{
-                      display: "flex", alignItems: "baseline", gap: 14, width: "100%", textAlign: "left",
-                      padding: "14px 4px", background: "transparent", border: "none",
-                      borderBottom: `1px solid ${P.line}`, cursor: "pointer", fontFamily: "var(--cb-font)",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", width: 22, flexShrink: 0 }}>{String(i + 1).padStart(2, "0")}</span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{item.title}</span>
-                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>
-                        {[item.category, item.source, item.publishedAt ? relativeTime(item.publishedAt) : null].filter(Boolean).join(" · ")}
-                      </span>
+            {/* The lead story, full width. The digest below is the index;
+                this is the front-page feature. */}
+            {hero && <div style={{ marginBottom: 30 }}><TrendingHero P={P} accent={accent} item={hero} onExpand={setExpanded} /></div>}
+            {/* ══════════════════════════════════════════════════
+                The digest. One ruled line per story: number, headline,
+                summary, and the source line. The whole day fits on a
+                screen — you scan it, then open the two things worth
+                reading. This used to be one tab of two; the card grid
+                was the generic news-template residue and it is gone.
+                ══════════════════════════════════════════════════ */}
+            <div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
+              {rest.map((item, i) => (
+                <button key={item.url || i} onClick={() => setExpanded(item)}
+                  style={{
+                    display: "flex", alignItems: "baseline", gap: 16, width: "100%", textAlign: "left",
+                    padding: "18px 4px", background: "transparent", border: "none",
+                    borderBottom: `1px solid ${P.line}`, cursor: "pointer", fontFamily: "var(--cb-font)",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", width: 28, flexShrink: 0, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{String(i + 1).padStart(2, "0")}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{item.title}</span>
+                    {item.summary && (
+                      <span style={{ display: "block", fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
+                    )}
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
+                      {[item.category, item.source, item.publishedAt ? relativeTime(item.publishedAt) : null].filter(Boolean).join(" · ")}
                     </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <>
-                {hero && <div style={{ marginBottom: 24 }}><TrendingHero P={P} accent={accent} item={hero} onExpand={setExpanded} /></div>}
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 24 }}>
-                  {rest.map((item, i) => <TrendingCard key={item.url || i} P={P} accent={accent} at={at} item={item} onExpand={setExpanded} />)}
-                </div>
-              </>
-            )}
+                  </span>
+                </button>
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -22876,7 +22600,6 @@ function App() {
     const first = String(raw).trim().split(/\s+/)[0] || "";
     return first.length > 1 && first.length <= 18 ? first : "";
   })();
-  const streakDays = (() => { try { return readStreak().days || 0; } catch { return 0; } })();
   const inputRef = useRef(null);
   const cmdRef = useRef(null);
   // A quiet tribute, not a feature: the version badge used to read "DP" —
@@ -24255,7 +23978,7 @@ function App() {
                   cards that used to sit here. See HomeDeck. */}
               <HomeDeck
                 P={P} accent={accent} at={at} user={user} isMobile={isMobile}
-                greetingName={firstName} streakDays={streakDays}
+                greetingName={firstName}
                 history={history} saved={saved} sessions={sessions}
                 watchKey={watchKey}
                 onAsk={(q) => ask(q)}
