@@ -55,6 +55,12 @@ import {
   extractOpenQuestions,
   classifyVennPapers,
 } from "./answerInsights.js";
+/* Document Mode reader helpers: SSE streaming with a no-partial-answer
+   contract, HTML text extraction, highlight guards, durable reading state. */
+import {
+  docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight,
+  docTitleOf, loadDocStore, saveDocStore, DOCMODE_MAX_DOCS, DOCMODE_MAX_TEXT,
+} from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 import { createPortal } from "react-dom";
 import gsap from "gsap";
@@ -19562,43 +19568,185 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [hoverCite, setHoverCite] = useState(null);
   const [extractingPdf, setExtractingPdf] = useState(false);
   const fileInputRef = useRef(null);
+  /* ── Reader rebuild: durable reading state, highlights, comparison ── */
+  const [sourceView, setSourceView] = useState("source"); // "source" | "read"
+  const [highlights, setHighlights] = useState([]); // [{id,start,end,quote,note,createdAt}]
+  const [pendingHL, setPendingHL] = useState(null); // {start,end,quote,x,y}
+  const [docB, setDocB] = useState(""); // second document, for comparison
+  const [docBError, setDocBError] = useState("");
+  const [showDocB, setShowDocB] = useState(false);
+  const [compareResult, setCompareResult] = useState(null); // {streaming,text}
+  const [compareBusy, setCompareBusy] = useState(false);
+  const [compareError, setCompareError] = useState("");
+  const [recentDocs, setRecentDocs] = useState([]); // [{fp,title,words,updatedAt}]
+  const [storeReady, setStoreReady] = useState(false);
+  const saveTimer = useRef(null);
+  const readBodyRef = useRef(null);
+  const docBFileRef = useRef(null);
+  const compareAbort = useRef(null);
+  const qaAbort = useRef(null);
+  const docEyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
 
-  // Plain text/Markdown is read directly; a .pdf goes through pdf.js
-  // (extractPdfText, above) instead — entirely in the browser, nothing sent
-  // anywhere just to get text out of it. A scanned/image-only PDF has no
-  // extractable text layer at all (see extractPdfText's own comment) rather
-  // than failing outright, so that's called out explicitly rather than
-  // silently handing the summarizer an empty document; a genuinely corrupt
-  // or non-PDF file rejected by pdf.js itself gets its own distinct message
+  // File ingestion: a .pdf goes through pdf.js (extractPdfText, above) and
+  // an .html file through extractHtmlText — both entirely in the browser,
+  // nothing sent anywhere just to get text out of the file. Plain text and
+  // Markdown are read directly. A scanned/image-only PDF has no extractable
+  // text layer at all rather than failing outright, so that's called out
+  // explicitly; a genuinely corrupt file gets its own distinct message
   // rather than both collapsing into one generic "couldn't read this."
+  // Uploaded HTML is read as extracted text (scripts, styles and page
+  // chrome stripped) — never rendered as raw HTML, which would be an XSS
+  // hole for a saved web page.
+  const extractFileText = async (file) => {
+    const name = file.name || "";
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(name);
+    if (isPdf) {
+      let text = "";
+      try {
+        text = await extractPdfText(file);
+      } catch (e) {
+        console.error("PDF extraction failed:", e);
+        throw new Error("Couldn't read that PDF. It may be corrupted or password-protected. Try a different file, or paste the text directly instead.");
+      }
+      if (!text || text.length < 20) {
+        throw new Error("Couldn't find any text in that PDF. It may be a scanned or image-only document. Try a different file, or paste the text directly if you have it.");
+      }
+      return text;
+    }
+    const isHtml = file.type === "text/html" || /\.html?$/i.test(name);
+    const raw = await file.text();
+    if (isHtml) {
+      const text = extractHtmlText(raw);
+      if (!text || text.length < 20) {
+        throw new Error("Couldn't find readable text in that HTML file. Try a different file, or paste the text directly instead.");
+      }
+      return text;
+    }
+    return raw;
+  };
   const readFile = (file) => {
     if (!file) return;
     setError("");
     const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
-    if (isPdf) {
-      setExtractingPdf(true);
-      extractPdfText(file)
-        .then((text) => {
-          if (!text || text.length < 20) {
-            setError("Couldn't find any text in that PDF. It may be a scanned or image-only document. Try a different file, or paste the text directly if you have it.");
-            return;
-          }
-          setDocumentText(text);
-          setLeftTab("paste");
-        })
-        .catch((e) => {
-          console.error("PDF extraction failed:", e);
-          setError("Couldn't read that PDF. It may be corrupted or password-protected. Try a different file, or paste the text directly instead.");
-        })
-        .finally(() => setExtractingPdf(false));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => { setDocumentText(String(reader.result || "")); setLeftTab("paste"); };
-    reader.onerror = () => setError("Couldn't read that file. Try pasting the text directly instead.");
-    reader.readAsText(file);
+    if (isPdf) setExtractingPdf(true);
+    extractFileText(file)
+      .then((text) => openDocument(text))
+      .catch((e) => setError(e.message || "Couldn't read that file. Try pasting the text directly instead."))
+      .finally(() => setExtractingPdf(false));
+  };
+  // Second document for comparison: same ingestion, separate slot.
+  const readFileB = (file) => {
+    if (!file) return;
+    setDocBError("");
+    extractFileText(file)
+      .then((text) => setDocB(text))
+      .catch((e) => setDocBError(e.message || "Couldn't read that file."));
   };
 
+  /* Open a document: with a saved entry, its whole reading state comes
+     back (analysis, Q&A, marks, scroll); otherwise everything resets.
+     A streaming (unfinished) payload is never restored — a half-written
+     answer must not come back from a reload looking final. */
+  const openDocument = (text, saved) => {
+    // The bundled sample is an array of paragraphs; everything else is a string.
+    const t = Array.isArray(text) ? text.join("\n\n") : String(text || "");
+    setDocumentText(t);
+    setLeftTab("paste");
+    setError("");
+    setSourceView("source");
+    if (saved) {
+      setSummary(saved.summary && !saved.summary.streaming ? saved.summary : null);
+      setQaHistory(Array.isArray(saved.qaHistory) ? saved.qaHistory.filter((h) => !h.streaming) : []);
+      setRightTab(saved.rightTab || "summary");
+      setHighlights(Array.isArray(saved.highlights) ? saved.highlights : []);
+      setDocB(saved.docB || "");
+      setDocBError("");
+      setShowDocB(!!(saved.docB && saved.docB.trim()));
+      setCompareResult(saved.compareResult && !saved.compareResult.streaming ? saved.compareResult : null);
+      setCompareError("");
+      if (typeof saved.scrollY === "number" && saved.scrollY > 0) {
+        setTimeout(() => { try { window.scrollTo(0, saved.scrollY); } catch (e) {} }, 80);
+      }
+    } else {
+      setSummary(null);
+      setQaHistory([]);
+      setRightTab("summary");
+      setHighlights([]);
+      setPendingHL(null);
+      setDocB("");
+      setDocBError("");
+      setShowDocB(false);
+      setCompareResult(null);
+      setCompareError("");
+    }
+  };
+  const openRecent = (fp) => {
+    try {
+      const store = loadDocStore();
+      const d = store.docs[fp];
+      if (d && d.text) openDocument(d.text, d);
+    } catch (e) {}
+  };
+
+  /* Restore the last-opened document on mount, and list the shelf. */
+  useEffect(() => {
+    try {
+      const store = loadDocStore();
+      setRecentDocs(
+        Object.entries(store.docs || {})
+          .map(([fp, d]) => ({ fp, title: d.title || "Untitled document", words: d.text ? d.text.split(/\s+/).length : 0, updatedAt: d.updatedAt || 0 }))
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+      );
+      const d = store.lastOpened && store.docs[store.lastOpened];
+      if (d && d.text) openDocument(d.text, d);
+    } catch (e) {}
+    setStoreReady(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* Durable reading state: debounced save of the open document keyed by
+     its fingerprint. Unfinished (streaming) payloads are stripped before
+     saving, so a reload can never resurrect a partial answer as final;
+     the store is LRU-capped so it can never grow without bound. */
+  useEffect(() => {
+    if (!storeReady) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        const text = documentText.trim();
+        const store = loadDocStore();
+        if (text) {
+          const fp = docFingerprint(text);
+          store.docs[fp] = {
+            title: docTitleOf(text),
+            text: text.slice(0, DOCMODE_MAX_TEXT),
+            summary: summary && !summary.streaming ? summary : null,
+            qaHistory: (qaHistory || []).filter((h) => !h.streaming).slice(-30),
+            rightTab,
+            highlights,
+            docB: docB.slice(0, DOCMODE_MAX_TEXT),
+            compareResult: compareResult && !compareResult.streaming ? compareResult : null,
+            scrollY: typeof window !== "undefined" ? window.scrollY : 0,
+            updatedAt: Date.now(),
+          };
+          store.lastOpened = fp;
+          const fps = Object.keys(store.docs).sort((a, b) => (store.docs[a].updatedAt || 0) - (store.docs[b].updatedAt || 0));
+          while (fps.length > DOCMODE_MAX_DOCS) delete store.docs[fps.shift()];
+        } else {
+          // Cleared: don't auto-reopen it on the next visit. The entry
+          // stays on the recent shelf until LRU evicts it.
+          store.lastOpened = null;
+        }
+        saveDocStore(store);
+        setRecentDocs(
+          Object.entries(store.docs || {})
+            .map(([fp2, d]) => ({ fp: fp2, title: d.title || "Untitled document", words: d.text ? d.text.split(/\s+/).length : 0, updatedAt: d.updatedAt || 0 }))
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+        );
+      } catch (e) {}
+    }, 800);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [storeReady, documentText, summary, qaHistory, rightTab, highlights, docB, compareResult]);
   const onDrop = (e) => {
     e.preventDefault();
     setDragActive(false);
@@ -19606,7 +19754,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (file) readFile(file);
   };
 
-  // 2026-09-14: Document Mode now has a 120s timeout and a cancel button.
+  // Document Mode has a 60s frontend timeout and a cancel button.
   // The old plain fetch() could hang forever with only "Reading it…" showing.
   // Document reads are metered per account (free: 3/month, Pro: unlimited);
   // anonymous callers sign in first. The server enforces it — this gate just
@@ -19620,164 +19768,237 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (!docIsPro && docCap != null && docUsed >= docCap) { if (onOpenPro) onOpenPro(); return false; }
     return true;
   };
-  const handleDocApiError = (data, fallback) => {
-    if (data && data.code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); return true; }
-    if (data && data.code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(); return true; }
-    return false;
-  };
+
   const analyzeAbort = useRef(null);
+  // Analysis. No partial text may survive a failed run: the temporary
+  // streaming body is shown only while the run is live and is cleared on
+  // every error or abort path; the final summary is committed only when
+  // the backend's `done` event arrives, so a cleanly-ended-but-incomplete
+  // stream can never leave a partial answer looking final.
   const analyze = async () => {
     const text = documentText.trim();
     if (!text || analyzing) return;
     if (!docGate()) return;
+    if (text.length > 100000) { setError("That document is too long to analyze. Try one under about 100,000 characters."); return; }
     setAnalyzing(true);
     setError("");
     setSummary(null);
     setQaHistory([]);
     setRightTab("summary");
-    // Streaming: show tokens as they arrive for instant feedback
-    setSummary({ streaming: true, raw: "" });
-    const controller = new AbortController();
-    analyzeAbort.current = controller;
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const ctrl = new AbortController();
+    analyzeAbort.current = ctrl;
     try {
-      const res = await fetch("/api/document", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentText: text, stream: true }),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (handleDocApiError(data)) { setAnalyzing(false); clearTimeout(timeoutId); analyzeAbort.current = null; return; }
-        throw new Error(data.error || "Couldn't analyze that document. Please try again.");
-      }
-      // SSE stream: read tokens as they arrive
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let accumulated = "";
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            try {
-              const data = JSON.parse(trimmed.slice(5).trim());
-              if (data.type === "token" && data.text) {
-                accumulated += data.text;
-                // Update UI progressively — user sees words appearing
-                setSummary({ streaming: true, raw: accumulated });
-              } else if (data.type === "done") {
-                setSummary(data);
-                if (onUsageChanged) onUsageChanged();
-              } else if (data.type === "error") {
-                throw new Error(data.error || "Couldn't analyze that document.");
-              } else if (data.type === "quota" && onUsageChanged) {
-                onUsageChanged();
-              }
-            } catch (parseErr) {
-              if (parseErr.message && !parseErr.message.includes("JSON")) throw parseErr;
-            }
-          }
+      // The backend's contract: documentText carries the text, the absence
+      // of `query` selects analysis mode, and stream:true selects the SSE
+      // transport the helper parses. A `mode` field would be ignored.
+      const result = await streamDocumentApi(
+        { documentText: text, stream: true },
+        {
+          signal: ctrl.signal,
+          onQuota: onUsageChanged ? () => onUsageChanged() : undefined,
         }
-      } finally {
-        reader.releaseLock();
-      }
+      );
+      setSummary(result);
     } catch (e) {
-      if (e.name === "AbortError") {
-        setError("The analysis took too long and was stopped. Try a shorter document, or try again.");
-      } else {
-        setError(e.message || "Couldn't analyze that document. Please try again.");
-      }
+      const code = e && e.code;
       setSummary(null);
+      if (code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); }
+      else if (code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(); }
+      else if (code === "aborted") setError("Analysis canceled.");
+      else if (code === "timeout") setError("The analysis took too long. Try again in a moment.");
+      else if (code === "http_413") setError("That document is too large for the analyzer right now. Try a shorter excerpt.");
+      else if (code === "http_503") setError("The analysis service is briefly overloaded. Try again in a moment.");
+      else if (code === "incomplete_stream") setError("The analysis was interrupted before it finished. Nothing was saved — try again.");
+      else setError(e.message || "Something went wrong. Try again in a moment.");
     } finally {
-      clearTimeout(timeoutId);
-      analyzeAbort.current = null;
+      if (analyzeAbort.current === ctrl) analyzeAbort.current = null;
       setAnalyzing(false);
     }
   };
   const cancelAnalyze = () => { if (analyzeAbort.current) analyzeAbort.current.abort(); };
 
+
   // Every factual claim in the answer still has to come from the document
-  // text alone (see QA_SYSTEM_PROMPT in functions/api/document.js) — but a
-  // real conversation needs a follow-up like "and the second one?" or "why
-  // is that?" to resolve against what was actually just asked, so the prior
-  // turns of THIS document's own thread are sent along as plain context.
-  // The backend treats that history as disambiguation only, never as a
-  // source of facts, so grounding stays strict while the exchange stops
-  // resetting to a blank slate every single question.
+  // itself: the backend prompt instructs the model not to answer from
+  // general knowledge and to say "The document doesn't mention that" when
+  // the answer isn't in the text.
   const askFollowUp = async () => {
     const q = qaQuery.trim();
-    if (!q || qaBusy || !summary) return;
+    if (!q || qaBusy || !documentText.trim()) return;
     if (!docGate()) return;
+    // Prior turns ride along for context; the backend bounds and formats
+    // them, and is instructed to verify every fact against the document.
     const historyForRequest = qaHistory
       .filter((h) => h.answer)
       .flatMap((h) => [{ role: "user", text: h.query }, { role: "assistant", text: h.answer }]);
     setQaBusy(true);
     setQaQuery("");
     setRightTab("qa");
-    setQaHistory((prev) => [...prev, { query: q, answer: "", streaming: true }]);
+    // A streaming placeholder: the pending question appears immediately,
+    // the answer only when it's complete. The placeholder is stripped from
+    // durable storage, so a reload never shows it as a finished answer.
+    setQaHistory((h) => [...h, { query: q, answer: "", streaming: true }]);
+    const ctrl = new AbortController();
+    qaAbort.current = ctrl;
     try {
-      const res = await fetch("/api/document", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentText: documentText.trim(), query: q, history: historyForRequest, stream: true }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (handleDocApiError(data)) {
-          setQaHistory((prev) => prev.slice(0, -1));
-          return;
+      const result = await streamDocumentApi(
+        { documentText: documentText.trim(), query: q, history: historyForRequest, stream: true },
+        {
+          signal: ctrl.signal,
+          onToken: (t) => {
+            if (!t) return;
+            setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { ...x, answer: x.answer + t } : x)));
+          },
+          onQuota: onUsageChanged ? () => onUsageChanged() : undefined,
         }
-        throw new Error(data.error || "Couldn't answer that.");
-      }
-      // SSE streaming for Q&A too — tokens appear as they're generated
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let accumulated = "";
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            try {
-              const data = JSON.parse(trimmed.slice(5).trim());
-              if (data.type === "token" && data.text) {
-                accumulated += data.text;
-                setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, answer: accumulated, streaming: true } : h)));
-              } else if (data.type === "done") {
-                setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, answer: data.answer, streaming: false } : h)));
-                if (onUsageChanged) onUsageChanged();
-              } else if (data.type === "error") {
-                throw new Error(data.error || "Couldn't answer that.");
-              }
-            } catch (parseErr) {
-              if (parseErr.message && !parseErr.message.includes("JSON")) throw parseErr;
-            }
-          }
-        }
-      } finally {
-        reader.releaseLock();
-      }
+      );
+      const finalText = result && result.answer ? result.answer : "";
+      setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: finalText } : x)));
     } catch (e) {
-      setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, errorMsg: e.message || "Couldn't answer that.", streaming: false } : h)));
+      const code = e && e.code;
+      if (code === "auth_required") {
+        setQaHistory((h) => h.slice(0, -1));
+        if (onOpenAuth) onOpenAuth("signin");
+      } else if (code === "doc_quota_exhausted") {
+        setQaHistory((h) => h.slice(0, -1));
+        if (onOpenPro) onOpenPro();
+      } else {
+        const msg = code === "aborted" ? "Stopped."
+          : code === "timeout" ? "The answer took too long — try asking again."
+          : code === "incomplete_stream" ? "The answer was interrupted before it finished — nothing was saved."
+          : e.message || "Something went wrong. Try asking again.";
+        setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, errorMsg: msg } : x)));
+      }
     } finally {
+      if (qaAbort.current === ctrl) qaAbort.current = null;
       setQaBusy(false);
     }
   };
+  const cancelQa = () => { if (qaAbort.current) qaAbort.current.abort(); };
 
+  // Compare two documents: both are read together and the comparison must
+  // come only from their texts — agree, differ, and which claims hold up
+  // better. Nothing from general knowledge. The delimiter makes the two
+  // sources unambiguous to the model; the endpoint still enforces the
+  // same auth and quota gates as analysis.
+  const runCompare = async () => {
+    const a = documentText.trim();
+    const b = docB.trim();
+    if (!a || !b || compareBusy) return;
+    if (!docGate()) return;
+    setCompareBusy(true);
+    setCompareError("");
+    setCompareResult({ streaming: true, text: "" });
+    setRightTab("compare");
+    const ctrl = new AbortController();
+    compareAbort.current = ctrl;
+    const combined =
+      "DOCUMENT A:\n" + a +
+      "\n\n========================================\nDOCUMENT B:\n" + b;
+    try {
+      const result = await streamDocumentApi(
+        {
+          documentText: combined,
+          stream: true,
+          query: "Compare these two documents. They are labeled DOCUMENT A and DOCUMENT B. Cover only what their texts actually say: (1) what they agree on, (2) where they disagree or differ in emphasis, (3) which claims are supported more strongly by the evidence given in each text. Do not bring in outside knowledge, and do not invent statistics or findings. If a point is only in one document, say so.",
+        },
+        {
+          signal: ctrl.signal,
+          onToken: (t) => {
+            if (!t) return;
+            setCompareResult((r) => (r ? { ...r, text: r.text + t } : r));
+          },
+          onQuota: onUsageChanged ? () => onUsageChanged() : undefined,
+        }
+      );
+      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "" });
+    } catch (e) {
+      const code = e && e.code;
+      setCompareResult(null);
+      if (code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); }
+      else if (code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(); }
+      else if (code === "aborted") setCompareError("Comparison canceled.");
+      else if (code === "timeout") setCompareError("The comparison took too long. Try again in a moment.");
+      else if (code === "incomplete_stream") setCompareError("The comparison was interrupted before it finished. Nothing was saved.");
+      else setCompareError(e.message || "Something went wrong. Try again in a moment.");
+    } finally {
+      if (compareAbort.current === ctrl) compareAbort.current = null;
+      setCompareBusy(false);
+    }
+  };
+  const cancelCompare = () => { if (compareAbort.current) compareAbort.current.abort(); };
+
+  /* Highlights: text selection → mark → optional note. The reader renders
+     one continuous text node, so selection offsets map 1:1 onto character
+     offsets. Marks are persisted with the document; the browser's native
+     selection clears after the mark is placed. */
+  const onReadSelect = () => {
+    setTimeout(() => {
+      try {
+        const sel = window.getSelection();
+        const body = readBodyRef.current;
+        if (!sel || !body || sel.rangeCount === 0 || sel.isCollapsed) { setPendingHL(null); return; }
+        const range = sel.getRangeAt(0);
+        if (!body.contains(range.commonAncestorContainer)) { setPendingHL(null); return; }
+        const pre = range.cloneRange();
+        pre.selectNodeContents(body);
+        pre.setEnd(range.startContainer, range.startOffset);
+        const start = pre.toString().length;
+        const end = start + range.toString().length;
+        if (end - start < 3) { setPendingHL(null); return; }
+        const rect = range.getBoundingClientRect();
+        setPendingHL({
+          start, end,
+          quote: range.toString().slice(0, 160),
+          x: rect.left + rect.width / 2,
+          y: Math.max(rect.top - 60, 8),
+        });
+      } catch (e) { setPendingHL(null); }
+    }, 0);
+  };
+  const addPendingHighlight = () => {
+    if (!pendingHL) return;
+    const { start, end, quote } = pendingHL;
+    if (!canAddHighlight(highlights, start, end)) {
+      setPendingHL(null);
+      try { window.getSelection().removeAllRanges(); } catch (e) {}
+      return;
+    }
+    setHighlights((prev) => [
+      ...prev,
+      { id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), start, end, quote: quote || documentText.slice(start, end).slice(0, 160), note: "", createdAt: Date.now() },
+    ]);
+    setPendingHL(null);
+    try { window.getSelection().removeAllRanges(); } catch (e) {}
+  };
+  /* Render the document with highlights as marked ranges. Plain text only
+     — the passage text is never interpreted as HTML. */
+  const renderMarkedText = (text) => {
+    const marks = highlights.slice().sort((a, b) => a.start - b.start);
+    if (!marks.length) return text;
+    const out = [];
+    let pos = 0;
+    marks.forEach((h, i) => {
+      const s = Math.max(0, Math.min(h.start, text.length));
+      const e = Math.max(s, Math.min(h.end, text.length));
+      if (s > pos) out.push(<span key={`t${i}`}>{text.slice(pos, s)}</span>);
+      out.push(
+        <mark key={h.id || i} data-hl={h.id}
+          style={{ background: withAlpha(accent, 0.22), borderRadius: 3, padding: "1px 0", color: "inherit" }}>
+          {text.slice(s, e)}
+        </mark>
+      );
+      pos = e;
+    });
+    if (pos < text.length) out.push(<span key="tail">{text.slice(pos)}</span>);
+    return out;
+  };
+  const scrollToHighlight = (h) => {
+    const body = readBodyRef.current;
+    if (!body) return;
+    const el = body.querySelector(`mark[data-hl="${h.id}"]`);
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
   const paneBase = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
   const inputBg = P.dark ? "rgba(255,255,255,0.03)" : "#fff";
   /* Wave 1 — mobile short labels for the result tabs: four full labels
@@ -19790,6 +20011,409 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       : label,
   }));
   const dimBtnBg = P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+
+  /* ── Document Mode reader rebuild ──────────────────────────────────
+     The page form and the overlay form used to carry two full copies of
+     the source pane and the reader pane. They now share renderDocSource
+     and renderDocReader; `form` only switches the layout wrappers, so a
+     fix lands in both places at once. */
+  const docStats = (() => {
+    const t = documentText.trim();
+    if (!t) return null;
+    const words = t.split(/\s+/).length;
+    return { words, mins: Math.max(1, Math.round(words / 220)) };
+  })();
+  const allTabOptions = docB.trim()
+    ? [...docTabOptions, { id: "compare", label: isMobile ? "Compare" : "Compare documents" }]
+    : docTabOptions;
+  // The compare tab needs both documents; if B is removed mid-compare,
+  // fall back to the summary instead of stranding the tab bar.
+  useEffect(() => {
+    if (rightTab === "compare" && !docB.trim()) setRightTab("summary");
+  }, [rightTab, docB]);
+
+  const renderDocSource = (form) => {
+    const hasDoc = !!documentText.trim();
+    const dropzoneStyle = {
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
+      border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, textAlign: "center", cursor: "pointer",
+      background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "background-color 150ms ease",
+      ...(form === "page"
+        ? { padding: "28px 16px", minHeight: 220 }
+        : { flex: 1, padding: "18px 16px", minHeight: isMobile ? 140 : 240 }),
+    };
+    const textareaStyle = {
+      width: "100%", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
+      background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.6,
+      ...(form === "page"
+        ? { resize: "vertical", minHeight: 220 }
+        : { flex: 1, resize: "none", minHeight: isMobile ? 140 : 240 }),
+    };
+    return (
+      <>
+        {/* Recent documents: the durable shelf. Only when nothing is open. */}
+        {!hasDoc && recentDocs.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ ...docEyebrow, marginBottom: 8 }}>Recent documents</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {recentDocs.slice(0, 5).map((d) => (
+                <button key={d.fp} onClick={() => openRecent(d.fp)}
+                  style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer", width: "100%" }}>
+                  <Icon name="document" size={15} style={{ color: P.faint, flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>{d.title}</span>
+                  {d.words > 0 && <span style={{ flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{d.words.toLocaleString()} words</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ marginBottom: 14, ...(form === "overlay" ? { flexShrink: 0 } : null) }}>
+          {hasDoc ? (
+            <SegControl value={sourceView} onChange={setSourceView} P={P} accent={accent} ariaLabel="Document view"
+              options={[{ id: "source", label: "Source" }, { id: "read", label: "Read" }]} />
+          ) : (
+            <SegControl value={leftTab} onChange={setLeftTab} P={P} accent={accent} ariaLabel="Document source"
+              options={[{ id: "paste", label: "Paste text" }, { id: "upload", label: "Upload a file" }]} />
+          )}
+        </div>
+
+        {hasDoc && sourceView === "read" ? (
+          /* READ — the document as a typeset reading surface. One
+             continuous text node, so selection maps 1:1 onto character
+             offsets for highlights. */
+          <div style={form === "overlay" ? { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } : null}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+              <div style={{ ...docEyebrow, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{docTitleOf(documentText)}</div>
+              <button onClick={() => openDocument("")}
+                style={{ flexShrink: 0, minHeight: 44, background: "none", border: "none", cursor: "pointer", padding: "10px 4px", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                Clear
+              </button>
+            </div>
+            <div ref={readBodyRef} onMouseUp={onReadSelect} onTouchEnd={onReadSelect}
+              className="cb-doc-reader"
+              style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.75, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "0.002em" }}>
+              {renderMarkedText(documentText)}
+            </div>
+            <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+              Select any passage to highlight it. Marks and notes are saved with this document.
+            </div>
+            {pendingHL && (
+              <div style={{
+                position: "fixed", left: Math.min(Math.max(pendingHL.x - 70, 8), (typeof window !== "undefined" ? window.innerWidth : 400) - 148),
+                top: pendingHL.y, zIndex: 60,
+              }}>
+                <button onClick={addPendingHighlight}
+                  style={{ minHeight: 44, padding: "10px 20px", borderRadius: 100, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,0.28)" }}>
+                  Highlight
+                </button>
+              </div>
+            )}
+            {highlights.length > 0 && (
+              <section aria-label="Your marks" style={{ marginTop: 22 }}>
+                <div style={{ ...docEyebrow, marginBottom: 6 }}>Marks · {highlights.length}</div>
+                {highlights.slice().sort((a, b) => a.start - b.start).map((h) => (
+                  <div key={h.id} style={{ borderTop: `1px solid ${P.line}`, padding: "12px 0" }}>
+                    <button onClick={() => scrollToHighlight(h)} title="Jump to this passage"
+                      style={{ background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, width: "100%" }}>
+                      <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.6, borderLeft: `2px solid ${accent}`, paddingLeft: 10 }}>
+                        {h.quote}{h.quote.length >= 160 ? "…" : ""}
+                      </div>
+                    </button>
+                    <textarea
+                      value={h.note}
+                      onChange={(e) => setHighlights((prev) => prev.map((x) => (x.id === h.id ? { ...x, note: e.target.value.slice(0, 500) } : x)))}
+                      placeholder="Add a note about this passage…"
+                      aria-label="Note on highlighted passage"
+                      style={{ width: "100%", marginTop: 8, padding: 10, fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.5, minHeight: 44, resize: "vertical" }}
+                    />
+                    <button onClick={() => setHighlights((prev) => prev.filter((x) => x.id !== h.id))}
+                      style={{ minHeight: 44, marginTop: 4, background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", padding: "10px 0" }}>
+                      Remove mark
+                    </button>
+                  </div>
+                ))}
+              </section>
+            )}
+          </div>
+        ) : (
+          /* SOURCE — paste or upload, as before. */
+          <>
+            {leftTab === "upload" ? (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
+                role="button"
+                tabIndex={0}
+                aria-label="Drop a document file or press Enter to browse"
+                style={dropzoneStyle}
+              >
+                <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,.html,.htm,text/plain,text/markdown,application/pdf,text/html" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
+                {extractingPdf ? (<>
+                  <div style={{ width: 24, height: 24, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600, marginTop: 6 }}>Extracting text from PDF…</div>
+                </>) : (<>
+                  <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a file here, or click to browse</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 280 }}>PDF, plain text, Markdown, or HTML. PDF text and HTML are read right in your browser — nothing is uploaded just to read them. Scanned/image-only PDFs have no text to extract; paste the text directly for those.</div>
+                </>)}
+              </div>
+            ) : (
+              <textarea
+                value={documentText}
+                onChange={(e) => setDocumentText(e.target.value)}
+                aria-label="Paste the full text of a paper, report, or document" placeholder="Paste the full text of a paper, report, or document here…"
+                style={textareaStyle}
+              />
+            )}
+            <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, ...(form === "page" ? { flexWrap: "wrap" } : { flexShrink: 0 }) }}>
+              <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {!docStats ? <span>Paste a paper, report, or any long document</span> : <>
+                  <span>{docStats.words.toLocaleString()} words</span>
+                  <span style={{ opacity: 0.5 }}>·</span>
+                  <span>~{docStats.mins} min read</span>
+                </>}
+              </div>
+              <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, ...(form === "page" ? { flexWrap: "wrap" } : null) }}>
+                {!hasDoc && !analyzing && (
+                  <button
+                    onClick={() => openDocument(SAMPLE_DOCUMENT)}
+                    title="Load a short sample paper to try Document Mode"
+                    style={{
+                      minHeight: 44, padding: "10px 16px", borderRadius: 100, cursor: "pointer",
+                      background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small,
+                      border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-font)",
+                    }}
+                  >Try a sample</button>
+                )}
+                <button
+                  onClick={analyze}
+                  disabled={!hasDoc || analyzing}
+                  title={!hasDoc ? "Paste or upload a document first" : "Analyze this document"}
+                  style={{
+                    minHeight: 44, padding: "10px 20px", borderRadius: 100, border: (!hasDoc || analyzing) ? `1px dashed ${P.line2}` : "none",
+                    cursor: (!hasDoc || analyzing) ? "default" : "pointer",
+                    background: (!hasDoc || analyzing) ? "transparent" : accent,
+                    color: (!hasDoc || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
+                    opacity: (!hasDoc || analyzing) ? 0.75 : 1, fontFamily: "var(--cb-font)",
+                  }}
+                >{analyzing ? "Reading it…" : "Read this document"}</button>
+                {analyzing && (
+                  <button
+                    onClick={cancelAnalyze}
+                    title="Stop the analysis"
+                    style={{
+                      minHeight: 44, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`,
+                      cursor: "pointer", background: "transparent", color: P.ink2,
+                      fontWeight: 600, fontSize: FONT_SIZES.small, flexShrink: 0, fontFamily: "var(--cb-font)",
+                    }}
+                  >Cancel</button>
+                )}
+              </div>
+              {(docIsPro || docCap != null) && (
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5, ...(form === "page" ? { flexBasis: "100%" } : { marginTop: 8 }) }}>
+                  {docIsPro
+                    ? "Pro: unlimited document reads."
+                    : docLeft > 0
+                      ? `${docLeft} of ${docCap} free document reads left. Refills every 5 days.`
+                      : "You've used your 3 free document reads for these 5 days. Pro reads are unlimited."}
+                </div>
+              )}
+            </div>
+            {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
+            {/* COMPARE — a second document slot. The comparison itself
+                streams in the reader's Compare tab. */}
+            <div style={{ marginTop: 16, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
+              {!showDocB && !docB.trim() ? (
+                <button onClick={() => setShowDocB(true)}
+                  style={{ minHeight: 44, background: "none", border: `1px dashed ${P.line2}`, borderRadius: 100, padding: "10px 18px", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                  Compare with a second document
+                </button>
+              ) : (
+                <>
+                  <div style={{ ...docEyebrow, marginBottom: 8 }}>Document B — the comparison</div>
+                  <textarea
+                    value={docB}
+                    onChange={(e) => setDocB(e.target.value)}
+                    placeholder="Paste the second document here…"
+                    aria-label="Second document for comparison"
+                    style={{ width: "100%", minHeight: 120, resize: "vertical", padding: 12, fontSize: 16, borderRadius: 10, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                    <input ref={docBFileRef} type="file" accept=".txt,.md,.pdf,.html,.htm,text/plain,text/markdown,application/pdf,text/html" style={{ display: "none" }} onChange={(e) => readFileB(e.target.files && e.target.files[0])} />
+                    <button onClick={() => docBFileRef.current?.click()}
+                      style={{ minHeight: 44, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                      Upload file
+                    </button>
+                    <button onClick={() => { setDocB(""); setShowDocB(false); setCompareResult(null); setCompareError(""); }}
+                      style={{ minHeight: 44, padding: "10px 16px", borderRadius: 100, border: "none", background: "none", color: P.faint, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                      Remove
+                    </button>
+                  </div>
+                  {docBError && <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{docBError}</div>}
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </>
+    );
+  };
+
+  const renderDocReader = (form) => {
+    const cardStyle = {
+      background: P.dark ? "rgba(15,17,21,0.94)" : "rgba(250,251,249,0.97)",
+      borderRadius: 16, padding: isMobile ? 18 : 24, border: `1px solid ${P.line}`,
+      ...(form === "overlay" ? { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 } : null),
+    };
+    return (
+      <>
+        {!summary && !analyzing && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint, textAlign: "center", ...(form === "page" ? { padding: isMobile ? "32px 8px" : "64px 16px" } : { flex: 1 }) }}>
+            <span aria-hidden="true" style={{
+              width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
+              background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, marginBottom: 4,
+            }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
+            <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Read a paper with me</div>
+            <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, lineHeight: 1.6, color: P.ink2 }}>
+              Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
+            </div>
+            <button
+              onClick={() => openDocument(SAMPLE_DOCUMENT)}
+              style={{
+                minHeight: 44, marginTop: 10, padding: "8px 18px", borderRadius: 100, cursor: "pointer",
+                background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`,
+                color: accent, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+              }}
+            >No paper handy? Try the sample</button>
+          </div>
+        )}
+        {analyzing && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, ...(form === "page" ? { padding: isMobile ? "8px 0" : "16px 0" } : { flex: 1 }) }}>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>Reading the document…</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
+            <Skeleton P={P} accent={accent} />
+          </div>
+        )}
+        {summary && (
+          <div style={cardStyle}>
+            <div className="cb-doc-tabs" style={{ marginBottom: 14, ...(form === "overlay" ? { flexShrink: 0 } : null) }}>
+              <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
+                options={allTabOptions} />
+            </div>
+            <div className="cb-doc-reader" style={form === "overlay" ? { flex: 1, overflowY: "auto", paddingRight: 4, minHeight: 0 } : null}>
+              {rightTab === "compare" ? (
+                <>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 14 }}>
+                    Both documents are read together, and the comparison comes only from their texts: where they agree, where they differ, and which claims hold up better.
+                  </div>
+                  {!compareResult && !compareBusy && (
+                    <button onClick={runCompare}
+                      style={{ minHeight: 44, padding: "10px 22px", borderRadius: 100, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer" }}>
+                      Compare the documents
+                    </button>
+                  )}
+                  {compareBusy && (
+                    <>
+                      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Comparing the documents…</div>
+                      <Skeleton P={P} accent={accent} />
+                      <button onClick={cancelCompare}
+                        style={{ minHeight: 44, marginTop: 10, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                  {compareError && (
+                    <>
+                      <div style={{ fontSize: FONT_SIZES.small, color: STATUS.bad, lineHeight: 1.6, marginBottom: 10 }}>{compareError}</div>
+                      <button onClick={runCompare}
+                        style={{ minHeight: 44, padding: "10px 22px", borderRadius: 100, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer" }}>
+                        Try again
+                      </button>
+                    </>
+                  )}
+                  {compareResult && (
+                    <>
+                      {compareResult.streaming && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 8 }}>Writing the comparison…</div>}
+                      {compareResult.text ? renderAnswer(compareResult.text, [], P, accent, hoverCite, setHoverCite) : null}
+                      {!compareResult.streaming && (
+                        <button onClick={runCompare}
+                          style={{ minHeight: 44, marginTop: 14, padding: "10px 18px", borderRadius: 100, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
+                          Compare again
+                        </button>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : rightTab !== "qa" ? (() => {
+                const tabDef = NOTEBOOK_TABS.find((t) => t[0] === rightTab);
+                if (rightTab === "findings") {
+                  const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
+                  const hasLimitations = !!(summary.limitations && summary.limitations.trim());
+                  if (!hasFindings && !hasLimitations) {
+                    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time. Its all in the summary.</div>;
+                  }
+                  return (
+                    <>
+                      {hasFindings && (<>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Key Findings</div>
+                        {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
+                      </>)}
+                      {hasLimitations && (<>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
+                        {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
+                      </>)}
+                    </>
+                  );
+                }
+                const field = tabDef && tabDef[2];
+                const content = field && summary[field] && summary[field].trim();
+                if (!content) {
+                  return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? allTabOptions.find((o) => o.id === rightTab)?.label : "section"}. See Executive Summary for the full analysis.</div>;
+                }
+                return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
+              })() : null}
+              {rightTab === "qa" && (
+                <>
+                  {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
+                  {qaHistory.map((h, i) => (
+                    <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
+                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)" }}>{h.query}</div>
+                      {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Working on the answer…</div>}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8, paddingTop: 14, marginTop: 14, borderTop: `1px solid ${P.line}`, ...(form === "overlay" ? { flexShrink: 0 } : null) }}>
+              <input
+                value={qaQuery}
+                onChange={(e) => setQaQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
+                placeholder="Ask a question about this document…"
+                aria-label="Ask a question about this document"
+                disabled={qaBusy}
+                style={{ flex: 1, minWidth: 0, minHeight: 44, padding: "10px 13px", fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)" }}
+              />
+              {qaBusy ? (
+                <button onClick={cancelQa} aria-label="Stop" title="Stop"
+                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon name="close" size={15} />
+                </button>
+              ) : (
+                <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask"
+                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0 }}>
+                  <Icon name="send" size={15} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
 
   return (
     /* Commit 99 — Document Mode is a page in the app shell, not an
@@ -19886,422 +20510,26 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 5fr) minmax(0, 7fr)",
           gap: isMobile ? 32 : 40, alignItems: "start",
         }}>
-          {/* SOURCE — the document, tabbed between pasting text and
-              loading it from a file. */}
+          {/* SOURCE — the document, rendered by renderDocSource below. */}
           <section aria-label="Document source" style={{ minWidth: 0 }}>
-            <div style={{ marginBottom: 14 }}>
-              <SegControl value={leftTab} onChange={setLeftTab} P={P} accent={accent} ariaLabel="Document source"
-                options={[{ id: "paste", label: "Paste text" }, { id: "upload", label: "Upload a file" }]} />
-            </div>
-
-            {leftTab === "upload" ? (
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={onDrop}
-                onClick={() => fileInputRef.current?.click()}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
-                role="button"
-                tabIndex={0}
-                aria-label="Drop a document file or press Enter to browse"
-                style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
-                  border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "28px 16px", textAlign: "center", cursor: "pointer",
-                  background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "background-color 150ms ease", minHeight: 220,
-                }}
-              >
-                <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,text/plain,application/pdf" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
-                {extractingPdf ? (<>
-                  <div style={{ width: 24, height: 24, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600, marginTop: 6 }}>Extracting text from PDF…</div>
-                </>) : (<>
-                  <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a file here, or click to browse</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 260 }}>PDF, plain text, or Markdown. PDF text is extracted right in your browser — nothing is uploaded just to read it. Scanned/image-only PDFs have no text to extract; paste the text directly for those.</div>
-                </>)}
-              </div>
-            ) : (
-              /* 16px: anything smaller makes iOS Safari zoom the page on
-                 focus, which used to throw the whole layout sideways. */
-              <textarea
-                value={documentText}
-                onChange={(e) => setDocumentText(e.target.value)}
-                aria-label="Paste the full text of a paper, report, or document" placeholder="Paste the full text of a paper, report, or document here…"
-                style={{
-                  width: "100%", resize: "vertical", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
-                  background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.6, minHeight: 220,
-                }}
-              />
-            )}
-            <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, flexWrap: "wrap" }}>
-              {/* Commit 64 — a bare character count told a reader nothing
-                  they could act on. Words and an approximate read time are
-                  the units people actually think in. */}
-              <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {(() => {
-                  const t = documentText.trim();
-                  if (!t) return <span>Paste a paper, report, or any long document</span>;
-                  const words = t.split(/\s+/).length;
-                  const mins = Math.max(1, Math.round(words / 220));
-                  return <>
-                    <span>{words.toLocaleString()} words</span>
-                    <span style={{ opacity: 0.5 }}>·</span>
-                    <span>~{mins} min read</span>
-                  </>;
-                })()}
-              </div>
-              <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
-                {!documentText.trim() && !analyzing && (
-                  <button
-                    onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
-                    title="Load a short sample paper to try Document Mode"
-                    style={{
-                      minHeight: 44, padding: "10px 16px", borderRadius: 100, cursor: "pointer",
-                      background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small,
-                      border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-font)",
-                    }}
-                  >Try a sample</button>
-                )}
-                <button
-                  onClick={analyze}
-                  disabled={!documentText.trim() || analyzing}
-                  title={!documentText.trim() ? "Paste or upload a document first" : "Analyze this document"}
-                  style={{
-                    minHeight: 44, padding: "10px 20px", borderRadius: 100, border: (!documentText.trim() || analyzing) ? `1px dashed ${P.line2}` : "none",
-                    cursor: (!documentText.trim() || analyzing) ? "default" : "pointer",
-                    background: (!documentText.trim() || analyzing) ? "transparent" : accent,
-                    color: (!documentText.trim() || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
-                    opacity: (!documentText.trim() || analyzing) ? 0.75 : 1,
-                  }}
-                >{analyzing ? "Reading it…" : "Read this document"}</button>
-                {analyzing && (
-                  <button
-                    onClick={cancelAnalyze}
-                    title="Stop the analysis"
-                    style={{
-                      minHeight: 44, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`,
-                      cursor: "pointer", background: "transparent", color: P.ink2,
-                      fontWeight: 600, fontSize: FONT_SIZES.small, flexShrink: 0,
-                    }}
-                  >Cancel</button>
-                )}
-              </div>
-              {(docIsPro || docCap != null) && (
-                <div style={{ flexBasis: "100%", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-                  {docIsPro
-                    ? "Pro: unlimited document reads."
-                    : docLeft > 0
-                      ? `${docLeft} of ${docCap} free document reads left. Refills every 5 days.`
-                      : "You've used your 3 free document reads for these 5 days. Pro reads are unlimited."}
-                </div>
-              )}
-            </div>
-            {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
+            {renderDocSource("page")}
           </section>
 
-          {/* READER — the analysis. The one controlled near-opaque reading
-              surface on this page (the established readingPanel), so the
-              results read crisply while the footage breathes around it. */}
+          {/* READER — the analysis, rendered by renderDocReader below. */}
           <section aria-label="Document analysis" style={{ minWidth: 0 }}>
-            {!summary && !analyzing && (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint, padding: isMobile ? "32px 8px" : "64px 16px", textAlign: "center" }}>
-                <span aria-hidden="true" style={{
-                  width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, marginBottom: 4,
-                }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
-                <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink }}>Read a paper with me</div>
-                <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, lineHeight: 1.6, color: P.ink2 }}>
-                  Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
-                </div>
-                <button
-                  onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
-                  style={{ minHeight: 44,
-                    marginTop: 10, minHeight: 44, padding: "8px 18px", borderRadius: 100, cursor: "pointer",
-                    background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`,
-                    color: accent, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
-                  }}
-                >No paper handy? Try the sample</button>
-              </div>
-            )}
-            {analyzing && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: isMobile ? "8px 0" : "16px 0" }}>
-                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Reading the document…</div>
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
-                <Skeleton P={P} accent={accent} />
-              </div>
-            )}
-            {summary && (
-              <div style={{
-                background: P.dark ? "rgba(15,17,21,0.94)" : "rgba(250,251,249,0.97)",
-                borderRadius: 16, padding: isMobile ? 18 : 28, border: `1px solid ${P.line}`,
-              }}>
-                <div className="cb-doc-tabs" style={{ marginBottom: 14 }}>
-                  <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
-                    options={docTabOptions} />
-                </div>
-                {/* .cb-doc-reader: long URLs, DOIs, tables and media cannot
-                    overflow the card on a 360px screen. */}
-                <div className="cb-doc-reader">
-                  {rightTab !== "qa" && (() => {
-                    const tabDef = NOTEBOOK_TABS.find((t) => t[0] === rightTab);
-                    if (rightTab === "findings") {
-                      const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
-                      const hasLimitations = !!(summary.limitations && summary.limitations.trim());
-                      if (!hasFindings && !hasLimitations) {
-                        return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time. Its all in the summary.</div>;
-                      }
-                      return (
-                        <>
-                          {hasFindings && (<>
-                            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Key Findings</div>
-                            {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
-                          </>)}
-                          {hasLimitations && (<>
-                            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
-                            {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
-                          </>)}
-                        </>
-                      );
-                    }
-                    const field = tabDef && tabDef[2];
-                    const content = field && summary[field] && summary[field].trim();
-                    if (!content) {
-                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? docTabOptions.find((o) => o.id === rightTab)?.label : "section"}. See Executive Summary for the full analysis.</div>;
-                    }
-                    return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
-                  })()}
-                  {rightTab === "qa" && (
-                    <>
-                      {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
-                      {qaHistory.map((h, i) => (
-                        <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
-                          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
-                          {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Working on the answer…</div>}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 8, paddingTop: 14, marginTop: 14, borderTop: `1px solid ${P.line}` }}>
-                  <input
-                    value={qaQuery}
-                    onChange={(e) => setQaQuery(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
-                    placeholder="Ask a question about this document…"
-                    aria-label="Ask a question about this document"
-                    disabled={qaBusy}
-                    style={{ flex: 1, minWidth: 0, minHeight: 44, padding: "10px 13px", fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)" }}
-                  />
-                  <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask" style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0 }}><Icon name="send" size={15} /></button>
-                </div>
-              </div>
-            )}
+            {renderDocReader("page")}
           </section>
         </div>
       ) : (
         <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
-          {/* LEFT PANE — the source, tabbed between pasting text directly and
-              loading it from a file. Only one sub-view renders at a time now
-              instead of stacking the dropzone above the textarea always. */}
+          {/* LEFT PANE — the source, rendered by renderDocSource below. */}
           <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
-            <div style={{ marginBottom: 14, flexShrink: 0 }}>
-              <SegControl value={leftTab} onChange={setLeftTab} P={P} accent={accent} ariaLabel="Document source"
-                options={[{ id: "paste", label: "Paste text" }, { id: "upload", label: "Upload a file" }]} />
-            </div>
-
-            {leftTab === "upload" ? (
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={onDrop}
-                onClick={() => fileInputRef.current?.click()}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
-                role="button"
-                tabIndex={0}
-                aria-label="Drop a document file or press Enter to browse"
-                style={{
-                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
-                  border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, padding: "18px 16px", textAlign: "center", cursor: "pointer",
-                  background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "background-color 150ms ease", minHeight: isMobile ? 140 : 240,
-                }}
-              >
-                <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,text/plain,application/pdf" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
-                {extractingPdf ? (<>
-                  <div style={{ width: 24, height: 24, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600, marginTop: 6 }}>Extracting text from PDF…</div>
-                </>) : (<>
-                  <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a file here, or click to browse</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 260 }}>PDF, plain text, or Markdown. PDF text is extracted right in your browser — nothing is uploaded just to read it. Scanned/image-only PDFs have no text to extract; paste the text directly for those.</div>
-                </>)}
-              </div>
-            ) : (
-              <textarea
-                value={documentText}
-                onChange={(e) => setDocumentText(e.target.value)}
-                aria-label="Paste the full text of a paper, report, or document" placeholder="Paste the full text of a paper, report, or document here…"
-                style={{
-                  flex: 1, width: "100%", resize: "none", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
-                  background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.6, minHeight: isMobile ? 140 : 240,
-                }}
-              />
-            )}
-            <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexShrink: 0, gap: 12 }}>
-              <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {(() => {
-                  const t = documentText.trim();
-                  if (!t) return <span>Paste a paper, report, or any long document</span>;
-                  const words = t.split(/\s+/).length;
-                  const mins = Math.max(1, Math.round(words / 220));
-                  return <>
-                    <span>{words.toLocaleString()} words</span>
-                    <span style={{ opacity: 0.5 }}>·</span>
-                    <span>~{mins} min read</span>
-                  </>;
-                })()}
-              </div>
-              <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-                {!documentText.trim() && !analyzing && (
-                  <button
-                    onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
-                    title="Load a short sample paper to try Document Mode"
-                    style={{ minHeight: 44,
-                      padding: "10px 16px", borderRadius: 100, cursor: "pointer",
-                      background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small,
-                      border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-font)",
-                    }}
-                  >Try a sample</button>
-                )}
-                <button
-                  onClick={analyze}
-                  disabled={!documentText.trim() || analyzing}
-                  title={!documentText.trim() ? "Paste or upload a document first" : "Analyze this document"}
-                  style={{ minHeight: 44,
-                    padding: "10px 20px", borderRadius: 100, border: (!documentText.trim() || analyzing) ? `1px dashed ${P.line2}` : "none",
-                    cursor: (!documentText.trim() || analyzing) ? "default" : "pointer",
-                    background: (!documentText.trim() || analyzing) ? "transparent" : accent,
-                    color: (!documentText.trim() || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
-                    opacity: (!documentText.trim() || analyzing) ? 0.75 : 1,
-                  }}
-                >{analyzing ? "Reading it…" : "Read this document"}</button>
-                {analyzing && (
-                  <button
-                    onClick={cancelAnalyze}
-                    title="Stop the analysis"
-                    style={{ minHeight: 44,
-                      padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`,
-                      cursor: "pointer", background: "transparent", color: P.ink2,
-                      fontWeight: 600, fontSize: FONT_SIZES.small, flexShrink: 0,
-                    }}
-                  >Cancel</button>
-                )}
-              </div>
-              {(docIsPro || docCap != null) && (
-                <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-                  {docIsPro
-                    ? "Pro: unlimited document reads."
-                    : docLeft > 0
-                      ? `${docLeft} of ${docCap} free document reads left. Refills every 5 days.`
-                      : "You've used your 3 free document reads for these 5 days. Pro reads are unlimited."}
-                </div>
-              )}
-            </div>
-            {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
+            {renderDocSource("overlay")}
           </div>
 
-          {/* RIGHT PANE — the analysis, tabbed across the sections the backend
-              actually returns (see NOTEBOOK_TABS above) plus a dedicated
-              Follow-up Q&A tab so a running conversation doesn't crowd out
-              the summary itself. */}
+          {/* RIGHT PANE — the analysis, rendered by renderDocReader below. */}
           <div style={{ ...paneBase, padding: 20 }}>
-            {!summary && !analyzing && (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint }}>
-                <span aria-hidden="true" style={{
-                  width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, marginBottom: 4,
-                }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
-                <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink }}>Read a paper with me</div>
-                <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, textAlign: "center", lineHeight: 1.6, color: P.ink2 }}>
-                  Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
-                </div>
-                <button
-                  onClick={() => { setDocumentText(SAMPLE_DOCUMENT); setSummary(null); }}
-                  style={{ minHeight: 44,
-                    marginTop: 10, padding: "8px 18px", borderRadius: 100, cursor: "pointer",
-                    background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`,
-                    color: accent, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
-                  }}
-                >No paper handy? Try the sample</button>
-              </div>
-            )}
-            {analyzing && (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Reading the document…</div>
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
-                <Skeleton P={P} accent={accent} />
-              </div>
-            )}
-            {summary && (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                <div className="cb-doc-tabs" style={{ marginBottom: 14, flexShrink: 0 }}>
-                  <SegControl value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
-                    options={NOTEBOOK_TABS.map(([key, label]) => ({ id: key, label }))} />
-                </div>
-                <div className="cb-doc-reader" style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-                  {rightTab !== "qa" && (() => {
-                    const tabDef = NOTEBOOK_TABS.find((t) => t[0] === rightTab);
-                    if (rightTab === "findings") {
-                      const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
-                      const hasLimitations = !!(summary.limitations && summary.limitations.trim());
-                      if (!hasFindings && !hasLimitations) {
-                        return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time. Its all in the summary.</div>;
-                      }
-                      return (
-                        <>
-                          {hasFindings && (<>
-                            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Key Findings</div>
-                            {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
-                          </>)}
-                          {hasLimitations && (<>
-                            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
-                            {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
-                          </>)}
-                        </>
-                      );
-                    }
-                    const field = tabDef && tabDef[2];
-                    const content = field && summary[field] && summary[field].trim();
-                    if (!content) {
-                      return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? tabDef[1] : "section"}. See Executive Summary for the full analysis.</div>;
-                    }
-                    return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
-                  })()}
-                  {rightTab === "qa" && (
-                    <>
-                      {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
-                      {qaHistory.map((h, i) => (
-                        <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
-                          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8 }}>{h.query}</div>
-                          {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Working on the answer…</div>}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 8, paddingTop: 14, borderTop: `1px solid ${P.line}`, flexShrink: 0 }}>
-                  <input
-                    value={qaQuery}
-                    onChange={(e) => setQaQuery(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
-                    placeholder="Ask a question about this document…"
-                    aria-label="Ask a question about this document"
-                    disabled={qaBusy}
-                    style={{ flex: 1, padding: "10px 13px", fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)" }}
-                  />
-                  <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0 }}><Icon name="send" size={15} /></button>
-                </div>
-              </div>
-            )}
+            {renderDocReader("overlay")}
           </div>
         </div>
       )}
