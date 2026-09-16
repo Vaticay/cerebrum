@@ -1,0 +1,30 @@
+[package]
+name = "dtelecom-vodozemac-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Browser WASM bindings for vodozemac (Olm primitives), tailored for non-Matrix chat use"
+repository = "https://github.com/dTelecom/vodozemac-wasm"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vodozemac = "0.10"
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.6"
+# `js` feature routes randomness through Web Crypto API in browser builds.
+getrandom = { version = "0.2", features = ["js"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+
+# Workspace — the root crate above remains the wasm-bindgen target for
+# pkg-web / pkg-node. The new member is the UniFFI-based crate that powers
+# the React Native native bridge (iOS xcframework + Android AAR).
+[workspace]
+members = ["crates/vodozemac-ffi"]

@@ -29,7 +29,10 @@
   # script-src is 'self' with NO 'unsafe-inline' and NO 'unsafe-eval', and
   # there are no inline scripts left to need it (the font stylesheet's
   # onload="this.media='all'" handler was removed — it would have been blocked
-  # here and left the site unstyled). worker-src is declared explicitly for
+  # here and left the site unstyled). 'wasm-unsafe-eval' is the one exception:
+  # it permits WebAssembly *compilation only* (the E2EE crypto module), not
+  # JavaScript eval — the XSS posture is unchanged. worker-src is declared
+  # explicitly for
   # the pdf.js worker, which is now bundled from this origin instead of
   # fetched from cdn.jsdelivr.net; without that directive it would fall back
   # to default-src and PDF reading would break.
@@ -49,7 +52,7 @@
   # from many scholarly hosts that cannot be enumerated in advance. Narrowing
   # this would require proxying every image through our own origin — worth
   # doing, not done here.
-  Content-Security-Policy: default-src 'none'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' https://api.elevenlabs.io https://api.zotero.org; media-src 'self' data: blob: https:; frame-src https://www.youtube-nocookie.com https://www.youtube.com; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; manifest-src 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' https://api.elevenlabs.io https://api.zotero.org; media-src 'self' data: blob: https:; frame-src https://www.youtube-nocookie.com https://www.youtube.com; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; manifest-src 'self'; upgrade-insecure-requests
 
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin
