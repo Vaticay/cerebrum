@@ -676,6 +676,33 @@ export async function ensureSocialTables(env) {
     "CREATE TABLE IF NOT EXISTS watched_topics (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, topic TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, last_count INTEGER DEFAULT 0)"
   );
   await env.DB.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_watched_user_topic ON watched_topics(user_id, topic)");
+  // E2EE Phase 1 (2026-09-16) — per-device key directory + encrypted
+  // threads. Same self-heal contract as everything above: a live database
+  // picks these up on the first request after deploy. The server stores
+  // public keys and opaque ciphertext only — it NEVER sees private keys.
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS e2ee_devices (user_id TEXT NOT NULL, device_id TEXT NOT NULL, identity_key TEXT NOT NULL, signing_key TEXT NOT NULL, signed_prekey TEXT NOT NULL, prekey_sig TEXT NOT NULL, fallback_key TEXT, fallback_sig TEXT, created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, revoked_at INTEGER, label TEXT, PRIMARY KEY (user_id, device_id))"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_e2ee_devices_user ON e2ee_devices(user_id)");
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS e2ee_one_time_prekeys (user_id TEXT NOT NULL, device_id TEXT NOT NULL, key_id TEXT NOT NULL, pubkey TEXT NOT NULL, claimed_at INTEGER, PRIMARY KEY (user_id, device_id, key_id))"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_e2ee_otk_unclaimed ON e2ee_one_time_prekeys(user_id, device_id, claimed_at)");
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS e2ee_threads (thread_id TEXT PRIMARY KEY, protocol TEXT NOT NULL, encrypted_since INTEGER NOT NULL, upgraded_by TEXT NOT NULL)"
+  );
+  // Additive columns on the live `messages` table. `msg_kind` defaults to
+  // 'plaintext-legacy' so every pre-E2EE row is honestly labeled; the
+  // server sets 'cipher' on the way in for encrypted threads and rejects
+  // anything else there.
+  for (const sql of [
+    "ALTER TABLE messages ADD COLUMN msg_kind TEXT NOT NULL DEFAULT 'plaintext-legacy'",
+    "ALTER TABLE messages ADD COLUMN sender_device_id TEXT",
+    "ALTER TABLE messages ADD COLUMN envelope_version INTEGER NOT NULL DEFAULT 1",
+  ]) {
+    try { await env.DB.exec(sql); }
+    catch (e) { if (!/duplicate column name/i.test(String(e && e.message))) throw e; }
+  }
   _socialTablesEnsured = true;
 }
 

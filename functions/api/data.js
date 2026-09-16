@@ -16,6 +16,15 @@ import { getSessionUser, newId, ensureUserProfileColumns, ensureSocialTables, is
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { maybeSweep } from "../lib/retention.js";
 import { safeUrl, cleanString, safeId, safeInt, LIMITS } from "../lib/validate.js";
+import {
+  E2EE_ENVELOPE_VERSION,
+  MAX_PREKEY_BATCH,
+  isDeviceId,
+  isBase64Key,
+  isPrekeyEntry,
+  parseCipherEnvelope,
+  cleanDeviceLabel,
+} from "../lib/e2eeValidate.js";
 import { clientIp, privacyKey, requireTrustedOrigin, corsHeaders, readOriginAllowed, readJsonBody } from "../lib/http.js";
 
 const MAX_MESSAGE_LEN = 4000;
@@ -639,11 +648,26 @@ export async function onRequest(context) {
            JOIN thread_participants tp ON tp.thread_id = t.id
            WHERE tp.user_id = ?`
         ).bind(user.id).all();
+        // E2EE Phase 1 — which of my threads are encrypted, in one query.
+        // Encrypted threads get NO text preview: the server hands back only
+        // `{ encrypted: true, senderId, createdAt }` and the client decrypts
+        // locally for display. A preview would be the server reading
+        // content it must never read.
+        const threadIds = (threadRows.results || []).map((t) => t.id);
+        let encryptedSet = new Set();
+        if (threadIds.length > 0) {
+          const placeholders = threadIds.map(() => "?").join(",");
+          const encRows = await env.DB.prepare(
+            `SELECT thread_id FROM e2ee_threads WHERE thread_id IN (${placeholders})`
+          ).bind(...threadIds).all();
+          encryptedSet = new Set((encRows.results || []).map((r) => r.thread_id));
+        }
         const items = [];
         for (const t of threadRows.results || []) {
           const last = await env.DB.prepare(
             "SELECT sender_id, text, attachment_title, attachment_kind, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
           ).bind(t.id).first();
+          const isEncrypted = encryptedSet.has(t.id);
           let displayName = t.name;
           let otherId = null;
           if (t.kind === "dm") {
@@ -682,14 +706,20 @@ export async function onRequest(context) {
             otherId,
             blocked,
             unread,
-            lastMessage: last ? {
+            encrypted: isEncrypted,
+            lastMessage: last ? (isEncrypted ? {
+              encrypted: true,
+              senderId: last.sender_id,
+              createdAt: lastCreatedAt,
+              mine: last.sender_id === user.id,
+            } : {
               text: last.text,
               attachmentTitle: last.attachment_title || null,
               attachmentKind: last.attachment_kind || null,
               senderId: last.sender_id,
               createdAt: lastCreatedAt,
               mine: last.sender_id === user.id,
-            } : null,
+            }) : null,
           });
         }
         items.sort((a, b) => (b.lastMessage?.createdAt || 0) - (a.lastMessage?.createdAt || 0));
@@ -851,10 +881,17 @@ export async function onRequest(context) {
         // oldest messages.
         const MAX_THREAD_MESSAGES = 1000;
         const messageRows = await env.DB.prepare(
-          "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?"
+          "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?"
         ).bind(threadId, MAX_THREAD_MESSAGES + 1).all();
         const fetchedMessages = messageRows.results || [];
         const truncated = fetchedMessages.length > MAX_THREAD_MESSAGES;
+        // E2EE Phase 1 — the thread's encryption flag rides along so the
+        // client knows whether to run the decrypt pipeline. Ciphertext
+        // passes through untouched: the server stores and returns it, and
+        // never interprets it.
+        const e2eeRow = await env.DB.prepare(
+          "SELECT protocol, encrypted_since FROM e2ee_threads WHERE thread_id = ?"
+        ).bind(threadId).first();
         const messages = fetchedMessages.slice(0, MAX_THREAD_MESSAGES).reverse().map((m) => ({
           id: m.id,
           senderId: m.sender_id,
@@ -867,6 +904,9 @@ export async function onRequest(context) {
           attachmentMeta: (() => { try { return m.attachment_meta ? JSON.parse(m.attachment_meta) : null; } catch { return null; } })(),
           createdAt: toEpochMs(m.created_at),
           who: displayNameFor(byId.get(m.sender_id)),
+          msgKind: m.msg_kind || "plaintext-legacy",
+          senderDeviceId: m.sender_device_id || null,
+          envelopeVersion: m.envelope_version || 1,
         }));
         return new Response(JSON.stringify({
           ok: true,
@@ -879,6 +919,8 @@ export async function onRequest(context) {
           otherAffiliation,
           otherLastReadAt,
           blocked,
+          encrypted: !!e2eeRow,
+          e2eeProtocol: e2eeRow ? e2eeRow.protocol : null,
           messages,
           truncated,
         }), { status: 200, headers: cors });
@@ -1603,14 +1645,59 @@ export async function onRequest(context) {
         }
       }
       const now = Date.now();
+      // E2EE Phase 1 — the fail-closed gate. A thread listed in e2ee_threads
+      // accepts ONLY ciphertext envelopes; a client bug (or a malicious
+      // client) sending plaintext here gets a 400, not a stored row. The
+      // server validates shape only — it never decrypts. Conversely, a
+      // ciphertext envelope sent to a non-encrypted thread is rejected too:
+      // storing it would render as garbage to a client with no reason to
+      // try decrypting.
+      const e2eeThread = await env.DB.prepare(
+        "SELECT protocol, encrypted_since FROM e2ee_threads WHERE thread_id = ?"
+      ).bind(threadId).first();
+      let msgKind = "plaintext-legacy";
+      let senderDeviceId = null;
+      if (e2eeThread) {
+        const envelope = parseCipherEnvelope(text);
+        if (!envelope) {
+          return errRes("This conversation is encrypted — your message must be encrypted first.", 400, "e2ee_plaintext_rejected", cors);
+        }
+        senderDeviceId = typeof body.sender_device_id === "string" ? body.sender_device_id : "";
+        if (!isDeviceId(senderDeviceId)) {
+          return errRes("This conversation is encrypted — the sending device isn't identified.", 400, "e2ee_bad_device", cors);
+        }
+        const ownDevice = await env.DB.prepare(
+          "SELECT 1 FROM e2ee_devices WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL"
+        ).bind(user.id, senderDeviceId).first();
+        if (!ownDevice) {
+          return errRes("This conversation is encrypted — the sending device isn't registered.", 403, "e2ee_unknown_device", cors);
+        }
+        // Phase 1 is text-only for encrypted threads: attachments get
+        // their own data-key flow in 1.7. Accepting a plaintext attachment
+        // here would punch a hole in the encryption guarantee, so it's a
+        // clear error instead of a silent downgrade.
+        if (attachmentTitle || attachmentKind || attachmentData || attachmentUrl || attachmentMeta) {
+          return errRes("Attachments aren't supported in encrypted conversations yet.", 400, "e2ee_attachments_unsupported", cors);
+        }
+        // The envelope's claimed sender device must be the device actually
+        // sending — otherwise a compromised client could attribute its
+        // ciphertext to someone else's device and confuse session lookup.
+        if (envelope.sd !== senderDeviceId) {
+          return errRes("This conversation is encrypted — device mismatch.", 400, "e2ee_device_mismatch", cors);
+        }
+        msgKind = "cipher";
+      } else if (parseCipherEnvelope(text)) {
+        return errRes("This conversation isn't encrypted.", 400, "e2ee_unexpected_cipher", cors);
+      }
       // messages.id is a plain TEXT primary key on the live table (no
       // autoincrement) — has to be generated here, same as accolades.id in
       // auth.js's verify-code.
       await env.DB.prepare(
-        "INSERT INTO messages (id, thread_id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO messages (id, thread_id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).bind(
         newId("msg"), threadId, user.id, text || null, attachmentTitle || null,
-        attachmentKind || null, attachmentData || null, attachmentUrl || null, attachmentMeta || null, now
+        attachmentKind || null, attachmentData || null, attachmentUrl || null, attachmentMeta || null, now,
+        msgKind, senderDeviceId, msgKind === "cipher" ? E2EE_ENVELOPE_VERSION : 1
       ).run();
       return new Response(JSON.stringify({
         ok: true,
@@ -1620,8 +1707,250 @@ export async function onRequest(context) {
           attachmentUrl: attachmentUrl || null,
           attachmentMeta: (() => { try { return attachmentMeta ? JSON.parse(attachmentMeta) : null; } catch { return null; } })(),
           senderId: user.id, createdAt: now, mine: true,
+          msgKind, senderDeviceId,
         },
       }), { status: 200, headers: cors });
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // E2EE Phase 1 — device directory + key distribution + thread upgrade.
+    //
+    // The server's job here is deliberately narrow: store PUBLIC keys,
+    // hand out each one-time prekey at most once, and record which threads
+    // are encrypted. It never sees private keys, never decrypts, and never
+    // vouches for key ownership beyond "this device row belongs to this
+    // signed-in user" — device authenticity is peer-to-peer via safety
+    // numbers in the client (see src/e2ee/). A server that wanted to MITM
+    // would be caught by out-of-band verification, which is exactly why
+    // the client shows it.
+    // ══════════════════════════════════════════════════════════════════
+
+    // Publish (or refresh) this device's public keys + upload one-time
+    // prekeys. Idempotent — the client calls it on every inbox launch.
+    // Returns the user's full device list (so other devices can notice a
+    // revocation) and the remaining unclaimed prekey count (so the client
+    // knows when to top up).
+    if (action === "e2ee-publish-device") {
+      const deviceId = typeof body.device_id === "string" ? body.device_id : "";
+      const identityKey = typeof body.identity_key === "string" ? body.identity_key : "";
+      const signingKey = typeof body.signing_key === "string" ? body.signing_key : "";
+      const signedPrekey = typeof body.signed_prekey === "string" ? body.signed_prekey : "";
+      const prekeySig = typeof body.prekey_sig === "string" ? body.prekey_sig : "";
+      const fallbackKey = typeof body.fallback_key === "string" ? body.fallback_key : "";
+      const fallbackSig = typeof body.fallback_sig === "string" ? body.fallback_sig : "";
+      const label = cleanDeviceLabel(body.label);
+      const prekeys = Array.isArray(body.one_time_prekeys) ? body.one_time_prekeys : [];
+      if (!isDeviceId(deviceId)) return errRes("Bad device_id.", 400, "bad_request", cors);
+      if (!isBase64Key(identityKey, 32) || !isBase64Key(signingKey, 32)) {
+        return errRes("Bad identity keys.", 400, "bad_request", cors);
+      }
+      if (!isBase64Key(signedPrekey, 32) || !isBase64Key(prekeySig, 64)) {
+        return errRes("Bad signed prekey.", 400, "bad_request", cors);
+      }
+      // The signature's FORMAT is checked; its cryptographic validity is
+      // NOT verified here on purpose. Verifying it server-side would prove
+      // nothing against the threat model — a malicious server can lie
+      // about the result — while giving clients a false sense of
+      // server-vouched authenticity. Key authenticity is established
+      // peer-to-peer via safety numbers.
+      if (fallbackKey && (!isBase64Key(fallbackKey, 32) || !isBase64Key(fallbackSig, 64))) {
+        return errRes("Bad fallback key.", 400, "bad_request", cors);
+      }
+      if (prekeys.length > MAX_PREKEY_BATCH || !prekeys.every(isPrekeyEntry)) {
+        return errRes("Bad one-time prekeys.", 400, "bad_request", cors);
+      }
+      const now = Date.now();
+      await env.DB.prepare(
+        `INSERT INTO e2ee_devices (user_id, device_id, identity_key, signing_key, signed_prekey, prekey_sig, fallback_key, fallback_sig, created_at, last_seen_at, revoked_at, label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+         ON CONFLICT(user_id, device_id) DO UPDATE SET
+           identity_key = excluded.identity_key, signing_key = excluded.signing_key,
+           signed_prekey = excluded.signed_prekey, prekey_sig = excluded.prekey_sig,
+           fallback_key = excluded.fallback_key, fallback_sig = excluded.fallback_sig,
+           last_seen_at = excluded.last_seen_at, label = excluded.label,
+           revoked_at = NULL`
+      ).bind(user.id, deviceId, identityKey, signingKey, signedPrekey, prekeySig,
+        fallbackKey || null, fallbackSig || null, now, now, label || null).run();
+      // INSERT OR IGNORE: retries and overlapping publishes converge
+      // instead of erroring on the primary key.
+      for (const pk of prekeys) {
+        await env.DB.prepare(
+          "INSERT OR IGNORE INTO e2ee_one_time_prekeys (user_id, device_id, key_id, pubkey, claimed_at) VALUES (?, ?, ?, ?, NULL)"
+        ).bind(user.id, deviceId, pk.id, pk.pubkey).run();
+      }
+      const devices = await env.DB.prepare(
+        "SELECT device_id, identity_key, signing_key, created_at, last_seen_at, revoked_at, label FROM e2ee_devices WHERE user_id = ? ORDER BY last_seen_at DESC"
+      ).bind(user.id).all();
+      const countRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM e2ee_one_time_prekeys WHERE user_id = ? AND device_id = ? AND claimed_at IS NULL"
+      ).bind(user.id, deviceId).first();
+      return okRes({
+        device_id: deviceId,
+        devices: (devices.results || []).map((d) => ({
+          deviceId: d.device_id,
+          identityKey: d.identity_key,
+          signingKey: d.signing_key,
+          createdAt: d.created_at,
+          lastSeenAt: d.last_seen_at,
+          revokedAt: d.revoked_at,
+          label: d.label,
+        })),
+        prekeyCount: countRow?.n || 0,
+      }, 200, cors);
+    }
+
+    // Top up one-time prekeys when the pool runs low. Own devices only.
+    if (action === "e2ee-topup-prekeys") {
+      const deviceId = typeof body.device_id === "string" ? body.device_id : "";
+      const prekeys = Array.isArray(body.one_time_prekeys) ? body.one_time_prekeys : [];
+      if (!isDeviceId(deviceId)) return errRes("Bad device_id.", 400, "bad_request", cors);
+      const own = await env.DB.prepare(
+        "SELECT 1 FROM e2ee_devices WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL"
+      ).bind(user.id, deviceId).first();
+      if (!own) return errRes("Unknown device.", 404, "not_found", cors);
+      if (prekeys.length === 0 || prekeys.length > MAX_PREKEY_BATCH || !prekeys.every(isPrekeyEntry)) {
+        return errRes("Bad one-time prekeys.", 400, "bad_request", cors);
+      }
+      for (const pk of prekeys) {
+        await env.DB.prepare(
+          "INSERT OR IGNORE INTO e2ee_one_time_prekeys (user_id, device_id, key_id, pubkey, claimed_at) VALUES (?, ?, ?, ?, NULL)"
+        ).bind(user.id, deviceId, pk.id, pk.pubkey).run();
+      }
+      const countRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM e2ee_one_time_prekeys WHERE user_id = ? AND device_id = ? AND claimed_at IS NULL"
+      ).bind(user.id, deviceId).first();
+      return okRes({ prekeyCount: countRow?.n || 0 }, 200, cors);
+    }
+
+    // How many unclaimed one-time prekeys this device has left. Own only.
+    if (action === "e2ee-prekey-count") {
+      const deviceId = typeof body.device_id === "string" ? body.device_id : "";
+      if (!isDeviceId(deviceId)) return errRes("Bad device_id.", 400, "bad_request", cors);
+      const own = await env.DB.prepare(
+        "SELECT 1 FROM e2ee_devices WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL"
+      ).bind(user.id, deviceId).first();
+      if (!own) return errRes("Unknown device.", 404, "not_found", cors);
+      const countRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM e2ee_one_time_prekeys WHERE user_id = ? AND device_id = ? AND claimed_at IS NULL"
+      ).bind(user.id, deviceId).first();
+      return okRes({ prekeyCount: countRow?.n || 0 }, 200, cors);
+    }
+
+    // Revoke one of my devices: it stops being offered for new sessions,
+    // its unclaimed one-time prekeys are destroyed, and my other devices
+    // learn about it from the next e2ee-publish-device response.
+    if (action === "e2ee-revoke-device") {
+      const deviceId = typeof body.device_id === "string" ? body.device_id : "";
+      if (!isDeviceId(deviceId)) return errRes("Bad device_id.", 400, "bad_request", cors);
+      const own = await env.DB.prepare(
+        "SELECT device_id FROM e2ee_devices WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL"
+      ).bind(user.id, deviceId).first();
+      if (!own) return errRes("Unknown device.", 404, "not_found", cors);
+      const now = Date.now();
+      await env.DB.prepare(
+        "UPDATE e2ee_devices SET revoked_at = ? WHERE user_id = ? AND device_id = ?"
+      ).bind(now, user.id, deviceId).run();
+      await env.DB.prepare(
+        "DELETE FROM e2ee_one_time_prekeys WHERE user_id = ? AND device_id = ? AND claimed_at IS NULL"
+      ).bind(user.id, deviceId).run();
+      return okRes({ revoked: true, deviceId }, 200, cors);
+    }
+
+    // Claim the key bundle needed to start Olm sessions with another user:
+    // every active device's identity + signed prekey, plus ONE unclaimed
+    // one-time prekey per device (claimed atomically — the UPDATE's
+    // `claimed_at IS NULL` guard plus the changes check closes the race
+    // where two concurrent claims grab the same key). When the pool is
+    // empty the device's fallback key is returned instead (Olm fallback
+    // semantics: reusable until rotated, unlike one-time keys).
+    //
+    // Anti-enumeration: a missing user, an undiscoverable user, a blocked
+    // pair, and a user with no E2EE devices ALL return the identical
+    // `{ devices: [] }` shape. There is no 404-vs-200 delta to probe.
+    if (action === "e2ee-claim-keys") {
+      if (!(await checkRateLimit(env, `e2ee-claim:${user.id}`, 30, 60000))) {
+        return errRes("Too many requests. Please wait a moment.", 429, "rate_limited", { ...cors, "Retry-After": "60" });
+      }
+      const targetId = safeId(body.target_user_id);
+      const empty = () => okRes({ devices: [] }, 200, cors);
+      if (!targetId || targetId === user.id) return empty();
+      const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
+      if (!target || target.discoverable === 0) return empty();
+      if (await isBlockedPair(env, user.id, targetId)) return empty();
+      const deviceRows = await env.DB.prepare(
+        "SELECT device_id, identity_key, signing_key, signed_prekey, prekey_sig, fallback_key, fallback_sig FROM e2ee_devices WHERE user_id = ? AND revoked_at IS NULL"
+      ).bind(targetId).all();
+      const now = Date.now();
+      const devices = [];
+      for (const d of deviceRows.results || []) {
+        let oneTimeKey = null;
+        // Two attempts: if we lose a concurrent-claim race on the first,
+        // try once more before falling back to the fallback key.
+        for (let attempt = 0; attempt < 2 && !oneTimeKey; attempt++) {
+          const otk = await env.DB.prepare(
+            "SELECT key_id, pubkey FROM e2ee_one_time_prekeys WHERE user_id = ? AND device_id = ? AND claimed_at IS NULL LIMIT 1"
+          ).bind(targetId, d.device_id).first();
+          if (!otk) break;
+          const upd = await env.DB.prepare(
+            "UPDATE e2ee_one_time_prekeys SET claimed_at = ? WHERE user_id = ? AND device_id = ? AND key_id = ? AND claimed_at IS NULL"
+          ).bind(now, targetId, d.device_id, otk.key_id).run();
+          if (upd.meta && upd.meta.changes > 0) {
+            oneTimeKey = { id: otk.key_id, pubkey: otk.pubkey };
+          }
+        }
+        devices.push({
+          deviceId: d.device_id,
+          identityKey: d.identity_key,
+          signingKey: d.signing_key,
+          signedPrekey: d.signed_prekey,
+          prekeySig: d.prekey_sig,
+          oneTimeKey,
+          // Only when the pool is exhausted. The client uses this in place
+          // of a one-time key; it is NOT consumed server-side.
+          fallbackKey: oneTimeKey ? null : d.fallback_key,
+          fallbackSig: oneTimeKey ? null : d.fallback_sig,
+        });
+      }
+      return okRes({ devices }, 200, cors);
+    }
+
+    // Flip a DM to encrypted. Both participants must have at least one
+    // active E2EE device — the server refuses to strand someone in a
+    // thread whose ciphertext they can't read. After this, send-message
+    // rejects anything but ciphertext in both directions.
+    if (action === "e2ee-upgrade-thread") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "bad_request", cors);
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      const threadMeta = await env.DB.prepare("SELECT kind FROM threads WHERE id = ?").bind(threadId).first();
+      if (!threadMeta || threadMeta.kind !== "dm") {
+        return errRes("Only one-to-one conversations can be encrypted in Phase 1.", 400, "bad_request", cors);
+      }
+      const already = await env.DB.prepare("SELECT 1 FROM e2ee_threads WHERE thread_id = ?").bind(threadId).first();
+      if (already) return okRes({ upgraded: true, already: true }, 200, cors);
+      const other = await env.DB.prepare(
+        "SELECT user_id FROM thread_participants WHERE thread_id = ? AND user_id != ?"
+      ).bind(threadId, user.id).first();
+      if (!other) return errRes("That conversation has no one else in it.", 400, "bad_request", cors);
+      const peerDevices = await env.DB.prepare(
+        "SELECT 1 FROM e2ee_devices WHERE user_id = ? AND revoked_at IS NULL LIMIT 1"
+      ).bind(other.user_id).first();
+      if (!peerDevices) {
+        return errRes("The other person hasn't set up encrypted messaging yet.", 409, "e2ee_peer_not_ready", cors);
+      }
+      const ownDevices = await env.DB.prepare(
+        "SELECT 1 FROM e2ee_devices WHERE user_id = ? AND revoked_at IS NULL LIMIT 1"
+      ).bind(user.id).first();
+      if (!ownDevices) {
+        return errRes("Set up encrypted messaging on this device first.", 409, "e2ee_self_not_ready", cors);
+      }
+      await env.DB.prepare(
+        "INSERT INTO e2ee_threads (thread_id, protocol, encrypted_since, upgraded_by) VALUES (?, 'olm-v1', ?, ?)"
+      ).bind(threadId, Date.now(), user.id).run();
+      return okRes({ upgraded: true }, 200, cors);
     }
 
     // The "Message" button in Find People used to just open the Inbox with
@@ -1679,7 +2008,22 @@ export async function onRequest(context) {
       await env.DB.prepare("INSERT INTO threads (id, kind, name, created_at) VALUES (?, 'dm', NULL, ?)").bind(threadId, now).run();
       await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, user.id, now).run();
       await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, targetId, now).run();
-      return okRes({ thread_id: threadId, created: true }, 200, cors);
+      // E2EE Phase 1 — new DMs are born encrypted when both sides are
+      // ready (each has ≥1 active E2EE device). Either side missing keys
+      // means a plaintext thread the pair can upgrade later via
+      // e2ee-upgrade-thread — never ciphertext someone can't read.
+      let encrypted = false;
+      const [meReady, peerReady] = await Promise.all([
+        env.DB.prepare("SELECT 1 FROM e2ee_devices WHERE user_id = ? AND revoked_at IS NULL LIMIT 1").bind(user.id).first(),
+        env.DB.prepare("SELECT 1 FROM e2ee_devices WHERE user_id = ? AND revoked_at IS NULL LIMIT 1").bind(targetId).first(),
+      ]);
+      if (meReady && peerReady) {
+        await env.DB.prepare(
+          "INSERT OR IGNORE INTO e2ee_threads (thread_id, protocol, encrypted_since, upgraded_by) VALUES (?, 'olm-v1', ?, ?)"
+        ).bind(threadId, now, user.id).run();
+        encrypted = true;
+      }
+      return okRes({ thread_id: threadId, created: true, encrypted }, 200, cors);
     }
 
     // Commit 48: block/unblock the other person in a DM. Storage is

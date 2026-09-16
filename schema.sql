@@ -215,6 +215,64 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at);
 
+-- ============================================================
+-- E2EE Phase 1 (2026-09-16): per-device key directory + encrypted threads.
+-- The server NEVER sees private keys. It stores public identity/prekeys,
+-- routes opaque ciphertext, and enforces "ciphertext-only" on encrypted
+-- threads — it cannot read message content and must not try.
+-- ============================================================
+-- One row per device that holds E2EE keys.
+CREATE TABLE IF NOT EXISTS e2ee_devices (
+  user_id       TEXT NOT NULL,
+  device_id     TEXT NOT NULL,          -- client-generated: 16 random bytes, base64url
+  identity_key  TEXT NOT NULL,          -- Curve25519 public identity key, base64
+  signing_key   TEXT NOT NULL,          -- Ed25519 public signing key, base64
+  signed_prekey TEXT NOT NULL,          -- signed prekey public part, base64
+  prekey_sig    TEXT NOT NULL,          -- Ed25519 sig over (identity_key || signed_prekey)
+  fallback_key  TEXT,                   -- fallback one-time-key public part, base64 (NULL until client uploads)
+  fallback_sig  TEXT,                   -- Ed25519 sig over (identity_key || fallback_key)
+  created_at    INTEGER NOT NULL,
+  last_seen_at  INTEGER NOT NULL,
+  revoked_at    INTEGER,                -- NULL = active
+  label         TEXT,                   -- user label: "Dusty's iPhone"
+  PRIMARY KEY (user_id, device_id)
+);
+CREATE INDEX IF NOT EXISTS idx_e2ee_devices_user ON e2ee_devices(user_id);
+
+-- One-time prekeys. The server hands each out at most once, then deletes
+-- it — a claimed prekey can never start a second session.
+CREATE TABLE IF NOT EXISTS e2ee_one_time_prekeys (
+  user_id    TEXT NOT NULL,
+  device_id  TEXT NOT NULL,
+  key_id     TEXT NOT NULL,             -- client-generated id
+  pubkey     TEXT NOT NULL,             -- base64
+  claimed_at INTEGER,                   -- NULL = unclaimed
+  PRIMARY KEY (user_id, device_id, key_id)
+);
+CREATE INDEX IF NOT EXISTS idx_e2ee_otk_unclaimed ON e2ee_one_time_prekeys(user_id, device_id, claimed_at);
+
+-- Per-thread encryption state. A thread listed here accepts ONLY
+-- ciphertext (msg_kind='cipher'); everything else is plaintext-legacy.
+CREATE TABLE IF NOT EXISTS e2ee_threads (
+  thread_id       TEXT PRIMARY KEY,
+  protocol        TEXT NOT NULL,        -- 'olm-v1' (Phase 1); 'megolm-v1' (Phase 2)
+  encrypted_since INTEGER NOT NULL,     -- messages created after this are ciphertext
+  upgraded_by     TEXT NOT NULL         -- user_id that flipped the switch
+);
+
+-- Additive columns on the live `messages` table (applied to existing
+-- databases by the attempt-and-swallow ALTERs in ensureSocialTables):
+--
+--   msg_kind          TEXT NOT NULL DEFAULT 'plaintext-legacy'
+--                     'cipher' | 'plaintext-legacy' | 'system'. For encrypted
+--                     threads `text` holds the ciphertext envelope (never
+--                     plaintext); the column is NOT renamed because renaming
+--                     breaks the self-heal path — the semantics are
+--                     documented here instead.
+--   sender_device_id  TEXT — which device key sent it (session lookup +
+--                     new-device warnings). NULL for legacy rows.
+--   envelope_version  INTEGER NOT NULL DEFAULT 1 — wire-format migration.
+
 -- Commit 48 — message/call moderation: block + report. Directional (blocker
 -- blocked blocked) so "who blocked whom" is always answerable, though every
 -- enforcement check in functions/api/data.js treats it as mutual — either
