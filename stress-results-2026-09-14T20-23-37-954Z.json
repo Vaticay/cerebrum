@@ -1,0 +1,112 @@
+{
+  "generatedAt": "2026-09-14T20:25:00.660Z",
+  "target": "https://askcerebrum.org/api/search",
+  "delayMs": 8000,
+  "requestTimeoutMs": 150000,
+  "quick": true,
+  "summary": {
+    "passed": 2,
+    "failed": 4,
+    "total": 6
+  },
+  "results": [
+    {
+      "id": "S1-physics",
+      "name": "Physics: soil cracking patterns",
+      "status": 200,
+      "elapsedSec": 10,
+      "passed": false,
+      "failures": [
+        "paper field problems: #1 \"Correlation Between Linear Shrinkage Value, Soil P\": no url/doi"
+      ],
+      "info": {
+        "synthesisMode": "ai",
+        "sourceCount": 5,
+        "elapsedSec": 10,
+        "sourceLabel": "Scientific databases + AI",
+        "maxCitationIndex": 5,
+        "answerChars": 4411
+      }
+    },
+    {
+      "id": "S2-biology",
+      "name": "Biology: mitochondria ATP",
+      "status": 200,
+      "elapsedSec": 17,
+      "passed": true,
+      "failures": [],
+      "info": {
+        "synthesisMode": "extractive",
+        "sourceCount": 12,
+        "elapsedSec": 17,
+        "sourceLabel": "Scientific databases · drafted from sources",
+        "maxCitationIndex": 8,
+        "answerChars": 3475
+      }
+    },
+    {
+      "id": "F1-followup",
+      "name": "Follow-up with history: 'What about in desert climates?'",
+      "status": 200,
+      "elapsedSec": 10.5,
+      "passed": false,
+      "failures": [
+        "synthesisMode is 'none' — no AI and no extractive fallback"
+      ],
+      "info": {
+        "synthesisMode": "none",
+        "sourceCount": 0,
+        "elapsedSec": 10.5,
+        "sourceLabel": null,
+        "maxCitationIndex": 0,
+        "answerChars": 972
+      }
+    },
+    {
+      "id": "E1-empty",
+      "name": "Empty query → 400",
+      "status": 400,
+      "elapsedSec": 0.6,
+      "passed": false,
+      "failures": [
+        "HTTP 400: {\"error\":\"No query provided.\"}"
+      ],
+      "info": {
+        "synthesisMode": null,
+        "answerChars": null,
+        "sourceCount": null,
+        "error": "No query provided."
+      }
+    },
+    {
+      "id": "E2-whitespace",
+      "name": "Whitespace query → 400",
+      "status": 400,
+      "elapsedSec": 1,
+      "passed": false,
+      "failures": [
+        "HTTP 400: {\"error\":\"No query provided.\"}"
+      ],
+      "info": {
+        "synthesisMode": null,
+        "answerChars": null,
+        "sourceCount": null,
+        "error": "No query provided."
+      }
+    },
+    {
+      "id": "E3-long",
+      "name": "2500-char query → 200 (truncated, not rejected)",
+      "status": 200,
+      "elapsedSec": 7.6,
+      "passed": true,
+      "failures": [],
+      "info": {
+        "note": "status-only check (no quality audit)",
+        "synthesisMode": "extractive",
+        "answerChars": 2688,
+        "sourceCount": 12
+      }
+    }
+  ]
+}

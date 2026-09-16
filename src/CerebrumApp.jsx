@@ -7029,9 +7029,13 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
     </span>
   );
   const ledger = (
-    <>
+    /* The ledger sits on matte paper (same material as the answer above it):
+       one flat surface, hairline rules between entries, no per-row frost.
+       A bibliography should read like a printed references page, not a
+       stack of glass widgets. */
+    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, padding: "6px 18px" }}>
       {jumpLetters && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 10 }} aria-label="Jump to author">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 10, paddingTop: 8 }} aria-label="Jump to author">
           {jumpLetters.map((L) => (
             <a key={L} href={`#ref-alpha-${L}`} style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, textDecoration: "none", padding: "3px 7px", borderRadius: 6 }}
               onMouseEnter={(e) => { e.currentTarget.style.color = accent; e.currentTarget.style.background = withAlpha(accent, 0.08); }}
@@ -7039,13 +7043,12 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
           ))}
         </div>
       )}
-      {/* The ledger: no container, no per-row boxes. Hanging-indent
-          typography — the numeral sits in the gutter, wrapped lines align
-          under the text, like a printed bibliography. */}
+      {/* Hanging-indent typography — the numeral sits in the gutter,
+          wrapped lines align under the text, like a printed bibliography. */}
       <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column" }}>
         {sources.map((s, i) => <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={i === sources.length - 1} onOpen={() => onOpenPaper(i + 1)} alphaAnchor={jumpLetters ? String(s.authors || s.title || "").trim().charAt(0).toUpperCase() : null} />)}
       </ol>
-    </>
+    </div>
   );
   // Zero sources: the designed empty state, never a silent gap. The retry
   // actions are only rendered when the caller wired them (the Evidence
@@ -7121,16 +7124,12 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
     <li id={alphaAnchor ? `ref-alpha-${alphaAnchor}` : `ref-${index}`}
       className="cb-fade cb-bibentry"
       style={{
-        display: "flex", gap: 14, alignItems: "flex-start", padding: "10px 10px",
+        display: "flex", gap: 14, alignItems: "flex-start", padding: "12px 4px",
         borderBottom: last ? "none" : `1px solid ${P.line}`,
-        borderRadius: 8,
-        /* Frosted rows: the bibliography sits over the film, so each entry
-           carries its own fog — readable at a glance, never muddy. */
-        background: hover
-          ? (P.dark ? "rgba(22, 27, 34, 0.62)" : "rgba(255, 255, 255, 0.72)")
-          : (P.dark ? "rgba(13, 15, 19, 0.45)" : "rgba(255, 255, 255, 0.55)"),
-        backdropFilter: "blur(16px) saturate(135%)",
-        WebkitBackdropFilter: "blur(16px) saturate(135%)",
+        /* Matte ledger rows: the paper container above owns the surface, so
+           rows are transparent with hairline separators — no per-row frost,
+           no backdrop blur. Hover is a flat wash, not glass. */
+        background: hover ? (P.dark ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.025)") : "transparent",
         transition: "background 0.15s ease", cursor: "pointer", scrollMarginTop: 90,
       }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
@@ -9108,6 +9107,77 @@ function ToolbarOverflow({ P, accent, items }) {
 /* The Evidence band: Bibliography + Videos as tabs in one band, directly
    under the answer text. Always rendered — the shells below are honest
    about empty/loading rather than vanishing. */
+/* ══════════════════════════════════════════════════════════════════
+   EVIDENCE MAP — which claims stand on which papers
+
+   Derived purely from the answer text: every sentence carrying citations
+   becomes a row — the claim in plain words, then the papers it stands on
+   as tappable numerals. Sorted so the most-cited (most load-bearing)
+   claims come first, capped at eight so it stays a map and not a second
+   bibliography. Renders nothing when the answer cites nothing — a map
+   with no territory would be decoration, not evidence.
+   ══════════════════════════════════════════════════════════════════ */
+function EvidenceMap({ t, P, accent, onOpenPaper }) {
+  const rows = useMemo(() => {
+    const text = String(t.answer || "");
+    const n = (t.sources || []).length;
+    if (!text || n === 0) return [];
+    const sentences = text
+      .replace(/^#{1,4}\s+.*$/gm, "")
+      .replace(/\n+/g, " ")
+      .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 40);
+    const out = [];
+    for (const s of sentences) {
+      const cites = [...new Set(
+        [...s.matchAll(/\[([\d,\s]+)\]/g)]
+          .flatMap((m) => m[1].split(/[\s,]+/).map((x) => parseInt(x, 10)))
+          .filter((c) => Number.isFinite(c) && c >= 1 && c <= n)
+      )].sort((a, b) => a - b);
+      if (!cites.length) continue;
+      const clean = s.replace(/\[([\d,\s]+)\]/g, "").replace(/\s+/g, " ").trim();
+      if (clean.length < 40) continue;
+      out.push({ text: clean, cites });
+    }
+    out.sort((a, b) => b.cites.length - a.cites.length || b.text.length - a.text.length);
+    return out.slice(0, 8);
+  }, [t.answer, t.sources]);
+  if (!rows.length) return null;
+  return (
+    <AnswerSection eyebrow={`Evidence map · ${rows.length} key claim${rows.length === 1 ? "" : "s"}`} P={P} accent={accent}>
+      <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, padding: "6px 18px" }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "12px 4px", borderBottom: i === rows.length - 1 ? "none" : `1px solid ${P.line}` }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
+              {r.text.length > 180 ? r.text.slice(0, 180).trimEnd() + "…" : r.text}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0, paddingTop: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {r.cites.map((c) => (
+                <button key={c} type="button" onClick={() => onOpenPaper(c)} title={`Open paper ${c}: ${(t.sources[c - 1] && t.sources[c - 1].title) || ""}`}
+                  aria-label={`Open paper ${c}`}
+                  style={{
+                    minWidth: 30, height: 30, padding: "0 8px", borderRadius: 9999,
+                    border: `1px solid ${P.line2}`, background: "transparent",
+                    color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 700,
+                    fontFamily: "var(--cb-font)", cursor: "pointer",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}
+                >{c}</button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 8, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
+        Read from the answer's own citations — the claims it leans on hardest, and the papers under each one.
+      </div>
+    </AnswerSection>
+  );
+}
+
 function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationStyle, onOpenPaper, onOpenVideo, onRetry, onAdjustQuery, busyNow, done }) {
   const sources = t.sources || [];
   const videos = t.videos || [];
@@ -9420,8 +9490,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         )}
       </div>
       )}
-      {/* Answer card */}
-      <div style={S.answerCard} className="cb-answer-enter cb-glass-panel cb-specimen">
+      {/* Answer paper — matte document surface (see S.answerCard). The glass
+          panel and specimen ticks are retired: the answer is a document,
+          not a dashboard widget. */}
+      <div style={S.answerCard} className="cb-answer-enter">
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
             docked via `position: absolute; top; right`. On a narrow mobile
@@ -9440,17 +9512,18 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 10, marginBottom: 18, paddingBottom: 14, borderBottom: `1px solid ${P.line}` }}>
             {t.sources && t.sources.length > 0 ? (
               <div>
-                {/* The answer card's eyebrow — same role treatment as every
-                    Eyebrow in the product (caption, tracked caps), not a
-                    one-off 9px stack. */}
+                {/* The answer's byline — one quiet line of text, not a row of
+                    pills. "12 sources · 3 min read · answered in 4.2s" reads
+                    like a magazine folio; the old accent pill read like a
+                    SaaS dashboard. */}
                 <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", color: P.faint, textTransform: "uppercase", marginBottom: 7 }}>Synthesized answer</div>
-                <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`, padding: "4px 11px", borderRadius: 9999, fontFamily: "var(--cb-font)", letterSpacing: "0.02em" }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
-                  {t.answer && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span>}
+                <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                  <span style={{ color: P.ink2, fontWeight: 600 }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
+                  {t.answer && <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span></>}
                   {typeof t.answerSeconds === "number" && t.answerSeconds > 0 && (
-                    <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                    <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>
                       This was answered in {t.answerSeconds < 10 ? t.answerSeconds.toFixed(1) : Math.round(t.answerSeconds)} second{t.answerSeconds === 1 ? "" : "s"}
-                    </span>
+                    </span></>
                   )}
                 {/* Retrieval coverage, from the server's record of which
                     databases actually settled — not a fixed list, and not a
@@ -9467,30 +9540,30 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   // fraction, which understates incomplete coverage.
                   const label = t.coverageNote || `${ok.length}/${t.sourcesQueried.length} databases`;
                   return (
-                    <span
+                    <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span
                       title={t.coverageNote || (missing.length ? `Did not answer: ${missing.join(", ")}` : "Every database answered")}
                       style={{ fontSize: FONT_SIZES.caption, color: missing.length ? STATUS.warn : P.faint, fontFamily: "var(--cb-font)", cursor: missing.length ? "help" : "default" }}
                     >
                       {label}
-                    </span>
+                    </span></>
                   );
                 })()}
                 {/* NEXT-GEN: when any pipeline stage failed (or the answer is
                     the no-results terminal state), say so in one chip rather
                     than letting the answer look fully healthy. */}
                 {t.degraded && (
-                  <span
+                  <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span
                     title={(t.stageHealth || []).filter((s) => !s.ok).map((s) => `${s.name}: failed`).join("; ") || "Built under degraded conditions"}
-                    style={{ fontSize: FONT_SIZES.caption, color: STATUS.warn, fontFamily: "var(--cb-font)", cursor: "help", border: `1px solid ${withAlpha(STATUS.warn, 0.4)}`, borderRadius: 8, padding: "1px 7px" }}
+                    style={{ fontSize: FONT_SIZES.caption, color: STATUS.warn, fontFamily: "var(--cb-font)", cursor: "help" }}
                   >
                     Degraded
-                  </span>
+                  </span></>
                 )}
                 {/* Query autopsy: the pipeline's own record of this answer.
                     A quiet mono link, not a button — it opens a drawer, it
                     doesn't act on anything. */}
                 {interactive && (
-                  <button
+                  <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onShowAutopsy(t); }}
                     title="How this answer was built"
@@ -9503,7 +9576,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
                   >
                     How this was built
-                  </button>
+                  </button></>
                 )}
                 </div>
               </div>
@@ -9713,6 +9786,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {/* Open questions — the gap finder. The button above only exists when
           gaps surfaced; the panel itself still renders its honest empty
           state if opened with nothing, rather than a blank card. */}
+      {/* The evidence map: which claims stand on which papers, read from the
+          answer's own citations. Sits between the answer and the evidence
+          band — the bridge from reading to verifying. Only when the answer
+          is settled; a streaming map would strobe. */}
+      {done && t.answer && (
+        <EvidenceMap t={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)} />
+      )}
       {/* Jump rail — sticky under the answer card, mono labels with live
           ready/empty/failed status from the turn's real data. Buttons, so
           touch works; nothing here depends on hover. */}
@@ -21095,28 +21175,30 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     qDot: { width: 4, height: 4, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${withAlpha(accent, 0.5)}` },
     headline: {
-      fontWeight: 650, fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero,
-      lineHeight: 1.25, marginBottom: isMobile ? 28 : 40,
-      color: P.ink, letterSpacing: "-0.03em",
+      /* The question is the document title, not the hero — the answer body
+         below it is the hero of the page. Steps down from hero/display to
+         display/title so the question introduces without competing. */
+      fontWeight: 650, fontSize: isMobile ? FONT_SIZES.title : FONT_SIZES.display,
+      lineHeight: 1.3, marginBottom: isMobile ? 24 : 32,
+      color: P.ink, letterSpacing: "-0.02em",
       fontFamily: "var(--cb-font)",
     },
 
-    /* ── Answer card: DEFINED GLASS SURFACE ──
-       Sits above the WebGLTopographyGrid field with its own deep fill and a
-       hairline border, so the reading column stays a stable, high-contrast
-       surface regardless of what the background canvas is doing underneath
-       it. The fill stays nearly opaque (that is what keeps long reads from
-       feeling like eye strain); the fog lives in a stronger backdrop blur
-       felt at the card's edges and in the margins around it. */
+    /* ── Answer paper: MATTE DOCUMENT SURFACE ──
+       The answer used to sit on frosted glass with specimen corner ticks —
+       the exact material vocabulary of every AI chat app. It now sits on
+       matte paper: a flat, fully opaque surface with a hairline border, no
+       backdrop blur, no shadow glow, no corner ticks. The answer is a
+       document you read, not a widget floating over a dashboard. P.surface
+       is theme-aware (near-black on Dark, paper white on Light) so the
+       reading column stays a stable, high-contrast surface over the aurora
+       field without any translucency. */
     answerCard: {
       position: "relative",
-      background: P.dark ? "rgba(14, 16, 20, 0.94)" : "rgba(255, 255, 255, 0.96)",
-      backdropFilter: "blur(16px)",
-      WebkitBackdropFilter: "blur(16px)",
-      border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-      borderRadius: 8,
+      background: P.surface,
+      border: `1px solid ${P.line}`,
+      borderRadius: 6,
       padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
-      boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
       lineHeight: 1.7,
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
     },
@@ -25858,7 +25940,7 @@ body.cb-motion-off .cb-title-veil { animation: none !important; }
   55%  { opacity: 1; filter: blur(0); }
   to   { opacity: 1; transform: none; filter: blur(0); }
 }
-.cb-answer-enter.cb-glass-panel { animation: cbAnswerFocus 800ms var(--cb-ease) both; }
+.cb-answer-enter { animation: cbAnswerFocus 800ms var(--cb-ease) both; }
 
 /* PUBLIC BETA 1 — removed: .cb-hero-parallax was dead CSS (no call site;
    pointer parallax was retired) carrying a persistent will-change. */
@@ -26123,7 +26205,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-qline-ring { animation: none; }
   .cb-qline-scope, .cb-modepreview-text { animation: none; }
   .cb-echo-cursor { animation: none; display: none; }
-  .cb-answer-enter.cb-glass-panel { animation: cbFade 180ms ease both; }
+  .cb-answer-enter { animation: cbFade 180ms ease both; }
   /* Intro: the hero arrives without motion; the handoff bridge dissolves
      near-instantly so nothing animates at the people who asked for none. */
   .cb-focus-in { animation: none; }

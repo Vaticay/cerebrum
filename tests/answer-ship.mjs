@@ -247,8 +247,29 @@ await test("no NOT CHECKED label remains in the app", () => {
 
 await test("fog treatment is present on source/evidence/answer cards", () => {
   assert.ok(appSrc.includes("Frosted reading surface"), "srcItem fog comment missing");
-  assert.ok(appSrc.includes("Frosted rows"), "BibEntry fog comment missing");
   assert.ok(appSrc.includes("Frosted shell"), "AnswerStateCard fog comment missing");
+});
+
+await test("bibliography uses matte paper, not frosted rows", () => {
+  // Redesign: the bibliography is a printed ledger on matte paper — per-row
+  // backdrop blur is retired. The fog must not come back here.
+  assert.ok(appSrc.includes("Matte ledger rows"), "BibEntry matte-ledger comment missing");
+  assert.ok(!appSrc.includes("Frosted rows"), "Frosted rows comment must not return to BibEntry");
+});
+
+await test("answer card uses matte paper, not glass", () => {
+  // Redesign: the answer is a matte document — no glass panel, no specimen ticks.
+  assert.ok(appSrc.includes("MATTE DOCUMENT SURFACE"), "answerCard matte comment missing");
+  assert.ok(!appSrc.includes('className="cb-answer-enter cb-glass-panel cb-specimen"'), "answer card must not use glass/specimen classes");
+});
+
+await test("evidence map exists and is wired into the turn", () => {
+  assert.ok(appSrc.includes("function EvidenceMap("), "EvidenceMap component missing");
+  assert.ok(appSrc.includes("<EvidenceMap t={t}"), "EvidenceMap not rendered in the turn");
+  // Honest empty state: no citations → no map, never decoration.
+  assert.ok(appSrc.includes("if (!rows.length) return null;"), "EvidenceMap must render nothing without cited claims");
+  // Bounded: a map, not a second bibliography.
+  assert.ok(appSrc.includes(".slice(0, 8)"), "EvidenceMap must cap its rows");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
