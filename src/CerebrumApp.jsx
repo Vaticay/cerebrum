@@ -18635,24 +18635,67 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setSummary(null);
     setQaHistory([]);
     setRightTab("summary");
+    // Streaming: show tokens as they arrive for instant feedback
+    setSummary({ streaming: true, raw: "" });
     const controller = new AbortController();
     analyzeAbort.current = controller;
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
     try {
-      const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text }), signal: controller.signal });
-      const data = await res.json().catch(() => ({}));
+      const res = await fetch("/api/document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentText: text, stream: true }),
+        signal: controller.signal,
+      });
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         if (handleDocApiError(data)) { setAnalyzing(false); clearTimeout(timeoutId); analyzeAbort.current = null; return; }
         throw new Error(data.error || "Couldn't analyze that document. Please try again.");
       }
-      setSummary(data);
-      if (onUsageChanged) onUsageChanged();
+      // SSE stream: read tokens as they arrive
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            try {
+              const data = JSON.parse(trimmed.slice(5).trim());
+              if (data.type === "token" && data.text) {
+                accumulated += data.text;
+                // Update UI progressively — user sees words appearing
+                setSummary({ streaming: true, raw: accumulated });
+              } else if (data.type === "done") {
+                setSummary(data);
+                if (onUsageChanged) onUsageChanged();
+              } else if (data.type === "error") {
+                throw new Error(data.error || "Couldn't analyze that document.");
+              } else if (data.type === "quota" && onUsageChanged) {
+                onUsageChanged();
+              }
+            } catch (parseErr) {
+              if (parseErr.message && !parseErr.message.includes("JSON")) throw parseErr;
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
     } catch (e) {
       if (e.name === "AbortError") {
         setError("The analysis took too long and was stopped. Try a shorter document, or try again.");
       } else {
         setError(e.message || "Couldn't analyze that document. Please try again.");
       }
+      setSummary(null);
     } finally {
       clearTimeout(timeoutId);
       analyzeAbort.current = null;
@@ -18679,21 +18722,57 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setQaBusy(true);
     setQaQuery("");
     setRightTab("qa");
-    setQaHistory((prev) => [...prev, { query: q, answer: "" }]);
+    setQaHistory((prev) => [...prev, { query: q, answer: "", streaming: true }]);
     try {
-      const res = await fetch("/api/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: documentText.trim(), query: q, history: historyForRequest }) });
-      const data = await res.json().catch(() => ({}));
+      const res = await fetch("/api/document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentText: documentText.trim(), query: q, history: historyForRequest, stream: true }),
+      });
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         if (handleDocApiError(data)) {
           setQaHistory((prev) => prev.slice(0, -1));
           return;
         }
         throw new Error(data.error || "Couldn't answer that.");
       }
-      setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, answer: data.answer } : h)));
-      if (onUsageChanged) onUsageChanged();
+      // SSE streaming for Q&A too — tokens appear as they're generated
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            try {
+              const data = JSON.parse(trimmed.slice(5).trim());
+              if (data.type === "token" && data.text) {
+                accumulated += data.text;
+                setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, answer: accumulated, streaming: true } : h)));
+              } else if (data.type === "done") {
+                setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, answer: data.answer, streaming: false } : h)));
+                if (onUsageChanged) onUsageChanged();
+              } else if (data.type === "error") {
+                throw new Error(data.error || "Couldn't answer that.");
+              }
+            } catch (parseErr) {
+              if (parseErr.message && !parseErr.message.includes("JSON")) throw parseErr;
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
     } catch (e) {
-      setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, errorMsg: e.message || "Couldn't answer that." } : h)));
+      setQaHistory((prev) => prev.map((h, i) => (i === prev.length - 1 ? { ...h, errorMsg: e.message || "Couldn't answer that.", streaming: false } : h)));
     } finally {
       setQaBusy(false);
     }

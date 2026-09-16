@@ -203,23 +203,23 @@ function openRouterKey(env) {
   return env.OPENROUTER_KEY || env.OPENROUTER_API_KEY || "";
 }
 
-const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000, externalSignal = null) => {
+const callOR = async (env, model, messages, maxTokens, timeoutMs = 8000, externalSignal = null, onToken = null) => {
   const orKey = openRouterKey(env);
   if (!orKey) throw new Error(model + ": no OPENROUTER_KEY configured");
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
-  // If an external signal is provided (e.g., from a shared race controller),
-  // abort this call when it fires too — lets the race winner cancel losers.
   const onExternalAbort = () => c.abort();
   if (externalSignal) {
     if (externalSignal.aborted) c.abort();
     else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
   }
+  // Streaming: if onToken is provided, use SSE stream for instant first token
+  const useStream = typeof onToken === "function";
   try {
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + orKey, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
-      body: JSON.stringify({ model, temperature: 0.2, max_tokens: maxTokens, messages }),
+      body: JSON.stringify({ model, temperature: 0.2, max_tokens: maxTokens, messages, stream: useStream }),
       signal: c.signal,
     });
     clearTimeout(t);
@@ -228,6 +228,41 @@ const callOR = async (env, model, messages, maxTokens, timeoutMs = 25000, extern
       let bodyText = "";
       try { bodyText = (await r.text()).slice(0, 150); } catch {}
       throw new Error(model + ": HTTP " + r.status + (bodyText ? " — " + bodyText : ""));
+    }
+    if (useStream) {
+      // SSE streaming: forward tokens as they arrive
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+      let buffer = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trim();
+            if (data === "[DONE]") continue;
+            try {
+              const json = JSON.parse(data);
+              const token = json?.choices?.[0]?.delta?.content || "";
+              if (token) {
+                fullText += token;
+                onToken(token);
+              }
+            } catch {}
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      const cleaned = cleanAIResponse(fullText);
+      if (cleaned.length < 40) throw new Error(model + ": response too short");
+      return { answer: cleaned, model };
     }
     const j = await r.json();
     const cleaned = cleanAIResponse(j?.choices?.[0]?.message?.content || "");
@@ -257,40 +292,37 @@ const callCF = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
 // outage still shouldn't take Document Mode down entirely when Workers AI
 // is bound, and a full-wave failure gets one sequential smaller-model retry
 // rather than an immediate dead end.
-async function generate(env, messages, maxTokens) {
-  // Commit 64 — more racers, shorter leash. Promise.any resolves on the
-  // FIRST success, so adding models makes the common case faster (more
-  // chances that one is not currently throttled) rather than slower, and
-  // trimming the per-call timeout from 25s to 15s means a wedged provider
-  // stops holding the whole request hostage. The old configuration could
-  // sit for 25 seconds and then report a generic failure.
+async function generate(env, messages, maxTokens, onToken = null) {
+  // 2026-09-16 rebuild: SPEED. 8s per-provider timeout (was 15s), fastest
+  // models first. Promise.any resolves on FIRST success. If onToken is
+  // provided, the winner streams tokens as they arrive.
   //
-  // 2026-09-14: share one AbortController across the race — the instant one
-  // model wins, the losers are cancelled instead of running to completion.
-  // Previously all 5 fetches burned OpenRouter quota even after a winner
-  // emerged, hitting free-tier rate limits 5x faster.
+  // Model order: fastest/cheapest first. Gemini Flash is typically the
+  // quickest free model; DeepSeek is strong but slower; Llama 70b is
+  // reliable; Qwen/Mistral are backups.
   const raceController = new AbortController();
+  const useStream = typeof onToken === "function";
   const calls = [
-    callOR(env, "deepseek/deepseek-chat-v3-0324:free", messages, maxTokens, 15000, raceController.signal),
-    callOR(env, "google/gemini-2.0-flash-exp:free", messages, maxTokens, 15000, raceController.signal),
-    callOR(env, "meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens, 15000, raceController.signal),
-    callOR(env, "qwen/qwen-2.5-72b-instruct:free", messages, maxTokens, 15000, raceController.signal),
-    callOR(env, "mistralai/mistral-small-3.2-24b-instruct:free", messages, maxTokens, 15000, raceController.signal),
+    callOR(env, "google/gemini-2.0-flash-exp:free", messages, maxTokens, 8000, raceController.signal, useStream ? onToken : null),
+    callOR(env, "meta-llama/llama-3.3-70b-instruct:free", messages, maxTokens, 8000, raceController.signal, null),
+    callOR(env, "deepseek/deepseek-chat-v3-0324:free", messages, maxTokens, 8000, raceController.signal, null),
+    callOR(env, "qwen/qwen-2.5-72b-instruct:free", messages, maxTokens, 8000, raceController.signal, null),
+    callOR(env, "mistralai/mistral-small-3.2-24b-instruct:free", messages, maxTokens, 8000, raceController.signal, null),
   ];
   if (env.AI && typeof env.AI.run === "function") {
-    calls.push(callCF(env, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", messages, maxTokens));
+    calls.push(callCF(env, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", messages, maxTokens, 8000));
   }
   try {
     const winner = await Promise.any(calls);
-    // Winner found — cancel the losers so they stop burning quota.
     raceController.abort();
     return winner;
   } catch (agg) {
     raceController.abort();
     const errList = agg && agg.errors ? agg.errors.map((e) => String((e && e.message) || e)) : [String((agg && agg.message) || agg)];
+    // One fast retry with a small model before giving up
     if (openRouterKey(env)) {
       try {
-        return await callOR(env, "meta-llama/llama-3.2-3b-instruct:free", messages, maxTokens, 25000);
+        return await callOR(env, "meta-llama/llama-3.2-3b-instruct:free", messages, maxTokens, 10000);
       } catch (e2) {
         throw new Error("All providers failed: " + errList.concat(String(e2.message || e2)).join(" | "));
       }
@@ -453,15 +485,48 @@ export async function onRequest(context) {
     // more headroom than a target that only just covers the minimum, or it
     // gets cut off approaching its own closing section.
     const maxTokens = isQA ? 1400 : 4000;
-    // A global ceiling over the provider race: the individual calls time
-    // out at 15s each and the small-model retry at 25s, so worst case was
-    // ~40s of a visitor staring at a spinner. Thirty seconds is the most
-    // patience a document analysis deserves; past that the classifier below
-    // turns the timeout into advice instead of a hang.
-    // 2026-09-14: raised from 30s to 60s. A tiny test document took 23.5s on
-    // throttled free models, so 30s was timing out real papers and reading
-    // as "doesn't work". 60s gives the provider race room to finish.
-    const result = await withTimeout(generate(env, messages, maxTokens), 60000, "document analysis");
+    // 2026-09-16: 30s global ceiling (was 60s). 8s per-provider timeouts
+    // mean the race fails fast; 30s is plenty.
+    const wantStream = body.stream === true;
+    if (wantStream) {
+      // SSE streaming: tokens flow as they're generated. The frontend
+      // renders them immediately — perceived speed is 10x even if total
+      // time is similar.
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (data) => {
+            try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); } catch {}
+          };
+          // Send quota info first so UI can show it immediately
+          send({ type: "quota", quota: docQuota() });
+          try {
+            const result = await withTimeout(
+              generate(env, messages, maxTokens, (token) => send({ type: "token", text: token })),
+              30000,
+              "document analysis"
+            );
+            // Send the final structured result
+            if (isQA) {
+              send({ type: "done", mode: "qa", answer: result.answer + truncatedNote, model: result.model, quota: docQuota() });
+            } else {
+              const sectioned = splitSummarySections(result.answer);
+              const raw = result.answer + truncatedNote;
+              send({ type: "done", mode: "summary", raw, ...sectioned, truncated: !!truncatedNote, model: result.model, quota: docQuota() });
+            }
+          } catch (e) {
+            const classified = classifyDocumentError(e);
+            send({ type: "error", error: classified.message, code: classified.code });
+          } finally {
+            try { controller.close(); } catch {}
+          }
+        },
+      });
+      return new Response(stream, {
+        headers: { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
+      });
+    }
+    const result = await withTimeout(generate(env, messages, maxTokens), 30000, "document analysis");
 
     if (isQA) {
       return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model, quota: docQuota() }, 200, cors);
