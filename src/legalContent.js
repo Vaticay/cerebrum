@@ -133,13 +133,14 @@ export const PAGES = {
       { h: "5. Pro subscriptions, billing, and refunds", p: "The free tier of Cerebrum is free: no account, no payment, no catch. Cerebrum Pro is an optional paid subscription for users who want more.", list: [
         "Free plan limits: free accounts get 15 AI-synthesized answers, 3 document reads, and 1 saved flowchart every 5 days. Unused amounts do not roll over. Pro is unlimited on all three.",
         "Plans and pricing: Pro costs $20 per month or $144 per year, billed in advance in US dollars. Verified college students can get Pro for $7.99 per month for the first 12 months; after that the subscription renews at the standard monthly price unless cancelled. Applicable taxes may be added at checkout. The current prices and exactly what Pro includes are shown before you pay.",
+        "Your agreement: by starting a Pro subscription you agree to be charged the price shown at checkout, and to these billing terms — including automatic renewal at the then-current price until you cancel, and no partial-period refunds outside the money-back window below.",
         "Auto-renewal: your subscription renews automatically at the end of each billing period until you cancel. Cancel any time from your account's billing portal. Cancellation stops future charges, and your Pro access continues until the end of the period you already paid for.",
         "No partial-period refunds: apart from the money-back window below, we do not refund part of a month or year because you cancelled early or stopped using Pro.",
         "7-day money-back guarantee: if you email dusty@askcerebrum.org within 7 days of the first charge on a new subscription, we refund it in full, no questions asked. The same 7-day window applies to the first charge of an annual plan.",
         "Failed payments: if a renewal charge fails we retry, and Pro stays active during a short grace period. If payment ultimately cannot be collected, Pro access is suspended until you update your payment method.",
         "Refunds go back to the original payment method and typically arrive within 5 to 10 business days, depending on your bank.",
         "Lifetime Pro grants given directly by the founder are free, involve no payment, and are not affected by subscription changes or cancellations.",
-        "Price changes: if Pro pricing changes we will notify you at least 30 days before your next renewal, and the new price applies only from that renewal. You can cancel before then if you prefer.",
+        "Prices and limits are subject to change: Pro prices, and the free and Pro plan limits and features, can change over time. The current price and exactly what each plan includes are always shown before you pay. If a price change affects your active subscription, we notify you at least 30 days before your next renewal, and the new price applies only from that renewal. You can cancel before then if you prefer.",
         "If a charge looks wrong, email us first at dusty@askcerebrum.org before filing a chargeback. Most billing mistakes are fixed the same day."
       ] },
       { h: "6. Acceptable use", p: "You agree not to:", list: [

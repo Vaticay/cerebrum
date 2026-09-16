@@ -537,14 +537,18 @@ await test("film survives iOS autoplay policies (Low Power Mode)", async () => {
   assert.match(appSrc, /Background film paused — tap to play/, "tap-to-play pill missing");
 });
 await test("search loader: descent instrument, honest clock, no fake progress", async () => {
-  const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
-  // The descent instrument's moving parts exist and are keyed: marine-snow
-  // rise + the reading-line scan. The scan travels on transform only.
-  assert.match(appSrc, /@keyframes cbDiveRise/, "marine-snow rise keyframes missing");
+  const fs = await import("node:fs/promises");
+  const appSrc = await fs.readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const diveSrc = await fs.readFile(join(root, "src/DiveParticles.jsx"), "utf8");
+  // The descent instrument's moving parts exist and are keyed: the canvas
+  // particle field + the reading-line scan. The scan travels on transform
+  // only.
+  assert.match(diveSrc, /requestAnimationFrame\(render\)/, "particle field has no frame loop");
   assert.match(appSrc, /@keyframes cbDiveScan/, "reading-line scan keyframes missing");
   assert.match(appSrc, /transform: translateX\(calc\(100% \+ 14px\)\)/, "scan does not travel the full line on transform");
   assert.match(appSrc, /cb-dive-scan/, "scan element missing from the loader");
-  assert.match(appSrc, /cb-dive-snow/, "marine snow missing from the loader");
+  assert.match(appSrc, /DiveParticles/, "particle field missing from the loader");
+  assert.match(appSrc, /cb-dive-particles/, "particle canvas class missing");
   // The old orbital chrome is gone: no comet, no sonar pings, no tick ring.
   for (const dead of ["cb-tx-comet", "cbTxPing", "cbTxOrbit", "cb-tx-ping-b"]) {
     assert.ok(!appSrc.includes(dead), `orbital instrument remnant survived: ${dead}`);
@@ -553,9 +557,13 @@ await test("search loader: descent instrument, honest clock, no fake progress", 
   // The one honest number is untouched: real elapsed seconds.
   assert.match(appSrc, /cb-dive-clock/, "elapsed clock missing from the loader");
   assert.match(appSrc, /Math\.floor\(elapsed \/ 1000\)/, "clock is not driven by real elapsed time");
-  // Reduced motion parks the whole instrument, new parts included.
-  assert.match(appSrc, /\.cb-dive-scan, \.cb-dive-snow \{ animation: none; \}/,
-    "reduced-motion does not silence the descent animations");
+  // Reduced motion parks the whole instrument, new parts included: the
+  // scan's CSS animation is silenced and the canvas renders one still frame.
+  assert.match(appSrc, /\.cb-dive-scan \{ animation: none; \}/,
+    "reduced-motion does not silence the scan");
+  assert.match(diveSrc, /if \(reduced\)/, "particle field ignores reduced motion");
+  // The particle loop parks when the answer arrives — no frame burn after.
+  assert.match(diveSrc, /doneRef\.current/, "particle loop does not park on done");
   // The kicker says Query — the lab-jargon "Query / Specimen" is gone.
   assert.ok(!appSrc.includes("Query / Specimen"), "specimen kicker survived");
 });

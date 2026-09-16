@@ -2737,10 +2737,10 @@ function SignalComposer({
   );
 }
 
-/* WaterCaustics is lazy: its chunk (the WebGL searching water) is only
-   fetched when a search actually begins — never on first paint of the
-   search screen, and the GL context only exists while searching. */
-const WaterCaustics = React.lazy(() => import("./WaterCaustics.jsx"));
+/* DiveParticles is lazy: its chunk (the searching-state particle canvas) is
+   only fetched when a search actually begins — never on first paint of the
+   search screen, and the frame loop only exists while searching. */
+const DiveParticles = React.lazy(() => import("./DiveParticles.jsx"));
 
 /* ── ReadingRoom: the descent instrument ──────────────────────────────────
    The query going down into the literature.
@@ -2789,32 +2789,7 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
   const responded = Array.isArray(sourcesQueried) ? sourcesQueried.filter((s) => s.ok) : [];
   const total = Array.isArray(sourcesQueried) ? sourcesQueried.length : 0;
 
-  /* Marine snow: deterministic pseudo-random drift. Seeded so the field is
-     stable across re-renders; negative delays distribute the flakes through
-     the rise cycle on first paint instead of starting them all at the floor. */
-  const snow = useMemo(() => {
-    const out = [];
-    let s = 20260916;
-    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
-    for (let i = 0; i < 26; i++) {
-      out.push({
-        left: (rnd() * 100).toFixed(2),
-        size: (1 + rnd() * 2.4).toFixed(1),
-        opacity: (0.07 + rnd() * 0.2).toFixed(2),
-        duration: (9 + rnd() * 10).toFixed(1),
-        delay: (-rnd() * 19).toFixed(1),
-      });
-    }
-    return out;
-  }, []);
-
   const live = !reduced && !done;
-
-  /* How far under the water we are. Driven by elapsed time (capped — the
-     client genuinely cannot know per-database progress, so this never
-     claims to be a progress bar) plus the one real mid-search milestone.
-     `done` surfaces it: the water resolves as the answer arrives. */
-  const submersion = done ? 1 : Math.min(0.92, elapsed / 30000 + (videosLocated ? 0.1 : 0));
 
   return (
     <div className="cb-room" style={{ "--cb-acc": accent, ...(reduced ? { animation: "none" } : null) }} aria-live="polite" aria-atomic="true">
@@ -2823,22 +2798,16 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
       <h2 className="cb-room-q">{q}</h2>
 
       {/* The descent field. The scan is a sweep (light travelling), not
-          progress; the snow is ambient. Neither claims anything about
-          per-database state — the client cannot know it mid-request. */}
+          progress; the particle field is ambient. Neither claims anything
+          about per-database state — the client cannot know it mid-request. */}
       <div className="cb-dive-field" role="img" aria-label={`Query in flight to ${SCHOLARLY_SOURCES.length} databases`}>
-        {/* The water: a real-time caustics shader at half resolution,
-            upscaled by CSS. Lazy — its chunk loads only when a search
-            begins. Reduced motion gets a single still frame; no WebGL
-            renders nothing and the snow + reading line carry the state. */}
+        {/* The particle field: a real-time canvas marine-snow instrument at
+            full field resolution. Lazy — its chunk loads only when a search
+            begins. Reduced motion gets a single still frame; no canvas 2D
+            renders nothing and the reading line carries the state. */}
         <React.Suspense fallback={null}>
-          <WaterCaustics submersion={submersion} done={done} reduced={reduced} accent={accent} />
+          <DiveParticles done={done} reduced={reduced} />
         </React.Suspense>
-        {!reduced && snow.map((f, i) => (
-          <span key={i} className="cb-dive-snow" aria-hidden="true" style={{
-            left: f.left + "%", width: f.size + "px", height: f.size + "px",
-            opacity: f.opacity, animationDuration: f.duration + "s", animationDelay: f.delay + "s",
-          }} />
-        ))}
         <div className="cb-dive-line" aria-hidden="true">
           {live
             ? <div className="cb-dive-scan"><span className="cb-dive-dot" /></div>
@@ -7665,7 +7634,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
               </button>
             )}
             <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", textAlign: "center" }}>
-              Secure checkout by Stripe · cancel anytime from the customer portal
+              Secure checkout by Stripe · cancel anytime from the customer portal · prices and plan limits are subject to change
             </div>
           </>
         )}
@@ -28396,7 +28365,7 @@ summary::-webkit-details-marker { display: none; }
   color: #f2f4f2;
   max-width: 720px; margin: 0;
 }
-/* The descent field: a quiet column of water. The snow rises through it;
+/* The descent field: a quiet column of water. Particles rise through it;
    the reading line sits just below centre, where the eye lands. */
 .cb-dive-field {
   position: relative;
@@ -28405,22 +28374,12 @@ summary::-webkit-details-marker { display: none; }
   margin: 26px auto 0;
   overflow: hidden;
 }
-/* The searching water: a half-resolution WebGL canvas upscaled by CSS.
-   It paints first so marine snow and the reading line drift above it. */
-.cb-dive-water {
+/* The particle canvas: full-field, painted first so the reading line
+   sweeps above it. */
+.cb-dive-particles {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   display: block;
-}
-.cb-dive-snow {
-  position: absolute; bottom: -8px;
-  border-radius: 50%; background: #ffffff;
-  animation: cbDiveRise linear infinite;
-  will-change: transform;
-}
-@keyframes cbDiveRise {
-  from { transform: translateY(0); }
-  to { transform: translateY(-200px); }
 }
 /* The reading line: one hairline. The scan is a dot with a short tail
    travelling the full width on transform only — no layout thrash. It
@@ -28514,14 +28473,13 @@ summary::-webkit-details-marker { display: none; }
   gap: 6px 10px; margin-top: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-dive-scan, .cb-dive-snow { animation: none; }
+  .cb-dive-scan { animation: none; }
 }
 /* The in-product motion toggle (Settings → Sound & motion → Off) applies
    the same kills via body.cb-motion-off, for stylesheet-driven motion the
    OS media query can't reach. Components gate their own motion through
    useReducedMotion(); this is the backstop for the loops above. */
 body.cb-motion-off .cb-dive-scan,
-body.cb-motion-off .cb-dive-snow,
 body.cb-motion-off .cb-trace-chip,
 body.cb-motion-off .cb-focus-in,
 body.cb-motion-off .cb-title-veil,
