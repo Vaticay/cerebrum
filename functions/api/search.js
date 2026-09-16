@@ -9934,7 +9934,7 @@ export async function onRequest(context) {
       "- If they ask about something tangentially related, bridge from the current topic naturally.\n" +
       "- If you're unsure what they mean, make your best guess and state what you're interpreting it as.\n\n" +
       "GRAD-STUDENT FORMATTING: Your audience is researchers. Format accordingly:\n" +
-      "- For long answers, use **bold section headers** to organize (e.g., **Mechanism**, **Evidence**, **Limitations**)\n" +
+      "- Organize ONLY with the Markdown H2 sections from REQUIRED OUTPUT STRUCTURE below — never use bold text as section headers.\n" +
       "- Always mention **study design**: was it _in vitro_, _in vivo_, a clinical trial, a meta-analysis, a computational model? This matters enormously.\n" +
       "- Always mention **sample size** and **model organism** when the source provides them: '(n=42 C57BL/6 mice)'\n" +
       "- Flag **preprints** vs peer-reviewed. If a source is from bioRxiv/medRxiv/arXiv, note it: '[preprint]'\n" +
