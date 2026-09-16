@@ -128,6 +128,11 @@ const SOURCES = [
       url: r.doi ? `https://doi.org/${r.doi}` : (r.fullTextUrlList && r.fullTextUrlList.fullTextUrl && r.fullTextUrlList.fullTextUrl[0] && r.fullTextUrlList.fullTextUrl[0].url) || "",
       source: r.journalTitle || "Europe PMC",
       publishedAt: r.firstPublicationDate || null,
+      // Europe PMC's own citation count for the record — a real, grounded
+      // "why this matters" signal for journal articles. Shown only when
+      // positive; the other three sources don't provide one, so no label
+      // is ever invented for them.
+      citedByCount: Number(r.citedByCount) > 0 ? Math.floor(Number(r.citedByCount)) : 0,
     })),
   },
   {
@@ -246,6 +251,9 @@ export async function fetchTrendingItems() {
         source: a.source || group.category,
         publishedAt: a.publishedAt || null,
         category: group.category,
+        // Carried through from the source parse only; never invented here.
+        // Europe PMC is currently the only source that provides one.
+        citedByCount: Number(a.citedByCount) > 0 ? Math.floor(Number(a.citedByCount)) : 0,
       });
     }
     if (clean.length) buckets.push(clean);

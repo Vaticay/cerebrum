@@ -11168,9 +11168,14 @@ function avatarSkin(seed) {
 }
 
 function coverFor(item) {
+  // A solid tonal field. The gradient here was a craft-pass survivor —
+  // decorative gradients have no place on cards. The hand-authored tone
+  // set is unchanged (see Commit 87 above), so every item still gets its
+  // stable, chosen color; it just sits flat now, the way the avatar skins
+  // already did.
   const t = TONES[toneIndex(item && (item.title || item.url))];
   return {
-    background: `linear-gradient(135deg, hsl(${t.h} ${t.s}% 20%) 0%, hsl(${t.h} ${Math.max(8, t.s - 10)}% 11%) 100%)`,
+    background: `hsl(${t.h} ${t.s}% 15%)`,
     tone: `hsl(${t.h} ${t.s}% 46%)`,
     initials: (item.source || item.category || "CB").replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "CB",
   };
@@ -11183,18 +11188,6 @@ function coverFor(item) {
 const SOURCE_FULL_NAMES = {
   "Magn Reson Lett": "Magnetic Resonance Letters",
 };
-
-/* The no-photograph band, designed as an editorial surface rather than an
-   apology for a missing asset: the tonal duotone field, faint contour
-   rings for texture, a ghost of the field's glyph, the category set as a
-   quiet wordmark, and the hairline rule. Nothing here pretends to be a
-   photograph. */
-const TREND_CATEGORY_ICONS = [
-  ["Biology & Medicine", "brain"],
-  ["Physics & Chemistry", "zap"],
-  ["Space", "planet"],
-  ["Preprints", "document"],
-];
 
 function TrendingHero({ P, accent, item, onExpand }) {
   // Commit 72 — the hero is the biggest thing on the Trending page; a
@@ -11351,7 +11344,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
             </span>
           )}
           <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, lineHeight: 1.25, letterSpacing: "-0.015em", fontFamily: "var(--cb-font)", marginTop: 10 }}>{item.title}</div>
-          {publishedLabel && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{publishedLabel}</div>}
+          {publishedLabel && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{publishedLabel}{item.citedByCount > 0 ? ` · Cited by ${item.citedByCount}` : ""}</div>}
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{item.summary}</div>
           {/* The primary action is now the one that keeps someone here and
               is genuinely more useful than the source page: Cerebrum can
@@ -12073,7 +12066,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                       <span style={{ display: "block", fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
                     )}
                     <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
-                      {[item.category, item.source, item.publishedAt ? relativeTime(item.publishedAt) : null].filter(Boolean).join(" · ")}
+                      {[item.category, item.source, item.publishedAt ? relativeTime(item.publishedAt) : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : null].filter(Boolean).join(" · ")}
                     </span>
                   </span>
                 </button>
