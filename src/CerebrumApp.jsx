@@ -17316,6 +17316,136 @@ function SaveIndicator({ state, P, accent }) {
   );
 }
 
+/* ── ProfileConstellation ─────────────────────────────────────────────
+   The profile's one visual idea, made of the user's actual data: every
+   saved paper is a star, clustered by collection, sized by the reader's
+   own rating, linked where papers share an author. Pinned papers burn
+   in the accent color. Nothing here is decoration — rearrange the
+   library and the sky rearranges with it.
+
+   Layout is deterministic (seeded by paper id): the same library always
+   draws the same sky. Phyllotaxis spiral keeps nodes from colliding;
+   angular sectors group collections. SVG, static unless the user asked
+   for motion — this is a document, not a screensaver. */
+function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, height }) {
+  const layout = React.useMemo(() => {
+    const list = (papers || []).slice(0, 64);
+    if (list.length === 0) return { nodes: [], links: [] };
+    // Deterministic hash from a string — stable sky per library.
+    const hash = (s) => {
+      let h = 2166136261;
+      const str = String(s || "");
+      for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+      return (h >>> 0) / 4294967295;
+    };
+    // Collections become angular sectors so a reader's topics read as
+    // constellations-within-the-constellation.
+    const shelfOf = (p) => shelfNameOf ? (shelfNameOf(p) || "Unfiled") : "Unfiled";
+    const shelves = [];
+    list.forEach((p) => { const s = shelfOf(p); if (!shelves.includes(s)) shelves.push(s); });
+    const W = 100, H = 100;
+    const nodes = list.map((p, i) => {
+      const id = p.id || p.doi || p.title || String(i);
+      const h1 = hash(id + ":a"), h2 = hash(id + ":b");
+      const shelfIdx = Math.max(0, shelves.indexOf(shelfOf(p)));
+      // Golden-angle spiral, rotated per shelf sector; radius grows with
+      // the square root of index so density stays even toward the edge.
+      const golden = Math.PI * (3 - Math.sqrt(5));
+      const sector = shelves.length > 1 ? (shelfIdx / shelves.length) * Math.PI * 2 : 0;
+      const spread = shelves.length > 1 ? (Math.PI * 2) / shelves.length : Math.PI * 2;
+      const t = i * golden + h1 * 0.9;
+      const ang = sector + ((t % spread) - spread / 2) * 0.92 + (h2 - 0.5) * 0.35;
+      const rad = 8 + Math.sqrt((i + 1) / list.length) * 38 + h2 * 4;
+      const r = 1.6 + (Number(p.rating) || 0) * 0.55 + (h1 > 0.93 ? 0.9 : 0);
+      const pinned = (pinnedIds || []).includes(id);
+      return {
+        id, x: 50 + Math.cos(ang) * rad * 1.28, y: 50 + Math.sin(ang) * rad * 0.62,
+        r: pinned ? r + 1.1 : r, pinned,
+        title: p.title || "Untitled", shelf: shelfOf(p),
+        authors: p.authors || "",
+      };
+    });
+    // Link papers that share a first-author surname or a shelf, but only
+    // near neighbors — enough to read as structure, never a hairball.
+    const surname = (a) => String(a || "").split(/[;,]/)[0].trim().split(/\s+/).pop().toLowerCase();
+    const links = [];
+    for (let i = 0; i < nodes.length && links.length < 46; i++) {
+      for (let j = i + 1; j < nodes.length && links.length < 46; j++) {
+        const a = nodes[i], b = nodes[j];
+        const dx = a.x - b.x, dy = a.y - b.y;
+        if (dx * dx + dy * dy > 420) continue;
+        const sameShelf = a.shelf === b.shelf;
+        const sameAuthor = surname(a.authors) && surname(a.authors) === surname(b.authors);
+        if (sameShelf || sameAuthor) links.push([i, j]);
+      }
+    }
+    return { nodes, links };
+  }, [papers, pinnedIds]);
+
+  const [tip, setTip] = React.useState(null);
+  const h = height || 240;
+
+  if (layout.nodes.length === 0) {
+    return (
+      <div style={{ position: "relative", height: h, borderRadius: 14, border: `1px solid ${P.line}`, background: P.dark ? "#0c0e13" : "#f4f2ec", overflow: "hidden" }} aria-label="Your research sky, uncharted">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} aria-hidden="true">
+          {Array.from({ length: 36 }).map((_, i) => {
+            const fx = ((i * 37.7) % 100), fy = ((i * 53.3) % 100);
+            return <circle key={i} cx={fx} cy={fy} r={0.35} fill={P.faint} opacity={0.28} />;
+          })}
+        </svg>
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 20, textAlign: "center" }}>
+          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Your sky is uncharted</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", maxWidth: 340, lineHeight: 1.6 }}>
+            Save papers and they become stars here — clustered by collection, sized by your rating.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: "relative", height: h, borderRadius: 14, border: `1px solid ${P.line}`, background: P.dark ? "#0b0d12" : "#f5f3ed", overflow: "hidden" }}>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} role="img" aria-label={`${layout.nodes.length} saved papers drawn as a star chart`}>
+        {layout.links.map(([i, j], k) => (
+          <line key={k} x1={layout.nodes[i].x} y1={layout.nodes[i].y} x2={layout.nodes[j].x} y2={layout.nodes[j].y}
+            stroke={P.faint} strokeWidth={0.14} opacity={0.35} />
+        ))}
+        {layout.nodes.map((n, i) => (
+          <g key={n.id + i}>
+            {n.pinned && <circle cx={n.x} cy={n.y} r={n.r + 1.6} fill="none" stroke={accent} strokeWidth={0.3} opacity={0.9} />}
+            <circle cx={n.x} cy={n.y} r={n.r * 0.42}
+              fill={n.pinned ? accent : P.ink2} opacity={n.pinned ? 0.95 : 0.75}
+              style={{ cursor: "pointer" }}
+              onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ x: r.left + r.width / 2, y: r.top, title: n.title, shelf: n.shelf }); }}
+              onMouseLeave={() => setTip(null)}
+              onFocus={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ x: r.left + r.width / 2, y: r.top, title: n.title, shelf: n.shelf }); }}
+              onBlur={() => setTip(null)}
+              tabIndex={0} role="img" aria-label={n.title}>
+              <title>{n.title}</title>
+            </circle>
+          </g>
+        ))}
+      </svg>
+      <div style={{ position: "absolute", left: 14, bottom: 10, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>
+        {layout.nodes.length} {layout.nodes.length === 1 ? "paper" : "papers"} · your sky
+      </div>
+      {tip && (
+        <div style={{
+          position: "fixed", left: Math.min(Math.max(tip.x - 110, 8), window.innerWidth - 228), top: Math.max(tip.y - 66, 8),
+          width: 220, zIndex: 60, pointerEvents: "none",
+          background: P.dark ? "rgba(16,18,26,0.97)" : "rgba(255,255,255,0.97)",
+          border: `1px solid ${P.line2}`, borderRadius: 8, padding: "8px 10px",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+        }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{tip.title}</div>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 3 }}>{tip.shelf}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
@@ -17346,6 +17476,19 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     // scrolls above the viewport, the sticky bar has pinned to the top.
     const obs = new IntersectionObserver(([e]) => setTabsStuck(e.boundingClientRect.top < 0), { threshold: 0 });
     obs.observe(s);
+    return () => obs.disconnect();
+  }, []);
+  /* Collapsing identity header: once the constellation hero scrolls out,
+     a slim bar pins with the face, the name, and the primary action —
+     the reader never loses who this dossier belongs to. Driven by scroll
+     position (transform/opacity only), not animation. */
+  const heroRef = useRef(null);
+  const [heroGone, setHeroGone] = useState(false);
+  useEffect(() => {
+    const el = heroRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([e]) => setHeroGone(e.boundingClientRect.bottom < 72), { threshold: 0 });
+    obs.observe(el);
     return () => obs.disconnect();
   }, []);
 
@@ -17570,23 +17713,63 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           from the workspace) so the name never slides under the button. */}
       <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 72px" : "18px 28px 96px" }}>
 
-        {/* -- Masthead: a byline, not a hero. -----------------------------
-            Face and name side by side, left aligned. No centered avatar,
-            no stat tiles, no pill buttons. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-          <div style={{ position: "relative", width: 72, height: 72, flexShrink: 0 }}>
+        {/* Collapsed identity bar: pins once the sky scrolls away. The
+            outer wrapper is sticky with zero height when hidden (no layout
+            gap); the inner bar slides down when the hero leaves. */}
+        <div aria-hidden={!heroGone} style={{
+          position: "sticky", top: 0, zIndex: 40,
+          height: heroGone ? "auto" : 0, overflow: "visible",
+          margin: isMobile ? "0 -18px" : "0 -28px",
+        }}>
+        <div style={{
+          margin: isMobile ? "0" : "0",
+          padding: isMobile ? "10px 18px" : "10px 28px",
+          display: "flex", alignItems: "center", gap: 10,
+          background: P.dark ? "rgba(13,15,20,0.94)" : "rgba(250,249,246,0.94)",
+          backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          borderBottom: `1px solid ${P.line}`,
+          transform: heroGone ? "translateY(0)" : "translateY(-110%)",
+          opacity: heroGone ? 1 : 0,
+          transition: "transform 220ms ease, opacity 220ms ease",
+          pointerEvents: heroGone ? "auto" : "none",
+        }}>
+          <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0, background: P.surface }}>
+            {profile.avatar_base64 && !avatarFailed ? (
+              <img src={profile.avatar_base64} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            ) : (
+              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: P.ink2, fontFamily: "var(--cb-font)", ...avatarSkin(displayName || user?.id) }}>{displayInitial}</div>
+            )}
+          </div>
+          <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displayName}</span>
+          <button onClick={() => setEditing((v) => !v)} style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", minHeight: 44, padding: "10px 8px", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", color: accent }}>
+            {editing ? "Done" : "Edit"}
+          </button>
+        </div>
+        </div>
+
+        {/* -- Sky: the constellation hero ---------------------------------
+            The profile's one visual idea: the reader's own library drawn as
+            a star chart. Identity sits on its lower edge, magazine style —
+            avatar overlapping the sky, name set large underneath. */}
+        <div ref={heroRef} style={{ margin: isMobile ? "0 -18px" : "0 -28px", padding: isMobile ? "0 18px" : "0 28px" }}>
+          <ProfileConstellation P={P} accent={accent} papers={saved} pinnedIds={pinnedIds} shelfNameOf={shelfName} height={isMobile ? 200 : 240} />
+        </div>
+
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginTop: -34, position: "relative", zIndex: 2 }}>
+          <div style={{ position: "relative", width: 88, height: 88, flexShrink: 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
                 width: "100%", height: "100%", borderRadius: "50%",
                 ...avatarSkin(displayName || user?.id), display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 28, fontWeight: 700, fontFamily: "var(--cb-font)",
+                fontSize: 32, fontWeight: 700, fontFamily: "var(--cb-font)",
+                border: `3px solid ${P.bg}`,
               }}>{displayInitial}</div>
             ) : (
               <img
                 src={profile.avatar_base64}
                 alt={`${displayName}'s photo`}
                 onError={() => setAvatarFailed(true)}
-                style={{ width: "100%", height: "100%", borderRadius: "50%", display: "block", objectFit: "cover", background: P.surface }}
+                style={{ width: "100%", height: "100%", borderRadius: "50%", display: "block", objectFit: "cover", background: P.surface, border: `3px solid ${P.bg}` }}
               />
             )}
             <button
@@ -17596,7 +17779,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               aria-label="Change photo"
               title="Change photo"
               style={{
-                position: "absolute", bottom: -4, right: -4, width: 30, height: 30, borderRadius: "50%",
+                position: "absolute", bottom: -2, right: -2, width: 32, height: 32, borderRadius: "50%",
                 display: "flex", alignItems: "center", justifyContent: "center", cursor: avatarSaving ? "default" : "pointer",
                 background: P.raised, color: P.ink2, border: `1px solid ${P.line2}`,
                 opacity: avatarSaving ? 0.6 : 1,
@@ -17606,31 +17789,31 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
             {avatarSaving && (
-              <div style={{ position: "absolute", left: 6, right: 6, bottom: -7, height: 3, borderRadius: 2, background: P.line, overflow: "hidden" }}>
+              <div style={{ position: "absolute", left: 8, right: 8, bottom: -7, height: 3, borderRadius: 2, background: P.line, overflow: "hidden" }}>
                 <div className="cb-indeterminate-bar" style={{ height: "100%", width: "40%", borderRadius: 2, background: accent }} />
               </div>
             )}
           </div>
 
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, paddingBottom: 2 }}>
             {editing ? (
               <input
                 value={profile.name || ""}
                 onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
                 placeholder={displayName}
                 aria-label="Your name"
-                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: 24, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em", outline: "none" }}
+                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: 30, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.03em", outline: "none" }}
               />
             ) : (
               <h1 style={{
-                margin: 0, fontSize: 28, fontWeight: 800,
+                margin: 0, fontSize: isMobile ? 30 : 36, fontWeight: 800,
                 color: P.ink, fontFamily: "var(--cb-font)",
-                letterSpacing: "-0.03em", lineHeight: 1.05,
+                letterSpacing: "-0.03em", lineHeight: 1.02,
                 display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-              }}><span>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={16} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
+              }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={18} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
             )}
             {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
-            <div style={{ marginTop: 4, fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)" }}>
+            <div style={{ marginTop: 5, fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)" }}>
               {displayUsername}
             </div>
           </div>
@@ -17638,37 +17821,20 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           <button
             onClick={() => setEditing((v) => !v)}
             style={{
-              flexShrink: 0, background: "none", border: "none", cursor: "pointer",
-              padding: "12px 6px", fontSize: FONT_SIZES.small, fontWeight: 600,
-              fontFamily: "var(--cb-font)", color: accent,
+              flexShrink: 0, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: `1px solid ${P.line}`, borderRadius: 100, cursor: "pointer",
+              padding: "12px 20px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700,
+              fontFamily: "var(--cb-font)", color: P.ink,
             }}
-          >{editing ? "Done" : "Edit"}</button>
+          >{editing ? "Done" : "Edit profile"}</button>
         </div>
 
         {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 10 }}>{avatarError}</div>}
 
-        {/* Standing, bio and links: one quiet block under the byline. */}
-        <div style={{ marginTop: 14 }}>
-          {interests.length > 0 && !editing && (
-            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-              Interested in {interests.join(", ")}
-            </div>
-          )}
-
-          {!editing && contextLine && (
-            <div style={{ marginTop: 8, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
-          )}
-          {!editing && !contextLine && (
-            <button
-              type="button" onClick={() => setEditing(true)}
-              style={{ minHeight: 44, marginTop: 8, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
-            >
-              <Icon name="edit" size={12} /> Add your degree and institution
-            </button>
-          )}
-
+        {/* -- Statement: the researcher's own words, set like a pull quote.
+            Bio is the voice; interests and standing are the footnote. */}
+        <div style={{ marginTop: 18 }}>
           {editing ? (
-            <div style={{ marginTop: 12, maxWidth: 620 }}>
+            <div style={{ maxWidth: 620 }}>
               <textarea
                 value={profile.bio || ""}
                 onChange={(e) => setProfile((p2) => ({ ...p2, bio: e.target.value.slice(0, 400) }))}
@@ -17690,22 +17856,54 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               </div>
             </div>
           ) : (
-            profile.bio && (
-              <p style={{ fontWeight: 450, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "10px 0 0", maxWidth: 620, whiteSpace: "pre-wrap" }}>{profile.bio}</p>
+            profile.bio ? (
+              <blockquote style={{
+                margin: "6px 0 0", padding: "0 0 0 18px", maxWidth: 640,
+                borderLeft: `2px solid ${accent}`,
+                fontSize: isMobile ? 17 : 19, fontWeight: 500, color: P.ink,
+                fontFamily: "var(--cb-font)", lineHeight: 1.55, letterSpacing: "-0.01em",
+                whiteSpace: "pre-wrap",
+              }}>{profile.bio}</blockquote>
+            ) : (
+              <button
+                type="button" onClick={() => setEditing(true)}
+                style={{ minHeight: 44, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name="edit" size={12} /> Add what you work on — one or two sentences
+              </button>
             )
           )}
+
+          {!editing && interests.length > 0 && (
+            <div style={{ marginTop: profile.bio ? 14 : 4, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
+              <span style={{ color: P.faint }}>Interested in </span>{interests.join(", ")}
+            </div>
+          )}
+
+          {!editing && contextLine && (
+            <div style={{ marginTop: 6, fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6 }}>{contextLine}</div>
+          )}
+          {!editing && !contextLine && profile.bio && (
+            <button
+              type="button" onClick={() => setEditing(true)}
+              style={{ minHeight: 44, marginTop: 6, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <Icon name="edit" size={12} /> Add your degree and institution
+            </button>
+          )}
+
           {!editing && (profile.link_site || profile.link_orcid || profile.link_scholar) && (
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 10 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 14 }}>
               {[["link", "Website", profile.link_site], ["check", "ORCID", profile.link_orcid], ["bookOpen", "Scholar", profile.link_scholar]]
                 .filter(([, , href]) => !!href)
                 .map(([icon, label, href], i) => (
-                  <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
                     {i > 0 && <span aria-hidden="true" style={{ color: P.faint }}>{"·"}</span>}
                     <a href={safeHref(href)} target="_blank" rel="noopener noreferrer nofollow" style={{
                       display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
-                      color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
-                      borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
-                    }}><Icon name={icon} size={12} /> {label}</a>
+                      color: P.ink, fontSize: FONT_SIZES.small, fontWeight: 600,
+                      borderBottom: `1px solid ${P.line2}`, paddingBottom: 2,
+                    }}><Icon name={icon} size={13} /> {label}</a>
                   </span>
                 ))}
             </div>
@@ -17858,41 +18056,54 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           </div>
         )}
 
-        {/* -- Pinned papers ---------------------------------------------------
-            A numbered reading list, not cards. The papers that say who
-            this researcher is, in their chosen order. */}
-        {(pinnedPapers.length > 0 || editing) && (
-          <section aria-label="Pinned papers" style={{ marginTop: 30 }}>
-            <div style={{ ...eyebrow, marginBottom: 6 }}>Pinned papers</div>
-            {pinnedPapers.length === 0 ? (
-              <p style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, margin: "8px 0 0", maxWidth: 520 }}>
-                Pin up to four papers that define your work. They stay at the top of your profile. Pin them from your library below.
-              </p>
-            ) : (
-              <ol style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {pinnedPapers.map((sv, idx) => {
-                  const key = paperKey(sv);
-                  return (
-                    <li key={key} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "12px 0", borderTop: idx > 0 ? `1px solid ${P.line}` : "none" }}>
-                      <span aria-hidden="true" style={{ flexShrink: 0, fontSize: FONT_SIZES.small, color: P.faint, fontVariantNumeric: "tabular-nums", fontFamily: "var(--cb-font)" }}>{idx + 1}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
-                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                          {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+        {/* -- The shelf: four numbered slots, always visible ------------------
+            Letterboxd's Four Favorites, for papers. The visible constraint IS
+            the invitation — empty slots show the shape of the intention. */}
+        <section aria-label="Pinned papers" style={{ marginTop: 34 }}>
+          <div style={{ ...eyebrow, marginBottom: 4 }}>The shelf</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>
+            Four papers that say who you are as a researcher.
+          </div>
+          <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
+            {[0, 1, 2, 3].map((slot) => {
+              const sv = pinnedPapers[slot];
+              const key = sv ? paperKey(sv) : null;
+              return (
+                <li key={slot} style={{
+                  minHeight: 132, borderRadius: 10, padding: "12px 12px 10px",
+                  border: sv ? `1px solid ${P.line2}` : `1px dashed ${P.line2}`,
+                  background: sv ? (P.dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.018)") : "transparent",
+                  display: "flex", flexDirection: "column",
+                }}>
+                  <span aria-hidden="true" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: sv ? accent : P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.08em" }}>{slot + 1}</span>
+                  {sv ? (
+                    <>
+                      <div style={{ flex: 1, minWidth: 0, marginTop: 6 }}>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 650, color: P.ink, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{renderCleanTitle(sv.title)}</div>
+                        <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 5, fontFamily: "var(--cb-font)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {[sv.year, sv.journal].filter(Boolean).join(" · ")}
                         </div>
                       </div>
                       {editing && (
-                        <button type="button" onClick={() => togglePin(key)} disabled={pinSaving} aria-label={`Unpin ${renderCleanTitle(sv.title)}`} style={{ minHeight: 44, flexShrink: 0, background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", padding: "10px 4px", opacity: pinSaving ? 0.5 : 1 }}>
+                        <button type="button" onClick={() => togglePin(key)} disabled={pinSaving}
+                          aria-label={`Unpin ${renderCleanTitle(sv.title)}`}
+                          style={{ minHeight: 44, alignSelf: "flex-start", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", padding: "10px 0 2px", opacity: pinSaving ? 0.5 : 1 }}>
                           Remove
                         </button>
                       )}
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </section>
-        )}
+                    </>
+                  ) : (
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", marginTop: 6 }}>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+                        {editing || pinnedPapers.length === 0 ? "Pin a paper from your library below" : "Empty slot"}
+                      </span>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </section>
 
         {/* -- Chapters ----------------------------------------------------------
             Text, not pills. The sections are chapters of one document;
@@ -19045,133 +19256,140 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
             </div>
           )}
           {!loading && !error && u && (
-            <div style={{ padding: isMobile ? "22px 18px 28px" : "28px 28px 32px" }}>
-              {/* Byline: face and name side by side, the same language as
-                  your own profile's masthead. No cover, no stat tiles. */}
-              <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
-                <div style={{ width: 72, height: 72, flexShrink: 0 }}>
-                  {u.avatar_base64 ? (
-                    <img src={u.avatar_base64} alt={`${displayName}'s photo`} style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface }} />
-                  ) : (
-                    <div style={{
-                      width: "100%", height: "100%", borderRadius: "50%",
-                      ...avatarSkin(displayName || u.id),
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 28, fontWeight: 700, fontFamily: "var(--cb-font)",
-                    }}>{initial}</div>
-                  )}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <h2 style={{ fontSize: 24, fontWeight: 800, color: P.ink, margin: 0, letterSpacing: "-0.03em", fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
-                    {(isFounder || isVerified) && <VerifiedCheck size={15} title={isFounder ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}
-                    {u.isPro && <ProBadge style={{ fontSize: 10 }} />}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>@{u.username}</span>
-                    {data.followsMe && (
-                      <span style={{
-                        fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
-                        background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)",
-                        padding: "2px 8px", borderRadius: RADIUS.pill,
-                      }}>Follows you</span>
+            /* Public dossier: the same editorial language as your own
+               profile, minus everything private. No sky here — there is
+               no public paper data to draw it from, and a decorative
+               starfield would be a lie. Typography carries it. */
+            <div style={{ padding: isMobile ? "26px 20px 30px" : "30px 30px 34px" }}>
+                <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                  <div style={{ width: 76, height: 76, flexShrink: 0 }}>
+                    {u.avatar_base64 ? (
+                      <img src={u.avatar_base64} alt={`${displayName}'s photo`} style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface }} />
+                    ) : (
+                      <div style={{
+                        width: "100%", height: "100%", borderRadius: "50%",
+                        ...avatarSkin(displayName || u.id),
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 30, fontWeight: 700, fontFamily: "var(--cb-font)",
+                      }}>{initial}</div>
                     )}
                   </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <h2 style={{ fontSize: 26, fontWeight: 800, color: P.ink, margin: 0, letterSpacing: "-0.03em", lineHeight: 1.05, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
+                      {(isFounder || isVerified) && <VerifiedCheck size={16} title={isFounder ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}
+                      {u.isPro && <ProBadge style={{ fontSize: 10 }} />}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>@{u.username}</span>
+                      {data.followsMe && (
+                        <span style={{
+                          fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.ink2,
+                          background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)",
+                          padding: "3px 9px", borderRadius: RADIUS.pill,
+                        }}>Follows you</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              {(data.badges || []).filter((b) => b !== "founder").length > 0 && (
-                <div style={{ marginTop: 10, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
-                  {(data.badges || []).filter((b) => b !== "founder").map((b) => String(b).replace(/[_-]+/g, " ")).join(" · ")}
+                {(data.badges || []).filter((b) => b !== "founder").length > 0 && (
+                  <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+                    {(data.badges || []).filter((b) => b !== "founder").map((b) => String(b).replace(/[_-]+/g, " ")).join(" · ")}
+                  </div>
+                )}
+
+                {context && (
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 12, lineHeight: 1.55 }}>{context}</div>
+                )}
+
+                {u.bio && (
+                  <blockquote style={{
+                    margin: "16px 0 0", padding: "0 0 0 16px",
+                    borderLeft: `2px solid ${accent}`,
+                    fontSize: 16, fontWeight: 500, color: P.ink,
+                    fontFamily: "var(--cb-font)", lineHeight: 1.6, letterSpacing: "-0.01em",
+                    whiteSpace: "pre-wrap",
+                  }}>{u.bio}</blockquote>
+                )}
+
+                {links.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 16 }}>
+                    {links.map((l, i) => (
+                      <span key={l.label} style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                        {i > 0 && <span aria-hidden="true" style={{ color: P.faint }}>{"·"}</span>}
+                        <a
+                          href={safeHref(l.href)}
+                          target="_blank"
+                          rel="noopener noreferrer nofollow ugc"
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 6,
+                            fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink,
+                            textDecoration: "none", borderBottom: `1px solid ${P.line2}`, paddingBottom: 2,
+                          }}
+                        ><Icon name={l.icon} size={13} /> {l.label}</a>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", gap: 22, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                  <span><span style={{ color: P.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{data.followers || 0}</span> followers</span>
+                  <span><span style={{ color: P.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{data.followingCount || 0}</span> following</span>
                 </div>
-              )}
 
-              {context && (
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>{context}</div>
-              )}
-
-              {u.bio && (
-                <p style={{ fontWeight: 450, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "12px 0 0", whiteSpace: "pre-wrap" }}>{u.bio}</p>
-              )}
-
-              {links.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12 }}>
-                  {links.map((l, i) => (
-                    <span key={l.label} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                      {i > 0 && <span aria-hidden="true" style={{ color: P.faint }}>{"·"}</span>}
-                      <a
-                        href={safeHref(l.href)}
-                        target="_blank"
-                        rel="noopener noreferrer nofollow ugc"
-                        style={{
-                          fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2,
-                          textDecoration: "none", borderBottom: `1px dotted ${withAlpha(P.faint, 0.5)}`, paddingBottom: 1,
-                        }}
-                      >{l.label}</a>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                <span style={{ color: P.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{data.followers || 0}</span>
-                {" "}followers{" · "}
-                <span style={{ color: P.ink, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{data.followingCount || 0}</span>
-                {" "}following
-              </div>
-
-              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-                <button
-                  onClick={toggleFollow}
-                  disabled={busy}
-                  className="cb-press"
-                  style={{
-                    flex: 1, padding: "12px 20px", minHeight: 48, borderRadius: 100, cursor: busy ? "default" : "pointer",
-                    fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
-                    opacity: busy ? 0.6 : 1,
-                    background: data.isFollowing ? "transparent" : accent,
-                    color: data.isFollowing ? P.ink2 : at,
-                    border: data.isFollowing ? `1px solid ${P.line2}` : "none",
-                  }}
-                >{data.isFollowing ? "Following" : "Follow"}</button>
-                <button
-                  onClick={message}
-                  disabled={msgBusy || !data.canMessage}
-                  className="cb-press"
-                  title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
-                  style={{
-                    padding: "12px 20px", minHeight: 48, borderRadius: 100,
-                    cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
-                    fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
-                    background: "transparent", color: data.canMessage ? P.ink2 : P.faint,
-                    border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.6,
-                  }}
-                >{msgBusy ? "Opening\u2026" : "Message"}</button>
-                {currentUser?.isFounder && !isFounder && (
+                <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
                   <button
-                    onClick={toggleVerify}
-                    disabled={verifyBusy}
+                    onClick={toggleFollow}
+                    disabled={busy}
                     className="cb-press"
-                    title={isVerified ? "Remove verification from this account" : "Verify this account as an institution or renowned researcher"}
+                    style={{
+                      flex: 1, padding: "12px 20px", minHeight: 48, borderRadius: 100, cursor: busy ? "default" : "pointer",
+                      fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
+                      opacity: busy ? 0.6 : 1,
+                      background: data.isFollowing ? "transparent" : accent,
+                      color: data.isFollowing ? P.ink : at,
+                      border: data.isFollowing ? `1px solid ${P.line2}` : "none",
+                    }}
+                  >{data.isFollowing ? "Following" : "Follow"}</button>
+                  <button
+                    onClick={message}
+                    disabled={msgBusy || !data.canMessage}
+                    className="cb-press"
+                    title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
                     style={{
                       padding: "12px 20px", minHeight: 48, borderRadius: 100,
-                      cursor: verifyBusy ? "default" : "pointer",
+                      cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
                       fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
-                      background: isVerified ? withAlpha("#34d399", 0.12) : "transparent",
-                      color: isVerified ? "#34d399" : P.faint,
-                      border: `1px solid ${isVerified ? withAlpha("#34d399", 0.3) : P.line}`,
-                      opacity: verifyBusy ? 0.6 : 1,
+                      background: "transparent", color: data.canMessage ? P.ink : P.faint,
+                      border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.6,
                     }}
-                  >{verifyBusy ? "Saving…" : isVerified ? "✓ Verified" : "Verify account"}</button>
-                )}
-              </div>
+                  >{msgBusy ? "Opening\u2026" : "Message"}</button>
+                  {currentUser?.isFounder && !isFounder && (
+                    <button
+                      onClick={toggleVerify}
+                      disabled={verifyBusy}
+                      className="cb-press"
+                      title={isVerified ? "Remove verification from this account" : "Verify this account as an institution or renowned researcher"}
+                      style={{
+                        padding: "12px 20px", minHeight: 48, borderRadius: 100,
+                        cursor: verifyBusy ? "default" : "pointer",
+                        fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
+                        background: isVerified ? withAlpha("#34d399", 0.12) : "transparent",
+                        color: isVerified ? "#34d399" : P.faint,
+                        border: `1px solid ${isVerified ? withAlpha("#34d399", 0.3) : P.line}`,
+                        opacity: verifyBusy ? 0.6 : 1,
+                      }}
+                    >{verifyBusy ? "Saving…" : isVerified ? "✓ Verified" : "Verify account"}</button>
+                  )}
+                </div>
 
-              {/* Saying what a profile does NOT carry is part of the
-                  product, not a disclaimer. */}
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, marginTop: 18 }}>
-                Profiles never show what someone searched, saved, or read. Follower counts do not open into lists.
+                {/* Saying what a profile does NOT carry is part of the
+                    product, not a disclaimer. */}
+                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, marginTop: 20 }}>
+                  Profiles never show what someone searched, saved, or read. Follower counts do not open into lists.
+                </div>
               </div>
-            </div>
           )}
         </div>
     </Dialog>
