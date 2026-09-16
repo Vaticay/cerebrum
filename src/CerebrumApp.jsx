@@ -2597,21 +2597,26 @@ function SignalComposer({
   );
 }
 
-/* ── ReadingRoom: the search-waiting instrument ─────────────────────────────
-   "TRANSMISSION" — the query as a signal going out to 15 databases.
+/* ── ReadingRoom: the descent instrument ──────────────────────────────────
+   The query going down into the literature.
 
-   A large instrument ring: the 15 databases as labeled points on the
-   circumference, a luminous pulse orbiting it (the query, in flight).
-   The center holds the one real number — elapsed time. Below, one honest
-   waiting line driven only by elapsed time.
+   The previous instrument was an orbital transmission dial: a comet on a
+   6-second orbit, sonar pings, a 60-tick chronometer ring, fifteen database
+   labels riding a circumference. It read as sci-fi chrome — the thing
+   Dusty disliked about the loading screen — so it was rebuilt from the
+   studs. The new instrument is water, not machinery.
 
-   Honest framing is load-bearing here: the search is a single request
-   that returns once, at the end, so no node ever claims a mid-request
-   state. The pulse is a sweep (light traveling), not progress. The
-   per-database breakdown appears only after the response, computed by
-   the backend from actual settled promises.
+   The question hangs as a specimen label. Below it, a field of marine
+   snow drifts upward — the nature-documentary register — while a single
+   reading line scans beneath it: the query reading the literature. The
+   scan is indeterminate by design (it loops and fades; it never fills),
+   because the client genuinely does not know what the server is doing
+   mid-request. The only number is elapsed time, which is real. Below,
+   one honest waiting line driven only by elapsed time.
 
-   Reduced motion: the pulse parks, the ring is static. */
+   Reduced motion: the snow never renders and the scan parks; the elapsed
+   clock and the waiting line carry the feedback (paired, never motion
+   alone). */
 function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contextual = false, videosLocated = false }) {
   const startRef = useRef(performance.now());
   const [elapsed, setElapsed] = useState(0);
@@ -2639,104 +2644,56 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
   const responded = Array.isArray(sourcesQueried) ? sourcesQueried.filter((s) => s.ok) : [];
   const total = Array.isArray(sourcesQueried) ? sourcesQueried.length : 0;
 
-  /* Labels ride the ring at fixed stations — upright and readable, never
-     rotating with the pulse. 15 stations, starting at the top. */
-  const N = SCHOLARLY_SOURCES.length;
-  const labelPos = (i) => {
-    const a = ((i / N) * 360 - 90) * (Math.PI / 180);
-    const r = 44; // percent of the wrap; ring itself sits at ~37%
-    return { left: `${50 + r * Math.cos(a)}%`, top: `${50 + r * Math.sin(a)}%` };
-  };
+  /* Marine snow: deterministic pseudo-random drift. Seeded so the field is
+     stable across re-renders; negative delays distribute the flakes through
+     the rise cycle on first paint instead of starting them all at the floor. */
+  const snow = useMemo(() => {
+    const out = [];
+    let s = 20260916;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    for (let i = 0; i < 26; i++) {
+      out.push({
+        left: (rnd() * 100).toFixed(2),
+        size: (1 + rnd() * 2.4).toFixed(1),
+        opacity: (0.07 + rnd() * 0.2).toFixed(2),
+        duration: (9 + rnd() * 10).toFixed(1),
+        delay: (-rnd() * 19).toFixed(1),
+      });
+    }
+    return out;
+  }, []);
 
-  /* Chronometer tick ring: 60 ticks around the dial, every fifth one
-     emphasized. The comet's 10-second orbit crosses six ticks a second,
-     so the dial is the visual counterpart of the elapsed clock — the
-     seconds he likes, made physical. Pure decoration; the only number
-     the instrument ever claims is the real elapsed time. */
-  const ticks = [];
-  for (let i = 0; i < 60; i++) {
-    const a = (i / 60) * Math.PI * 2;
-    const major = i % 5 === 0;
-    const r1 = major ? 144 : 147.5, r2 = 152;
-    ticks.push(
-      <line key={i}
-        x1={160 + r1 * Math.cos(a)} y1={160 + r1 * Math.sin(a)}
-        x2={160 + r2 * Math.cos(a)} y2={160 + r2 * Math.sin(a)}
-        stroke={major ? "rgba(255,255,255,0.30)" : "rgba(255,255,255,0.13)"}
-        strokeWidth={major ? 1.6 : 1} />
-    );
-  }
   const live = !reduced && !done;
-  /* Under reduced motion the instrument is determinate, not looping: the
-     parked arc is a static marker, the entrance rise is skipped, and the
-     elapsed clock + waiting line carry the feedback (paired, never motion
-     alone). The done state keeps its quiet drift when motion is allowed. */
 
   return (
     <div className="cb-room" style={{ "--cb-acc": accent, ...(reduced ? { animation: "none" } : null) }} aria-live="polite" aria-atomic="true">
       {/* The question, catalogued as a specimen label. */}
-      <div className="cb-room-kicker">Query / Specimen</div>
+      <div className="cb-room-kicker">Query</div>
       <h2 className="cb-room-q">{q}</h2>
 
-      {/* The transmission ring. cb-tx-live scopes the CSS motion to the
-          in-flight state: done or reduced-motion renders the parked
-          composition below instead. */}
-      <div className={"cb-tx-wrap" + (live ? " cb-tx-live" : "")} role="img" aria-label={`Query in flight to ${N} databases`}>
-        <svg viewBox="0 0 320 320" className="cb-tx-svg" aria-hidden="true">
-          <defs>
-            <linearGradient id="cbTxPulse" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor={accent} stopOpacity="0" />
-              <stop offset="70%" stopColor={accent} stopOpacity="0.55" />
-              <stop offset="100%" stopColor={accent} stopOpacity="1" />
-            </linearGradient>
-          </defs>
-          {/* chronometer ticks */}
-          {ticks}
-          {/* faint full ring */}
-          <circle cx="160" cy="160" r="118" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="1" />
-          {live && (
-            <>
-              {/* sonar pings: the query reaching out to the databases — two
-                  rings, staggered, each expanding from the clock out to the
-                  database ring over three seconds */}
-              <g className="cb-tx-ping"><circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="1" /></g>
-              <g className="cb-tx-ping cb-tx-ping-b"><circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="1" /></g>
-              {/* counter-rotating dashed hairline: depth against the comet */}
-              <g className="cb-tx-inner-orbit">
-                <circle cx="160" cy="160" r="96" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray="2 7" />
-              </g>
-              {/* the comet: glowing head + fading tail, one 6-second orbit.
-                  The head dot sits at 3 o'clock, exactly where the dash
-                  starts and where the gradient is brightest, so they fly
-                  as one body. */}
-              <g className="cb-tx-comet">
-                <circle cx="160" cy="160" r="118" fill="none" stroke="url(#cbTxPulse)" strokeWidth="2.5"
-                  strokeDasharray="110 632" strokeLinecap="round" />
-                <circle cx="278" cy="160" r="3.5" fill={accent} className="cb-tx-head" />
-              </g>
-            </>
-          )}
-          {/* parked arc for reduced motion / done: a quiet marker at the top.
-              Static under reduced motion — the elapsed clock is the
-              progress signal, not the loop. */}
-          {(reduced || done) && (
-            <circle cx="160" cy="160" r="118" fill="none" stroke={accent} strokeWidth="2"
-              strokeDasharray="26 716" strokeLinecap="round" opacity="0.7"
-              transform="rotate(-90 160 160)" className="cb-tx-arc"
-              style={reduced ? { animation: "none" } : undefined} />
-          )}
-        </svg>
-        {SCHOLARLY_SOURCES.map((s, i) => (
-          <span key={s.id} className="cb-tx-node" style={labelPos(i)}>
-            <span className="cb-tx-dot" aria-hidden="true" style={{ animationDelay: `${(i * 373) % 2800}ms` }} />
-            {s.name}
-          </span>
+      {/* The descent field. The scan is a sweep (light travelling), not
+          progress; the snow is ambient. Neither claims anything about
+          per-database state — the client cannot know it mid-request. */}
+      <div className="cb-dive-field" role="img" aria-label={`Query in flight to ${SCHOLARLY_SOURCES.length} databases`}>
+        {!reduced && snow.map((f, i) => (
+          <span key={i} className="cb-dive-snow" aria-hidden="true" style={{
+            left: f.left + "%", width: f.size + "px", height: f.size + "px",
+            opacity: f.opacity, animationDuration: f.duration + "s", animationDelay: f.delay + "s",
+          }} />
         ))}
-        <div className="cb-tx-center">
-          <div className="cb-tx-elabel">Elapsed</div>
-          <div className="cb-tx-clock">{String(seconds).padStart(2, "0")}<span className="cb-tx-s">s</span></div>
-          <div className="cb-tx-state">{done ? "Received" : "Sending"}</div>
+        <div className="cb-dive-line" aria-hidden="true">
+          {live
+            ? <div className="cb-dive-scan"><span className="cb-dive-dot" /></div>
+            : <span className="cb-dive-marker" />}
         </div>
+      </div>
+
+      <div className="cb-dive-scope">Reading across {SCHOLARLY_SOURCES.length} databases</div>
+
+      <div className="cb-dive-center">
+        <div className="cb-dive-elabel">Elapsed</div>
+        <div className="cb-dive-clock">{String(seconds).padStart(2, "0")}<span className="cb-dive-s">s</span></div>
+        <div className="cb-dive-state">{done ? "Received" : "Sending"}</div>
       </div>
 
       <div className="cb-room-line">
@@ -21972,13 +21929,6 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     aiTag: { fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 500, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: FONT_SIZES.body, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
-    error: {
-      padding: "20px 24px", background: withAlpha(STATUS.bad, 0.06), color: STATUS.bad,
-      borderRadius: 8, fontSize: FONT_SIZES.body, lineHeight: 1.6,
-      border: `1px solid ${withAlpha(STATUS.bad, 0.2)}`,
-      display: "flex", alignItems: "flex-start", gap: 12,
-      backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
-    },
     followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.94)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
@@ -25096,7 +25046,25 @@ function App() {
                       progress the client cannot know. */}
                   <ReadingRoom P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} done={false} contextual={contextBusy} videosLocated={videosLocated} />
                 </div>)}
-                {error && <div role="alert" style={S.error} className="cb-fade"><span style={{ minHeight: 44, flexShrink: 0, display: "inline-flex" }}><Icon name="warning" size={18} /></span><div><div style={{ fontWeight: 600, marginBottom: 4 }}>Search failed</div><div style={{ opacity: 0.85 }}>{error}</div>{errorDetail && <div style={{ marginTop: 6, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}<button onClick={() => { setError(""); setErrorDetail(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }} style={{ marginTop: 10, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(STATUS.bad, 0.15), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Try again</button></div></div>}
+                {error && (
+                  /* The failure panel speaks the instrument's language — a
+                     hairline, a kicker, plain words — not a red alert box.
+                     "Search failed" as a verdict is what Dusty means by
+                     failure as the final answer; this is a pause with a way
+                     back. The diagnostic caption stays for support. */
+                  <div role="alert" className="cb-fade" style={{ marginTop: 6, padding: "22px 4px 8px", borderTop: `1px solid ${P.line}` }}>
+                    <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.22em", textTransform: "uppercase", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
+                    <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>The search didn&apos;t come back.</div>
+                    <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 600 }}>{error}</div>
+                    {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
+                    <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+                      <button onClick={() => { setError(""); setErrorDetail(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }}
+                        style={{ minHeight: 44, padding: "0 24px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: "#11140f", border: "none", borderRadius: 999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                        Try again
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {turns.length > 0 && !busy && (<>
                   {attachedImage && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
@@ -26591,10 +26559,11 @@ summary::-webkit-details-marker { display: none; }
   color: rgba(242,244,242,0.4);
 }
 
-/* ── ReadingRoom: the search-waiting instrument ──
-   One loading language everywhere: the specimen label, the labelled
-   constellation, the read head (hairline + travelling marker + mono
-   elapsed readout), one honest waiting line. */
+/* ── ReadingRoom: the descent instrument ──
+   Water, not machinery. Marine snow drifts up through the field; a single
+   reading line scans beneath it — the query reading the literature. The
+   scan loops because the client cannot know mid-request progress; the
+   elapsed clock is the only real number. */
 .cb-room {
   --cb-acc: #a3b899;
   padding: 34px 4px 8px;
@@ -26613,114 +26582,88 @@ summary::-webkit-details-marker { display: none; }
   color: #f2f4f2;
   max-width: 720px; margin: 0;
 }
-/* ── TRANSMISSION: the orbital instrument ──
-   The ring is an SVG (faint circle + traveling pulse arc). Database
-   labels sit at fixed stations around it — upright, readable, never
-   rotating. The center holds elapsed time, the one real number. */
-.cb-tx-wrap {
+/* The descent field: a quiet column of water. The snow rises through it;
+   the reading line sits just below centre, where the eye lands. */
+.cb-dive-field {
   position: relative;
-  width: min(78vw, 340px);
-  aspect-ratio: 1;
+  height: 170px;
+  max-width: 640px;
   margin: 26px auto 0;
+  overflow: hidden;
 }
-.cb-tx-svg {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
-  overflow: visible;
+.cb-dive-snow {
+  position: absolute; bottom: -8px;
+  border-radius: 50%; background: #ffffff;
+  animation: cbDiveRise linear infinite;
+  will-change: transform;
 }
-/* The comet: one bright 6-second orbit — the master interval of the
-   whole instrument. The head dot rides the brightest end of the tail so
-   they fly as one body. */
-.cb-tx-comet {
-  transform-origin: 160px 160px; transform-box: view-box;
-  animation: cbTxOrbit 6s linear infinite;
+@keyframes cbDiveRise {
+  from { transform: translateY(0); }
+  to { transform: translateY(-200px); }
 }
-/* Comet glow removed: explicit glow effects read as AI slop. */
-/* Sonar pings: the query reaching out. Each ring expands from the clock
-   to the database ring and dissolves — two of them, staggered, so there
-   is always one in flight. */
-.cb-tx-ping {
-  transform-origin: 160px 160px; transform-box: view-box;
-  animation: cbTxPing 3s ease-out infinite;
+/* The reading line: one hairline. The scan is a dot with a short tail
+   travelling the full width on transform only — no layout thrash. It
+   fades at both ends so it reads as a sweep, never a fill. */
+.cb-dive-line {
+  position: absolute; left: 0; right: 0; top: 62%;
+  height: 1px; background: rgba(255,255,255,0.14);
 }
-.cb-tx-ping-b { animation-delay: 1.5s; }
-@keyframes cbTxPing {
-  0% { transform: scale(0.04); opacity: 0; }
-  15% { opacity: 0.45; }
-  100% { transform: scale(1); opacity: 0; }
+.cb-dive-scan {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  animation: cbDiveScan 5s ease-in-out infinite;
+  will-change: transform;
 }
-/* Counter-rotating dashed hairline: depth against the comet's direction. */
-.cb-tx-inner-orbit {
-  transform-origin: 160px 160px; transform-box: view-box;
-  animation: cbTxOrbitRev 24s linear infinite;
+@keyframes cbDiveScan {
+  0% { transform: translateX(-14px); opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { transform: translateX(calc(100% + 14px)); opacity: 0; }
 }
-@keyframes cbTxOrbitRev { to { transform: rotate(-360deg); } }
-/* The clock ticks: a soft thump on each second, in step with the digit. */
-.cb-tx-live .cb-tx-clock {
-  transform-origin: center;
-  animation: cbTxTick 1s ease-in-out infinite;
+.cb-dive-dot {
+  position: absolute; top: 50%; left: 0;
+  width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%; background: var(--cb-acc);
 }
-@keyframes cbTxTick {
-  0%, 100% { transform: scale(1); }
-  12% { transform: scale(1.045); filter: brightness(1.12); }
+.cb-dive-dot::after {
+  content: ""; position: absolute; top: 1.5px; right: 7px;
+  width: 34px; height: 2px; border-radius: 2px;
+  background: var(--cb-acc); opacity: 0.35;
 }
-/* Database nodes twinkle while the query is in flight — staggered via
-   inline animation-delay so they shimmer rather than blink in unison. */
-.cb-tx-live .cb-tx-dot { animation: cbTxTwinkle 2.2s ease-in-out infinite; }
-@keyframes cbTxTwinkle {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
+/* Parked marker for reduced motion and the received state: a quiet tick
+   at the line's start. Still and honest — the clock below is the signal. */
+.cb-dive-marker {
+  position: absolute; top: 50%; left: 0;
+  width: 5px; height: 5px; margin-top: -2.5px;
+  border-radius: 50%; background: var(--cb-acc); opacity: 0.7;
 }
-/* LISTENING breathes while it waits. */
-.cb-tx-live .cb-tx-state { animation: cbTxBreathe 2s ease-in-out infinite; }
-@keyframes cbTxBreathe {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+.cb-dive-scope {
+  margin-top: 14px; text-align: center;
+  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.06em;
+  color: rgba(242,244,242,0.4);
 }
-/* The parked marker (reduced motion, or the received state): a slow,
-   quiet drift rather than the full instrument. */
-.cb-tx-arc {
-  transform-origin: 160px 160px;
-  animation: cbTxOrbit 12s linear infinite;
-  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--cb-acc) 80%, transparent));
-}
-@keyframes cbTxOrbit { to { transform: rotate(360deg); } }
-.cb-tx-node {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  display: inline-flex; align-items: center; gap: 5px;
-  font-family: var(--cb-font); font-size: 8.5px; font-weight: 500;
-  letter-spacing: 0.04em; white-space: nowrap;
-  color: rgba(242,244,242,0.48);
-}
-.cb-tx-dot {
-  width: 3px; height: 3px; border-radius: 50%; flex-shrink: 0;
-  background: color-mix(in srgb, var(--cb-acc) 65%, transparent);
-}
-.cb-tx-center {
-  position: absolute; inset: 0;
+.cb-dive-center {
+  margin-top: 16px;
   display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  text-align: center; pointer-events: none;
+  align-items: center; text-align: center;
 }
-.cb-tx-elabel {
+.cb-dive-elabel {
   font-family: var(--cb-font); font-size: 8px; font-weight: 500;
   letter-spacing: 0.34em; text-transform: uppercase;
   color: rgba(242,244,242,0.38);
   margin-bottom: 6px; padding-left: 0.34em; /* recenter tracked caps */
 }
-.cb-tx-clock {
+.cb-dive-clock {
   font-family: var(--cb-font); font-weight: 600;
   font-size: 40px; letter-spacing: -0.02em; line-height: 1;
   color: #f5f7f5;
   font-variant-numeric: tabular-nums;
 }
-.cb-tx-s {
+.cb-dive-s {
   font-size: 16px; font-weight: 500;
   color: rgba(242,244,242,0.45);
   margin-left: 2px;
 }
-.cb-tx-state {
+.cb-dive-state {
   margin-top: 8px;
   font-family: var(--cb-font); font-size: 8.5px; font-weight: 600;
   letter-spacing: 0.3em; text-transform: uppercase;
@@ -26732,6 +26675,10 @@ summary::-webkit-details-marker { display: none; }
   font-family: var(--cb-font); font-size: 11px;
   letter-spacing: 0.02em;
   color: rgba(242,244,242,0.45);
+}
+.cb-room-dot {
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+  background: var(--cb-acc);
 }
 .cb-room-milestone {
   margin-top: 8px;
@@ -26746,26 +26693,18 @@ summary::-webkit-details-marker { display: none; }
   gap: 6px 10px; margin-top: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-room, .cb-tx-arc, .cb-room-milestone,
-  .cb-tx-comet, .cb-tx-ping, .cb-tx-inner-orbit,
-  .cb-tx-clock, .cb-tx-dot, .cb-tx-state { animation: none; }
+  .cb-dive-scan, .cb-dive-snow { animation: none; }
 }
 /* The in-product motion toggle (Settings → Sound & motion → Off) applies
    the same kills via body.cb-motion-off, for stylesheet-driven motion the
    OS media query can't reach. Components gate their own motion through
    useReducedMotion(); this is the backstop for the loops above. */
-body.cb-motion-off .cb-room,
-body.cb-motion-off .cb-tx-arc,
-body.cb-motion-off .cb-room-milestone,
-body.cb-motion-off .cb-tx-comet,
-body.cb-motion-off .cb-tx-ping,
-body.cb-motion-off .cb-tx-inner-orbit,
-body.cb-motion-off .cb-tx-clock,
-body.cb-motion-off .cb-tx-dot,
-body.cb-motion-off .cb-tx-state,
+body.cb-motion-off .cb-dive-scan,
+body.cb-motion-off .cb-dive-snow,
 body.cb-motion-off .cb-trace-chip,
 body.cb-motion-off .cb-focus-in,
 body.cb-motion-off .cb-title-veil { animation: none !important; }
+
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
    The sweep is a radar, not a progress bar — indeterminate by design,

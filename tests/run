@@ -536,24 +536,28 @@ await test("film survives iOS autoplay policies (Low Power Mode)", async () => {
   assert.match(appSrc, /onAutoplayBlocked/, "autoplay-blocked notification missing");
   assert.match(appSrc, /Background film paused — tap to play/, "tap-to-play pill missing");
 });
-await test("search loader: 6s comet orbit, tick ring, honest clock", async () => {
+await test("search loader: descent instrument, honest clock, no fake progress", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
-  // The master visual interval is 6 seconds — never the old 10s loop.
-  assert.match(appSrc, /animation: cbTxOrbit 6s linear infinite/, "comet is not on the 6-second master interval");
-  assert.ok(!/cbTxOrbit 10s/.test(appSrc), "a 10-second orbit survived somewhere");
-  // The instrument's moving parts all exist and are keyed.
-  for (const name of ["cbTxOrbitRev", "cbTxPing", "cbTxTick", "cbTxTwinkle", "cbTxBreathe"]) {
-    assert.match(appSrc, new RegExp(`@keyframes ${name}`), `missing @keyframes ${name}`);
+  // The descent instrument's moving parts exist and are keyed: marine-snow
+  // rise + the reading-line scan. The scan travels on transform only.
+  assert.match(appSrc, /@keyframes cbDiveRise/, "marine-snow rise keyframes missing");
+  assert.match(appSrc, /@keyframes cbDiveScan/, "reading-line scan keyframes missing");
+  assert.match(appSrc, /transform: translateX\(calc\(100% \+ 14px\)\)/, "scan does not travel the full line on transform");
+  assert.match(appSrc, /cb-dive-scan/, "scan element missing from the loader");
+  assert.match(appSrc, /cb-dive-snow/, "marine snow missing from the loader");
+  // The old orbital chrome is gone: no comet, no sonar pings, no tick ring.
+  for (const dead of ["cb-tx-comet", "cbTxPing", "cbTxOrbit", "cb-tx-ping-b"]) {
+    assert.ok(!appSrc.includes(dead), `orbital instrument remnant survived: ${dead}`);
   }
-  assert.match(appSrc, /for \(let i = 0; i < 60; i\+\+\)/, "60-tick chronometer ring missing");
-  assert.match(appSrc, /cb-tx-ping-b/, "staggered second sonar ping missing");
-  assert.match(appSrc, /cb-tx-comet/, "comet group missing");
-  // The one honest number is untouched: real elapsed seconds in the center.
-  assert.match(appSrc, /cb-tx-clock/, "elapsed clock missing from the loader");
+  assert.ok(!/for \(let i = 0; i < 60; i\+\+\)/.test(appSrc), "60-tick chronometer ring survived");
+  // The one honest number is untouched: real elapsed seconds.
+  assert.match(appSrc, /cb-dive-clock/, "elapsed clock missing from the loader");
   assert.match(appSrc, /Math\.floor\(elapsed \/ 1000\)/, "clock is not driven by real elapsed time");
   // Reduced motion parks the whole instrument, new parts included.
-  assert.match(appSrc, /\.cb-tx-comet, \.cb-tx-ping, \.cb-tx-inner-orbit,\n\s+\.cb-tx-clock, \.cb-tx-dot, \.cb-tx-state \{ animation: none; \}/,
-    "reduced-motion does not silence the new loader animations");
+  assert.match(appSrc, /\.cb-dive-scan, \.cb-dive-snow \{ animation: none; \}/,
+    "reduced-motion does not silence the descent animations");
+  // The kicker says Query — the lab-jargon "Query / Specimen" is gone.
+  assert.ok(!appSrc.includes("Query / Specimen"), "specimen kicker survived");
 });
 await test("search errors carry a diagnostic caption and the request is bounded", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
