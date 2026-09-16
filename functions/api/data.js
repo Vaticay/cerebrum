@@ -1767,8 +1767,11 @@ export async function onRequest(context) {
            identity_key = excluded.identity_key, signing_key = excluded.signing_key,
            signed_prekey = excluded.signed_prekey, prekey_sig = excluded.prekey_sig,
            fallback_key = excluded.fallback_key, fallback_sig = excluded.fallback_sig,
-           last_seen_at = excluded.last_seen_at, label = excluded.label,
-           revoked_at = NULL`
+           last_seen_at = excluded.last_seen_at, label = excluded.label`
+           /* NOTE: revoked_at is deliberately NOT cleared here. Revocation
+              is sticky: a stolen device re-publishing its own device id
+              must never resurrect it. Only a brand-new device id (created
+              by explicit user action) becomes usable again. */
       ).bind(user.id, deviceId, identityKey, signingKey, signedPrekey, prekeySig,
         fallbackKey || null, fallbackSig || null, now, now, label || null).run();
       // INSERT OR IGNORE: retries and overlapping publishes converge
@@ -1786,6 +1789,7 @@ export async function onRequest(context) {
       ).bind(user.id, deviceId).first();
       return okRes({
         device_id: deviceId,
+        revoked: !!(devices.results || []).find((d) => d.device_id === deviceId)?.revoked_at,
         devices: (devices.results || []).map((d) => ({
           deviceId: d.device_id,
           identityKey: d.identity_key,

@@ -1,4 +1,5 @@
 import { contextAction } from "../functions/lib/conversation.js";
+import { ensureE2EEDevice, encryptMessage, decryptThreadMessages } from "./e2ee/messaging.js";
 /* Inlined from investigationHistory.js — a one-function module was a
    deployment hazard (Cloudflare failed the build when the file was
    absent/misnamed). One history entry per conversation, refreshed after
@@ -15376,13 +15377,46 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     let cancelled = false;
     setLoadingThread(true);
     const refresh = (isFirst) => {
-      apiDataGet("thread", { thread_id: activeId }).then((data) => {
+      apiDataGet("thread", { thread_id: activeId }).then(async (data) => {
         if (cancelled) return;
         if (isFirst) setLoadingThread(false);
+        let thread = data && !data.error ? data : null;
+        // E2EE Phase 1.3 — encrypted threads are decrypted client-side
+        // before they reach state. Ciphertext never renders: rows become
+        // plaintext, honest per-message errors, or silent skips for rows
+        // addressed to this user's other devices.
+        if (thread && thread.encrypted) {
+          try {
+            const { deviceId } = await ensureE2EEDevice(apiDataAction);
+            if (cancelled) return;
+            thread = {
+              ...thread,
+              messages: await decryptThreadMessages({
+                messages: thread.messages,
+                myDeviceId: deviceId,
+                peerUserId: thread.otherId,
+              }),
+            };
+          } catch (err) {
+            // The crypto pipeline itself is unavailable (WASM blocked,
+            // storage gone, publish failing). Mark every cipher row as
+            // failed instead of showing a blank thread — and don't cache
+            // the failure, so the next poll retries instead of giving up.
+            if (cancelled) return;
+            thread = {
+              ...thread,
+              messages: (thread.messages || []).map((m) =>
+                m.msgKind === "cipher"
+                  ? { ...m, e2ee: { ok: false, error: "Encrypted messaging isn't available on this device right now." } }
+                  : m
+              ),
+            };
+          }
+        }
         // A message that arrives while you're on another tab should reach
         // you the same way any other app's would.
         setActiveThread((prevThread) => {
-          const next = data && !data.error ? data : null;
+          const next = thread;
           try {
             const prevMsgs = (prevThread && prevThread.messages) || [];
             const nextMsgs = (next && next.messages) || [];
@@ -15390,7 +15424,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               const fresh = nextMsgs[nextMsgs.length - 1];
               if (fresh && !fresh.mine) {
                 cbBlip(660, 0.07, 0.045);
-                cbNotify(fresh.who || next.name || "New message", (fresh.text || "Sent an attachment").slice(0, 140), "cb-msg-" + activeId, "message");
+                // Encrypted threads never put content in a notification:
+                // the envelope is ciphertext and the plaintext belongs on
+                // this device, not in a notification tray.
+                const isCipher = next.encrypted && fresh.msgKind === "cipher";
+                const body = isCipher
+                  ? (fresh.e2ee && fresh.e2ee.ok ? "New encrypted message" : "A new message couldn't be decrypted")
+                  : (fresh.text || "Sent an attachment").slice(0, 140);
+                cbNotify(fresh.who || next.name || "New message", body, "cb-msg-" + activeId, "message");
               }
             }
           } catch {}
@@ -15424,6 +15465,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // An attachment is a complete message on its own — a photo of a gel or
     // a ten-second voice note doesn't need a caption to be worth sending.
     if ((!text && !attachment) || !activeId || sending) return;
+    const isEncrypted = !!activeThread?.encrypted;
+    // E2EE Phase 1 is text-only: the server rejects attachments in
+    // encrypted threads, so the UI refuses up front with a clear reason
+    // instead of letting the send fail at the network.
+    if (isEncrypted && attachment) {
+      toast("Attachments aren't encrypted yet. Send them in an unencrypted conversation for now.", { tone: "error" });
+      return;
+    }
     setSending(true);
     setDraft("");
     try {
@@ -15432,6 +15481,36 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       // messaging app answers that with a sound, and it costs one
       // oscillator. Honors the app's mute setting like every other tone.
       cbBlip(880, 0.07, 0.05);
+      if (isEncrypted) {
+        // One envelope per peer device (each device gets its own Olm
+        // session); the rows land as separate cipher messages and each of
+        // the peer's devices decrypts its own. Fail-closed: encryptMessage
+        // throws when any device can't be reached, and nothing is sent.
+        const { envelopes, deviceId } = await encryptMessage({
+          apiAction: apiDataAction,
+          peerUserId: activeThread.otherId,
+          plaintext: text,
+        });
+        for (const env of envelopes) {
+          await apiDataAction("send-message", {
+            thread_id: activeId, text: env.text, sender_device_id: deviceId,
+          });
+        }
+        // The local echo shows what was typed, not the ciphertext — the
+        // next poll replaces it with the server rows, decrypted the same
+        // way (own-echo path).
+        const localMsg = {
+          id: "local-" + Date.now(), text, mine: true, who: "You",
+          msgKind: "cipher", senderDeviceId: deviceId,
+          createdAt: Date.now(), e2ee: { ok: true, text },
+        };
+        setActiveThread((t) => (t ? { ...t, messages: [...t.messages, localMsg] } : t));
+        setThreads((prev) => prev.map((t) => (t.id === activeId ? {
+          ...t,
+          lastMessage: { encrypted: true, mine: true, text, createdAt: Date.now() },
+        } : t)));
+        return;
+      }
       const res = await apiDataAction("send-message", {
         thread_id: activeId, text,
         ...(attachment ? {
@@ -15566,9 +15645,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
             {filteredThreads.map((t) => {
               const initials = (t.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-              const preview = t.lastMessage
-                ? (t.lastMessage.mine ? "You: " : "") + (t.lastMessage.text || (t.lastMessage.attachmentTitle ? `Attached: ${t.lastMessage.attachmentTitle}` : ""))
-                : "No messages yet";
+              const preview = !t.lastMessage
+                ? "No messages yet"
+                : t.lastMessage.encrypted
+                  ? (t.lastMessage.mine ? "You: " : "") + "Encrypted message"
+                  : (t.lastMessage.mine ? "You: " : "") + (t.lastMessage.text || (t.lastMessage.attachmentTitle ? `Attached: ${t.lastMessage.attachmentTitle}` : ""));
               // Commit 47: bold name/preview + an accent dot for a genuinely
               // unread thread (t.unread, backed by the real last_read_at
               // column now — see functions/api/data.js) instead of every
@@ -15690,6 +15771,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               )}
               {activeThread.messages.map((m, i) => {
                 const key = m.id || i;
+                // E2EE Phase 1.3 — display model for cipher rows. Rows
+                // addressed to another of this user's devices vanish
+                // silently; failed decryptions render as an honest inline
+                // error; raw ciphertext never reaches the DOM.
+                if (m.e2ee && m.e2ee.skipped) return null;
+                const isCipher = m.msgKind === "cipher";
+                const e2eeOk = isCipher && m.e2ee && m.e2ee.ok;
+                const displayText = isCipher ? (e2eeOk ? m.e2ee.text : null) : m.text;
+                const e2eeError = isCipher && !e2eeOk
+                  ? ((m.e2ee && m.e2ee.error) || "Couldn't decrypt this message.")
+                  : null;
+                const bubbleText = displayText || e2eeError;
                 // Commit 56 — a date separator whenever the day changes, so
                 // a conversation that spans weeks stops reading as one
                 // undifferentiated column of bubbles with no sense of when
@@ -15719,14 +15812,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   )}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
                     <div style={{ minWidth: 0 }}>
-                      {m.text && (
+                      {bubbleText && (
                         <div style={{
                           padding: "12px 16px", fontSize: FONT_SIZES.small, lineHeight: 1.6,
                           borderRadius: m.mine ? "16px 16px 2px 16px" : "16px 16px 16px 2px",
                           color: m.mine ? at : P.ink,
                           background: m.mine ? accent : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
                           border: m.mine ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
-                        }}>{m.text}</div>
+                          ...(e2eeError ? { fontStyle: "italic", opacity: 0.72 } : {}),
+                        }}>{bubbleText}</div>
                       )}
                       {/* Image: shown at real size in the thread (a figure
                           you have to click to evaluate is a figure you

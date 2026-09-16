@@ -56,15 +56,24 @@ export const ENVELOPE_VERSION = 1;
  * The server treats `body` as opaque bytes — it can route and count, but
  * never read.
  */
-export function packEnvelope({ type, body, senderDevice, senderIdentityKey }) {
-  return JSON.stringify({
+export function packEnvelope({ type, body, senderDevice, senderIdentityKey, recipientDevice, messageId }) {
+  const env = {
     v: ENVELOPE_VERSION,
     kind: "olm",
     type, // 0 = prekey (new session), 1 = normal (existing session)
     body, // base64, from Session.encrypt()
     sd: senderDevice, // sender device_id (routing / device-change warnings)
     sk: senderIdentityKey, // sender Curve25519 identity (verification)
-  });
+  };
+  // Recipient device_id: lets a multi-device peer skip rows meant for their
+  // other devices instead of showing "couldn't decrypt" for them. Optional
+  // (older envelopes lack it) — receivers treat a missing rd as "try me".
+  if (recipientDevice) env.rd = recipientDevice;
+  // Client-generated message id, shared by every envelope of one send
+  // (one per recipient device). Lets the sender collapse their own
+  // fan-out rows into a single bubble and look sent plaintext up locally.
+  if (messageId) env.mid = messageId;
+  return JSON.stringify(env);
 }
 
 /** Parse and minimally validate a received envelope. Throws on malformed. */

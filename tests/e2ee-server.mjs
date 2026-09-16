@@ -182,6 +182,16 @@ await test("revoke-device destroys unclaimed prekeys", async () => {
   srcHas(dataJs, "DELETE FROM e2ee_one_time_prekeys", "unclaimed keys destroyed");
 });
 
+await test("revocation is sticky: re-publish never resurrects a device", async () => {
+  // A stolen device re-publishing its own id must stay dead. The upsert
+  // updates keys/labels but must not touch revoked_at.
+  const at = dataJs.indexOf("ON CONFLICT(user_id, device_id) DO UPDATE SET");
+  const upsert = dataJs.slice(at, at + 700);
+  assert.ok(!upsert.includes("revoked_at ="), "upsert must not assign revoked_at");
+  // The client needs to know it is revoked so it can fail closed.
+  srcHas(dataJs, "revoked:", "publish response surfaces the revoked flag");
+});
+
 await test("upgrade-thread refuses to strand the peer", async () => {
   srcHas(dataJs, "e2ee-upgrade-thread");
   srcHas(dataJs, "e2ee_peer_not_ready");
