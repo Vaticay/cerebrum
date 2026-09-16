@@ -10205,12 +10205,14 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                 {activeId === "all" ? "Nothing saved yet." : "Nothing here yet: move a saved source in with the dropdown next to it on “All saved.”"}
               </div>
             ) : visible.map((s, i) => (
-              <div key={sourceKey(s)} style={{ padding: "12px 0", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "flex-start", gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, marginBottom: 4 }}>{s.title}</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{s.journal || ""}{s.year ? ` · ${s.year}` : ""}</div>
-                </div>
-                <select value={s.collectionId || ""} onChange={(e) => onMoveSource(s, e.target.value || null)} aria-label={`Move "${s.title}" to a collection`} style={{ fontSize: FONT_SIZES.caption, padding: "5px 6px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
+              <div key={sourceKey(s)} style={{ padding: "12px 4px", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>{s.title}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>
+                    {[s.authors, formatJournalName(s.journal), s.year].filter(Boolean).join(" · ")}
+                  </span>
+                </span>
+                <select value={s.collectionId || ""} onChange={(e) => onMoveSource(s, e.target.value || null)} aria-label={`Move "${s.title}" to a collection`} style={{ minHeight: 44, fontSize: FONT_SIZES.caption, padding: "5px 6px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0, ...selectChrome(P) }}>
                   <option value="">Uncategorized</option>
                   {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -23470,8 +23472,29 @@ function App() {
     return history.filter((h) => String(h.title || "").toLowerCase().includes(q)
       || (h.turns || []).some((t) => String(t.q || "").toLowerCase().includes(q)));
   }, [history, historyQuery]);
+  /* Investigations grouped by month for the diary view: [{ key, label,
+     items }], newest month first. Items without a timestamp land in
+     "Earlier". */
+  const groupedHistory = useMemo(() => {
+    const groups = new Map();
+    for (const h of visibleHistory) {
+      const d = h.ts ? new Date(h.ts) : null;
+      const key = d && !isNaN(d) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : "earlier";
+      const label = key === "earlier" ? "Earlier" : d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+      if (!groups.has(key)) groups.set(key, { key, label, items: [] });
+      groups.get(key).items.push(h);
+    }
+    return [...groups.values()].sort((a, b) => b.key.localeCompare(a.key));
+  }, [visibleHistory]);
   const [libraryQuery, setLibraryQuery] = useState("");
   const [librarySort, setLibrarySort] = useState("recent");
+  /* Library bulk selection: a Set of sourceKeys. Powers the bulk bar
+     (export selected, move to collection, remove selected). Cleared
+     whenever the underlying list changes shape. */
+  const [selectedSavedKeys, setSelectedSavedKeys] = useState(() => new Set());
+  const toggleSavedKey = (key) => setSelectedSavedKeys((prev) => {
+    const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next;
+  });
   const visibleSaved = useMemo(() => {
     const q = libraryQuery.trim().toLowerCase();
     const list = q
@@ -25256,24 +25279,99 @@ function App() {
                     title="No matches"
                     body={`Nothing in your library matches "${libraryQuery}". Try an author surname or part of the journal name.`} />
                 ) : (
-                  <div style={{ display: "grid", gap: 12, gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(320px, 1fr))", alignItems: "start" }}>
-                    {visibleSaved.map((sv, i) => (
-                      <UICard key={sourceKey(sv) || i} P={P} specimen>
-                        <a href={safeHref(sv.url)} target="_blank" rel="noreferrer"
-                          style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, textDecoration: "none", lineHeight: 1.4, letterSpacing: "-0.01em" }}>
-                          {sv.title ? renderCleanTitle(sv.title) : sv.url}
-                        </a>
-                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
-                          {[sv.authors, formatJournalName(sv.journal), sv.year].filter(Boolean).join(" · ")}
-                          {(() => { const c = formatCitationCount(sv.citations, sv.year, "citation"); return c ? ` · ${c}` : ""; })()}
+                  <>
+                    {/* Bulk bar: appears the moment anything is selected. Export,
+                        file, or remove the selection as one operation. */}
+                    {selectedSavedKeys.size > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12, padding: "10px 14px", borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: withAlpha(accent, 0.07) }}>
+                        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{selectedSavedKeys.size} selected</span>
+                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); download("cerebrum-selected.ris", toRIS(sel)); }}>RIS</UIButton>
+                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); download("cerebrum-selected.bib", toBibTeX(sel)); }}>BibTeX</UIButton>
+                        {collections.length > 0 && (
+                          <select value="" onChange={(e) => { if (!e.target.value) return; const cid = e.target.value; setSaved((prev) => prev.map((s) => selectedSavedKeys.has(sourceKey(s)) ? { ...s, collectionId: cid } : s)); setSelectedSavedKeys(new Set()); sfx(); }} aria-label="Move selected to collection"
+                            style={{ minHeight: 44, fontSize: FONT_SIZES.caption, padding: "5px 8px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
+                            <option value="">Move to collection…</option>
+                            {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        )}
+                        <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setSaved((prev) => prev.filter((s) => !selectedSavedKeys.has(sourceKey(s)))); setSelectedSavedKeys(new Set()); sfx(); }}>Remove selected</UIButton>
+                        <button onClick={() => setSelectedSavedKeys(new Set())} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Clear</button>
+                      </div>
+                    )}
+                    {/* The ledger: one row per paper, dense and scannable. */}
+                    <div role="list" aria-label="Saved papers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
+                      {!isMobile && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04) }}>
+                          <input type="checkbox" aria-label={selectedSavedKeys.size === visibleSaved.length ? "Deselect all papers" : "Select all papers"}
+                            checked={visibleSaved.length > 0 && selectedSavedKeys.size === visibleSaved.length}
+                            onChange={() => { setSelectedSavedKeys(selectedSavedKeys.size === visibleSaved.length ? new Set() : new Set(visibleSaved.map((s) => sourceKey(s)))); }}
+                            style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0 }} />
+                          <span style={{ width: 52, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>YEAR</span>
+                          <span style={{ flex: 1, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>PAPER</span>
+                          <span style={{ width: 170, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>COLLECTION</span>
+                          <span style={{ width: 76, flexShrink: 0 }} />
                         </div>
-                        <div style={{ alignItems: "center", display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
-                          {sv.authors && <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }}>More by these authors</UIButton>}
-                          <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== sourceKey(sv)))}>Remove</UIButton>
-                        </div>
-                      </UICard>
-                    ))}
-                  </div>
+                      )}
+                      {visibleSaved.map((sv, i) => {
+                        const key = sourceKey(sv) || `idx-${i}`;
+                        const checked = selectedSavedKeys.has(key);
+                        const collName = sv.collectionId ? (collections.find((c) => c.id === sv.collectionId)?.name || null) : null;
+                        return (
+                          <div key={key} role="listitem"
+                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent" }}>
+                            <input type="checkbox" aria-label={`Select ${sv.title || "paper"}`} checked={checked} onChange={() => toggleSavedKey(key)}
+                              style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0, marginTop: isMobile ? 2 : 0 }} />
+                            {!isMobile && (
+                              <span style={{ width: 52, flexShrink: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: sv.year ? P.ink : P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>{sv.year || "—"}</span>
+                            )}
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <a href={safeHref(sv.url)} target="_blank" rel="noreferrer"
+                                style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, textDecoration: "none", lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>
+                                {sv.title ? renderCleanTitle(sv.title) : sv.url}
+                              </a>
+                              <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                                {[sv.authors, formatJournalName(sv.journal)].filter(Boolean).join(" · ")}
+                                {isMobile && sv.year ? ` · ${sv.year}` : ""}
+                                {(() => { const c = formatCitationCount(sv.citations, sv.year, "citation"); return c ? ` · ${c}` : ""; })()}
+                                {collName ? ` · ${collName}` : ""}
+                              </span>
+                              {isMobile && (
+                                <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
+                                  <select value={sv.collectionId || ""} onChange={(e) => moveSourceToCollection(sv, e.target.value || null)} aria-label={`File "${sv.title}" in a collection`}
+                                    style={{ minHeight: 44, fontSize: FONT_SIZES.caption, padding: "5px 8px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
+                                    <option value="">No collection</option>
+                                    {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                  </select>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== key))}>Remove</UIButton>
+                                </span>
+                              )}
+                            </span>
+                            {!isMobile && (
+                              <>
+                                <select value={sv.collectionId || ""} onChange={(e) => moveSourceToCollection(sv, e.target.value || null)} aria-label={`File "${sv.title}" in a collection`}
+                                  style={{ width: 170, flexShrink: 0, fontSize: FONT_SIZES.caption, padding: "7px 8px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
+                                  <option value="">No collection</option>
+                                  {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                                <span style={{ width: 76, flexShrink: 0, display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
+                                  {sv.authors && (
+                                    <button onClick={() => { setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }} title="More by these authors" aria-label={`More papers by ${sv.authors}`}
+                                      style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: 8 }}>
+                                      <Icon name="search" size={15} />
+                                    </button>
+                                  )}
+                                  <button onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== key))} title="Remove from library" aria-label={`Remove ${sv.title || "paper"} from library`}
+                                    style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: 8 }}>
+                                    <Icon name="close" size={15} />
+                                  </button>
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </>
             )}
@@ -25295,24 +25393,29 @@ function App() {
                 body="Map a mechanism, a method, or a decision the literature describes. You can draft one straight from any answer, or start blank."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setFlowchartOpen({ title: "Untitled flowchart", chartId: null }); }}>Open Flowchart Studio</UIButton>} />
             ) : (
-              <div style={{ display: "grid", gap: 12, gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(300px, 1fr))", alignItems: "start" }}>
-                {flowcharts.map((fc) => (
-                  <UICard key={fc.id} P={P} specimen>
-                    <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}
-                      style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left" }}>
+              <div role="list" aria-label="Saved flowcharts" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
+                {flowcharts.map((fc, i) => (
+                  <div key={fc.id} role="listitem" style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+                    <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }} aria-label={`Open ${fc.title || "untitled flowchart"}`}
+                      style={{ width: 64, height: 48, flexShrink: 0, padding: 0, border: `1px solid ${P.line}`, borderRadius: 8, background: "none", cursor: "pointer", overflow: "hidden" }}>
                       <FcThumb chart={fc} accent={accent} />
-                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginTop: 10, lineHeight: 1.4 }}>{fc.title || "Untitled flowchart"}</div>
                     </button>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
-                      {(fc.nodes || []).length} node{(fc.nodes || []).length === 1 ? "" : "s"} · {(fc.edges || []).length} arrow{(fc.edges || []).length === 1 ? "" : "s"}
-                      {fc.updatedAt ? ` · ${new Date(fc.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}
-                    </div>
-                    <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}
+                        style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>
+                        {fc.title || "Untitled flowchart"}
+                      </button>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>
+                        {(fc.nodes || []).length} node{(fc.nodes || []).length === 1 ? "" : "s"} · {(fc.edges || []).length} arrow{(fc.edges || []).length === 1 ? "" : "s"}
+                        {fc.updatedAt ? ` · ${new Date(fc.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}
+                      </span>
+                    </span>
+                    <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
                       <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}>Open</UIButton>
                       <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG</UIButton>
                       <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); }}>Delete</UIButton>
-                    </div>
-                  </UICard>
+                    </span>
+                  </div>
                 ))}
               </div>
             )}
@@ -25355,152 +25458,161 @@ function App() {
                      the rail starts at the same left edge; the READING measure
                      is set here. A row of body text 1100px across is not a
                      list, it is a scan line. */
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 840 }}>
-                    {visibleHistory.map((h) => (
-                      <UICard key={h.id} P={P} specimen>
-                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                          {/* While renaming, the row is not a button at all:
-                              an input nested inside a <button> is invalid
-                              HTML and a keyboard trap. The input replaces
-                              the row's clickable content; Save/Cancel live
-                              beside it as siblings. */}
-                          {historyRenameId === h.id ? (
-                            <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 14, alignItems: "flex-start" }}>
-                              <InvestigationCover title={h.title} accent={accent} P={P} size={isMobile ? 44 : 52} />
-                              <span style={{ minWidth: 0, flex: 1 }}>
-                                <input
-                                  value={historyRenameValue}
-                                  onChange={(e) => setHistoryRenameValue(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      const v = historyRenameValue.trim();
-                                      if (v) setHistory((prev) => prev.map((x) => x.id === h.id ? { ...x, title: v } : x));
-                                      setHistoryRenameId(null);
-                                    } else if (e.key === "Escape") setHistoryRenameId(null);
-                                  }}
-                                  autoFocus
-                                  aria-label="Rename investigation"
-                                  style={{
-                                    width: "100%", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink,
-                                    fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
-                                    border: `1px solid ${accent}`, borderRadius: 8, padding: "6px 10px", outline: "none",
-                                  }}
-                                />
-                                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6 }}>Enter to save · Esc to cancel</div>
-                              </span>
-                            </div>
-                          ) : (
-                          <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit", display: "flex", gap: 14, alignItems: "flex-start", width: "100%", borderRadius: 8, transition: "background 0.15s ease" }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                            onMouseDown={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.1); }}
-                            onMouseUp={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
-                            onFocus={(e) => { e.currentTarget.style.outline = `2px solid ${withAlpha(accent, 0.5)}`; e.currentTarget.style.outlineOffset = 2; }}
-                            onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
-                          >
-                            {!isMobile && <InvestigationCover title={h.title} accent={accent} P={P} size={52} />}
-                            <span style={{ minWidth: 0, flex: 1 }}>
-                            {/* Mobile: title spans full width, up to 3 lines. Desktop: denser row. */}
-                            <div style={{
-                              fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em",
-                              display: "-webkit-box", WebkitLineClamp: isMobile ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-                            }}>{tidyQuestionTitle(h.title)}</div>
-                            {/* Second line: "12 Sep · 1 question · 11 papers" */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT_SIZES.caption, color: P.faint, marginTop: isMobile ? 6 : 5, fontFamily: "var(--cb-font)" }}>
-                              {h.ts && <span>{new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</span>}
-                              <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-                              <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
-                              {(h.allSources || []).length > 0 && (<>
-                                <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-                                <span>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
-                              </>)}
-                            </div>
-                            {/* A preview of the actual material, not a
-                                generic subtitle: the first paper this
-                                investigation turned up, by name. It is the
-                                fastest way to recognise which one this is
-                                when four titles start the same way. */}
-                            {(h.allSources || []).length > 0 && h.allSources[0] && h.allSources[0].title && (
-                              <div style={{
-                                fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 7,
-                                fontFamily: "var(--cb-font)", lineHeight: 1.45,
-                                display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden",
-                              }}>
-                                {h.allSources[0].title}
-                                {h.allSources.length > 1 ? " · and " + (h.allSources.length - 1) + " more" : ""}
-                              </div>
-                            )}
-                            </span>
-                          </button>
-                          )}
-                          {historyRenameId === h.id ? (
-                            <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                              <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => {
-                                const v = historyRenameValue.trim();
-                                if (v) setHistory((prev) => prev.map((x) => x.id === h.id ? { ...x, title: v } : x));
-                                setHistoryRenameId(null);
-                              }}>Save</UIButton>
-                              <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setHistoryRenameId(null)}>Cancel</UIButton>
-                            </span>
-                          ) : historyConfirmId === h.id ? (
-                            <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                              <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setHistoryConfirmId(null)}>Cancel</UIButton>
-                              <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); setHistoryConfirmId(null); }}>Confirm</UIButton>
-                            </span>
-                          ) : (
-                            <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                              {/* Overflow menu: rename, export, delete. Mobile gets the
-                                  compact ⋯; desktop keeps the explicit actions. */}
-                              {isMobile ? (
-                                <div style={{ position: "relative" }}>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setHistoryMenuId(historyMenuId === h.id ? null : h.id); }}
-                                    aria-label={`Options for ${h.title}`}
-                                    style={{
-                                      width: 32, height: 32, borderRadius: 8, border: `1px solid ${P.line}`,
-                                      background: "transparent", color: P.faint, cursor: "pointer",
-                                      display: "flex", alignItems: "center", justifyContent: "center",
-                                      fontSize: 18, lineHeight: 1,
-                                    }}
-                                  >⋯</button>
-                                  {historyMenuId === h.id && (
-                                    <div style={{
-                                      position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10,
-                                      background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
-                                      border: `1px solid ${P.line}`, borderRadius: 10,
-                                      boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: 140,
-                                      overflow: "hidden",
-                                    }}>
-                                      {[
-                                        { label: "Rename", action: () => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); } },
-                                        { label: "Export", action: () => { exportInvestigation(h); } },
-                                        { label: "Delete", action: () => setHistoryConfirmId(h.id), danger: true },
-                                      ].map((item) => (
-                                        <button key={item.label}
-                                          onClick={() => { setHistoryMenuId(null); item.action(); }}
-                                          style={{ minHeight: 44,
-                                            display: "block", width: "100%", textAlign: "left",
-                                            padding: "10px 14px", background: "none", border: "none",
-                                            fontSize: FONT_SIZES.small, color: item.danger ? STATUS.bad : P.ink,
-                                            cursor: "pointer", fontFamily: "var(--cb-font)",
-                                          }}
-                                          onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
-                                          onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
-                                        >{item.label}</button>
-                                      ))}
-                                    </div>
-                                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 26, maxWidth: 840 }}>
+                    {groupedHistory.map((g) => (
+                      <section key={g.key} aria-label={g.label}>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10, paddingLeft: 2 }}>
+                          {g.label} <span style={{ fontWeight: 400, letterSpacing: 0 }}>· {g.items.length}</span>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {g.items.map((h) => (
+                          <UICard key={h.id} P={P} specimen>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                              {/* While renaming, the row is not a button at all:
+                                  an input nested inside a <button> is invalid
+                                  HTML and a keyboard trap. The input replaces
+                                  the row's clickable content; Save/Cancel live
+                                  beside it as siblings. */}
+                              {historyRenameId === h.id ? (
+                                <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 14, alignItems: "flex-start" }}>
+                                  <InvestigationCover title={h.title} accent={accent} P={P} size={isMobile ? 44 : 52} />
+                                  <span style={{ minWidth: 0, flex: 1 }}>
+                                    <input
+                                      value={historyRenameValue}
+                                      onChange={(e) => setHistoryRenameValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          const v = historyRenameValue.trim();
+                                          if (v) setHistory((prev) => prev.map((x) => x.id === h.id ? { ...x, title: v } : x));
+                                          setHistoryRenameId(null);
+                                        } else if (e.key === "Escape") setHistoryRenameId(null);
+                                      }}
+                                      autoFocus
+                                      aria-label="Rename investigation"
+                                      style={{
+                                        width: "100%", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink,
+                                        fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+                                        border: `1px solid ${accent}`, borderRadius: 8, padding: "6px 10px", outline: "none",
+                                      }}
+                                    />
+                                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6 }}>Enter to save · Esc to cancel</div>
+                                  </span>
                                 </div>
                               ) : (
-                                <>
-                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Rename ${h.title}`} onClick={() => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); }}>Rename</UIButton>
-                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Delete ${h.title}`} onClick={() => setHistoryConfirmId(h.id)}>Delete</UIButton>
-                                </>
+                              <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit", display: "flex", gap: 14, alignItems: "flex-start", width: "100%", borderRadius: 8, transition: "background 0.15s ease" }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                                onMouseDown={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.1); }}
+                                onMouseUp={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
+                                onFocus={(e) => { e.currentTarget.style.outline = `2px solid ${withAlpha(accent, 0.5)}`; e.currentTarget.style.outlineOffset = 2; }}
+                                onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
+                              >
+                                {!isMobile && <InvestigationCover title={h.title} accent={accent} P={P} size={52} />}
+                                <span style={{ minWidth: 0, flex: 1 }}>
+                                {/* Mobile: title spans full width, up to 3 lines. Desktop: denser row. */}
+                                <div style={{
+                                  fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em",
+                                  display: "-webkit-box", WebkitLineClamp: isMobile ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                                }}>{tidyQuestionTitle(h.title)}</div>
+                                {/* Second line: "12 Sep · 1 question · 11 papers" */}
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT_SIZES.caption, color: P.faint, marginTop: isMobile ? 6 : 5, fontFamily: "var(--cb-font)" }}>
+                                  {h.ts && <span>{new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</span>}
+                                  <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+                                  <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
+                                  {(h.allSources || []).length > 0 && (<>
+                                    <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+                                    <span>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
+                                  </>)}
+                                </div>
+                                {/* A preview of the actual material, not a
+                                    generic subtitle: the first paper this
+                                    investigation turned up, by name. It is the
+                                    fastest way to recognise which one this is
+                                    when four titles start the same way. */}
+                                {(h.allSources || []).length > 0 && h.allSources[0] && h.allSources[0].title && (
+                                  <div style={{
+                                    fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 7,
+                                    fontFamily: "var(--cb-font)", lineHeight: 1.45,
+                                    display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden",
+                                  }}>
+                                    {h.allSources[0].title}
+                                    {h.allSources.length > 1 ? " · and " + (h.allSources.length - 1) + " more" : ""}
+                                  </div>
+                                )}
+                                </span>
+                              </button>
                               )}
-                            </span>
-                          )}
+                              {historyRenameId === h.id ? (
+                                <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => {
+                                    const v = historyRenameValue.trim();
+                                    if (v) setHistory((prev) => prev.map((x) => x.id === h.id ? { ...x, title: v } : x));
+                                    setHistoryRenameId(null);
+                                  }}>Save</UIButton>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setHistoryRenameId(null)}>Cancel</UIButton>
+                                </span>
+                              ) : historyConfirmId === h.id ? (
+                                <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setHistoryConfirmId(null)}>Cancel</UIButton>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); setHistoryConfirmId(null); }}>Confirm</UIButton>
+                                </span>
+                              ) : (
+                                <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                                  {/* Overflow menu: rename, export, delete. Mobile gets the
+                                      compact ⋯; desktop keeps the explicit actions. */}
+                                  {isMobile ? (
+                                    <div style={{ position: "relative" }}>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setHistoryMenuId(historyMenuId === h.id ? null : h.id); }}
+                                        aria-label={`Options for ${h.title}`}
+                                        style={{
+                                          width: 32, height: 32, borderRadius: 8, border: `1px solid ${P.line}`,
+                                          background: "transparent", color: P.faint, cursor: "pointer",
+                                          display: "flex", alignItems: "center", justifyContent: "center",
+                                          fontSize: 18, lineHeight: 1,
+                                        }}
+                                      >⋯</button>
+                                      {historyMenuId === h.id && (
+                                        <div style={{
+                                          position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10,
+                                          background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
+                                          border: `1px solid ${P.line}`, borderRadius: 10,
+                                          boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: 140,
+                                          overflow: "hidden",
+                                        }}>
+                                          {[
+                                            { label: "Rename", action: () => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); } },
+                                            { label: "Export", action: () => { exportInvestigation(h); } },
+                                            { label: "Delete", action: () => setHistoryConfirmId(h.id), danger: true },
+                                          ].map((item) => (
+                                            <button key={item.label}
+                                              onClick={() => { setHistoryMenuId(null); item.action(); }}
+                                              style={{ minHeight: 44,
+                                                display: "block", width: "100%", textAlign: "left",
+                                                padding: "10px 14px", background: "none", border: "none",
+                                                fontSize: FONT_SIZES.small, color: item.danger ? STATUS.bad : P.ink,
+                                                cursor: "pointer", fontFamily: "var(--cb-font)",
+                                              }}
+                                              onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
+                                              onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+                                            >{item.label}</button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Rename ${h.title}`} onClick={() => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); }}>Rename</UIButton>
+                                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Delete ${h.title}`} onClick={() => setHistoryConfirmId(h.id)}>Delete</UIButton>
+                                    </>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          </UICard>
+                              ))}
                         </div>
-                      </UICard>
+                      </section>
                     ))}
                   </div>
                 )}
