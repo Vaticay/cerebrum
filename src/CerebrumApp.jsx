@@ -13466,26 +13466,6 @@ function MMCodeEditor({ P, accent, code, onChange }) {
   );
 }
 
-/* Dropdown menu with a click-away backdrop. The trigger wraps it in a
-   position:relative span. */
-function MMMenu({ P, open, onClose, children, width = 280, align = "left" }) {
-  if (!open) return null;
-  const side = align === "right" ? { right: 0 } : { left: 0 };
-  return (
-    <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60 }} aria-hidden="true" />
-      <div role="menu" style={{
-        position: "absolute", top: "calc(100% + 8px)", ...side, width, zIndex: 61,
-        background: P.surface, border: `1px solid ${P.line2}`, borderRadius: 12,
-        boxShadow: P.dark ? "0 18px 50px rgba(0,0,0,0.55)" : "0 18px 50px rgba(20,24,20,0.18)",
-        padding: 6, maxHeight: 360, overflowY: "auto",
-      }}>
-        {children}
-      </div>
-    </>
-  );
-}
-
 function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   const [code, setCode] = useState(() => {
     try {
@@ -13520,9 +13500,13 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   const [rendering, setRendering] = useState(false);
   const [pan, setPan] = useState({ x: 28, y: 28, k: 1 });
   const [mobilePane, setMobilePane] = useState("code");
-  const [menu, setMenu] = useState(null);
   const [copied, setCopied] = useState(false);
   const [savedTick, setSavedTick] = useState(0);
+  /* Instrument layout: left rail with library + template browser, and a
+     proper export dialog instead of a dropdown. */
+  const [railTab, setRailTab] = useState("diagrams");
+  const [railOpen, setRailOpen] = useState(!isMobile);
+  const [exportOpen, setExportOpen] = useState(false);
   const svgHostRef = useRef(null);
   const previewRef = useRef(null);
   const fileRef = useRef(null);
@@ -13750,9 +13734,8 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     if (!el) return;
     const str = new XMLSerializer().serializeToString(el);
     downloadBlob(`${slug}.svg`, new Blob([str], { type: "image/svg+xml;charset=utf-8" }));
-    setMenu(null);
   };
-  const exportMMD = () => { download(`${slug}.mmd`, code); setMenu(null); };
+  const exportMMD = () => { download(`${slug}.mmd`, code); };
   const exportPNG = async () => {
     const el = svgHostRef.current && svgHostRef.current.querySelector("svg");
     if (!el) return;
@@ -13782,7 +13765,6 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       if (!blob) throw new Error("PNG encoding failed");
       downloadBlob(`${slug}.png`, blob);
     } catch (e) { toast(e?.message || "Couldn't export the PNG. Try again.", { tone: "error" }); }
-    setMenu(null);
   };
 
   const diagramKind = useMemo(() => {
@@ -13802,7 +13784,6 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     setTitle(t.name);
     setActiveId(null);
     autoFitDone.current = false;
-    setMenu(null);
     if (isMobile) setMobilePane("preview");
   };
   const openDiagram = (d) => {
@@ -13810,7 +13791,6 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     setTitle(d.title);
     setActiveId(d.id);
     autoFitDone.current = false;
-    setMenu(null);
   };
   const deleteDiagram = (id) => {
     setDiagrams((ds) => ds.filter((d) => d.id !== id));
@@ -13821,15 +13801,8 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     setTitle("Untitled diagram");
     setActiveId(null);
     autoFitDone.current = false;
-    setMenu(null);
   };
 
-  const toggleMenu = (name) => setMenu((m) => (m === name ? null : name));
-  const menuItem = {
-    display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px",
-    borderRadius: 8, background: "transparent", border: 0, color: P.ink, fontSize: FONT_SIZES.small,
-    cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)",
-  };
   const paneLabel = {
     fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
     color: P.faint, fontFamily: "var(--cb-font)", padding: "10px 14px",
@@ -13845,6 +13818,80 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     : diagError ? { dot: "#f87171", text: "Syntax error" }
     : { dot: "#4ade80", text: "Rendered" };
 
+  const railTabBtn = (key, label) => (
+    <button key={key} onClick={() => setRailTab(key)}
+      style={{
+        flex: 1, minHeight: 44, border: 0, cursor: "pointer", fontFamily: "var(--cb-font)",
+        fontSize: FONT_SIZES.small, fontWeight: 600,
+        color: railTab === key ? P.ink : P.faint,
+        background: "transparent",
+        borderBottom: `2px solid ${railTab === key ? accent : "transparent"}`,
+      }}>
+      {label}
+    </button>
+  );
+
+  const railItem = {
+    display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px",
+    borderRadius: 10, background: "transparent", border: 0, color: P.ink,
+    fontSize: FONT_SIZES.small, cursor: "pointer", textAlign: "left",
+    fontFamily: "var(--cb-font)", minHeight: 44,
+  };
+
+  const rail = (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
+      <div style={{ display: "flex", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
+        {railTabBtn("diagrams", `Diagrams${diagrams.length ? ` (${diagrams.length})` : ""}`)}
+        {railTabBtn("templates", "Templates")}
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: 10, minHeight: 0 }}>
+        {railTab === "diagrams" && (
+          <>
+            <button onClick={newDiagram} style={{ ...railItem, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 600, marginBottom: 8 }}>
+              <span aria-hidden="true">＋</span> New diagram
+            </button>
+            {diagrams.length === 0 && (
+              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                Nothing saved yet. Press ⌘S or Ctrl+S any time to keep the diagram you are working on.
+              </div>
+            )}
+            {diagrams.map((d) => (
+              <div key={d.id} className="mm-railitem" style={{ display: "flex", alignItems: "center", borderRadius: 10, background: d.id === activeId ? withAlpha(accent, 0.08) : "transparent" }}>
+                <button onClick={() => { openDiagram(d); if (isMobile) setRailOpen(false); }} style={{ ...railItem, flex: 1, minWidth: 0 }} title={d.code.slice(0, 120)}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", fontWeight: d.id === activeId ? 600 : 400 }}>{d.title}</span>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2 }}>
+                      {new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {d.code.split("\n").length} lines
+                    </span>
+                  </span>
+                  {d.id === activeId && <span style={{ color: accent, fontSize: 10, flexShrink: 0 }} aria-label="Open">●</span>}
+                </button>
+                <button onClick={() => deleteDiagram(d.id)} aria-label={`Delete ${d.title}`} title="Delete"
+                  className="mm-rail-del"
+                  style={{ background: "transparent", border: 0, color: P.faint, cursor: "pointer", minWidth: 44, minHeight: 44, fontSize: 14, opacity: 0.45 }}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+        {railTab === "templates" && (
+          <>
+            <div style={{ padding: "4px 4px 10px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+              Start from a structure. Your source stays fully editable.
+            </div>
+            {MERMAID_TEMPLATES.map((t) => (
+              <button key={t.key} onClick={() => { loadTemplate(t); if (isMobile) setRailOpen(false); }} className="mm-railitem" style={{ ...railItem, marginBottom: 2 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: accent, flexShrink: 0 }} aria-hidden="true" />
+                <span style={{ flex: 1 }}>{t.name}</span>
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: isMobile ? "calc(100dvh - 150px)" : "calc(100dvh - 110px)", minWidth: 0 }}>
       <style>{`
@@ -13852,211 +13899,240 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         .mm-st { color: ${dark ? "#a5d6a7" : "#2e7d32"}; }
         .mm-cm { color: ${P.faint}; font-style: italic; }
         .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 600; }
-        .mm-zoombtn { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 15px; }
+        .mm-zoombtn { width: 44px; height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); }
         .mm-zoombtn:hover { border-color: ${accent}; color: ${accent}; }
+        .mm-railitem { transition: background 0.15s ease; }
+        .mm-railitem:hover { background: ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)"} !important; }
+        .mm-rail-del { transition: opacity 0.15s ease; }
+        .mm-railitem:hover .mm-rail-del { opacity: 1 !important; }
+        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 10px; font-size: ${FONT_SIZES.small}px; font-weight: 600; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; }
+        .mm-topbtn:hover { border-color: ${accent}; }
+        .mm-topbtn-primary { background: ${accent}; border-color: transparent; color: ${at}; }
+        .mm-topbtn-primary:hover { border-color: transparent; filter: brightness(1.06); }
       `}</style>
 
-      {/* ── Studio header: own mark, own wordmark ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: isMobile ? "14px 14px 10px" : "20px 24px 12px", flexShrink: 0, flexWrap: "wrap" }}>
-        <span style={{ display: "inline-flex", padding: 8, borderRadius: 12, background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}` }}>
-          <StudioMark size={24} accent={accent} />
+      {/* ── Top bar: instrument chrome ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: isMobile ? "12px 14px" : "14px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap" }}>
+        <button onClick={() => setRailOpen((v) => !v)} aria-label={railOpen ? "Hide side panel" : "Show side panel"} title={railOpen ? "Hide side panel" : "Show side panel"}
+          style={{ minHeight: 44, minWidth: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 10, color: P.ink2, cursor: "pointer", flexShrink: 0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <line x1="9.5" y1="4" x2="9.5" y2="20" />
+          </svg>
+        </button>
+        <span style={{ display: "inline-flex", padding: 8, borderRadius: 12, background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, flexShrink: 0 }}>
+          <StudioMark size={22} accent={accent} />
         </span>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, letterSpacing: "-0.01em" }}>Diagram Studio</div>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Mermaid, rendered live</div>
+        <div style={{ minWidth: 0, flexShrink: 0 }}>
+          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.small, color: P.ink, letterSpacing: "-0.01em", lineHeight: 1.25 }}>Diagram Studio</div>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>Mermaid, rendered live</div>
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Diagram title" placeholder="Untitled diagram"
           style={{
-            marginLeft: 8, flex: "1 1 180px", minWidth: 140, maxWidth: 340, background: "transparent",
-            border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 12px",
-            color: P.ink, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", outline: "none",
+            marginLeft: 4, flex: "1 1 160px", minWidth: 120, maxWidth: 320, background: "transparent",
+            border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 12px", minHeight: 44,
+            color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", outline: "none",
           }} />
-      </div>
-
-      {/* ── Toolbar ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: isMobile ? "0 14px 10px" : "0 24px 14px", flexShrink: 0, overflowX: "auto", scrollbarWidth: "none" }}>
-        <span style={{ position: "relative", flexShrink: 0 }}>
-          <UIButton P={P} accent={accent} at={at} size="sm" variant="secondary" onClick={() => toggleMenu("library")} ariaLabel="Open saved diagrams" title="Your saved diagrams">
-            Diagrams{diagrams.length ? ` (${diagrams.length})` : ""} ▾
-          </UIButton>
-          <MMMenu P={P} open={menu === "library"} onClose={() => setMenu(null)} width={300}>
-            <button onClick={newDiagram} style={menuItem}><span style={{ color: accent }}>＋</span> New diagram</button>
-            <div style={{ minHeight: 44, height: 1, background: P.line, margin: "6px 4px" }} />
-            {diagrams.length === 0 && (
-              <div style={{ padding: "10px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                Nothing saved yet. Press ⌘S / Ctrl+S any time.
-              </div>
-            )}
-            {diagrams.map((d) => (
-              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <button onClick={() => openDiagram(d)} style={{ ...menuItem, flex: 1, minWidth: 0 }} title={d.code.slice(0, 120)}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                    {d.title}
-                    <span style={{ display: "block", fontSize: FONT_SIZES.micro, color: P.faint }}>
-                      {new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {d.code.split("\n").length} lines
-                    </span>
-                  </span>
-                  {d.id === activeId && <span style={{ color: accent, fontSize: 12 }}>●</span>}
-                </button>
-                <button onClick={() => deleteDiagram(d.id)} aria-label={`Delete ${d.title}`} title="Delete"
-                  style={{ background: "transparent", border: 0, color: P.faint, cursor: "pointer", padding: 8, fontSize: 13 }}>✕</button>
-              </div>
-            ))}
-          </MMMenu>
-        </span>
-
-        <span style={{ position: "relative", flexShrink: 0 }}>
-          <UIButton P={P} accent={accent} at={at} size="sm" variant="secondary" onClick={() => toggleMenu("templates")} ariaLabel="Insert a diagram template" title="Start from a template">
-            Templates ▾
-          </UIButton>
-          <MMMenu P={P} open={menu === "templates"} onClose={() => setMenu(null)} width={260}>
-            {MERMAID_TEMPLATES.map((t) => (
-              <button key={t.key} onClick={() => loadTemplate(t)} style={menuItem}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: accent, flexShrink: 0 }} />
-                {t.name}
-              </button>
-            ))}
-          </MMMenu>
-        </span>
-
-        <span style={{ flexShrink: 0 }}>
-          <UIButton P={P} accent={accent} at={at} size="sm" variant="secondary" onClick={() => fileRef.current && fileRef.current.click()} ariaLabel="Import a .mmd file" title="Import a .mmd file — loaded verbatim">
-            Import .mmd
-          </UIButton>
-        </span>
-
-        <span style={{ position: "relative", flexShrink: 0 }}>
-          <UIButton P={P} accent={accent} at={at} size="sm" variant="secondary" onClick={() => toggleMenu("export")} ariaLabel="Export diagram" title="Export">
-            Export ▾
-          </UIButton>
-          <MMMenu P={P} open={menu === "export"} onClose={() => setMenu(null)} width={230} align={isMobile ? "left" : "right"}>
-            <button onClick={exportSVG} style={menuItem} disabled={!svg}>SVG — vector, infinitely scalable</button>
-            <button onClick={exportPNG} style={menuItem} disabled={!svg}>PNG — 3× raster for slides</button>
-            <button onClick={exportMMD} style={menuItem}>.mmd — source, verbatim</button>
-          </MMMenu>
-        </span>
-
-        <span style={{ flexShrink: 0 }}>
-          <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={copyCode} ariaLabel="Copy diagram source" title="Copy source">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexShrink: 0 }}>
+          <button className="mm-topbtn" onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file — loaded verbatim">
+            Import
+          </button>
+          <button className="mm-topbtn" onClick={copyCode} title="Copy diagram source">
             {copied ? "Copied ✓" : "Copy"}
-          </UIButton>
-        </span>
-        <span style={{ flexShrink: 0 }}>
-          <UIButton P={P} accent={accent} at={at} size="sm" variant="primary" onClick={saveDiagram} ariaLabel="Save diagram" title="Save (⌘S / Ctrl+S)">
+          </button>
+          <button className="mm-topbtn" onClick={() => setExportOpen(true)} disabled={!svg} title="Export diagram" style={!svg ? { opacity: 0.5, cursor: "not-allowed" } : undefined}>
+            Export
+          </button>
+          <button className="mm-topbtn mm-topbtn-primary" onClick={saveDiagram} title="Save (⌘S / Ctrl+S)">
             Save
-          </UIButton>
-        </span>
-        <input ref={fileRef} type="file" accept=".mmd,.mermaid,.txt,text/plain" onChange={onImportFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
+          </button>
+        </div>
       </div>
 
-      {/* ── Mobile pane switch ── */}
-      {isMobile && (
-        <div style={{ display: "flex", gap: 6, padding: "0 14px 10px", flexShrink: 0 }}>
-          {[["code", "Code"], ["preview", "Preview"]].map(([key, label]) => (
-            <button key={key} onClick={() => setMobilePane(key)}
-              style={{ minHeight: 44,
-                flex: 1, padding: "9px 0", borderRadius: 10, fontSize: FONT_SIZES.small, fontWeight: 600,
-                fontFamily: "var(--cb-font)", cursor: "pointer",
-                background: mobilePane === key ? withAlpha(accent, 0.14) : "transparent",
-                color: mobilePane === key ? accent : P.faint,
-                border: `1px solid ${mobilePane === key ? withAlpha(accent, 0.4) : P.line}`,
-              }}>
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* ── Body: rail + work area ── */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0 }}>
+        {!isMobile && railOpen && (
+          <aside style={{ width: 288, flexShrink: 0, borderRight: `1px solid ${P.line}`, background: P.surface, minHeight: 0 }} aria-label="Diagram library and templates">
+            {rail}
+          </aside>
+        )}
 
-      {/* ── Body: editor + preview ── */}
-      <div style={{
-        flex: 1, minHeight: isMobile ? 420 : 480, display: "flex",
-        flexDirection: isMobile ? "column" : "row",
-        margin: isMobile ? "0 14px" : "0 24px",
-        border: `1px solid ${P.line}`, borderRadius: 16, overflow: "hidden",
-        background: P.surface,
-      }}>
-        {/* Editor pane */}
-        <div style={{
-          display: isMobile ? (mobilePane === "code" ? "flex" : "none") : "flex",
-          flexDirection: "column", flex: isMobile ? 1 : "0 0 42%", minWidth: 0, minHeight: 0,
-          borderRight: isMobile ? "none" : `1px solid ${P.line}`,
-        }}>
-          <div style={paneLabel}><span>Source</span><span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: "0.02em", textTransform: "none" }}>{diagramKind} · {code.split("\n").length} lines</span></div>
-          <MMCodeEditor P={P} accent={accent} code={code} onChange={(v) => { setCode(v); }} />
-        </div>
-
-        {/* Preview pane */}
-        <div style={{
-          display: isMobile ? (mobilePane === "preview" ? "flex" : "none") : "flex",
-          flex: 1, flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative",
-        }}>
-          <div style={paneLabel}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: status.dot, boxShadow: `0 0 8px ${status.dot}` }} />
-            <span>{status.text}</span>
-          </div>
-          <div ref={previewRef}
-            onPointerDown={onPreviewDown} onPointerMove={onPreviewMove} onPointerUp={onPreviewUp} onPointerCancel={onPreviewUp}
-            style={{
-              flex: 1, minHeight: 0, overflow: "hidden", position: "relative", cursor: "grab",
-              touchAction: "none", backgroundImage: dotGrid, backgroundSize: "22px 22px",
-            }}>
-            <div ref={svgHostRef} style={{
-              position: "absolute", left: 0, top: 0,
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${pan.k})`, transformOrigin: "0 0",
-              pointerEvents: "none",
-            }} />
-            {mmError && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
-                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", maxWidth: 320 }}>{mmError}</div>
-              </div>
-            )}
-            {!mmError && !svg && !diagError && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                  {mm ? "Rendering…" : "Loading diagram engine…"}
-                </div>
-              </div>
-            )}
-            {diagError && (
-              <div style={{
-                position: "absolute", top: 12, left: 12, right: 12, padding: "12px 14px", borderRadius: 12,
-                background: dark ? "rgba(60,16,16,0.92)" : "rgba(254,226,226,0.96)",
-                border: "1px solid rgba(248,113,113,0.5)", zIndex: 5,
-              }}>
-                <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
-                  Mermaid couldn't parse this
-                </div>
-                <pre style={{
-                  margin: 0, fontSize: FONT_SIZES.caption, fontFamily: MM_FONT, whiteSpace: "pre-wrap",
-                  color: dark ? "#fecaca" : "#7f1d1d",
-                }}>{diagError}</pre>
-              </div>
-            )}
-            {/* Zoom controls */}
-            <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 6, alignItems: "center", zIndex: 5 }}>
-              <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
-              <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="100%"
-                style={{ width: "auto", padding: "0 10px", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)" }}>{Math.round(pan.k * 100)}%</button>
-              <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in">＋</button>
-              <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 10px", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)" }}>Fit</button>
+        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", minWidth: 0, minHeight: 0 }}>
+          {/* Mobile pane switch */}
+          {isMobile && (
+            <div style={{ display: "flex", gap: 6, padding: "10px 14px 0", flexShrink: 0 }}>
+              {[["code", "Code"], ["preview", "Preview"]].map(([key, label]) => (
+                <button key={key} onClick={() => setMobilePane(key)}
+                  style={{
+                    minHeight: 44, flex: 1, padding: "9px 0", borderRadius: 10,
+                    fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)", cursor: "pointer",
+                    background: mobilePane === key ? withAlpha(accent, 0.14) : "transparent",
+                    color: mobilePane === key ? accent : P.faint,
+                    border: `1px solid ${mobilePane === key ? withAlpha(accent, 0.4) : P.line}`,
+                  }}>
+                  {label}
+                </button>
+              ))}
             </div>
-          </div>
+          )}
+
+          {/* Editor pane */}
+          <section aria-label="Diagram source" style={{
+            display: isMobile ? (mobilePane === "code" ? "flex" : "none") : "flex",
+            flexDirection: "column", flex: isMobile ? 1 : "0 0 42%", minWidth: 0, minHeight: 0,
+            borderRight: isMobile ? "none" : `1px solid ${P.line}`,
+            margin: isMobile ? "10px 14px 0" : 0,
+            border: isMobile ? `1px solid ${P.line}` : "none",
+            borderRadius: isMobile ? 14 : 0, overflow: "hidden",
+            background: P.surface,
+          }}>
+            <div style={paneLabel}>
+              <span>Source</span>
+              <span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: "0.02em", textTransform: "none" }}>{diagramKind} · {code.split("\n").length} lines</span>
+            </div>
+            <MMCodeEditor P={P} accent={accent} code={code} onChange={(v) => { setCode(v); }} />
+          </section>
+
+          {/* Preview pane */}
+          <section aria-label="Diagram preview" style={{
+            display: isMobile ? (mobilePane === "preview" ? "flex" : "none") : "flex",
+            flex: 1, flexDirection: "column", minWidth: 0, minHeight: isMobile ? 420 : 0, position: "relative",
+            margin: isMobile ? "10px 14px 0" : 0,
+            border: isMobile ? `1px solid ${P.line}` : "none",
+            borderRadius: isMobile ? 14 : 0, overflow: "hidden",
+            background: P.surface,
+          }}>
+            <div style={paneLabel}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: status.dot }} aria-hidden="true" />
+              <span>{status.text}</span>
+              <span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: "0.02em", textTransform: "none" }}>{Math.round(pan.k * 100)}%</span>
+            </div>
+            <div ref={previewRef}
+              onPointerDown={onPreviewDown} onPointerMove={onPreviewMove} onPointerUp={onPreviewUp} onPointerCancel={onPreviewUp}
+              style={{
+                flex: 1, minHeight: 0, overflow: "hidden", position: "relative", cursor: "grab",
+                touchAction: "none", backgroundImage: dotGrid, backgroundSize: "22px 22px",
+              }}>
+              <div ref={svgHostRef} style={{
+                position: "absolute", left: 0, top: 0,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${pan.k})`, transformOrigin: "0 0",
+                pointerEvents: "none",
+              }} />
+              {mmError && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", maxWidth: 320 }}>{mmError}</div>
+                </div>
+              )}
+              {!mmError && !svg && !diagError && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                    {mm ? "Rendering…" : "Loading diagram engine…"}
+                  </div>
+                </div>
+              )}
+              {diagError && (
+                <div style={{
+                  position: "absolute", top: 12, left: 12, right: 12, padding: "12px 14px", borderRadius: 12,
+                  background: dark ? "rgba(60,16,16,0.92)" : "rgba(254,226,226,0.96)",
+                  border: "1px solid rgba(248,113,113,0.5)", zIndex: 5,
+                }}>
+                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
+                    Mermaid could not parse this
+                  </div>
+                  <pre style={{
+                    margin: 0, fontSize: FONT_SIZES.caption, fontFamily: MM_FONT, whiteSpace: "pre-wrap",
+                    color: dark ? "#fecaca" : "#7f1d1d",
+                  }}>{diagError}</pre>
+                </div>
+              )}
+              {/* Zoom controls — 44px targets, live percentage */}
+              <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 6, alignItems: "center", zIndex: 5 }}>
+                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
+                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="Reset to 100%"
+                  style={{ width: "auto", padding: "0 14px", fontSize: FONT_SIZES.small, fontWeight: 600 }}>{Math.round(pan.k * 100)}%</button>
+                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in">＋</button>
+                <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 14px", fontSize: FONT_SIZES.small, fontWeight: 600 }}>Fit</button>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
 
       {/* ── Status bar ── */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 14, padding: "10px 24px", flexShrink: 0, flexWrap: "wrap",
+        display: "flex", alignItems: "center", gap: 14, padding: isMobile ? "10px 14px" : "10px 24px",
+        borderTop: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap",
         fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)",
       }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: status.dot }} />
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: status.dot }} aria-hidden="true" />
           {status.text}
         </span>
         {savedTick > 0 && <span style={{ color: accent }}>✓ Saved to your diagrams</span>}
         <span style={{ flex: 1 }} />
-        <span>Drag to pan · scroll to zoom · ⌘S saves</span>
+        <span>Drag to pan · Scroll to zoom · ⌘S saves · Double click canvas to fit</span>
       </div>
+
+      {/* ── Export dialog ── */}
+      {exportOpen && (
+        <div role="dialog" aria-modal="true" aria-label="Export diagram"
+          style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={() => setExportOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} aria-hidden="true" />
+          <div style={{
+            position: "relative", width: "min(440px, 100%)", background: P.surface,
+            border: `1px solid ${P.line2}`, borderRadius: 16, padding: 20,
+            boxShadow: "0 24px 70px rgba(0,0,0,0.4)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink }}>Export diagram</div>
+              <button onClick={() => setExportOpen(false)} aria-label="Close export dialog"
+                style={{ marginLeft: "auto", minWidth: 44, minHeight: 44, background: "transparent", border: 0, color: P.faint, fontSize: 16, cursor: "pointer" }}>✕</button>
+            </div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 14 }}>
+              {title.trim() || "Untitled diagram"} · {diagramKind}
+            </div>
+            {[
+              { key: "svg", name: "SVG", desc: "Vector. Scales forever, edits in Illustrator or Figma.", run: exportSVG },
+              { key: "png", name: "PNG", desc: "3× raster. Drops straight into slides and docs.", run: exportPNG },
+              { key: "mmd", name: ".mmd", desc: "Your source, verbatim. Reopens here any time.", run: exportMMD },
+            ].map((f) => (
+              <button key={f.key} onClick={() => { f.run(); setExportOpen(false); }} disabled={!svg}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
+                  minHeight: 64, padding: "10px 14px", marginBottom: 8, borderRadius: 12,
+                  background: "transparent", border: `1px solid ${P.line2}`, cursor: svg ? "pointer" : "not-allowed",
+                  opacity: svg ? 1 : 0.5, fontFamily: "var(--cb-font)",
+                }}>
+                <span style={{
+                  minWidth: 52, textAlign: "center", fontSize: FONT_SIZES.caption, fontWeight: 700,
+                  color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 8, padding: "6px 0",
+                }}>{f.name}</span>
+                <span style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>{f.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Mobile rail drawer ── */}
+      {isMobile && railOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 70 }}>
+          <div onClick={() => setRailOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} aria-hidden="true" />
+          <div style={{
+            position: "absolute", top: 0, bottom: 0, left: 0, width: "min(320px, 85vw)",
+            background: P.surface, borderRight: `1px solid ${P.line2}`,
+            boxShadow: "24px 0 60px rgba(0,0,0,0.35)",
+          }} role="dialog" aria-label="Diagram library and templates">
+            <div style={{ display: "flex", alignItems: "center", padding: "10px 10px 0" }}>
+              <button onClick={() => setRailOpen(false)} aria-label="Close panel"
+                style={{ minWidth: 44, minHeight: 44, background: "transparent", border: 0, color: P.faint, fontSize: 16, cursor: "pointer", marginLeft: "auto" }}>✕</button>
+            </div>
+            <div style={{ height: "calc(100% - 54px)" }}>{rail}</div>
+          </div>
+        </div>
+      )}
+
+      <input ref={fileRef} type="file" accept=".mmd,.mermaid,.txt,text/plain" onChange={onImportFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
     </div>
   );
 }
