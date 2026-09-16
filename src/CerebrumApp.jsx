@@ -2500,19 +2500,80 @@ function parseQueryEntities(text) {
   return found;
 }
 
+/* ── SearchNameplate: the instrument's engraved plate ─────────────────────────
+   The old hero was a marketing block — a 64px kinetic wordmark with the
+   slogan set beneath it as a subtitle. The plate sets the same brand
+   information the way an instrument maker sets it: the mark, the name in
+   tracked caps, the slogan as the specification line. The wording is
+   never altered.
+
+   It also answers the design review's note that the decorative mark felt
+   disconnected from the screen: the mode window beside the name reports
+   the active ask mode (it re-labels on every switch), and the mark's ring
+   brightens while the question field holds focus. */
+function SearchNameplate({ P, accent, askMode, focused, compact }) {
+  const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
+  return (
+    <div
+      className={"cb-plate" + (compact ? " cb-plate--compact" : "")}
+      style={{ "--cb-acc": accent, "--cb-ink": P.ink, "--cb-ink2": P.ink2 }}
+    >
+      <div className={"cb-plate-mark" + (focused ? " is-live" : "")} aria-hidden="true">
+        <Mark size={compact ? 26 : 34} accent={accent} glow={P.dark} />
+      </div>
+      <div className="cb-plate-name">Cerebrum</div>
+      {!compact && (
+        <div className="cb-plate-mode" aria-live="polite" aria-label={"Ask mode: " + mode.label}>
+          <span className="cb-plate-mode-tick" aria-hidden="true" />
+          <span key={mode.key} className="cb-plate-mode-label">{mode.label}</span>
+          <span className="cb-plate-mode-tick" aria-hidden="true" />
+        </div>
+      )}
+      {!compact && (
+        <p className="cb-plate-spec">
+          Ask a real research question. Every claim traces to a paper you can open.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ── SignalComposer: the question console ─────────────────────────────────────
+   Was "the query line": a bare input over a hairline rule, with the mode
+   plates floating beneath it as five separate controls and the evidence
+   filter disclosed further down the page — a stack of chrome around the
+   question.
+
+   Now it is one instrument. The mode selector is fused into the console's
+   header as a single segmented control (see AskModePicker), the question
+   field sits in an inset well with a real focus ring (the design review
+   asked for exactly this: inset surface, refined border, intentional
+   focus), and the footer is a persistent readout — scope, the live parse,
+   the evidence filter docked where it belongs. The ghost arrow is now a
+   proper ASK key. Nothing about the request flow changed: same input
+   value, Enter to ask, image attach, voice dictation, busy state,
+   recents, mode-aware placeholder.
+
+   The placeholder is an overlay, not the input's placeholder attribute:
+   keyed by mode so it crossfades on every mode switch (the "better
+   placeholder animation"), pointer-transparent, and gone the moment
+   there is text. The input keeps its own aria-label, so nothing is lost
+   when the overlay isn't there. */
 function SignalComposer({
   input, setInput, inputRef, ask, busy,
-  askMode, isMobile, accent, P,
+  askMode, setAskMode, isMobile, accent, P,
   imageInputRef, attachedImage,
   focused, setFocused,
   /* Optional: the App's investigation history mapped to question strings,
      newest first. When absent or empty, no dropdown renders at all — the
-     line behaves exactly as before. */
+     well behaves exactly as before. */
   recentQuestions,
-  /* Optional: the current evidence-tier label, wired from the App's
-     evidenceFilter state. Defaults to "all" — the scope line only ever
-     shows values that are actually in force. */
-  evidenceLabel = "all",
+  /* Evidence tier, wired from the App. The filter itself docks in the
+     console footer; the readout only ever shows values that are actually
+     in force. */
+  evidenceFilter = "all",
+  setEvidenceFilter,
+  sfx,
 }) {
   const reduced = useReducedMotion();
   const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
@@ -2545,99 +2606,133 @@ function SignalComposer({
     setRecentActive(-1);
     setTimeout(() => inputRef.current?.focus(), 30);
   };
+  const hasText = String(input || "").trim().length > 0;
+  const clickSfx = () => { try { sfx(); } catch {} };
   return (
-    <div role="search" style={{ "--cb-acc": accent }} className={"cb-qline" + (P.dark ? "" : " cb-qline--light") + (showRecents ? " cb-qline--recents-open" : "")}>
-      <div className="cb-qline-row">
-        <input
-          ref={inputRef}
-          className="cb-qline-input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onFocus={() => { setFocused(true); setRecentActive(-1); if (recents.length > 0) setRecentOpen(true); }}
-          onBlur={() => {
-            setFocused(false);
-            // Grace period: a tap on a dropdown item fires mousedown before
-            // blur, so closing immediately would eat the tap.
-            if (blurTimer.current) clearTimeout(blurTimer.current);
-            blurTimer.current = setTimeout(() => setRecentOpen(false), 160);
-          }}
-          onKeyDown={(e) => {
-            if (showRecents && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Escape" || e.key === "Enter")) {
-              e.preventDefault();
-              if (e.key === "ArrowDown") setRecentActive((a) => (a + 1) % recents.length);
-              else if (e.key === "ArrowUp") setRecentActive((a) => (a - 1 + recents.length) % recents.length);
-              else if (e.key === "Escape") { setRecentOpen(false); setRecentActive(-1); }
-              else if (recentActive >= 0) pickRecent(recentActive);
-              else doAsk();
-              return;
-            }
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) doAsk();
-          }}
-          placeholder={placeholder}
-          aria-label="Ask a research question"
-          aria-expanded={showRecents}
-          autoComplete="off"
-          spellCheck="true"
-        />
-        <div className="cb-qline-btns">
+    <div
+      role="search"
+      className={"cb-console" + (showRecents ? " cb-console--recents-open" : "")}
+      style={{
+        "--cb-acc": accent,
+        "--cb-ring": withAlpha(accent, 0.30),
+        "--cb-ink": P.ink,
+        "--cb-ink2": P.ink2,
+        "--cb-faint": P.faint,
+        "--cb-line": P.line,
+        "--cb-line2": P.line2,
+        "--cb-ph": P.dark ? "rgba(242,244,242,0.52)" : "rgba(34,37,42,0.55)",
+        "--cb-well": P.dark ? "rgba(255,255,255,0.038)" : "rgba(22,26,30,0.038)",
+        "--cb-well-br": P.dark ? "rgba(255,255,255,0.13)" : "rgba(22,26,30,0.17)",
+        "--cb-bg": P.bg,
+      }}
+    >
+      <AskModePicker
+        mode={askMode}
+        setMode={(k) => { clickSfx(); setAskMode(k); }}
+        P={P} accent={accent} isMobile={isMobile}
+      />
+      <div className="cb-console-well">
+        <div className="cb-console-field">
+          <input
+            ref={inputRef}
+            className="cb-console-input"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onFocus={() => { setFocused(true); setRecentActive(-1); if (recents.length > 0) setRecentOpen(true); }}
+            onBlur={() => {
+              setFocused(false);
+              // Grace period: a tap on a dropdown item fires mousedown before
+              // blur, so closing immediately would eat the tap.
+              if (blurTimer.current) clearTimeout(blurTimer.current);
+              blurTimer.current = setTimeout(() => setRecentOpen(false), 160);
+            }}
+            onKeyDown={(e) => {
+              if (showRecents && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Escape" || e.key === "Enter")) {
+                e.preventDefault();
+                if (e.key === "ArrowDown") setRecentActive((a) => (a + 1) % recents.length);
+                else if (e.key === "ArrowUp") setRecentActive((a) => (a - 1 + recents.length) % recents.length);
+                else if (e.key === "Escape") { setRecentOpen(false); setRecentActive(-1); }
+                else if (recentActive >= 0) pickRecent(recentActive);
+                else doAsk();
+                return;
+              }
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) doAsk();
+            }}
+            placeholder=""
+            aria-label="Ask a research question"
+            aria-expanded={showRecents}
+            autoComplete="off"
+            spellCheck="true"
+          />
+          {!hasText && (
+            <div aria-hidden="true" className="cb-console-ph" key={mode.key}>
+              {placeholder}
+            </div>
+          )}
+        </div>
+        <div className="cb-console-tools">
           <button
             onClick={() => imageInputRef.current?.click()}
             title="Attach an image" aria-label="Attach an image"
-            className="cb-qline-tool"
+            className="cb-console-tool"
             style={attachedImage ? { color: accent } : undefined}
           ><Icon name="image" size={17} /></button>
           {/* The voice button brings its own 34px square styling; the ghost
-              wrapper gives it the same 40px hit area as its neighbours. */}
-          <span className="cb-qline-mic"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
+              wrapper gives it the same 44px hit area as its neighbours. */}
+          <span className="cb-console-mic"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
           <button
             onClick={doAsk}
             disabled={busy}
-            title="Ask" aria-label={busy ? "Searching" : "Ask"}
-            className="cb-qline-ask"
+            aria-label={busy ? "Searching" : "Ask"}
+            className="cb-console-ask"
           >{busy
-            ? <span className={"cb-qline-ring" + (reduced ? " cb-qline-ring--still" : "")} aria-hidden="true" />
-            : <Icon name="arrowRight" size={18} />}</button>
+            ? <span className={"cb-console-ring" + (reduced ? " cb-console-ring--still" : "")} aria-hidden="true" />
+            : "Ask"}</button>
         </div>
+        {showRecents && (
+          <div className="cb-console-recent" role="listbox" aria-label="Recent questions">
+            <div className="cb-console-recent-k" aria-hidden="true">recent</div>
+            {recents.map((q, i) => (
+              <button
+                key={q + "·" + i}
+                type="button"
+                role="option"
+                aria-selected={i === recentActive}
+                className={"cb-console-recent-item" + (i === recentActive ? " is-active" : "")}
+                onMouseDown={(e) => { e.preventDefault(); pickRecent(i); }}
+                onMouseEnter={() => setRecentActive(i)}
+              >
+                <span className="cb-console-recent-q">{q}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      <div className={"cb-qline-rule" + (focused ? " cb-qline-rule-live" : "")} aria-hidden="true" />
-      <div className="cb-qline-sub" aria-live="polite">
-        {String(input || "").trim() && (
-          <span className="cb-qline-scope" key={"scope:" + mode.key + ":" + evidenceLabel}>
-            <span className="cb-qline-rk">scope</span>
+      <div className="cb-console-foot">
+        {(hasText || entities.length > 0) && (
+          <div className="cb-console-scope" key={"scope:" + mode.key} aria-live="polite">
+            <span className="cb-console-rk">scope</span>
             <span>mode: {mode.label}</span>
-            <span className="cb-qline-sep" aria-hidden="true">·</span>
+            <span className="cb-console-sep" aria-hidden="true">·</span>
             <span>{SCHOLARLY_SOURCES.length} databases</span>
-            <span className="cb-qline-sep" aria-hidden="true">·</span>
-            <span>evidence: {evidenceLabel}</span>
-          </span>
+          </div>
         )}
         {entities.length > 0 && (
-          <span className="cb-qline-reading" key={entities.map((e) => e.kind + e.value).join("|")}>
-            <span className="cb-qline-rk">reading</span>
+          <div className="cb-console-reading" key={entities.map((e) => e.kind + e.value).join("|")}>
+            <span className="cb-console-rk">reading</span>
             {entities.map((e, i) => (
-              <span key={i}><span className="cb-qline-rk">{e.kind}</span>&ensp;{e.value}</span>
+              <span key={i}><span className="cb-console-rk">{e.kind}</span>&ensp;{e.value}</span>
             ))}
-          </span>
+          </div>
         )}
-      </div>
-      {showRecents && (
-        <div className="cb-qline-recent" role="listbox" aria-label="Recent questions">
-          <div className="cb-qline-recent-k" aria-hidden="true">recent</div>
-          {recents.map((q, i) => (
-            <button
-              key={q + "·" + i}
-              type="button"
-              role="option"
-              aria-selected={i === recentActive}
-              className={"cb-qline-recent-item" + (i === recentActive ? " is-active" : "")}
-              onMouseDown={(e) => { e.preventDefault(); pickRecent(i); }}
-              onMouseEnter={() => setRecentActive(i)}
-            >
-              <span className="cb-qline-recent-q">{q}</span>
-            </button>
-          ))}
+        <div className="cb-console-evidence">
+          <EvidenceFilter
+            value={evidenceFilter}
+            onChange={(v) => { clickSfx(); setEvidenceFilter(v); }}
+            P={P} accent={accent} isMobile={isMobile}
+          />
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -2802,15 +2897,27 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
    does to your question; it follows hover and keyboard focus and settles
    on the active mode. aria-pressed, keyboard focusability and the two-row
    mobile wrap are preserved. */
+/* ── AskModePicker: the mode selector ─────────────────────────────────────────
+   Was five floating plates under the query line — five separate controls
+   competing with the input for attention. Now one segmented control fused
+   into the console's header: a single calibrated strip where the active
+   mode is the filled segment and the rest sit quiet. The consequence
+   readout ("you'll get …") stays — it is the honest version of a mode
+   description, restating what the answer will come back as.
+
+   Test contract: tests/ui-render.cjs extracts this function by AST and
+   runs it in a vm whose only globals are React, useEdgeMask, ASK_MODES,
+   Icon, FONT_SIZES, SP, TYPE, RADIUS, STATUS and withAlpha. Keep the
+   top-level FunctionDeclaration name, use React.useState (never the bare
+   hook), touch only those globals, and keep CONSEQUENCES falling back to
+   the mode's own blurb. */
 function AskModePicker({ mode, setMode, P, accent, isMobile }) {
-  /* React.useState, not the bare hook, and the consequence map lives
-     inside the function body: tests/ui-render.cjs extracts this function
-     by AST and runs it in a vm whose only global is React. */
   const [hoverKey, setHoverKey] = React.useState(null);
-  /* The consequence line under the plates. Each line is a plain restatement
+  /* The consequence line under the strip. Each line is a plain restatement
      of that mode's own blurb — what you get for the question you are about
      to ask. Deterministic; no backend claims beyond what the mode already
-     promises. Keys must stay in sync with ASK_MODES. */
+     promises. Falls back to the blurb so modes the map doesn't name (and
+     the test's two-mode ASK_MODES mock) still read sensibly. */
   const CONSEQUENCES = {
     explain: "An explanation of how it works, built from published research",
     verify: "A verdict with confidence + dissenting papers",
@@ -2821,19 +2928,21 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
   const active = ASK_MODES.find((m) => m.key === mode) || ASK_MODES[0];
   const preview = ASK_MODES.find((m) => m.key === hoverKey) || active;
   return (
-
-    <div role="group" aria-label="What do you want to do?">
-      <div
-        className="cb-modeplates"
-        style={{
-          display: "flex", gap: 7, marginTop: 14, marginBottom: 4,
-          /* Plates wrap to two rows on a phone instead of scrolling. A
-             horizontal scroller hides modes behind a gesture nobody is
-             told about — two visible rows beat one hidden one. */
-          flexWrap: "wrap", justifyContent: "center", rowGap: 7,
-          width: "100%", maxWidth: "100%", padding: "2px 0",
-        }}
-      >
+    <div
+      role="group"
+      aria-label="What do you want to do?"
+      className="cb-msegwrap"
+      style={{
+        "--cb-acc": accent,
+        "--cb-ink": P.ink,
+        "--cb-ink2": P.ink2,
+        "--cb-faint": P.faint,
+        "--cb-line": P.line,
+        "--cb-bg": P.bg,
+        "--cb-seg": P.dark ? "rgba(255,255,255,0.030)" : "rgba(22,26,30,0.045)",
+      }}
+    >
+      <div className="cb-mseg">
         {ASK_MODES.map((m) => {
           const on = mode === m.key;
           const hovered = hoverKey === m.key;
@@ -2848,22 +2957,10 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
               onBlur={() => setHoverKey(null)}
               title={m.blurb}
               aria-pressed={on}
-              className="cb-modeplate"
-              style={{
-                display: "inline-flex", alignItems: "baseline", gap: 8, flexShrink: 0,
-                /* 44px touch target on a phone (was ~36px). Desktop keeps
-                   the tighter plate. */
-                padding: isMobile ? "13px 16px" : "9px 14px", borderRadius: 10, cursor: "pointer",
-                fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
-                fontFamily: "var(--cb-font)", letterSpacing: "-0.005em",
-                background: on ? withAlpha(accent, 0.30) : "transparent",
-                color: on ? P.ink : P.faint,
-                border: `1px solid ${on ? withAlpha(accent, 0.55) : P.line}`,
-                transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.18s ease",
-                transform: hovered && !on ? "translateY(-1px)" : "none",
-              }}
+              className={"cb-mseg-btn" + (on ? " is-on" : "") + (hovered && !on ? " is-hover" : "")}
             >
-              {m.label}
+              <Icon name={m.icon} size={13} />
+              <span>{m.label}</span>
             </button>
           );
         })}
@@ -2871,15 +2968,12 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
       {/* One live consequence line: follows hover/focus, settles on the
           active mode. The inner span is keyed so its entrance replays on
           every swap. */}
-      <div className="cb-modepreview" aria-live="polite"
-        style={{ color: P.dark ? "rgba(242,244,242,0.72)" : "rgba(34,37,42,0.72)" }}>
-        <span className="cb-modepreview-key"
-          style={{ color: P.dark ? "rgba(242,244,242,0.55)" : "rgba(34,37,42,0.55)" }}>you&rsquo;ll get</span>
-        <span className="cb-modepreview-text" key={preview.key}>
+      <div className="cb-mseg-readout" aria-live="polite">
+        <span className="cb-mseg-rk">you&rsquo;ll get</span>
+        <span className="cb-mseg-rt" key={preview.key}>
           {CONSEQUENCES[preview.key] || preview.blurb}
         </span>
       </div>
-
     </div>
   );
 }
@@ -26458,20 +26552,14 @@ function App() {
                   signature, not a reward for having an empty account.
                   When the user has work in progress, it renders compact
                   so the composer stays the focal point. */}
-              <>
-                <div style={{ ...S.heroMark, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: deckHasContent ? 8 : undefined }}>
-                  {deckHasContent ? null : (
-                    <span aria-hidden="true" className="cb-hero-ring" style={{ position: "absolute", width: 74, height: 74, borderRadius: "50%", border: `1px solid ${withAlpha(accent, 0.4)}` }} />
-                  )}
-                  <Mark size={deckHasContent ? 32 : 44} accent={accent} glow={P.dark} />
-                </div>
-                {deckHasContent ? null : (
-                  <>
-                    <h1 style={S.heroTitle} className="cb-text-reveal"><KineticText text="Cerebrum" /></h1>
-                    <p style={S.heroSub}>Ask a real research question. Every claim traces to a paper you can open.</p>
-                  </>
-                )}
-              </>
+              {/* The brand as an engraved instrument plate, not a marketing
+                  hero — see SearchNameplate. The mark stays the signature;
+                  the mode window reports the active ask mode and the ring
+                  brightens while the question field holds focus. */}
+              <SearchNameplate
+                P={P} accent={accent} askMode={askMode}
+                focused={composerFocused} compact={deckHasContent}
+              />
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               {attachedImage && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 10px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8, maxWidth: "fit-content" }}>
@@ -26494,74 +26582,49 @@ function App() {
                   textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
                 }}>{composerPrompt}</h2>
               )}
-              {/* The pill search bar is gone — see SignalComposer. The question
-                  is the object: one hairline rule, and the line reads what
-                  you type as you type it. */}
+              {/* The console: mode selector, question well and readout fused
+                  into one instrument — see SignalComposer. */}
               <SignalComposer
                 input={input} setInput={setInput} inputRef={inputRef}
                 ask={ask} busy={busy}
-                askMode={askMode} isMobile={isMobile}
+                askMode={askMode} setAskMode={setAskMode} isMobile={isMobile}
                 accent={accent} P={P}
                 imageInputRef={imageInputRef} attachedImage={attachedImage}
                 focused={composerFocused} setFocused={setComposerFocused}
                 recentQuestions={history.slice(0, 6).map((h) => h.title || (h.turns && h.turns[0] && h.turns[0].q)).filter(Boolean)}
-                evidenceLabel={(EVIDENCE_TIERS.find((t) => t[0] === evidenceFilter) || EVIDENCE_TIERS[0])[1]}
+                evidenceFilter={evidenceFilter} setEvidenceFilter={setEvidenceFilter} sfx={sfx}
               />
-              {/* Commit 83 — verbs, not suggested questions. See ASK_MODES. */}
-              <AskModePicker mode={askMode} setMode={setAskMode} P={P} accent={accent} isMobile={isMobile} />
-              {/* The mode blurb stays on desktop, where there is room for a
-                  line of explanation. On a phone the active pill already
-                  names the mode — a third line of text under the pills was
-                  pure vertical weight, so mobile drops it. */}
-              {isMobile ? null : (
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 8, marginBottom: 2, textAlign: "center", minHeight: 15, lineHeight: 1.4 }}>
-                {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
-              </div>
-              )}
               {/* Mode-aware "Try asking" examples. The verb pills stay the
                   primary control (see Commit 83) — but a first-time visitor
                   staring at an empty composer gets a starting point in the
                   current mode's voice. Clicking fills the composer so the
                   question can be edited before asking. Hidden while typing. */}
-              {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (isMobile ? (
-                /* Mobile: a swipeable example carousel, one row tall. Three
-                   full-width stacked chips were three rows of chrome before
-                   the deck; the swipe row keeps every example reachable in
-                   the height of one. */
-                <div className="cb-try-examples" style={{ width: "100%", maxWidth: 820, marginTop: 10 }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px 4px" }}>Try</div>
-                  <div className="cb-scroll-x" style={{ display: "flex", gap: 8, flexWrap: "nowrap", overflowX: "auto", scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", padding: "2px 4px 6px" }}>
-                    {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2).map((ex) => (
-                      <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
-                        style={{ minHeight: 44,
-                          flex: "0 0 82%", scrollSnapAlign: "center",
-                          padding: "9px 14px", borderRadius: 100, cursor: "pointer",
-                          background: withAlpha(accent, 0.07), border: `1px solid ${withAlpha(accent, 0.22)}`, color: P.ink2,
-                          fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        }}
-                      >{ex}</button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="cb-try-examples" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8, flexWrap: "wrap", maxWidth: 820, padding: "0 8px" }}>
-                  <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", flexShrink: 0 }}>Try</span>
-                  {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2).map((ex) => (
-                    <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
-                      style={{
-                        padding: isMobile ? "7px 12px" : "8px 14px", borderRadius: 100, cursor: "pointer",
-                        background: withAlpha(accent, 0.07), border: `1px solid ${withAlpha(accent, 0.22)}`, color: P.ink2,
-                        fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
-                        transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
-                        maxWidth: isMobile ? "100%" : 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.15); e.currentTarget.style.borderColor = withAlpha(accent, 0.45); e.currentTarget.style.color = P.ink; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.07); e.currentTarget.style.borderColor = withAlpha(accent, 0.22); e.currentTarget.style.color = P.ink2; }}
-                    >{ex}</button>
+              {/* Commit 82 — mode-aware "Try asking" examples, rewritten as
+                  "starter questions". Pills made the examples feel like a
+                  casino of options; numbered keys make them feel like a
+                  curated index — two real questions worth asking, keyed
+                  01 and 02, set as full lines that wrap. Clicking fills
+                  the console so the question can be edited before asking.
+                  Hidden while typing. Keyed by mode so the swap has a
+                  small entrance (see the cb-starter styles). */}
+              {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (
+                <div
+                  className="cb-starter"
+                  key={"starter:" + askMode}
+                  style={{ width: "100%", maxWidth: 820, marginTop: 14, "--cb-ink2": P.ink2, "--cb-faint": P.faint, "--cb-line": P.line, "--cb-acc": accent }}
+                >
+                  <div className="cb-starter-k">starter questions</div>
+                  {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2).map((ex, i) => (
+                    <button key={ex} type="button" className="cb-starter-item"
+                      onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }}
+                      title={`Ask: ${ex}`}
+                    >
+                      <span className="cb-starter-num" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
+                      <span className="cb-starter-q">{ex}</span>
+                    </button>
                   ))}
                 </div>
-              ))}
+              )}
               {/* Guided tour launcher: stable home under the composer. It
                   used to live inside the mobile example carousel's
                   empty-input branch, so it vanished with typed input, on
@@ -26573,32 +26636,10 @@ function App() {
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", textDecoration: "underline", textUnderlineOffset: 3 }}
                 >Show me around</button>
               </div>
-              {/* ══════════════════════════════════════════════════════
-                  Commit 87 — the evidence filter is a disclosure now.
-
-                  Counting the chrome a signed-in person met before seeing
-                  a single thing of their own: search bar, five verb pills,
-                  a line of explanatory text under them, and then four
-                  evidence chips. Four stacked rows of controls, roughly
-                  190px, before the first card. Three of those rows are
-                  things you use on most searches. This one is not: an
-                  evidence-tier constraint is set BEFORE typing, which
-                  almost nobody does, and it was holding prime vertical
-                  space on every visit for a rare action.
-
-                  It is not gone — narrowing to systematic reviews is one
-                  of the genuinely instrument-like things this app can do,
-                  and hiding it entirely would be worse. It is one line
-                  that states the current setting and opens the chips when
-                  you want them, and it announces itself when the filter is
-                  NOT the default, which is the state that actually needs
-                  to be visible.
-                  ══════════════════════════════════════════════════════ */}
-              <EvidenceFilter
-                value={evidenceFilter}
-                onChange={(v) => { sfx(); setEvidenceFilter(v); }}
-                P={P} accent={accent} isMobile={isMobile}
-              />
+              {/* The evidence filter now docks in the console footer (see
+                  SignalComposer) — one line stating the current setting,
+                  opening the chips on demand, announcing itself when it is
+                  NOT the default. It no longer holds its own row here. */}
               </div>
 
               {/* Commit 66 — the Home Deck replaces the loose stack of
@@ -27938,213 +27979,340 @@ summary::-webkit-details-marker { display: none; }
    (The old pill's scan/dots styles were removed with the query-line
    redesign; the query line carries its own reading/busy states.) */
 
-/* ── SignalComposer: the query line ──
-   No box, no glow, no oscilloscope. The question is the object: large
-   calm type over a single hairline rule. Focus grows a 2px accent line
-   out from the centre; the reading line beneath shows the live parse. */
+/* ── Search: the question console ───────────────────────────────────
+   The old surface was two separate chrome systems around the question: a
+   bare hairline query line, then five floating mode plates, then a blurb,
+   then a disclosed evidence filter — a stack of controls competing with
+   the question itself. This rebuild fuses them into one instrument:
+
+     plate    — the brand as an engraved instrument plate (name in tracked
+                caps, slogan as the specification line, mode window live)
+     strip    — the five modes as one segmented control, not five plates
+     well     — the question field: inset, refined border, intentional
+                focus ring (per the design review)
+     footer   — a persistent readout: scope, the live parse, the
+                evidence filter docked where it belongs
+
+   Motion stays transform/opacity only. All type stays on the single
+   var(--cb-font) face. */
+
 @keyframes cbSignalIn {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: none; }
 }
-.cb-qline {
-  --cb-acc: #a3b899;
-  /* Relative: the recent-questions deck anchors to this box. */
-  position: relative;
-  width: 100%; max-width: 760px; margin: 0 auto;
-  animation: cbSignalIn 0.8s var(--cb-ease) both;
+/* (cbSignalIn is shared with the ReadingRoom loading state below — it
+   stays defined here so that instrument keeps its entrance.) */
+@keyframes cbConsoleIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
 }
-.cb-qline-row {
-  display: flex; align-items: center; gap: 12px;
-  /* A slightly inset surface for the instrument: quiet paper, not a box
-     shouting for attention. The hairline rule below stays the voice. */
-  background: rgba(255,255,255,0.028);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 16px;
-  padding: 4px 8px 4px 18px;
-}
-.cb-qline--light .cb-qline-row { background: rgba(34,37,42,0.028); border-color: rgba(34,37,42,0.12); }
-.cb-qline-input {
-  flex: 1; min-width: 0;
-  background: transparent; border: none; outline: none;
-  color: #f2f4f2;
-  font-family: var(--cb-font); font-weight: 500;
-  font-size: clamp(20px, 2.8vw, 28px);
-  letter-spacing: -0.015em; line-height: 1.35;
-  padding: 12px 0;
-  caret-color: var(--cb-acc);
-}
-.cb-qline-input::placeholder { color: rgba(242,244,242,0.58); }
-/* The rule below is the focus indicator, so the input suppresses the
-   global :focus-visible ring — otherwise the ring draws a second
-   rectangle inside the instrument. */
-.cb-qline-input:focus-visible { outline: none; box-shadow: none; }
-.cb-qline-btns {
-  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
-}
-/* Ghost tools: no circles, no borders — just the glyph, present on hover. */
-.cb-qline-tool {
-  width: 44px; height: 44px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; border: none; cursor: pointer;
-  color: rgba(242,244,242,0.48);
-  transition: color 0.2s ease, background 0.2s ease;
-}
-.cb-qline-tool:hover { color: rgba(242,244,242,0.92); background: rgba(255,255,255,0.06); }
-.cb-qline-mic {
-  width: 44px; height: 44px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: rgba(242,244,242,0.48);
-  transition: color 0.2s ease, background 0.2s ease;
-}
-.cb-qline-mic:hover { color: rgba(242,244,242,0.92); background: rgba(255,255,255,0.06); }
-.cb-qline-mic .cb-hbtn:hover:not(:disabled) { background: transparent !important; }
-/* The ask button: a quiet ring that fills on hover. Poised, not magnetic. */
-.cb-qline-ask {
-  width: 46px; height: 46px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; border: 1px solid rgba(255,255,255,0.24);
-  color: #f2f4f2; cursor: pointer; flex-shrink: 0;
-  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
-}
-.cb-qline-ask:hover:not(:disabled) { background: var(--cb-acc); border-color: var(--cb-acc); color: #11140f; }
-.cb-qline-ask:disabled { opacity: 0.55; cursor: default; }
-/* The ask button in flight: the ring breathes outward from the centre —
-   the question radiating out, not a wheel idling in place. Still when
-   reduced motion is on (see the .cb-qline-ring--still modifier and the
-   reduced-motion block below). */
-.cb-qline-ring {
-  width: 14px; height: 14px; border-radius: 50%;
-  border: 2px solid var(--cb-acc);
-  animation: cbQlineRing 1.3s var(--cb-ease) infinite;
-}
-@keyframes cbQlineRing {
-  0%   { transform: scale(0.55); opacity: 0.9; }
-  70%  { transform: scale(1.15); opacity: 0.15; }
-  100% { transform: scale(1.15); opacity: 0; }
-}
-.cb-qline-ring--still { animation: none; transform: scale(0.85); opacity: 0.7; }
-/* The rule is the instrument: one hairline, a 2px accent that grows from
-   the centre on focus. */
-.cb-qline-rule { position: relative; height: 1px; background: rgba(255,255,255,0.16); margin-top: 2px; }
-.cb-qline-rule::after {
-  content: ""; position: absolute; left: 0; right: 0; top: -0.5px; height: 2px;
-  background: var(--cb-acc);
-  transform: scaleX(0);
-  transition: transform 0.45s var(--cb-ease);
-}
-.cb-qline-rule-live::after { transform: scaleX(1); }
-/* The reading line: one hushed row. Kind in tracked-out small caps, value
-   in plain text. It appears only while there is something to show; the
-   fixed min-height keeps the layout from jumping as you type. */
-.cb-qline-sub { min-height: 24px; margin-top: 8px; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
-.cb-qline-reading {
-  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
-  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.03em;
-  color: rgba(242,244,242,0.5);
-  animation: cbReadingIn 0.35s ease both;
+@keyframes cbPhIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 @keyframes cbReadingIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
-.cb-qline-rk { font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(242,244,242,0.34); }
-/* The scope line: while you type, the line states the exact terms of the
-   question you are about to fire — mode, database count, evidence tier —
-   all real state, never decoration. */
-.cb-qline-scope {
-  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.03em;
-  color: rgba(242,244,242,0.62);
-  animation: cbReadingIn 0.35s ease both;
-}
-.cb-qline-sep { color: rgba(242,244,242,0.28); }
-/* ── Light-palette variant ──
-   The query line's resting colors assume a dark surface; on the Light
-   palette they were invisible (~1.03:1). Every hardcoded-light selector
-   above gets a graphite twin. The recent-questions deck is deliberately
-   an opaque dark sheet and is untouched. */
-.cb-qline--light .cb-qline-input { color: #22252a; }
-.cb-qline--light .cb-qline-input::placeholder { color: rgba(34,37,42,0.66); }
-.cb-qline--light .cb-qline-rule { background: rgba(34,37,42,0.16); }
-.cb-qline--light .cb-qline-tool, .cb-qline--light .cb-qline-mic { color: rgba(34,37,42,0.5); }
-.cb-qline--light .cb-qline-tool:hover, .cb-qline--light .cb-qline-mic:hover { color: #22252a; background: rgba(0,0,0,0.05); }
-.cb-qline--light .cb-qline-ask { border-color: rgba(34,37,42,0.28); color: #22252a; }
-.cb-qline--light .cb-qline-reading { color: rgba(34,37,42,0.55); }
-.cb-qline--light .cb-qline-scope { color: rgba(34,37,42,0.66); }
-.cb-qline--light .cb-qline-rk { color: rgba(34,37,42,0.45); }
-.cb-qline--light .cb-qline-sep { color: rgba(34,37,42,0.35); }
-/* ── Recent-questions deck ──
-   Drops from the query line on focus. Renders only when there is history
-   to show — no history, no dropdown, no empty box. Items are 44px buttons
-   so the touch targets stay honest on a phone. */
-.cb-qline-recent {
-  position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 60;
-  padding: 8px 0 6px;
-  /* Solid, not translucent: the 0.94-alpha + backdrop-blur let the
-     suggestion chips and HomeDeck text ghost through from underneath,
-     reading as one smeared layer. The open panel is a single clean
-     opaque sheet above everything else. */
-  background: #0d100d;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
-  animation: cbReadingIn 0.25s ease both;
-}
-/* While the panel is open it lifts the whole composer above the
-   suggestion chips / HomeDeck below (they paint later in DOM order, so
-   without this they can composite above the panel), and the chip
-   carousel hides entirely — one layer, no collision. */
-.cb-qline--recents-open { z-index: 60; }
-.cb-qline--recents-open ~ .cb-try-examples { display: none !important; }
-.cb-qline-recent-k {
-  padding: 4px 18px 6px;
-  font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase;
-  color: rgba(242, 244, 242, 0.34);
-}
-.cb-qline-recent-item {
-  display: flex; align-items: center; width: 100%;
-  min-height: 44px; padding: 8px 18px;
-  background: transparent; border: none; cursor: pointer;
-  color: rgba(242, 244, 242, 0.82);
-  font-family: var(--cb-font); font-size: 14px; text-align: left;
-}
-.cb-qline-recent-item:hover, .cb-qline-recent-item.is-active {
-  background: rgba(255, 255, 255, 0.06); color: #f2f4f2;
-}
-.cb-qline-recent-q {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-/* ── AskModePicker: numbered index plates ──
-   Plates carry a mono index numeral; the consequence line beneath swaps
-   on hover/focus. Fixed min-height so the "Try" examples below never
-   jump when the line swaps. */
-.cb-modeplate-idx {
-  font-family: var(--cb-font); font-size: 10.5px; letter-spacing: 0.1em;
-}
-.cb-modepreview {
-  min-height: 15px; margin-top: 9px; margin-bottom: 2px; text-align: center;
-  font-size: 11px; line-height: 1.4; color: rgba(242, 244, 242, 0.72);
-  font-family: var(--cb-font);
-}
-.cb-modepreview-key {
-  font-family: var(--cb-font); font-size: 9.5px; letter-spacing: 0.22em;
-  text-transform: uppercase; color: rgba(242, 244, 242, 0.55);
-  margin-right: 8px;
-}
-.cb-modepreview-text { animation: cbReadingIn 0.3s ease both; display: inline-block; }
 
-/* ── 375px audit: touch targets + keyboard-open composer ──
-   The composer's ghost tools and the ask button were 40px — under the
-   44px touch rule — and the mode plates measured ~38px tall. On a phone
-   the dropdown could also run under the iOS keyboard with no way to
-   reach the lower items. All three are phone-only adjustments; desktop
-   keeps its tighter metrics. */
+/* ── The plate ── */
+.cb-plate {
+  --cb-acc: #a3b899;
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center;
+  margin: 0 auto 24px;
+  animation: cbConsoleIn 0.7s var(--cb-ease) both;
+}
+.cb-plate--compact { margin-bottom: 16px; }
+.cb-plate-mark {
+  position: relative; display: inline-flex;
+  padding: 9px; border-radius: 50%;
+}
+.cb-plate-mark::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--cb-acc) 30%, transparent);
+  transition: border-color 0.45s ease;
+}
+.cb-plate-mark.is-live::after {
+  border-color: color-mix(in srgb, var(--cb-acc) 80%, transparent);
+}
+.cb-plate-name {
+  font-family: var(--cb-font); font-size: 15px; font-weight: 600;
+  letter-spacing: 0.42em; text-indent: 0.42em; text-transform: uppercase;
+  color: var(--cb-ink); margin-top: 14px;
+  /* Slightly thicker than body so the small tracked caps stay legible. */
+}
+.cb-plate--compact .cb-plate-name { margin-top: 10px; font-size: 13px; }
+.cb-plate-mode {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px; min-height: 16px;
+  font-family: var(--cb-font); font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.28em; text-indent: 0.1em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--cb-acc) 82%, var(--cb-ink));
+}
+.cb-plate-mode-tick {
+  width: 18px; height: 1px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--cb-acc) 45%, transparent);
+}
+.cb-plate-mode-label { animation: cbReadingIn 0.3s ease both; display: inline-block; }
+.cb-plate-spec {
+  margin: 12px 0 0; max-width: 540px; padding: 0 20px;
+  font-family: var(--cb-font); font-size: 13.5px; font-weight: 500;
+  line-height: 1.65; color: var(--cb-ink2);
+}
+
+/* ── The console ── */
+.cb-console {
+  --cb-acc: #a3b899;
+  position: relative;
+  width: 100%; max-width: 760px; margin: 0 auto;
+  border: 1px solid var(--cb-line2);
+  border-radius: 20px;
+  /* A lifted instrument surface: a wash of the ink color, so it reads on
+     every palette without a hard-coded fill. */
+  background: color-mix(in srgb, var(--cb-ink) 4%, transparent);
+  animation: cbConsoleIn 0.7s var(--cb-ease) 0.08s both;
+  transition: border-color 0.3s ease;
+}
+.cb-console:focus-within { border-color: color-mix(in srgb, var(--cb-acc) 65%, transparent); }
+
+/* ── The mode strip: one segmented control, not five plates ── */
+.cb-msegwrap { padding: 12px 12px 0; }
+.cb-mseg {
+  display: flex; gap: 2px; padding: 3px;
+  border: 1px solid var(--cb-line);
+  border-radius: 13px;
+  background: var(--cb-seg);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.cb-mseg::-webkit-scrollbar { display: none; }
+.cb-mseg-btn {
+  flex: 1 1 0; min-width: 0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 44px; padding: 8px 10px;
+  border: 0; border-radius: 10px; background: transparent; cursor: pointer;
+  color: var(--cb-faint); font-family: var(--cb-font);
+  font-size: 12.5px; font-weight: 600; letter-spacing: 0.03em;
+  white-space: nowrap;
+  transition: color 0.25s ease, background 0.25s ease;
+}
+.cb-mseg-btn svg { flex-shrink: 0; }
+.cb-mseg-btn.is-hover:not(.is-on) {
+  color: var(--cb-ink2);
+  background: color-mix(in srgb, var(--cb-ink) 6%, transparent);
+}
+/* The active mode is the filled segment — inverted ink on the console
+   surface, so it holds on every palette and the inactive four go quiet. */
+.cb-mseg-btn.is-on {
+  background: var(--cb-ink);
+  color: var(--cb-bg);
+  font-weight: 700;
+}
+.cb-mseg-readout {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 9px 16px 0; margin: 0; min-height: 30px;
+  font-family: var(--cb-font); font-size: 12px; line-height: 1.45;
+}
+.cb-mseg-rk {
+  font-size: 9.5px; font-weight: 600; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--cb-faint); flex-shrink: 0;
+}
+.cb-mseg-rt { color: var(--cb-ink2); animation: cbReadingIn 0.3s ease both; }
+
+/* ── The question well ── */
+.cb-console-well {
+  position: relative;
+  display: flex; align-items: stretch;
+  margin: 10px 12px 0;
+  border: 1px solid var(--cb-well-br);
+  border-radius: 14px;
+  background: var(--cb-well);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.14);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.cb-console:focus-within .cb-console-well {
+  border-color: color-mix(in srgb, var(--cb-acc) 70%, transparent);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.14), 0 0 0 3px var(--cb-ring);
+}
+.cb-console-field { position: relative; flex: 1 1 auto; min-width: 0; }
+.cb-console-input {
+  width: 100%; height: 100%; min-height: 66px;
+  border: 0; background: transparent; outline: none; border-radius: 0;
+  padding: 18px 8px 18px 18px;
+  font-family: var(--cb-font); font-size: 17px; font-weight: 500;
+  line-height: 1.5; color: var(--cb-ink);
+  caret-color: var(--cb-acc);
+}
+/* The placeholder is an overlay, not the input's placeholder attribute:
+   it crossfades on every mode switch (keyed by mode in the component),
+   sits exactly on the input's text metrics, and never intercepts taps. */
+.cb-console-ph {
+  position: absolute; inset: 0;
+  display: flex; align-items: center;
+  padding: 0 18px;
+  font-family: var(--cb-font); font-size: 17px; font-weight: 500; line-height: 1.5;
+  color: var(--cb-ph);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none; user-select: none;
+  animation: cbPhIn 0.45s ease both;
+}
+.cb-console-tools {
+  display: flex; align-items: center; gap: 2px; flex-shrink: 0;
+  padding: 6px 8px 6px 2px;
+}
+.cb-console-tool {
+  width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: 12px; cursor: pointer;
+  color: var(--cb-faint);
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.cb-console-tool:hover { color: var(--cb-ink); background: color-mix(in srgb, var(--cb-ink) 7%, transparent); }
+/* The voice button brings its own 34px square; the wrapper centers it in
+   the same 44px row as its neighbours. */
+.cb-console-mic {
+  width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+/* The ASK key: inverted ink, the same language as the active segment. */
+.cb-console-ask {
+  min-width: 68px; height: 44px; padding: 0 18px; margin-left: 2px;
+  border: 0; border-radius: 12px; cursor: pointer;
+  background: var(--cb-ink); color: var(--cb-bg);
+  font-family: var(--cb-font); font-size: 14px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform 0.15s ease, opacity 0.2s ease;
+}
+.cb-console-ask:hover:not(:disabled) { transform: translateY(-1px); }
+.cb-console-ask:active:not(:disabled) { transform: none; }
+.cb-console-ask:disabled { opacity: 0.75; cursor: default; }
+.cb-console-ring {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--cb-acc) 35%, transparent);
+  border-top-color: var(--cb-acc);
+  animation: cbspin 0.9s linear infinite;
+}
+.cb-console-ring--still { animation: none; border-top-color: color-mix(in srgb, var(--cb-acc) 35%, transparent); }
+
+/* ── The footer readout ── */
+.cb-console-foot {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px;
+  padding: 10px 16px 13px; margin: 0;
+}
+.cb-console-scope, .cb-console-reading {
+  display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  font-family: var(--cb-font); font-size: 11.5px; line-height: 1.5;
+  color: var(--cb-faint);
+  animation: cbReadingIn 0.3s ease both;
+}
+.cb-console-reading { color: var(--cb-ink2); }
+.cb-console-rk {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase;
+}
+.cb-console-sep { opacity: 0.5; }
+/* The evidence filter docks here: it keeps its own disclosure behavior,
+   the footer just parks it at the row's end and drops its old top margin. */
+.cb-console-evidence { margin-left: auto; display: flex; align-items: center; }
+.cb-console-evidence > div { margin-top: 0 !important; }
+
+/* ── Recent questions, docked to the well ── */
+.cb-console-recent {
+  position: absolute; top: calc(100% + 8px); left: -1px; right: -1px; z-index: 60;
+  border: 1px solid var(--cb-line2); border-radius: 14px;
+  background: var(--cb-bg);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.30);
+  padding: 8px;
+  animation: cbConsoleIn 0.22s ease both;
+}
+.cb-console-recent-k {
+  padding: 6px 12px 4px;
+  font-family: var(--cb-font); font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--cb-faint);
+}
+.cb-console-recent-item {
+  display: block; width: 100%; text-align: left;
+  min-height: 44px; padding: 10px 12px;
+  border: 0; border-radius: 10px; background: transparent; cursor: pointer;
+  color: var(--cb-ink2); font-family: var(--cb-font);
+  font-size: 14px; font-weight: 500; line-height: 1.4;
+}
+.cb-console-recent-item.is-active {
+  background: color-mix(in srgb, var(--cb-ink) 7%, transparent);
+  color: var(--cb-ink);
+}
+.cb-console-recent-q {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* While the recents are open the starter questions stand down — one
+   layer, no collision. */
+.cb-console--recents-open ~ .cb-starter { display: none !important; }
+
+/* ── Starter questions: a curated index, not a casino of pills ── */
+.cb-starter { animation: cbConsoleIn 0.5s var(--cb-ease) 0.12s both; }
+.cb-starter-k {
+  font-family: var(--cb-font); font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.24em; text-transform: uppercase;
+  color: var(--cb-faint); margin: 0 0 2px 4px;
+}
+.cb-starter-item {
+  display: flex; align-items: baseline; gap: 12px; width: 100%;
+  text-align: left; padding: 11px 4px; min-height: 44px;
+  background: none; border: 0; border-bottom: 1px solid var(--cb-line);
+  cursor: pointer; font-family: var(--cb-font);
+}
+.cb-starter-item:last-child { border-bottom: 0; }
+.cb-starter-num {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--cb-acc); flex-shrink: 0; transform: translateY(1px);
+}
+.cb-starter-q {
+  font-size: 14.5px; font-weight: 500; line-height: 1.5; color: var(--cb-ink2);
+  transition: color 0.2s ease;
+}
+.cb-starter-item:hover .cb-starter-q { color: var(--cb-ink); }
+
+/* Shared keyboard focus: the well's ring covers the input; everything
+   else gets a plain 2px outline. */
+.cb-mseg-btn:focus-visible,
+.cb-console-tool:focus-visible,
+.cb-console-ask:focus-visible,
+.cb-starter-item:focus-visible,
+.cb-console-recent-item:focus-visible {
+  outline: 2px solid var(--cb-acc);
+  outline-offset: 2px;
+}
+
+/* ── Small screens: the instrument compresses, never clips ── */
 @media (max-width: 480px) {
-  .cb-qline-tool, .cb-qline-mic { width: 44px; height: 44px; }
-  .cb-qline-ask { width: 48px; height: 48px; }
-  .cb-qline-recent {
+  .cb-plate { margin-bottom: 18px; }
+  .cb-plate-spec { font-size: 13px; }
+  .cb-console-input, .cb-console-ph { font-size: 16px; }
+  .cb-console-input { min-height: 60px; padding: 14px 6px 14px 16px; }
+  .cb-console-ph { padding: 0 16px; }
+  /* Five segments stay one row and scroll rather than crush: every mode
+     stays reachable at 44px, none wraps or clips. */
+  .cb-mseg-btn { flex: 0 0 auto; font-size: 12px; padding: 8px 12px; }
+  .cb-mseg-btn svg { display: none; }
+  .cb-console-recent {
     max-height: min(44vh, 320px);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
+  .cb-console-foot { padding: 8px 14px 11px; gap: 6px 12px; }
+  .cb-console-ask { min-width: 60px; padding: 0 14px; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .cb-console, .cb-plate, .cb-console-ph, .cb-console-recent,
+  .cb-mseg-rt, .cb-console-scope, .cb-console-reading, .cb-starter,
+  .cb-plate-mode-label { animation: none; }
+  .cb-console-ring { animation: none; }
+  .cb-plate-mark::after, .cb-console-well, .cb-mseg-btn,
+  .cb-console-tool, .cb-console-ask, .cb-starter-q { transition: none; }
+}
+
 
 /* ── EchoField: the loading screen as a signal in flight ──
    The transmitted pulse propagates outward through the fifteen database
@@ -28481,12 +28649,9 @@ body.cb-motion-off .cb-row::before { animation: none !important; transition: non
   50% { transform: translateX(-46%) translateY(18px) scale(1.08); opacity: 1; }
 }
 
-/* ── Soft pulsing ring behind the hero mark ── */
-.cb-hero-ring { animation: cbRingPulse 3.6s ease-in-out infinite; }
-@keyframes cbRingPulse {
-  0%, 100% { transform: scale(1); opacity: 0.5; }
-  50% { transform: scale(1.16); opacity: 0.15; }
-}
+/* (The plate draws its own ring via .cb-plate-mark::after, which brightens
+   while the question field holds focus — the old .cb-hero-ring span is
+   gone with the marketing hero.) */
 
 /* ── Stagger cascade ──
    The container supplies per-item delays only; each child brings its own
@@ -28625,10 +28790,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-iris-veil { display: none; }
   .cb-threshold-veil { display: none; }
   .cb-trace-chip { animation: none; }
-  .cb-qline, .cb-echo { animation: none; }
-  .cb-qline-reading { animation: none; }
-  .cb-qline-ring { animation: none; }
-  .cb-qline-scope, .cb-modepreview-text { animation: none; }
+  .cb-echo { animation: none; }
   .cb-echo-cursor { animation: none; display: none; }
   .cb-answer-enter { animation: cbFade 180ms ease both; }
   /* Intro: the hero arrives without motion; the handoff bridge dissolves
@@ -29397,13 +29559,14 @@ button, a {
 .cb-intro-go:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 4px 16px rgba(0,0,0,0.18); }
 @media (pointer: coarse) {
   .cb-hbtn, .cb-intro-navlink { min-height: 44px; min-width: 44px; }
-  .cb-qline-input { font-size: 16px; }
+  /* (The console input is 17px desktop / 16px on small screens — never
+     under the 16px iOS zoom threshold — so no override is needed here.)
   /* Touch targets: icon buttons designed at 28-36px get bumped to the
      44px minimum on touch devices. Desktop keeps the designed sizes. */
   button { min-width: 44px; min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-stagger > *, .cb-hero-ring, .cb-hero-glow { animation: none !important; opacity: 1; }
+  .cb-stagger > *, .cb-hero-glow { animation: none !important; opacity: 1; }
   .cb-card, .cb-intro-go { transition: none; }
 }
 
