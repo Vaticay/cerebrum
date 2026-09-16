@@ -522,22 +522,37 @@ export async function decryptThreadMessages({ messages, myDeviceId, peerUserId }
     gDecryptCache.set(m.id, result.e2ee);
     out.push(result);
   }
-  // Collapse the sender's fan-out: my N rows for one send share a mid —
-  // the first renders, the rest are skipped, so one send is one bubble.
+  // Collapse the sender's fan-out AND kill replays. Own echoes collapse by
+  // mid alone (one send, one bubble — the fan-out rows address different
+  // devices but are the same logical message). Incoming rows dedupe by
+  // (sender, recipient, mid): a replayed envelope repeats all three, so it
+  // collapses instead of rendering twice. (Olm has no replay protection —
+  // the dedup has to happen here, not in the crypto.)
   const seenMids = new Set();
   return out.map((msg) => {
     const e = msg.e2ee;
-    if (e && e.isOwnEcho && e.mid) {
-      if (seenMids.has(e.mid)) return { ...msg, e2ee: { ...e, skipped: true } };
-      seenMids.add(e.mid);
+    const mid = e && e.mid;
+    if (mid) {
+      const key = e.isOwnEcho ? `own:${mid}` : `${e.sd || "?"}:${e.rd || "?"}:${mid}`;
+      if (seenMids.has(key)) return { ...msg, e2ee: { ...e, skipped: true, replay: true } };
+      seenMids.add(key);
     }
     return msg;
   });
 }
 
 async function decryptOne(m, myDeviceId, peerUserId) {
-  const fail = (error) => ({ ...m, e2ee: { ok: false, error } });
   const env = parseCipherEnvelope(m.text);
+  // Every result carries the envelope's routing so the batch-level
+  // collapse can dedupe fan-out rows AND replayed rows. The dedup key is
+  // (sender, recipient, mid): fan-out envelopes share a mid but address
+  // different devices, while a true replay repeats all three.
+  const tag = {
+    sd: env ? env.sd || null : null,
+    rd: env ? env.rd || null : null,
+    mid: env ? env.mid || null : null,
+  };
+  const fail = (error) => ({ ...m, e2ee: { ok: false, error, ...tag } });
   if (!env) return fail("This message is damaged and can't be opened.");
 
   // My own sent rows: a session cannot decrypt its own sent messages, so
@@ -545,7 +560,7 @@ async function decryptOne(m, myDeviceId, peerUserId) {
   if (env.sd === myDeviceId) {
     const text = await loadSentText(env.mid);
     if (text != null) {
-      return { ...m, e2ee: { ok: true, text, isOwnEcho: true, mid: env.mid || null } };
+      return { ...m, e2ee: { ok: true, text, isOwnEcho: true, ...tag } };
     }
     return fail("This message was sent from this device but is no longer available here.");
   }
@@ -553,14 +568,14 @@ async function decryptOne(m, myDeviceId, peerUserId) {
   // Mine, but sent from another of my devices: genuinely unreadable here.
   // An honest placeholder, not a fake decryption and not a silent hole.
   if (m.mine) {
-    return { ...m, e2ee: { ok: false, error: "Sent from another device.", otherDevice: true } };
+    return { ...m, e2ee: { ok: false, error: "Sent from another device.", otherDevice: true, ...tag } };
   }
 
   // Addressed to a different device of mine — skip silently. Showing
   // "couldn't decrypt" here would be a lie: the message is fine, it's
   // just not for this device.
   if (env.rd && env.rd !== myDeviceId) {
-    return { ...m, e2ee: { skipped: true } };
+    return { ...m, e2ee: { skipped: true, ...tag } };
   }
 
   const senderUserId = m.senderId;
@@ -580,7 +595,7 @@ async function decryptOne(m, myDeviceId, peerUserId) {
         sessions = [sessions[i], ...sessions.filter((_, j) => j !== i)];
       }
       await storeSessions(senderUserId, senderDeviceId, sessions);
-      return okWithText(m, pt);
+      return okWithText(m, pt, tag);
     } catch {
       // Not this session — try the next, or fall through to inbound.
     }
@@ -599,7 +614,7 @@ async function decryptOne(m, myDeviceId, peerUserId) {
         return fail("This message failed verification and wasn't opened.");
       }
       await storeSessions(senderUserId, senderDeviceId, [inbound.session, ...sessions]);
-      return okWithText(m, inbound.plaintext);
+      return okWithText(m, inbound.plaintext, tag);
     } catch {
       return fail("Couldn't decrypt this message.");
     }
@@ -608,16 +623,16 @@ async function decryptOne(m, myDeviceId, peerUserId) {
   return fail("Couldn't decrypt this message — the sender may have reset their keys.");
 }
 
-function okWithText(m, plaintext) {
+function okWithText(m, plaintext, tag) {
   let text = null;
   try {
     const parsed = JSON.parse(plaintext);
     if (parsed && typeof parsed.text === "string") text = parsed.text;
   } catch {}
   if (text == null) {
-    return { ...m, e2ee: { ok: false, error: "This message is damaged and can't be opened." } };
+    return { ...m, e2ee: { ok: false, error: "This message is damaged and can't be opened.", ...tag } };
   }
-  return { ...m, e2ee: { ok: true, text } };
+  return { ...m, e2ee: { ok: true, text, ...tag } };
 }
 
 // ── Recovery: restore this identity on a new device ───────────────────
